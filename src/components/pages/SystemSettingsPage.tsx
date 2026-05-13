@@ -995,7 +995,7 @@ function VersionTab() {
               <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>序列号: build-{currentDate.replace(/-/g, '')}</div>
               {checkResult === 'latest' && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginTop: 4 }}>✅ 已是最新版本</div>}
               {checkResult === 'update' && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, marginTop: 4 }}>🆕 可更新到 v{latestVersion}</div>}
-              {checkResult === 'error' && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>⚠ 无法连接更新服务器</div>}
+              {checkResult === 'error' && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>⚠ GitHub 连接失败（国内网络限制），请手动查看</div>}
             </div>
           </div>
         </div>
@@ -1019,9 +1019,9 @@ function VersionTab() {
             )}
             {checkResult === 'error' && (
               <a href={repoUrl} target="_blank" rel="noreferrer" style={{
-                padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
-                color: '#6b5e54', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
-              }}>手动检查 GitHub Releases</a>
+                padding: '8px 16px', borderRadius: 10, border: '1px solid #7c3aed', background: 'rgba(124,58,237,0.05)',
+                color: '#7c3aed', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
+              }}>打开 GitHub Releases 查看更新</a>
             )}
           </div>
           <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 10 }}>
