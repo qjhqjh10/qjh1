@@ -1,0 +1,234 @@
+import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+import { persist } from 'zustand/middleware'
+import type { Project } from '@/types/project'
+import type { Character } from '@/types/character'
+import type { DetailedChapter, WritingChapter } from '@/types/chapter'
+import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings } from '@/types/settings'
+import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS } from '@/types/settings'
+import { nanoid } from 'nanoid'
+
+// ---- App Store ----
+
+export interface AppState {
+  // Project
+  projects: Project[]
+  activeProjectId: string | null
+  projectsBasePath: string
+
+  // Worldbuilding
+  worldbuildingContent: string
+  worldbuildingDirty: boolean
+
+  // Characters
+  characters: Character[]
+
+  // Outline
+  outlineContent: string
+  outlineDirty: boolean
+
+  // Detailed Outline
+  detailedChapters: DetailedChapter[]
+
+  // Chapter Writing
+  writingChapters: Record<string, WritingChapter>
+  currentChapterId: string | null
+
+  // UI
+  activePage: string
+  isAIChatOpen: boolean
+  isExportModalOpen: boolean
+  sidebarCollapsed: boolean
+  connectionStatus: 'connected' | 'disconnected' | 'checking'
+  connectedModel: string
+
+  // Insertion action (AI → editor)
+  insertionAction: { keyword: string; content: string; position: 'before' | 'after' } | null
+
+  // Actions - Project
+  setProjectsBasePath: (p: string) => void
+  setProjects: (projects: Project[]) => void
+  setActiveProject: (id: string | null) => void
+  addProject: (p: Project) => void
+  removeProject: (id: string) => void
+
+  // Actions - Worldbuilding
+  setWorldbuildingContent: (content: string) => void
+  setWorldbuildingDirty: (dirty: boolean) => void
+
+  // Actions - Characters
+  setCharacters: (chars: Character[]) => void
+  addCharacter: (char: Character) => void
+  updateCharacter: (id: string, updates: Partial<Character>) => void
+  removeCharacter: (id: string) => void
+
+  // Actions - Outline
+  setOutlineContent: (content: string) => void
+  setOutlineDirty: (dirty: boolean) => void
+
+  // Actions - Detailed Outline
+  setDetailedChapters: (chapters: DetailedChapter[]) => void
+  addDetailedChapter: (chapter: DetailedChapter) => void
+  updateDetailedChapter: (id: string, updates: Partial<DetailedChapter>) => void
+  removeDetailedChapter: (id: string) => void
+
+  // Actions - Chapter Writing
+  setWritingChapter: (chapterId: string, chapter: WritingChapter) => void
+  removeWritingChapter: (chapterId: string) => void
+  setCurrentChapterId: (id: string | null) => void
+
+  // Actions - UI
+  setActivePage: (page: string) => void
+  toggleAIChat: () => void
+  setAIChatOpen: (open: boolean) => void
+  setExportModalOpen: (open: boolean) => void
+  toggleSidebar: () => void
+  setConnectionStatus: (status: 'connected' | 'disconnected' | 'checking', model?: string) => void
+  setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after' } | null) => void
+
+  // Actions - Reset
+  resetProjectState: () => void
+}
+
+const initialProjectState = {
+  worldbuildingContent: '',
+  worldbuildingDirty: false,
+  characters: [] as Character[],
+  outlineContent: '',
+  outlineDirty: false,
+  detailedChapters: [] as DetailedChapter[],
+  writingChapters: {} as Record<string, WritingChapter>,
+  currentChapterId: null as string | null,
+}
+
+export const useStore = create<AppState>()(
+  immer((set, get) => ({
+    projects: [],
+    activeProjectId: null,
+    projectsBasePath: '',
+    ...initialProjectState,
+    activePage: 'home',
+    isAIChatOpen: false,
+    isExportModalOpen: false,
+    sidebarCollapsed: false,
+    connectionStatus: 'checking',
+    connectedModel: '',
+    insertionAction: null,
+
+    setProjectsBasePath: (p) => set({ projectsBasePath: p }),
+    setProjects: (projects) => set({ projects }),
+    setActiveProject: (id) => set({ activeProjectId: id }),
+    addProject: (p) => set(s => { s.projects.push(p) }),
+    removeProject: (id) => set(s => {
+      s.projects = s.projects.filter(p => p.id !== id)
+      if (s.activeProjectId === id) {
+        s.activeProjectId = null
+        Object.assign(s, initialProjectState)
+      }
+    }),
+
+    setWorldbuildingContent: (content) => set({ worldbuildingContent: content }),
+    setWorldbuildingDirty: (dirty) => set({ worldbuildingDirty: dirty }),
+
+    setCharacters: (chars) => set({ characters: chars }),
+    addCharacter: (char) => set(s => { s.characters.push(char) }),
+    updateCharacter: (id, updates) => set(s => {
+      const idx = s.characters.findIndex(c => c.id === id)
+      if (idx !== -1) Object.assign(s.characters[idx], updates)
+    }),
+    removeCharacter: (id) => set(s => {
+      s.characters = s.characters.filter(c => c.id !== id)
+    }),
+
+    setOutlineContent: (content) => set({ outlineContent: content }),
+    setOutlineDirty: (dirty) => set({ outlineDirty: dirty }),
+
+    setDetailedChapters: (chapters) => set({ detailedChapters: chapters }),
+    addDetailedChapter: (chapter) => set(s => { s.detailedChapters.push(chapter) }),
+    updateDetailedChapter: (id, updates) => set(s => {
+      const idx = s.detailedChapters.findIndex(c => c.id === id)
+      if (idx !== -1) Object.assign(s.detailedChapters[idx], updates)
+    }),
+    removeDetailedChapter: (id) => set(s => {
+      s.detailedChapters = s.detailedChapters.filter(c => c.id !== id)
+    }),
+
+    setWritingChapter: (chapterId, chapter) => set(s => {
+      s.writingChapters[chapterId] = chapter
+    }),
+    removeWritingChapter: (chapterId) => set(s => {
+      delete s.writingChapters[chapterId]
+    }),
+    setCurrentChapterId: (id) => set({ currentChapterId: id }),
+
+    setActivePage: (page) => set({ activePage: page }),
+    toggleAIChat: () => set(s => { s.isAIChatOpen = !s.isAIChatOpen }),
+    setAIChatOpen: (open) => set({ isAIChatOpen: open }),
+    setExportModalOpen: (open) => set({ isExportModalOpen: open }),
+    toggleSidebar: () => set(s => { s.sidebarCollapsed = !s.sidebarCollapsed }),
+    setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model || '' }),
+    setInsertionAction: (action) => set({ insertionAction: action }),
+
+    resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),
+  }))
+)
+
+// ---- Settings Store (persisted) ----
+
+export interface SettingsState {
+  configs: ModelConfig[]
+  activeConfigId: string | null
+  prompts: PromptTemplate[]
+  editorFontSize: string
+  aiSettings: AIAssistantSettings
+  displaySettings: DisplaySettings
+  setConfigs: (configs: ModelConfig[]) => void
+  addConfig: (config: ModelConfig) => void
+  updateConfig: (id: string, updates: Partial<ModelConfig>) => void
+  removeConfig: (id: string) => void
+  setActiveConfig: (id: string | null) => void
+  setPrompts: (prompts: PromptTemplate[]) => void
+  addPrompt: (prompt: PromptTemplate) => void
+  updatePrompt: (id: string, updates: Partial<PromptTemplate>) => void
+  removePrompt: (id: string) => void
+  setEditorFontSize: (size: string) => void
+  setAISettings: (settings: Partial<AIAssistantSettings>) => void
+  setDisplaySettings: (settings: Partial<DisplaySettings>) => void
+}
+
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    immer((set) => ({
+      configs: [],
+      activeConfigId: null,
+      prompts: [],
+      editorFontSize: '16px',
+      aiSettings: DEFAULT_AI_SETTINGS,
+      displaySettings: DEFAULT_DISPLAY_SETTINGS,
+      setConfigs: (configs) => set({ configs }),
+      addConfig: (config) => set(s => { s.configs.push(config) }),
+      updateConfig: (id, updates) => set(s => {
+        const idx = s.configs.findIndex(c => c.id === id)
+        if (idx !== -1) Object.assign(s.configs[idx], updates)
+      }),
+      removeConfig: (id) => set(s => {
+        s.configs = s.configs.filter(c => c.id !== id)
+        if (s.activeConfigId === id) s.activeConfigId = null
+      }),
+      setActiveConfig: (id) => set({ activeConfigId: id }),
+      setPrompts: (prompts) => set({ prompts }),
+      addPrompt: (prompt) => set(s => { s.prompts.push(prompt) }),
+      updatePrompt: (id, updates) => set(s => {
+        const idx = s.prompts.findIndex(p => p.id === id)
+        if (idx !== -1) Object.assign(s.prompts[idx], updates)
+      }),
+      removePrompt: (id) => set(s => {
+        s.prompts = s.prompts.filter(p => p.id !== id)
+      }),
+      setEditorFontSize: (size) => set({ editorFontSize: size }),
+      setAISettings: (settings) => set(s => { Object.assign(s.aiSettings, settings) }),
+      setDisplaySettings: (settings) => set(s => { Object.assign(s.displaySettings, settings) }),
+    })),
+    { name: 'novel-writer-settings' }
+  )
+)

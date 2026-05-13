@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+.env
+
+# Runtime data directories
+projects/
+knowledge_base/
+
+# OS files
+.DS_Store
+Thumbs.db
