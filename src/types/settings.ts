@@ -82,6 +82,7 @@ export interface DisplaySettings {
   buttonFontSize: string
   editorFontSize: string
   toolbarFontSize: string
+  theme: 'light' | 'dark'
 }
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
@@ -90,4 +91,5 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   buttonFontSize: '15px',
   editorFontSize: '16px',
   toolbarFontSize: '12px',
+  theme: 'light',
 }

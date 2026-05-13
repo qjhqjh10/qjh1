@@ -9,6 +9,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
+import BatchGenerationModal from '@/components/common/BatchGenerationModal'
 import ReviewModal from '@/components/common/ReviewModal'
 import ReviewResultsModal from '@/components/common/ReviewResultsModal'
 import {
@@ -54,10 +55,17 @@ export default function ChapterWritingPage() {
   const [showAIGen, setShowAIGen] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [showReviewResults, setShowReviewResults] = useState(false)
+  const [showBatchGen, setShowBatchGen] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [versionHistory, setVersionHistory] = useState<VersionRecord[]>([])
   const [aiLoading, setAiLoading] = useState(false)
   const [selectedSummaryTemplate, setSelectedSummaryTemplate] = useState('')
+
+  // Generation overlay state
+  const [genOverlay, setGenOverlay] = useState(false)
+  const [genWordCount, setGenWordCount] = useState(0)
+  const [genDragPos, setGenDragPos] = useState({ x: 0, y: 0 })
+  const genAbortRef = useRef<(() => void) | null>(null)
 
   const detailedChapter = detailedChapters.find(c => c.id === chapterId)
 
@@ -331,6 +339,9 @@ export default function ChapterWritingPage() {
               <button onClick={() => setShowReviewResults(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(16,163,74,0.2)', background: 'rgba(16,163,74,0.04)', color: '#16a34a', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <DocumentTextIcon style={{ width: 14, height: 14 }} /> 审稿结果
               </button>
+              <button onClick={() => setShowBatchGen(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.04)', color: '#e67e00', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                <SparklesIcon style={{ width: 14, height: 14 }} /> 批量生成
+              </button>
               <button onClick={() => setShowVersions(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <ClockIcon style={{ width: 14, height: 14 }} /> 版本历史
               </button>
@@ -415,6 +426,10 @@ export default function ChapterWritingPage() {
         currentContent={content}
         onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
         onVersionSaved={(v) => setVersionHistory(prev => [v, ...prev])}
+        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
+        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
+        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
+        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
       />
 
       <ReviewModal
@@ -440,11 +455,78 @@ export default function ChapterWritingPage() {
         onRestore={(v) => { setContent(v.generatedContent); handleSave(v.generatedContent); setShowVersions(false) }}
       />
 
+      <BatchGenerationModal
+        isOpen={showBatchGen}
+        onClose={() => setShowBatchGen(false)}
+        chapters={detailedChapters}
+        worldbuildingContent={worldbuildingContent}
+        characters={characters}
+        outlineContent={outlineContent}
+        currentChapterId={chapterId}
+        onVersionSaved={(v) => setVersionHistory(prev => [v, ...prev])}
+        genOverlay={genOverlay}
+        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
+        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
+        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
+        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
+      />
+
       <ChapterExportModal
         isOpen={showExport}
         onClose={() => setShowExport(false)}
         projectPath={projectPath}
       />
+
+      {/* Generation Overlay + Floating Card */}
+      {genOverlay && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99,
+          background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(2px)',
+          pointerEvents: 'auto',
+        }}>
+          <div
+            onMouseDown={(e) => {
+              const startX = e.clientX - genDragPos.x
+              const startY = e.clientY - genDragPos.y
+              const onMove = (ev: MouseEvent) => setGenDragPos({ x: ev.clientX - startX, y: ev.clientY - startY })
+              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+              window.addEventListener('mousemove', onMove)
+              window.addEventListener('mouseup', onUp)
+            }}
+            style={{
+              position: 'fixed', left: '50%', top: '50%', transform: `translate(calc(-50% + ${genDragPos.x}px), calc(-50% + ${genDragPos.y}px))`,
+              zIndex: 100, padding: '24px 32px', borderRadius: 20,
+              background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 16px 64px rgba(0,0,0,0.15)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+              cursor: 'grab', userSelect: 'none', minWidth: 220,
+            }}
+          >
+            {/* Spinning ring */}
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%',
+              border: '3px solid rgba(124,58,237,0.15)',
+              borderTopColor: '#7c3aed',
+              animation: `spin 0.8s linear infinite`,
+            }} />
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>AI 正在生成章节</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>
+              {genWordCount.toLocaleString()}
+              <span style={{ fontSize: 13, fontWeight: 400, color: '#9b8e84', marginLeft: 4 }}>字</span>
+            </div>
+            <button
+              onClick={() => genAbortRef.current?.()}
+              style={{
+                padding: '6px 20px', borderRadius: 10, border: '1px solid rgba(220,38,38,0.2)',
+                background: 'rgba(220,38,38,0.05)', color: '#dc2626', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              取消生成
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -487,20 +569,18 @@ function VersionHistoryModal({ isOpen, onClose, versions, onRestore }: {
         )}
       </div>
 
-      {/* Comparison view */}
+      {/* Comparison view with diff */}
       {compareA !== null && compareB !== null && versions[compareA] && versions[compareB] && (
         <div style={{ marginTop: 12, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', marginBottom: 8 }}>版本对比</div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1, padding: '8px 12px', borderRadius: 8, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)', maxHeight: 350, overflowY: 'auto' }} className="custom-scrollbar">
-              <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 4 }}>版本 {versions.length - compareA} — {versions[compareA].modelName}</div>
-              <div style={{ fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{versions[compareA].generatedContent}</div>
-            </div>
-            <div style={{ flex: 1, padding: '8px 12px', borderRadius: 8, background: 'rgba(230,126,0,0.03)', border: '1px solid rgba(230,126,0,0.1)', maxHeight: 350, overflowY: 'auto' }} className="custom-scrollbar">
-              <div style={{ fontSize: 10, fontWeight: 600, color: '#e67e00', marginBottom: 4 }}>版本 {versions.length - compareB} — {versions[compareB].modelName}</div>
-              <div style={{ fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{versions[compareB].generatedContent}</div>
-            </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', marginBottom: 8 }}>
+            版本对比 — 旧(v{versions.length - compareA}) vs 新(v{versions.length - compareB})
           </div>
+          <DiffView
+            oldText={versions[compareA].generatedContent}
+            newText={versions[compareB].generatedContent}
+            oldLabel={`${versions[compareA].modelName} ${new Date(versions[compareA].generatedAt).toLocaleString()}`}
+            newLabel={`${versions[compareB].modelName} ${new Date(versions[compareB].generatedAt).toLocaleString()}`}
+          />
         </div>
       )}
     </Modal>
@@ -648,5 +728,93 @@ function ChapterExportModal({ isOpen, onClose, projectPath }: {
         <Button onClick={handleExport} disabled={selectedIds.size === 0}>确定导出</Button>
       </div>
     </Modal>
+  )
+}
+
+// ---- Diff algorithm + component ----
+
+function lineDiff(oldText: string, newText: string): { type: 'same' | 'removed' | 'added'; text: string }[] {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const result: { type: 'same' | 'removed' | 'added'; text: string }[] = []
+
+  const m = oldLines.length; const n = newLines.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1
+      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+    }
+  }
+
+  let i = m, j = n
+  const temp: { type: 'same' | 'removed' | 'added'; text: string }[] = []
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      temp.unshift({ type: 'same', text: oldLines[i - 1] })
+      i--; j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      temp.unshift({ type: 'added', text: newLines[j - 1] })
+      j--
+    } else {
+      temp.unshift({ type: 'removed', text: oldLines[i - 1] })
+      i--
+    }
+  }
+
+  for (const line of temp) {
+    const last = result[result.length - 1]
+    if (last && last.type === line.type) {
+      last.text += '\n' + line.text
+    } else {
+      result.push(line)
+    }
+  }
+  return result
+}
+
+function DiffView({ oldText, newText, oldLabel, newLabel }: {
+  oldText: string; newText: string; oldLabel: string; newLabel: string
+}) {
+  const diff = lineDiff(oldText, newText)
+  const removedCount = diff.filter(d => d.type === 'removed').reduce((s, d) => s + d.text.split('\n').length, 0)
+  const addedCount = diff.filter(d => d.type === 'added').reduce((s, d) => s + d.text.split('\n').length, 0)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 11 }}>
+        <span style={{ color: '#6b5e54' }}>{oldLabel}</span>
+        <span style={{ color: '#9b8e84' }}>→</span>
+        <span style={{ color: '#6b5e54' }}>{newLabel}</span>
+        <span style={{ color: '#dc2626', marginLeft: 8 }}>−{removedCount}行</span>
+        <span style={{ color: '#16a34a' }}>+{addedCount}行</span>
+      </div>
+      <div style={{
+        maxHeight: 400, overflowY: 'auto', borderRadius: 10,
+        border: '1px solid rgba(0,0,0,0.06)', fontSize: 12, lineHeight: 1.6,
+        fontFamily: 'monospace',
+      }} className="custom-scrollbar">
+        {diff.map((d, i) => (
+          <div key={i} style={{
+            padding: '1px 12px',
+            background: d.type === 'removed' ? 'rgba(220,38,38,0.08)' :
+                        d.type === 'added' ? 'rgba(22,163,74,0.08)' :
+                        'transparent',
+            color: d.type === 'removed' ? '#991b1b' :
+                   d.type === 'added' ? '#166534' :
+                   '#6b5e54',
+            whiteSpace: 'pre-wrap',
+            borderLeft: d.type === 'removed' ? '3px solid #dc2626' :
+                        d.type === 'added' ? '3px solid #16a34a' :
+                        '3px solid transparent',
+          }}>
+            <span style={{ marginRight: 8, fontSize: 10, opacity: 0.5 }}>
+              {d.type === 'removed' ? '−' : d.type === 'added' ? '+' : ' '}
+            </span>
+            {d.text}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

@@ -133,3 +133,72 @@ html, body, #root {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Dark Mode ---- */
+
+/* Global filter to handle hardcoded inline styles */
+.dark #app-root {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
+/* Un-invert the writing area so text remains natural */
+.dark .writing-paper,
+.dark .tiptap-editor,
+.dark .tiptap-editor .ProseMirror {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.dark body, .dark #root {
+  background: #1a1a1f;
+  color: #e0dcd6;
+}
+
+.dark .glass-card {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.dark .glass-card:hover {
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.dark .glass {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.dark textarea, .dark input[type="text"], .dark input[type="number"], .dark input[type="password"], .dark select {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.1);
+  color: #e0dcd6;
+}
+
+.dark textarea::placeholder, .dark input::placeholder {
+  color: rgba(255,255,255,0.25);
+}
+
+.dark .writing-paper {
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Dark accent: brighten purple for readability */
+.dark strong[style*="color: #7c3aed"],
+.dark span[style*="color: #7c3aed"],
+.dark div[style*="color: #7c3aed"] {
+  /* handled by inline style override via JS */
+}

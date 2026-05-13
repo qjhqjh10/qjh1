@@ -132,17 +132,24 @@ export default function App() {
     return () => clearInterval(timer)
   }, [setConnectionStatus, activeConfigId, configs])
 
-  // Apply display font settings
+  // Apply display settings (font + theme)
   useEffect(() => {
     document.documentElement.style.setProperty('--editor-font-size', editorFontSize)
     document.documentElement.style.setProperty('--sidebar-font-size', displaySettings.sidebarFontSize)
     document.documentElement.style.setProperty('--card-title-font-size', displaySettings.cardTitleFontSize)
     document.documentElement.style.setProperty('--button-font-size', displaySettings.buttonFontSize)
     document.documentElement.style.setProperty('--toolbar-font-size', displaySettings.toolbarFontSize)
+
+    // Dark mode
+    if (displaySettings.theme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
   }, [editorFontSize, displaySettings])
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <AppLayout />
       <ErrorBoundary><AnimatedRoutes /></ErrorBoundary>
       <FloatingAIButton />

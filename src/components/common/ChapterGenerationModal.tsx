@@ -16,6 +16,11 @@ interface Props {
   currentContent: string
   onApply: (content: string) => void
   onVersionSaved: (version: VersionRecord) => void
+  // Overlay mode callbacks (for non-blocking generation UX)
+  onGenStart?: () => void
+  onGenChunk?: (data: { accumulated: string; charCount: number }) => void
+  onGenDone?: () => void
+  onGenError?: (msg: string) => void
 }
 
 export interface VersionRecord {
@@ -192,28 +197,35 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       if (streamMode) {
         // Abort any previous stream
         abortRef.current?.()
-        // Streaming mode: accumulate content, show progress
+        // Close config modal, show overlay
+        onGenStart?.()
+        onClose()
+        // Stream & write each chunk to editor immediately
         const streamHandle = aiService.chatStream(
           messages, genConfigId, activeProjectId || undefined,
-          (data) => { setStreamContent(data.accumulated); setStreamChars(data.accumulated.length) },
+          (data) => {
+            setStreamContent(data.accumulated); setStreamChars(data.accumulated.length)
+            // Write to editor in real-time
+            const liveContent = replaceMode ? data.accumulated : (currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated)
+            onApply(liveContent)
+            onGenChunk?.({ accumulated: data.accumulated, charCount: data.accumulated.length })
+          },
           (data) => {
             abortRef.current = null
             setStreamDone(true)
             setStreamUsage(data.usage)
-            const finalContent = replaceMode ? data.text : (currentContent ? currentContent + '\n\n' + data.text : data.text)
-            onApply(finalContent)
             saveVersion({
               config, reply: data.text,
               usage: data.usage ? { input: data.usage.prompt_tokens, output: data.usage.completion_tokens, total: data.usage.total_tokens } : { input: 0, output: 0, total: 0 },
               cost: data.usage?.cost || 0,
             })
             setLoading(false)
+            onGenDone?.()
           },
-          (err) => { abortRef.current = null; setError(err.message); setLoading(false) },
-          (data) => { abortRef.current = null; setError(data.message); setLoading(false) },
+          (err) => { abortRef.current = null; setError(err.message); setLoading(false); onGenError?.(err.message) },
+          (data) => { abortRef.current = null; setError(data.message); setLoading(false); onGenError?.(data.message) },
         )
         abortRef.current = streamHandle.abort
-        // Don't close modal during streaming; user can cancel
       } else {
         // Abort any previous stream, switch to traditional mode
         abortRef.current?.()
