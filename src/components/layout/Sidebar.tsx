@@ -9,6 +9,7 @@ import {
   ListBulletIcon,
   BookOpenIcon,
   FlagIcon,
+  PaintBrushIcon,
   Cog6ToothIcon,
   FolderIcon,
   ChevronLeftIcon,
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { path: '/detailed-outline', label: '小说细纲', icon: ListBulletIcon },
   { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/story-map', label: '故事脉络', icon: FlagIcon },
+  { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
 ]
 
 export default function Sidebar() {

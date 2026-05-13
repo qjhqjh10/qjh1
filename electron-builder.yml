@@ -9,8 +9,7 @@ files:
   - package.json
 win:
   target:
-    - nsis
-  icon: build/icon.ico
+    - portable
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

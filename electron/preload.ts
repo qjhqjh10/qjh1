@@ -112,6 +112,13 @@ const api = {
     getPrices: (): Promise<unknown> => ipcRenderer.invoke('stats:getPrices'),
     savePrices: (prices: unknown[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
   },
+  styleProjects: {
+    importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),
+    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('style:listProjects'),
+    loadProject: (id: string): Promise<unknown> => ipcRenderer.invoke('style:loadProject', id),
+    saveProject: (project: unknown): Promise<void> => ipcRenderer.invoke('style:saveProject', project),
+    deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('style:deleteProject', id),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

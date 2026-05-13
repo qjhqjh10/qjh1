@@ -8,6 +8,7 @@ release/
 # Runtime data directories
 projects/
 knowledge_base/
+style_projects/
 
 # OS files
 .DS_Store

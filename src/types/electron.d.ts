@@ -62,6 +62,14 @@ export interface StatsAPI {
   savePrices: (prices: unknown[]) => Promise<void>
 }
 
+export interface StyleProjectsAPI {
+  importFile: () => Promise<{ name: string; content: string } | null>
+  listProjects: () => Promise<{ id: string; name: string; sourceFileName: string; chapterCount: number; totalCharCount: number; hasProfile: boolean; createdAt: string }[]>
+  loadProject: (id: string) => Promise<unknown>
+  saveProject: (project: unknown) => Promise<void>
+  deleteProject: (id: string) => Promise<void>
+}
+
 export interface KBSearchResult {
   content: string
   fileName: string
@@ -109,6 +117,7 @@ export interface ElectronAPI {
   settings: SettingsAPI
   kb: KBAPI
   stats: StatsAPI
+  styleProjects: StyleProjectsAPI
 }
 
 declare global {

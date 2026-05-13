@@ -8,6 +8,7 @@ import { SparklesIcon, XMarkIcon, BookOpenIcon } from '@heroicons/react/24/outli
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import type { Character } from '@/types/character'
 import { logError } from '@/utils/logger'
+import { getStyleInjection } from '@/utils/styleInjector'
 
 interface Props {
   isOpen: boolean
@@ -51,7 +52,7 @@ export async function saveVersionRecord(projectPath: string, chapterId: string, 
   return id
 }
 
-export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved }: Props) {
+export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
@@ -192,6 +193,14 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
       let prompt = buildPrompt()
       prompt = await injectKBContents(prompt)
+
+      // Inject style if assigned
+      const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
+      const styleInjection = await getStyleInjection(activeProjectId || '', assignments)
+      if (styleInjection) {
+        prompt = styleInjection + '\n\n---\n\n' + prompt
+      }
+
       const messages = [{ role: 'user' as const, content: prompt }]
 
       if (streamMode) {

@@ -44,6 +44,8 @@ export default function ChapterWritingPage() {
   const setCurrentChapterId = useStore(s => s.setCurrentChapterId)
   const insertionAction = useStore(s => s.insertionAction)
   const setInsertionAction = useStore(s => s.setInsertionAction)
+  const worldbuildingContent = useStore(s => s.worldbuildingContent)
+  const outlineContent = useStore(s => s.outlineContent)
 
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const promptTemplates = useSettingsStore(s => s.prompts)

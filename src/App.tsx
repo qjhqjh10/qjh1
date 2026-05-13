@@ -31,6 +31,7 @@ import ChapterWritingPage from '@/components/pages/ChapterWritingPage'
 import KnowledgeBasePage from '@/components/pages/KnowledgeBasePage'
 import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
 import StoryMapPage from '@/components/pages/StoryMapPage'
+import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
 
@@ -66,6 +67,7 @@ function AnimatedRoutes() {
           <Route path="/chapter/:chapterId" element={<ChapterWritingPage />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/story-map" element={<StoryMapPage />} />
+          <Route path="/style-workshop" element={<StyleWorkshopPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -118,3 +118,11 @@ export const statsService = {
   getPrices: () => e().stats.getPrices(),
   savePrices: (prices: unknown[]) => e().stats.savePrices(prices),
 }
+
+export const styleProjectService = {
+  importFile: () => e().styleProjects.importFile(),
+  listProjects: () => e().styleProjects.listProjects(),
+  loadProject: (id: string) => e().styleProjects.loadProject(id),
+  saveProject: (project: unknown) => e().styleProjects.saveProject(project),
+  deleteProject: (id: string) => e().styleProjects.deleteProject(id),
+}

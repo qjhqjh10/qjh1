@@ -103,7 +103,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
         model: config.model,
         messages: apiMessages,
         temperature: config.temperature,
-        max_tokens: config.maxTokens ?? undefined,
+        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
       })
 
       // Log token usage (always, even without projectId)
@@ -184,7 +184,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
         model: config.model,
         messages: apiMessages,
         temperature: config.temperature,
-        max_tokens: config.maxTokens ?? undefined,
+        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
         stream: true,
       }, { signal: abortController.signal })
 

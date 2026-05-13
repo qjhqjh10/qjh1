@@ -6,6 +6,7 @@ import { registerExportHandlers } from './ipc/exportHandlers'
 import { registerAiHandlers } from './ipc/aiHandlers'
 import { registerKbHandlers, autoIndexProjectFile } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
+import { registerStyleHandlers } from './ipc/styleHandlers'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -65,6 +66,9 @@ app.whenReady().then(() => {
   registerAiHandlers(ipcMain, safeStorage)
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow)
   registerStatsHandlers(ipcMain)
+
+  const styleProjectsPath = join(projectsPath, '..', 'style_projects')
+  registerStyleHandlers(ipcMain, styleProjectsPath)
 
   const win = createWindow()
 

@@ -116,6 +116,73 @@ export interface GrowthEntry {
   createdAt: string
 }
 
+// ---- Style Workshop ----
+
+export interface ChapterAnalysis {
+  sentenceStyle: string
+  vocabularyStyle: string
+  rhetoricStyle: string
+  rhythmStyle: string
+  dialogueStyle: string
+  moodStyle: string
+  excerpt: string
+  excerptNote: string
+  analyzedAt: string
+}
+
+export interface StyleChapter {
+  id: string
+  title: string
+  chapterNumber: number
+  chapterType: 'chapter' | 'prologue' | 'epilogue' | 'sideStory' | 'afterword'
+  content: string
+  charCount: number
+  analyzed: boolean
+  analysis: ChapterAnalysis | null
+}
+
+export interface StyleProfile {
+  features: {
+    sentenceStyle: string
+    vocabularyStyle: string
+    rhetoricStyle: string
+    rhythmStyle: string
+    dialogueStyle: string
+    moodStyle: string
+  }
+  fullDescription: string
+  excerpts: { text: string; note: string }[]
+  analyzedAt: string
+  analyzedChapterCount: number
+}
+
+// EMPTY values for initial state
+export const EMPTY_CHAPTER_ANALYSIS: ChapterAnalysis = {
+  sentenceStyle: '', vocabularyStyle: '', rhetoricStyle: '',
+  rhythmStyle: '', dialogueStyle: '', moodStyle: '',
+  excerpt: '', excerptNote: '', analyzedAt: '',
+}
+
+export interface StyleProject {
+  id: string
+  name: string
+  sourceFileName: string
+  chapters: StyleChapter[]
+  profile: StyleProfile | null
+  createdAt: string
+  totalCharCount: number
+}
+
+export interface StyleProjectMeta {
+  id: string
+  name: string
+  sourceFileName: string
+  chapterCount: number
+  totalCharCount: number
+  hasProfile: boolean
+  createdAt: string
+}
+
 export const GENRE_TRACK_PRESETS: Record<string, Omit<GrowthTrack, 'id' | 'order'>[]> = {
   '仙侠/玄幻': [
     { label: '等级境界', icon: '📊' }, { label: '功法技能', icon: '⚔️' },

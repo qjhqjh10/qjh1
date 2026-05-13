@@ -11,6 +11,7 @@ import {
 import ScrollArea from '@/components/common/ScrollArea'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
+import { getStyleInjection } from '@/utils/styleInjector'
 
 interface Message {
   id: string
@@ -315,13 +316,19 @@ export default function AIChatWindow() {
       setSelectedRefs([])
 
       const contextPrefix = buildContextPrefix(kbContext, webContext) + refContext
+
+      // Inject style if assigned to active project
+      const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
+      const styleInjection = await getStyleInjection(activeProjectId || '', assignments)
+      const stylePrefix = styleInjection ? styleInjection + '\n\n---\n\n' : ''
+
       // Build history: all previous messages (filter out welcome), then current user message with context prepended
       const historyMessages = messages
         .filter(m => !m.id.startsWith('welcome'))
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
       const apiMessages = [
         ...historyMessages,
-        { role: 'user' as const, content: contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
+        { role: 'user' as const, content: stylePrefix + contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
       ]
 
       const reply = await aiService.chat(apiMessages, activeConfigId, activeProjectId || undefined)
