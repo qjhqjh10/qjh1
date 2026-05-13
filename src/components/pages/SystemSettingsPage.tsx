@@ -9,7 +9,7 @@ import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } fro
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
 
-type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats'
+type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats' | 'version'
 
 export default function SystemSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('models')
@@ -27,6 +27,7 @@ export default function SystemSettingsPage() {
             ['ai', 'AI写作助手'],
             ['display', '显示设置'],
             ['tokenstats', 'Token统计'],
+            ['version', '版本更新'],
           ] as [SettingsTab, string][]).map(([tab, label]) => (
             <button
               key={tab}
@@ -57,6 +58,7 @@ export default function SystemSettingsPage() {
         {activeTab === 'ai' && <AISettingsTab />}
         {activeTab === 'display' && <DisplaySettingsTab />}
         {activeTab === 'tokenstats' && <TokenStatsTab />}
+        {activeTab === 'version' && <VersionTab />}
       </div>
     </div>
   )
@@ -923,6 +925,140 @@ function StatCard({ label, value, color }: { label: string; value: string; color
     <div style={{ flex: 1, padding: '10px 14px', borderRadius: 12, background: `${color}08`, border: `1px solid ${color}20` }}>
       <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+    </div>
+  )
+}
+
+function VersionTab() {
+  const [checkResult, setCheckResult] = useState<'idle' | 'checking' | 'latest' | 'update' | 'error'>('idle')
+  const [latestVersion, setLatestVersion] = useState('')
+  const [releaseUrl, setReleaseUrl] = useState('')
+
+  const currentVersion = '1.0.0'
+  const currentDate = '2026-05-13'
+  const repoUrl = 'https://github.com/qjhqjh10/qjh1/releases'
+
+  const versionHistory = [
+    {
+      version: '1.0.0', date: '2026-05-13',
+      features: [
+        'AI对话助手（知识库语义搜索+联网搜索+上下文自动注入）',
+        '角色系统（AI生成角色+人物关系图可视化）',
+        '章节写作（AI生成/润色/续写/审稿/摘要，流式输出）',
+        '故事脉络系统9标签页（时间线/伏笔链/一致性/情绪曲线/出场/节奏/支线/POV/成长）',
+        '风格工坊（导入TXT→章节拆分→AI逐章分析→整体风格总结→应用到写作项目）',
+        '暗色模式 + 批量生成章节 + 章节版本对比(diff高亮)',
+        '角色成长追踪（自定义维度+跨章记录+7种类型预设）',
+        '提示词模板系统（10种类型）+ Token统计 + 知识库RAG',
+      ],
+      fixes: [
+        '20+处静默错误吞没→统一logger日志系统',
+        'AI max_tokens兼容DeepSeek API',
+        '章节生成UX改造（遮罩+可拖动浮动卡片+实时编辑器输出）',
+        'ES2022 target、ModelConfig统一、服务层绕过修复',
+        'KB自动索引连接修复、ErrorBoundary页面级扩展',
+        '建立27个自动化测试用例',
+      ],
+    },
+  ]
+
+  const handleCheckUpdate = async () => {
+    setCheckResult('checking')
+    try {
+      const res = await fetch('https://api.github.com/repos/qjhqjh10/qjh1/releases/latest')
+      if (!res.ok) throw new Error('API error')
+      const data = await res.json()
+      const remoteVer = data.tag_name?.replace(/^v/, '') || ''
+      setLatestVersion(remoteVer)
+      setReleaseUrl(data.html_url || repoUrl)
+      if (remoteVer && remoteVer !== currentVersion) {
+        setCheckResult('update')
+      } else {
+        setCheckResult('latest')
+      }
+    } catch {
+      setCheckResult('error')
+    }
+  }
+
+  return (
+    <div className="custom-scrollbar" style={{ overflowY: 'auto', paddingRight: 16, height: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* 当前版本 */}
+        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>当前版本</h4>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ fontSize: 32, fontWeight: 800, color: '#7c3aed' }}>v{currentVersion}</div>
+            <div>
+              <div style={{ fontSize: 13, color: '#6b5e54' }}>发布日期: {currentDate}</div>
+              <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>序列号: build-{currentDate.replace(/-/g, '')}</div>
+              {checkResult === 'latest' && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginTop: 4 }}>✅ 已是最新版本</div>}
+              {checkResult === 'update' && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, marginTop: 4 }}>🆕 可更新到 v{latestVersion}</div>}
+              {checkResult === 'error' && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>⚠ 无法连接更新服务器</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* 检查更新 */}
+        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>检查更新</h4>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button onClick={handleCheckUpdate} disabled={checkResult === 'checking'} style={{
+              padding: '8px 20px', borderRadius: 12, border: 'none', background: '#7c3aed', color: '#fff',
+              fontSize: 13, fontWeight: 600, cursor: checkResult === 'checking' ? 'not-allowed' : 'pointer',
+              opacity: checkResult === 'checking' ? 0.6 : 1, fontFamily: 'inherit',
+            }}>
+              {checkResult === 'checking' ? '检查中...' : '检查更新'}
+            </button>
+            {checkResult === 'update' && (
+              <a href={releaseUrl} target="_blank" rel="noreferrer" style={{
+                padding: '8px 16px', borderRadius: 10, border: '1px solid #16a34a', background: 'rgba(22,163,74,0.05)',
+                color: '#16a34a', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
+              }}>下载 v{latestVersion}</a>
+            )}
+            {checkResult === 'error' && (
+              <a href={repoUrl} target="_blank" rel="noreferrer" style={{
+                padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+                color: '#6b5e54', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
+              }}>手动检查 GitHub Releases</a>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 10 }}>
+            更新源: github.com/qjhqjh10/qjh1/releases
+          </div>
+        </div>
+
+        {/* 版本历史 */}
+        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>版本历史</h4>
+          {versionHistory.map(v => (
+            <div key={v.version} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>v{v.version} — {v.date}</div>
+              {v.features.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 6 }}>新增功能</div>
+                  {v.features.map((f, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(22,163,74,0.2)', marginLeft: 4, marginBottom: 2 }}>
+                      {f}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {v.fixes.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>修复问题</div>
+                  {v.fixes.map((f, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(59,130,246,0.2)', marginLeft: 4, marginBottom: 2 }}>
+                      {f}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
