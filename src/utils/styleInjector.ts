@@ -83,6 +83,16 @@ export function buildStylePrompt(style: StyleProject): string {
     parts.push(s.join('\n'))
   }
 
+  // Scene mechanics
+  const sm = style.profile?.features?.sceneMechanics
+  if (sm && (sm.sensoryCounterpoint || sm.symbolicTool)) {
+    const s: string[] = [`【场景装置要求】`]
+    if (sm.sensoryCounterpoint) s.push(`感官对位: ${sm.sensoryCounterpoint}`)
+    if (sm.symbolicTool) s.push(`象征工具: ${sm.symbolicTool}`)
+    if (sm.recurringVisualFormula) s.push(`视觉定型模板: ${sm.recurringVisualFormula}`)
+    parts.push(s.join('\n'))
+  }
+
   return parts.join('\n')
 }
 

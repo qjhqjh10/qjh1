@@ -159,6 +159,12 @@ export interface NarrativeVoice {
   powerResignation: string
 }
 
+export interface SceneMechanics {
+  sensoryCounterpoint: string
+  symbolicTool: string
+  recurringVisualFormula: string
+}
+
 export interface ChapterAnalysis {
   sentenceStyle: string
   vocabularyStyle: string
@@ -175,6 +181,7 @@ export interface ChapterAnalysis {
   corruptionArc: CorruptionArc | null           // 堕落弧线
   degradationRitual: DegradationRitual | null    // 仪式剧本
   narrativeVoice: NarrativeVoice | null           // 叙事声音
+  sceneMechanics: SceneMechanics | null            // 场景装置
   excerpt: string
   excerptNote: string
   analyzedAt: string
@@ -208,6 +215,7 @@ export interface StyleProfile {
     corruptionArc: CorruptionArc | null
     degradationRitual: DegradationRitual | null
     narrativeVoice: NarrativeVoice | null
+    sceneMechanics: SceneMechanics | null
   }
   fullDescription: string
   excerpts: { text: string; note: string }[]
@@ -221,7 +229,7 @@ export const EMPTY_CHAPTER_ANALYSIS: ChapterAnalysis = {
   rhythmStyle: '', dialogueStyle: '', moodStyle: '',
   perspectiveStyle: '', bodyLanguageStyle: '', sensoryStyle: '',
   tensionStyle: '', subtextStyle: '', descriptionPattern: null,
-  corruptionArc: null, degradationRitual: null, narrativeVoice: null,
+  corruptionArc: null, degradationRitual: null, narrativeVoice: null, sceneMechanics: null,
   excerpt: '', excerptNote: '', analyzedAt: '',
 }
 
@@ -252,7 +260,8 @@ export const DIMENSION_META: Record<string, { label: string; category: string; p
   descriptionPattern:{ label: '描写结构', category: '进阶技法', prompt: '"descriptionPattern": {"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"部位","sentenceCount":"1-2句","details":["细节"],"order":1}],"stockingDetail":"丝袜描写密度","characterVisualProfile":"角色视觉配置","detailFingerprints":["指纹细节"]}' },
   corruptionArc:    { label: '堕落弧线', category: '情色专属', prompt: '"corruptionArc": {"characterStates":[{"characterName":"角色名","currentState":"当前状态","originalState":"原始状态","progressionSteps":["阶梯步骤"]}],"overallTrajectory":"整体轨迹"}' },
   degradationRitual:{ label: '仪式剧本', category: '情色专属', prompt: '"degradationRitual": {"sceneTemplate":["场景→状态→惩罚→观众→升级→交媾→确认"],"punishmentTools":["工具"],"authorityEntryPattern":"权威入场","audienceInvolvement":"观众介入","surrenderConfirmation":"屈服确认句式"}' },
-  narrativeVoice:   { label: '叙事声音', category: '情色专属', prompt: '"narrativeVoice": {"internalMonologueRatio":"内心独白占比描述","toneContrast":"极淫内容用极平淡/日常/事务性语气写的反差特征","worldBuildingStyle":"世界观设定在性场景中途以回忆插叙方式交代","routineCatalog":"是否存在每天都会发生的固定流程编目句式","powerResignation":"面对不可抗力量时的认命/转嫁/自我安慰心理模式"}' },
+  narrativeVoice:   { label: '叙事声音', category: '情色专属', prompt: '"narrativeVoice": {"internalMonologueRatio":"内心独白占比","toneContrast":"极淫内容用极平淡语气写的反差","worldBuildingStyle":"世界观在性场景中插叙交代","routineCatalog":"日常流程编目句式","powerResignation":"面对不可抗力时的认命/转嫁/自我安慰"}' },
+  sceneMechanics:   { label: '场景装置', category: '情色专属', prompt: '"sceneMechanics": {"sensoryCounterpoint":"性爱声音与机械/电子声音(刷卡嘀声/消息提示音/电话铃)的交织对位方式","symbolicTool":"权力交换的具体工具及其象征意义(如刷卡机=财富换快感)","recurringVisualFormula":"重复出现的视觉定型描写模板(如阿黑颜公式: 翻眼→吐舌→流涎→扭曲)"}' },
 }
 
 export interface StyleProjectMeta {

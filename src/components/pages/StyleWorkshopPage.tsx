@@ -76,6 +76,7 @@ function parseAnalysisFromReply(reply: string): ChapterAnalysis {
     corruptionArc: parsed.corruptionArc || null,
     degradationRitual: parsed.degradationRitual || null,
     narrativeVoice: parsed.narrativeVoice || null,
+    sceneMechanics: parsed.sceneMechanics || null,
     excerpt: first.text || '',
     excerptNote: first.note || '',
     analyzedAt: new Date().toISOString(),
@@ -92,7 +93,7 @@ const FEATURE_LABELS: Record<string, string> = {
   rhythmStyle: '节奏', dialogueStyle: '对话', moodStyle: '氛围',
   perspectiveStyle: '视角', bodyLanguageStyle: '身体', sensoryStyle: '感官',
   tensionStyle: '张力', subtextStyle: '暗示', descriptionPattern: '描写结构',
-  corruptionArc: '堕落弧线', degradationRitual: '仪式剧本', narrativeVoice: '叙事声音',
+  corruptionArc: '堕落弧线', degradationRitual: '仪式剧本', narrativeVoice: '叙事声音', sceneMechanics: '场景装置',
 }
 
 export default function StyleWorkshopPage() {
@@ -232,7 +233,7 @@ export default function StyleWorkshopPage() {
     try {
       const analyses = analyzedChapters.map(c => {
         const a = c.analysis!
-        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)}`
+        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)} 场景装置:${JSON.stringify(a.sceneMechanics)}`
       }).join('\n\n')
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
@@ -249,6 +250,7 @@ export default function StyleWorkshopPage() {
           corruptionArc: result.corruptionArc || null,
           degradationRitual: result.degradationRitual || null,
           narrativeVoice: result.narrativeVoice || null,
+          sceneMechanics: result.sceneMechanics || null,
         },
         fullDescription: `句式: ${result.sentenceStyle}; 词汇: ${result.vocabularyStyle}; 修辞: ${result.rhetoricStyle}; 节奏: ${result.rhythmStyle}; 对话: ${result.dialogueStyle}; 氛围: ${result.moodStyle}; 视角: ${result.perspectiveStyle}; 身体: ${result.bodyLanguageStyle}; 感官: ${result.sensoryStyle}; 张力: ${result.tensionStyle}; 暗示: ${result.subtextStyle}`,
         excerpts: result.excerpt ? [{ text: result.excerpt, note: result.excerptNote }] : [],
@@ -443,6 +445,11 @@ export default function StyleWorkshopPage() {
                         <span style={{ fontWeight: 700, color: '#3b82f6' }}>叙事声音:</span> {ch.analysis!.narrativeVoice.toneContrast?.slice(0, 80)}
                       </div>
                     )}
+                    {ch.analysis!.sceneMechanics && (
+                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
+                        <span style={{ fontWeight: 700, color: '#8b5cf6' }}>场景装置:</span> {ch.analysis!.sceneMechanics.sensoryCounterpoint?.slice(0, 80)}
+                      </div>
+                    )}
                     {ch.analysis!.excerpt && (
                       <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84', fontStyle: 'italic' }}>摘录: "{ch.analysis!.excerpt}" — {ch.analysis!.excerptNote}</div>
                     )}
@@ -467,7 +474,7 @@ export default function StyleWorkshopPage() {
                     <strong>风格综述：</strong>{selectedProject.profile.fullDescription}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice'].includes(k)).map(([k, v]) => (
+                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','sceneMechanics'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
                         <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v}</div>
@@ -507,6 +514,16 @@ export default function StyleWorkshopPage() {
                         {selectedProject.profile.features.narrativeVoice.worldBuildingStyle && <div>世界交代: {selectedProject.profile.features.narrativeVoice.worldBuildingStyle}</div>}
                         {selectedProject.profile.features.narrativeVoice.routineCatalog && <div>日常编目: {selectedProject.profile.features.narrativeVoice.routineCatalog}</div>}
                         {selectedProject.profile.features.narrativeVoice.powerResignation && <div>权力妥协: {selectedProject.profile.features.narrativeVoice.powerResignation}</div>}
+                      </div>
+                    </div>
+                  )}
+                  {selectedProject.profile.features.sceneMechanics && (
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#8b5cf6', marginBottom: 8 }}>场景装置与感官对位</div>
+                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
+                        {selectedProject.profile.features.sceneMechanics.sensoryCounterpoint && <div>感官对位: {selectedProject.profile.features.sceneMechanics.sensoryCounterpoint}</div>}
+                        {selectedProject.profile.features.sceneMechanics.symbolicTool && <div>象征工具: {selectedProject.profile.features.sceneMechanics.symbolicTool}</div>}
+                        {selectedProject.profile.features.sceneMechanics.recurringVisualFormula && <div>视觉定型: {selectedProject.profile.features.sceneMechanics.recurringVisualFormula}</div>}
                       </div>
                     </div>
                   )}
