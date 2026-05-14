@@ -13,6 +13,7 @@ export default function WorldbuildingPage() {
   const projectsBasePath = useStore(s => s.projectsBasePath)
 
   const [filePath, setFilePath] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const fileContent = useStore(s => s.worldbuildingContent)
   const setFileContent = useStore(s => s.setWorldbuildingContent)
@@ -25,7 +26,7 @@ export default function WorldbuildingPage() {
     }
     const path = `${projectsBasePath}/${activeProjectId}/worldbuilding/worldbuilding.txt`
     setFilePath(path)
-    fileService.read(path).then(c => { setFileContent(c) })
+    fileService.read(path).then(c => { setFileContent(c) }).finally(() => setLoading(false))
   }, [activeProjectId, projectsBasePath])
 
   const handleClear = async () => {
@@ -36,6 +37,14 @@ export default function WorldbuildingPage() {
   }
 
   if (!activeProjectId) return null
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

@@ -10,6 +10,7 @@ import {
   BookOpenIcon,
   FlagIcon,
   PaintBrushIcon,
+  SparklesIcon,
   Cog6ToothIcon,
   FolderIcon,
   ChevronLeftIcon,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/story-map', label: '故事脉络', icon: FlagIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
+  { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
 ]
 
 export default function Sidebar() {

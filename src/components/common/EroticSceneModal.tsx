@@ -9,11 +9,12 @@ import { inputStyle } from '@/components/common/styles'
 import { getStyleInjection } from '@/utils/styleInjector'
 import type { Character } from '@/types/character'
 import type { EroticSceneConfig, EroticSceneCharacter, SceneTemplate } from '@/types/story'
-import { SparklesIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 interface Props {
   isOpen: boolean; onClose: () => void
   chapterId: string; currentContent: string; chapterDescription?: string
+  initialConfig?: EroticSceneConfig
   onApply: (content: string) => void
   onGenStart?: () => void; onGenChunk?: (data: { charCount: number }) => void
   onGenDone?: () => void; onGenError?: (msg: string) => void
@@ -61,7 +62,7 @@ const DEFAULT_CONFIG: EroticSceneConfig = {
   narrativePOV: '第三人称',
 }
 
-export default function EroticSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
+export default function EroticSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, initialConfig, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const characters = useStore(s => s.characters)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -73,14 +74,14 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
   const [showSaveTpl, setShowSaveTpl] = useState(false)
   const [tplName, setTplName] = useState('')
 
-  useEffect(() => { if (isOpen) { templateService.list().then((t: unknown) => setTemplates(t as SceneTemplate[])).catch(()=>{}) } }, [isOpen])
+  useEffect(() => { if (isOpen) { setConfig(initialConfig || DEFAULT_CONFIG); templateService.list().then((t: unknown) => setTemplates(t as SceneTemplate[])).catch(()=>{}) } }, [isOpen])
 
   const addCharacter = (char: Character) => {
     if (config.characters.find(c => c.characterId === char.id)) return
     setConfig({ ...config, characters: [...config.characters, { characterId: char.id, characterName: char.name, role: 'sub', bodyState: '发情', customNote: '' }] })
   }
   const removeChar = (id: string) => setConfig({ ...config, characters: config.characters.filter(c => c.characterId !== id) })
-  const updateChar = (id: string, f: Partial<EroticSceneCharacter>) => setConfig({ ...config, characters: config.characters.map(c => c.id === id ? { ...c, ...f } : c) })
+  const updateChar = (id: string, f: Partial<EroticSceneCharacter>) => setConfig({ ...config, characters: config.characters.map(c => c.characterId === id ? { ...c, ...f } : c) })
   const toggleKink = (k: string) => setConfig({ ...config, selectedKinks: config.selectedKinks.includes(k) ? config.selectedKinks.filter(x => x !== k) : [...config.selectedKinks, k] })
   const toggleArr = (arr: string[], item: string) => arr.includes(item) ? arr.filter(x => x !== item) : [...arr, item]
 

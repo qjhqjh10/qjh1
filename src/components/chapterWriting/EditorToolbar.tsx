@@ -48,8 +48,8 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind }: P
     const currentStyle = attrs.style || ''
     // Parse current style into object
     const styleMap: Record<string, string> = {}
-    currentStyle.split(';').forEach(part => {
-      const [k, v] = part.split(':').map(s => s.trim())
+    currentStyle.split(';').forEach((part: string) => {
+      const [k, v] = part.split(':').map((s: string) => s.trim())
       if (k && v) styleMap[k] = v
     })
     // Set/unset the specific property

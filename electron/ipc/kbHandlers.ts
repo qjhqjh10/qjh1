@@ -58,7 +58,8 @@ async function parseFile(filePath: string, type: string): Promise<string> {
       return await fs.readFile(filePath, 'utf-8')
     case 'pdf':
       try {
-        const pdfParse = (await import('pdf-parse')).default
+        const pdfParseModule = await import('pdf-parse')
+        const pdfParse = (pdfParseModule as any).default || pdfParseModule
         const buffer = await fs.readFile(filePath)
         const data = await pdfParse(buffer)
         return data.text
@@ -257,11 +258,17 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   // Open file dialog for KB upload
   ipcMain.handle('kb:selectFiles', async () => {
     const win = getWindow()
-    const result = await dialog.showOpenDialog(win || undefined, {
-      title: '选择知识库文件',
-      filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
-      properties: ['openFile', 'multiSelections'],
-    })
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: '选择知识库文件',
+          filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
+          properties: ['openFile', 'multiSelections'],
+        })
+      : await dialog.showOpenDialog({
+          title: '选择知识库文件',
+          filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
+          properties: ['openFile', 'multiSelections'],
+        })
     if (result.canceled) return []
     return result.filePaths
   })
@@ -297,13 +304,21 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   // Upload a file (kept for backward compat)
   ipcMain.handle('kb:upload', async (_event, activeProjectId: string) => {
     const win = getWindow()
-    const result = await dialog.showOpenDialog(win || undefined, {
-      title: '选择知识库文件',
-      filters: [
-        { name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] },
-      ],
-      properties: ['openFile', 'multiSelections'],
-    })
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: '选择知识库文件',
+          filters: [
+            { name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] },
+          ],
+          properties: ['openFile', 'multiSelections'],
+        })
+      : await dialog.showOpenDialog({
+          title: '选择知识库文件',
+          filters: [
+            { name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] },
+          ],
+          properties: ['openFile', 'multiSelections'],
+        })
     if (result.canceled || result.filePaths.length === 0) return null
 
     const uploaded: KnowledgeFile[] = []
@@ -490,10 +505,15 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     if (!file) throw new Error('File not found')
     const content = await fs.readFile(path.join(getKBPath(), 'files', `${file.id}.${file.type}`), 'utf-8')
     const win = BrowserWindow.fromWebContents(event.sender)
-    const result = await dialog.showSaveDialog(win || undefined, {
-      defaultPath: file.originalName,
-      filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
-    })
+    const result = win
+      ? await dialog.showSaveDialog(win, {
+          defaultPath: file.originalName,
+          filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
+        })
+      : await dialog.showSaveDialog({
+          defaultPath: file.originalName,
+          filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
+        })
     if (!result.canceled && result.filePath) {
       await fs.writeFile(result.filePath, content, 'utf-8')
       return true

@@ -30,10 +30,10 @@ export function renderRelationshipGraph(
       labelFontSize: 13,
       labelFontWeight: 600,
       labelOffsetY: 8,
-      labelPlacement: 'bottom',
+      labelPlacement: 'bottom' as const,
     },
     data: { name: n.name, role: n.role },
-  }))
+  } as any))
 
   const edges = data.edges.map((e, i) => ({
     id: `edge_${i}`,
@@ -77,9 +77,9 @@ export function renderRelationshipGraph(
 
   // Node click → edit character
   if (onNodeClick) {
-    graph.on('node:click', (evt: { target: { id: string } }) => {
-      const nodeId = evt.target.id
-      if (nodeId) onNodeClick(nodeId)
+    graph.on('node:click', (evt: any) => {
+      const nodeId = evt.target?.id
+      if (nodeId) onNodeClick(nodeId as string)
     })
   }
 

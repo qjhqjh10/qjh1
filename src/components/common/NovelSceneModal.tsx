@@ -13,6 +13,7 @@ import { SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
 interface Props {
   isOpen: boolean; onClose: () => void
   chapterId: string; currentContent: string; chapterDescription?: string
+  initialConfig?: NovelSceneConfig
   onApply: (content: string) => void
   onGenStart?: () => void; onGenChunk?: (data: { charCount: number }) => void
   onGenDone?: () => void; onGenError?: (msg: string) => void
@@ -53,7 +54,7 @@ const DEFAULT_CONFIG: NovelSceneConfig = {
   useStyleProfile: true, useChapterOutline: true, extraNote: '',
 }
 
-export default function NovelSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
+export default function NovelSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, initialConfig, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const characters = useStore(s => s.characters)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -63,7 +64,7 @@ export default function NovelSceneModal({ isOpen, onClose, chapterId, currentCon
   const [loading, setLoading] = useState(false)
   const [genreType, setGenreType] = useState('都市')
 
-  useEffect(() => { if (isOpen) setConfig(DEFAULT_CONFIG) }, [isOpen])
+  useEffect(() => { if (isOpen) setConfig(initialConfig || DEFAULT_CONFIG) }, [isOpen])
 
   const addChar = (char: Character) => {
     if (config.characters.find(c => c.characterId === char.id)) return

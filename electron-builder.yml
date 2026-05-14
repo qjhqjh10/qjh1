@@ -21,3 +21,7 @@ extraResources:
     to: projects/
     filter:
       - "**/*"
+  - from: knowledge_base/
+    to: knowledge_base/
+    filter:
+      - "**/*"

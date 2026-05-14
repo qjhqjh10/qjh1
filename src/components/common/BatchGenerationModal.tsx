@@ -40,7 +40,7 @@ interface QueueItem {
 
 export default function BatchGenerationModal({
   isOpen, onClose, chapters, worldbuildingContent, characters, outlineContent,
-  currentChapterId, onVersionSaved, genOverlay, onGenStart, onGenChunk, onGenDone, onGenError,
+  onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError,
 }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)

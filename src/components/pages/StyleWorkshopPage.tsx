@@ -344,7 +344,7 @@ export default function StyleWorkshopPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button size="sm" variant="ghost" onClick={() => setShowApply(true)}>应用到项目</Button>
-          <Button size="sm" variant="danger" onClick={() => handleDeleteProject({ id: selectedProject.id, name: selectedProject.name, sourceFileName: '', chapterCount: 0, totalCharCount: 0, hasProfile: false, createdAt: '' })} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除</Button>
+          <Button size="sm" variant="danger" onClick={() => handleDeleteProject({ id: selectedProject.id, name: selectedProject.name, sourceFileName: '', chapterCount: 0, totalCharCount: 0, hasProfile: false, createdAt: '', novelType: '通用' })} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除</Button>
         </div>
       </div>
 
@@ -509,7 +509,7 @@ export default function StyleWorkshopPage() {
                     {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
-                        <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v}</div>
+                        <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v as React.ReactNode}</div>
                       </div>
                     ))}
                   </div>

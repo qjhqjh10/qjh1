@@ -68,7 +68,6 @@ describe('useSettingsStore', () => {
       configs: [],
       activeConfigId: null,
       prompts: [],
-      editorFontSize: '16px',
     })
   })
 
@@ -76,7 +75,7 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().addConfig({
       id: 'cfg1', name: 'GPT-4o', provider: 'openai', apiUrl: 'https://api.openai.com/v1',
       apiKey: 'sk-test', model: 'gpt-4o', embeddingModel: 'text-embedding-3-small',
-      temperature: 0.8, maxTokens: 0, systemPrompt: '', inputPricePerM: 2.5, outputPricePerM: 10, cacheHitPricePerM: 1.25,
+      temperature: 0.8, maxTokens: 0, systemPrompt: '', inputPricePerM: 2.5, outputPricePerM: 10, cacheHitPricePerM: 1.25, currency: 'USD' as const,
     })
     expect(useSettingsStore.getState().configs).toHaveLength(1)
 

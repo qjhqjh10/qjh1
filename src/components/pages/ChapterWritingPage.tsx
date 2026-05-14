@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, exportService, dialogService, aiService } from '@/services/fileService'
-import { loadCharacters } from '@/components/pages/CharactersPage'
+import { loadCharacters } from '@/services/characterService'
+import { sceneService } from '@/services/sceneService'
+import type { ChapterSceneConfig } from '@/types/story'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
@@ -64,6 +66,7 @@ export default function ChapterWritingPage() {
   const [showNovelScene, setShowNovelScene] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [versionHistory, setVersionHistory] = useState<VersionRecord[]>([])
+  const [chapterSceneConfig, setChapterSceneConfig] = useState<ChapterSceneConfig | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [selectedSummaryTemplate, setSelectedSummaryTemplate] = useState('')
 
@@ -99,6 +102,8 @@ export default function ChapterWritingPage() {
     }
     // Load existing version history from disk
     loadVersionHistory(pp, chapterId).then(setVersionHistory)
+    // Load saved scene config
+    sceneService.loadChapterSceneConfig(pp, chapterId).then(setChapterSceneConfig)
   }, [activeProjectId, chapterId, projectsBasePath, detailedChapters])
 
   // Handle insertion action from AI
@@ -193,6 +198,32 @@ export default function ChapterWritingPage() {
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>创作参考面板</h3>
         </div>
         <div style={{ height: 1, background: 'rgba(0,0,0,0.04)' }} />
+
+        {/* Scene config status */}
+        {chapterSceneConfig && (chapterSceneConfig.eroticScene || chapterSceneConfig.novelScene) && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', background: 'rgba(124,58,237,0.03)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h4 style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <SparklesIcon style={{ width: 12, height: 12 }} />场景配置已加载
+              </h4>
+              <button onClick={() => navigate('/scene-workshop')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed', textDecoration: 'underline' }}>
+                在工坊中编辑
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, fontSize: 10 }}>
+              {chapterSceneConfig.eroticScene && (
+                <span style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.08)', color: '#7c3aed' }}>
+                  情色: {chapterSceneConfig.eroticScene.intensity}/5 · {chapterSceneConfig.eroticScene.wordTarget}字
+                </span>
+              )}
+              {chapterSceneConfig.novelScene && (
+                <span style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.08)', color: '#3b82f6' }}>
+                  通用: {chapterSceneConfig.novelScene.sceneType} · {chapterSceneConfig.novelScene.wordTarget}字
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
           {/* Key Characters */}
@@ -295,7 +326,7 @@ export default function ChapterWritingPage() {
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {detailedChapters.map((ch, idx) => {
-                const wc = writingChapters[ch.id]?.content?.length || 0
+                const wc = countChineseWords(writingChapters[ch.id]?.content || '')
                 const statusColors: Record<string, string> = { outline: '#f59e0b', draft: '#e67e00', revising: '#2563eb', final: '#16a34a' }
                 return (
                 <button
@@ -473,6 +504,7 @@ export default function ChapterWritingPage() {
         chapterId={chapterId}
         currentContent={content}
         chapterDescription={detailedChapter?.description}
+        initialConfig={chapterSceneConfig?.novelScene || undefined}
         onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
         onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
         onGenChunk={(data) => { setGenWordCount(data.charCount) }}
@@ -486,6 +518,7 @@ export default function ChapterWritingPage() {
         chapterId={chapterId}
         currentContent={content}
         chapterDescription={detailedChapter?.description}
+        initialConfig={chapterSceneConfig?.eroticScene || undefined}
         onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
         onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
         onGenChunk={(data) => { setGenWordCount(data.charCount) }}

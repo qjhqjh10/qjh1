@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
+import { loadCharacters, saveCharacter, parseCharacterFromAI, CHARACTER_FIELDS } from '@/services/characterService'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Modal from '@/components/common/Modal'
@@ -16,101 +17,9 @@ import { logError } from '@/utils/logger'
 
 const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
 
-const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?: boolean }[] = [
-  { key: 'name', label: '姓名' },
-  { key: 'role', label: '角色类型' },
-  { key: 'gender', label: '性别' },
-  { key: 'age', label: '年龄' },
-  { key: 'occupation', label: '职业/身份' },
-  { key: 'background', label: '背景设定' },
-  { key: 'appearance', label: '外观特征' },
-  { key: 'personality', label: '性格特征' },
-  { key: 'abilities', label: '能力' },
-  { key: 'weaknesses', label: '弱点' },
-  { key: 'relationships', label: '角色关系网' },
-  { key: 'relationshipTags', label: '关系标签' },
-  { key: 'arc', label: '角色成长弧线' },
-  { key: 'importance', label: '重要程度', isNumber: true },
-]
-
 const FIELD_TO_LABEL: Record<string, string> = Object.fromEntries(
   CHARACTER_FIELDS.map(f => [f.key as string, f.label])
 )
-
-async function saveCharacter(projectPath: string, character: Character) {
-  const lines: string[] = []
-  for (const f of CHARACTER_FIELDS) {
-    if (f.key === 'id') continue
-    const val = character[f.key]
-    if (f.key === 'relationshipTags') {
-      lines.push(`${f.label}: ${(val as string[]).join('、')}`)
-    } else {
-      lines.push(`${f.label}: ${val || ''}`)
-    }
-  }
-  await fileService.write(`${projectPath}/characters/${character.id}.txt`, lines.join('\n'))
-}
-
-export async function loadCharacters(projectPath: string): Promise<Character[]> {
-  try {
-    const files = await fileService.listDir(`${projectPath}/characters`)
-    const txtFiles = files.filter(f => f.endsWith('.txt'))
-    const chars: Character[] = []
-
-    for (const file of txtFiles) {
-      const content = await fileService.read(`${projectPath}/characters/${file}`)
-      const char: Character = { ...EMPTY_CHARACTER, id: file.replace('.txt', '') }
-      const lines = content.split('\n')
-      for (const line of lines) {
-        const match = line.match(/^(.+?): (.+)$/)
-        if (match) {
-          const field = CHARACTER_FIELDS.find(f => f.label === match[1])
-          if (field) {
-            if (field.key === 'relationshipTags') {
-              char.relationshipTags = match[2].split('、').filter(Boolean)
-            } else if (field.isNumber) {
-              const n = parseInt(match[2], 10)
-              if (!isNaN(n)) (char as Record<string, number>)[field.key] = n
-            } else {
-              (char as Record<string, string>)[field.key] = match[2]
-            }
-          }
-        }
-      }
-      chars.push(char)
-    }
-    return chars
-  } catch {
-    return []
-  }
-}
-
-// Parse AI response to character fields
-function parseCharacterFromAI(text: string): Partial<Character> {
-  const char: Partial<Character> = {}
-  const lines = text.split('\n')
-  for (const line of lines) {
-    const m = line.match(/^(.+?)[:：]\s*(.+)$/)
-    if (m) {
-      const rawLabel = m[1].trim()
-      const rawValue = m[2].trim()
-      // Find matching field
-      const field = CHARACTER_FIELDS.find(f => f.label === rawLabel)
-      if (field) {
-        if (field.key === 'relationshipTags') {
-          char.relationshipTags = rawValue.split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-        } else if (field.key === 'role') {
-          const matchRole = ROLES.find(r => r === rawValue)
-          if (matchRole) char.role = matchRole
-          else char.role = '其他'
-        } else {
-          (char as Record<string, string>)[field.key] = rawValue
-        }
-      }
-    }
-  }
-  return char
-}
 
 const AI_FORMAT_INSTRUCTION = `
 请严格按照以下格式输出角色信息（每行一个字段，标签与内容之间用英文冒号+空格）：
@@ -253,8 +162,8 @@ ${JSON.stringify(charList, null, 2)}
 
       // Convert name-based edges to id-based edges for G6
       const idEdges = edges
-        .filter(e => nameToId.has(e.source) && nameToId.has(e.target))
-        .map(e => ({
+        .filter((e: { source: string; target: string }) => nameToId.has(e.source) && nameToId.has(e.target))
+        .map((e: { source: string; target: string; relation: string; description: string }) => ({
           source: nameToId.get(e.source)!,
           target: nameToId.get(e.target)!,
           relation: e.relation,
@@ -584,11 +493,11 @@ function CharacterForm({ char, onChange, onSave, onClose }: {
   onClose: () => void
 }) {
   const toggleTag = (tag: string) => {
-    const tags = char.relationshipTags
+    const tags = char.relationshipTags as string[]
     if (tags.includes(tag)) {
-      onChange({ ...char, relationshipTags: tags.filter(t => t !== tag) })
+      onChange({ ...char, relationshipTags: (tags.filter(t => t !== tag) as Character['relationshipTags']) })
     } else {
-      onChange({ ...char, relationshipTags: [...tags, tag] })
+      onChange({ ...char, relationshipTags: ([...tags, tag] as Character['relationshipTags']) })
     }
   }
 

@@ -177,7 +177,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
 
     const abortController = new AbortController()
     const onAbort = () => { abortController.abort() }
-    event.sender.on('ai:abort-stream', onAbort)
+    ipcMain.on('ai:abort-stream', onAbort)
 
     try {
       const stream = await client.chat.completions.create({
@@ -207,7 +207,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
         }
       }
 
-      event.sender.removeListener('ai:abort-stream', onAbort)
+      ipcMain.removeListener('ai:abort-stream', onAbort)
 
       // Log usage (always, even without projectId)
       if (usageInfo) {
@@ -234,7 +234,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
         } : undefined,
       })
     } catch (err) {
-      event.sender.removeListener('ai:abort-stream', onAbort)
+      ipcMain.removeListener('ai:abort-stream', onAbort)
 
       // Handle user-initiated abort
       if (err instanceof Error && err.name === 'AbortError') {

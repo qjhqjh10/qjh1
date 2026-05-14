@@ -145,7 +145,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       }
     }
     if (genId === generationRef.current) setPolishLoading(false)
-  }, [activeConfigId, selectedText, prompts])
+  }, [activeConfigId, selectedText, prompts, activeProjectId])
 
   const handleApplyPolish = (text: string) => {
     if (editor) editor.chain().focus().deleteSelection().insertContent(text).run()

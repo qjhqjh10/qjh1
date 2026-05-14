@@ -8,7 +8,7 @@ import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
-import { logError } from '@/utils/logger'
+import { loadDetailedChapters } from '@/services/chapterService'
 
 export default function DetailedOutlinePage() {
   const navigate = useNavigate()
@@ -22,6 +22,7 @@ export default function DetailedOutlinePage() {
   const outlineContent = useStore(s => s.outlineContent)
 
   const [projectPath, setProjectPath] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!activeProjectId) {
@@ -37,7 +38,8 @@ export default function DetailedOutlinePage() {
       })
     }
 
-    loadDetailedChapters(pp).then(setDetailedChapters)
+    setLoading(true)
+    loadDetailedChapters(pp).then(setDetailedChapters).finally(() => setLoading(false))
   }, [activeProjectId, projectsBasePath])
 
   const saveDetailedChapterToFile = async (ch: DetailedChapter) => {
@@ -94,6 +96,14 @@ export default function DetailedOutlinePage() {
   }
 
   if (!activeProjectId) return null
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
@@ -280,51 +290,4 @@ export default function DetailedOutlinePage() {
       </div>
     </div>
   )
-}
-
-export async function loadDetailedChapters(projectPath: string): Promise<DetailedChapter[]> {
-  try {
-    const files = await fileService.listDir(`${projectPath}/detailed_outline`)
-    const txtFiles = files.filter(f => f.endsWith('.txt'))
-    const chapters: DetailedChapter[] = []
-
-    for (const file of txtFiles) {
-      try {
-        const content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
-        const id = file.replace('.txt', '')
-        let title = ''
-        let description = ''
-        let summary = ''
-        let order = 0
-
-        const orderMatch = content.match(/^顺序: (\d+)$/m)
-        if (orderMatch) order = parseInt(orderMatch[1], 10) || 0
-
-        let status: ChapterStatus = 'outline'
-        const statusMatch = content.match(/^状态: (\w+)$/m)
-        if (statusMatch && ['outline', 'draft', 'revising', 'final'].includes(statusMatch[1])) {
-          status = statusMatch[1] as ChapterStatus
-        }
-
-        const titleMatch = content.match(/^标题: (.+)$/m)
-        if (titleMatch) title = titleMatch[1]
-
-        const descMatch = content.match(/描述:\n([\s\S]*?)(?:\n\n摘要:|$)/)
-        if (descMatch) description = descMatch[1].trim()
-
-        const summaryMatch = content.match(/\n摘要:\n([\s\S]*)$/)
-        if (summaryMatch) summary = summaryMatch[1].trim()
-
-        chapters.push({ id, title, description, summary, order, status })
-      } catch (e) {
-        logError(`解析细纲文件失败: ${file}`, e)
-        chapters.push({ id: file.replace('.txt', ''), title: '', description: '', summary: '', order: 0, status: 'outline' })
-      }
-    }
-
-    return chapters.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-  } catch (e) {
-    logError('加载细纲目录失败', e)
-    return []
-  }
 }

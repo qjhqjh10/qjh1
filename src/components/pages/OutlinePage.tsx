@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
 import { useFileSync } from '@/hooks/useFileSync'
-import { loadCharacters } from '@/components/pages/CharactersPage'
+import { loadCharacters } from '@/services/characterService'
 import WordCount from '@/components/common/WordCount'
 import Button from '@/components/common/Button'
 import RichTextEditor from '@/components/common/RichTextEditor'
@@ -22,6 +22,7 @@ export default function OutlinePage() {
 
   const [filePath, setFilePath] = useState<string | null>(null)
   const [selectedChar, setSelectedChar] = useState<Character | null>(null)
+  const [loading, setLoading] = useState(true)
   const { save } = useFileSync(filePath, fileContent, setFileContent)
 
   const handleClearOutline = useCallback(async () => {
@@ -40,7 +41,8 @@ export default function OutlinePage() {
     const path = `${pp}/outline/outline.txt`
     setFilePath(path)
 
-    fileService.read(path).then(c => { setFileContent(c) })
+    setLoading(true)
+    fileService.read(path).then(c => { setFileContent(c) }).finally(() => setLoading(false))
 
     // Load worldbuilding for reference
     if (!worldbuildingContent) {
@@ -57,6 +59,14 @@ export default function OutlinePage() {
   }, [activeProjectId, projectsBasePath])
 
   if (!activeProjectId) return null
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

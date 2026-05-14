@@ -60,6 +60,7 @@ export interface StatsAPI {
   getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) => Promise<unknown>
   getPrices: () => Promise<unknown>
   savePrices: (prices: unknown[]) => Promise<void>
+  deleteByLine: (lineNumber: number) => Promise<void>
 }
 
 export interface StyleProjectsAPI {

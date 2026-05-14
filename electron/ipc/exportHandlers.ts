@@ -22,18 +22,23 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
 
   ipcMain.handle('dialog:selectDirectory', async () => {
     const win = getWindow()
-    const result = await dialog.showOpenDialog(win || undefined, {
-      properties: ['openDirectory'],
-    })
+    const result = win
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
   })
 
   ipcMain.handle('dialog:saveFile', async (_event, defaultName: string) => {
     const win = getWindow()
-    const result = await dialog.showSaveDialog(win || undefined, {
-      defaultPath: defaultName,
-      filters: [{ name: 'Text Files', extensions: ['txt'] }],
-    })
+    const result = win
+      ? await dialog.showSaveDialog(win, {
+          defaultPath: defaultName,
+          filters: [{ name: 'Text Files', extensions: ['txt'] }],
+        })
+      : await dialog.showSaveDialog({
+          defaultPath: defaultName,
+          filters: [{ name: 'Text Files', extensions: ['txt'] }],
+        })
     return result.canceled ? null : result.filePath
   })
 }

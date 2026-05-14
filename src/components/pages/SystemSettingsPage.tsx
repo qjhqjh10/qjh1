@@ -786,7 +786,7 @@ function TokenStatsTab() {
     if (filterYear !== undefined) opts.year = filterYear
     if (filterMonth !== undefined) opts.month = filterMonth
     if (filterDay !== undefined) opts.day = filterDay
-    statsService.getUsage(opts).then(setUsage).catch(() => {})
+    statsService.getUsage(opts).then((data: unknown) => setUsage(data as typeof usage)).catch(() => {})
   }, [activeProjectId, filterConfigId, filterModel, filterYear, filterMonth, filterDay])
 
   const totals = usage?.totals
@@ -921,12 +921,12 @@ function TokenStatsTab() {
                     <button
                       onClick={() => {
                         if (!confirm('删除此条记录？')) return
-                        statsService.deleteByLine((e as { _line: number })._line).then(() => {
+                        statsService.deleteByLine((e as unknown as { _line: number })._line).then(() => {
                           const filter = activeProjectId ? { projectId: activeProjectId } : {}
                           if (filterConfigId) Object.assign(filter, { configId: filterConfigId })
                           if (filterModel) Object.assign(filter, { model: filterModel })
                           if (filterYear !== undefined) Object.assign(filter, { year: filterYear, month: filterMonth, day: filterDay })
-                          statsService.getUsage(filter).then(setUsage)
+                          statsService.getUsage(filter).then((data: unknown) => setUsage(data as typeof usage))
                         })
                       }}
                       title="删除此条"

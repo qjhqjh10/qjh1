@@ -11,11 +11,17 @@ export function registerStyleHandlers(ipcMain: IpcMain, styleProjectsPath: strin
   // Import TXT file: open dialog, read content
   ipcMain.handle('style:importFile', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    const result = await dialog.showOpenDialog(win || undefined, {
-      title: '导入TXT小说',
-      filters: [{ name: '文本文件', extensions: ['txt'] }],
-      properties: ['openFile'],
-    })
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: '导入TXT小说',
+          filters: [{ name: '文本文件', extensions: ['txt'] }],
+          properties: ['openFile'],
+        })
+      : await dialog.showOpenDialog({
+          title: '导入TXT小说',
+          filters: [{ name: '文本文件', extensions: ['txt'] }],
+          properties: ['openFile'],
+        })
     if (result.canceled || result.filePaths.length === 0) return null
     const filePath = result.filePaths[0]
     const content = await fs.readFile(filePath, 'utf-8')

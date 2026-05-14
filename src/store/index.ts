@@ -179,7 +179,6 @@ export interface SettingsState {
   configs: ModelConfig[]
   activeConfigId: string | null
   prompts: PromptTemplate[]
-  editorFontSize: string
   aiSettings: AIAssistantSettings
   displaySettings: DisplaySettings
   setConfigs: (configs: ModelConfig[]) => void
@@ -191,7 +190,6 @@ export interface SettingsState {
   addPrompt: (prompt: PromptTemplate) => void
   updatePrompt: (id: string, updates: Partial<PromptTemplate>) => void
   removePrompt: (id: string) => void
-  setEditorFontSize: (size: string) => void
   setAISettings: (settings: Partial<AIAssistantSettings>) => void
   setDisplaySettings: (settings: Partial<DisplaySettings>) => void
 }
@@ -202,7 +200,6 @@ export const useSettingsStore = create<SettingsState>()(
       configs: [],
       activeConfigId: null,
       prompts: [],
-      editorFontSize: '16px',
       aiSettings: DEFAULT_AI_SETTINGS,
       displaySettings: DEFAULT_DISPLAY_SETTINGS,
       setConfigs: (configs) => set({ configs }),
@@ -225,7 +222,6 @@ export const useSettingsStore = create<SettingsState>()(
       removePrompt: (id) => set(s => {
         s.prompts = s.prompts.filter(p => p.id !== id)
       }),
-      setEditorFontSize: (size) => set({ editorFontSize: size }),
       setAISettings: (settings) => set(s => { Object.assign(s.aiSettings, settings) }),
       setDisplaySettings: (settings) => set(s => { Object.assign(s.displaySettings, settings) }),
     })),

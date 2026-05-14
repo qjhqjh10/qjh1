@@ -10,7 +10,7 @@ interface Props {
   icon?: ReactNode
 }
 
-const variants = {
+const variants: Record<string, { bg: string; color: string; hoverBg: string; border?: string }> = {
   primary: { bg: '#7c3aed', color: '#fff', hoverBg: '#6d28d9' },
   secondary: { bg: 'rgba(255,255,255,0.7)', color: '#4a3f38', hoverBg: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.08)' },
   danger: { bg: '#fee2e2', color: '#dc2626', hoverBg: '#fecaca' },

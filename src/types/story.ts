@@ -192,20 +192,6 @@ export interface ShameVoyeurLoop {
   feedbackAmplification: string // 反馈放大: 羞耻→更强兴奋→更羞耻的闭环
 }
 
-// Legacy aliases for backward compatibility - SceneMechanics merged into DegradationRitual
-export interface SceneMechanics {
-  sensoryCounterpoint: string
-  symbolicTool: string
-  recurringVisualFormula: string
-}
-
-export interface SomaticTension {
-  bodyCondition: string
-  anatomicalPrecision: string
-  orchestrationPattern: string
-  powerAnxiety: string
-}
-
 export interface ChapterAnalysis {
   sentenceStyle: string
   vocabularyStyle: string
@@ -313,6 +299,15 @@ export interface NovelSceneConfig {
   emotionStart: string; emotionEnd: string
   wordTarget: number; narrativePOV: string
   useStyleProfile: boolean; useChapterOutline: boolean; extraNote: string
+}
+
+// Per-chapter scene configuration (saved to projects/{project}/scenes/{chapterId}.json)
+export interface ChapterSceneConfig {
+  chapterId: string
+  chapterTitle: string
+  eroticScene: EroticSceneConfig | null
+  novelScene: NovelSceneConfig | null
+  updatedAt: string
 }
 
 // EMPTY values for initial state

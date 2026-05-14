@@ -32,6 +32,7 @@ import KnowledgeBasePage from '@/components/pages/KnowledgeBasePage'
 import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
 import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
+import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
 
@@ -68,6 +69,7 @@ function AnimatedRoutes() {
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
+          <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -82,7 +84,6 @@ export default function App() {
   const setProjects = useStore(s => s.setProjects)
   const projectsBasePath = useStore(s => s.projectsBasePath)
 
-  const editorFontSize = useSettingsStore(s => s.editorFontSize)
   const displaySettings = useSettingsStore(s => s.displaySettings)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
@@ -136,7 +137,7 @@ export default function App() {
 
   // Apply display settings (font + theme)
   useEffect(() => {
-    document.documentElement.style.setProperty('--editor-font-size', editorFontSize)
+    document.documentElement.style.setProperty('--editor-font-size', displaySettings.editorFontSize)
     document.documentElement.style.setProperty('--sidebar-font-size', displaySettings.sidebarFontSize)
     document.documentElement.style.setProperty('--card-title-font-size', displaySettings.cardTitleFontSize)
     document.documentElement.style.setProperty('--button-font-size', displaySettings.buttonFontSize)
@@ -148,7 +149,7 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark')
     }
-  }, [editorFontSize, displaySettings])
+  }, [displaySettings])
 
   return (
     <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>

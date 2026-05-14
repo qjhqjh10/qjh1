@@ -95,6 +95,8 @@ export const kbService = {
   getEmbedding: (text: string, apiUrl: string, apiKey: string, embeddingModel: string) =>
     e().kb.getEmbedding(text, apiUrl, apiKey, embeddingModel),
   estimate: (filePath: string) => e().kb.estimate(filePath),
+  rename: (fileId: string, newName: string) => e().kb.rename(fileId, newName),
+  download: (fileId: string) => e().kb.download(fileId),
   webSearch: (query: string, maxResults?: number) => e().kb.webSearch(query, maxResults),
 }
 

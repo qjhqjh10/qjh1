@@ -56,7 +56,7 @@ export default function KnowledgeBasePage() {
   const handleSelectFile = async (file: KnowledgeFile) => {
     setSelectedFile(file)
     try {
-      const result = await kbService.read(file.id) as { file: KnowledgeFile; content: string }
+      const result = await kbService.read(file.id) as unknown as { file: KnowledgeFile; content: string }
       setFileContent(result.content)
     } catch (e) {
       logError('读取知识库文件内容失败', e)
