@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron'
 import { join } from 'path'
 import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
@@ -31,6 +31,12 @@ function createWindow() {
     },
     frame: true,
     show: false,
+  })
+
+  // Open external links in system browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http')) { shell.openExternal(url) }
+    return { action: 'deny' }
   })
 
   mainWindow.on('ready-to-show', () => {
