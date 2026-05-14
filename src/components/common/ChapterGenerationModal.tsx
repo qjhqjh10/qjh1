@@ -438,7 +438,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             </div>
             {streamDone && streamUsage && (
               <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>
-                Token: 入{streamUsage.prompt_tokens} 出{streamUsage.completion_tokens} 总{streamUsage.total_tokens} | 花费 ${streamUsage.cost.toFixed(4)}
+                Token: 入{streamUsage.prompt_tokens} 出{streamUsage.completion_tokens} 总{streamUsage.total_tokens} | 花费 {useSettingsStore.getState().configs.find(c => c.id === genConfigId)?.currency === 'CNY' ? '¥' : '$'}{streamUsage.cost.toFixed(4)}
               </div>
             )}
           </div>

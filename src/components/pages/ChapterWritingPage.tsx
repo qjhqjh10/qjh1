@@ -556,7 +556,7 @@ function VersionHistoryModal({ isOpen, onClose, versions, onRestore }: {
               <span>温度: {v.temperature}</span>
               <span>提示词: {v.promptTitle}</span>
               <span>Token: 入{v.tokens.input} 出{v.tokens.output} 总{v.tokens.total}</span>
-              <span style={{ color: '#7c3aed' }}>${v.cost.toFixed(4)}</span>
+              <span style={{ color: '#7c3aed' }}>{useSettingsStore.getState().configs.find(c => c.id === v.modelConfigId)?.currency === 'CNY' ? '¥' : '$'}{v.cost.toFixed(4)}</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <details style={{ flex: 1, fontSize: 12, color: '#4a3f38' }}>

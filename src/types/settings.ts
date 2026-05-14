@@ -12,6 +12,7 @@ export interface ModelConfig {
   inputPricePerM: number
   outputPricePerM: number
   cacheHitPricePerM: number
+  currency: 'USD' | 'CNY'
 }
 
 export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '摘要' | '审稿'
@@ -38,6 +39,7 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,
+  currency: 'USD',
 }
 
 export type ContextPriority = 'balanced' | 'kb-first' | 'model-first'

@@ -111,6 +111,7 @@ const api = {
       ipcRenderer.invoke('stats:getUsage', opts || {}),
     getPrices: (): Promise<unknown> => ipcRenderer.invoke('stats:getPrices'),
     savePrices: (prices: unknown[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
+    deleteByLine: (lineNumber: number): Promise<void> => ipcRenderer.invoke('stats:deleteByLine', lineNumber),
   },
   styleProjects: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),

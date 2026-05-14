@@ -117,6 +117,7 @@ export const statsService = {
     e().stats.getUsage(opts || {}),
   getPrices: () => e().stats.getPrices(),
   savePrices: (prices: unknown[]) => e().stats.savePrices(prices),
+  deleteByLine: (lineNumber: number) => e().stats.deleteByLine(lineNumber),
 }
 
 export const styleProjectService = {

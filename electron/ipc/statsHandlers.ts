@@ -59,8 +59,8 @@ export function registerStatsHandlers(ipcMain: IpcMain) {
       let content = ''
       try { content = await fs.readFile(logPath, 'utf-8') } catch { return emptyResult() }
 
-      const entries: TokenUsageEntry[] = content.split('\n').filter(Boolean).reduce<TokenUsageEntry[]>((acc, line) => {
-        try { acc.push(JSON.parse(line)) } catch { /* skip malformed lines */ }
+      const entries: (TokenUsageEntry & { _line: number })[] = content.split('\n').filter(Boolean).reduce<(TokenUsageEntry & { _line: number })[]>((acc, line, idx) => {
+        try { acc.push({ ...JSON.parse(line), _line: idx + 1 }) } catch { /* skip malformed lines */ }
         return acc
       }, [])
 
@@ -156,6 +156,16 @@ export function registerStatsHandlers(ipcMain: IpcMain) {
   ipcMain.handle('stats:savePrices', async (_event, prices: ModelPrice[]) => {
     await ensureStatsDir()
     await fs.writeFile(path.join(getStatsPath(), 'prices.json'), JSON.stringify(prices, null, 2), 'utf-8')
+  })
+
+  ipcMain.handle('stats:deleteByLine', async (_event, lineNumber: number) => {
+    const logPath = path.join(getStatsPath(), 'usage.jsonl')
+    let content = ''
+    try { content = await fs.readFile(logPath, 'utf-8') } catch { return }
+    const lines = content.split('\n')
+    if (lineNumber < 1 || lineNumber > lines.length) return
+    lines.splice(lineNumber - 1, 1)
+    await fs.writeFile(logPath, lines.join('\n'), 'utf-8')
   })
 }
 

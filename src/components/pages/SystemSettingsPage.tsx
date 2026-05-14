@@ -354,18 +354,28 @@ function ModelSettingsTab() {
                     />
                   </FormField>
                   <div style={{ paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 10 }}>价格设置 (每百万 Token)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>价格设置 (每百万 Token)</div>
+                      <select
+                        value={activeConfig.currency || 'USD'}
+                        onChange={e => updateConfig(activeConfig.id, { currency: e.target.value as 'USD' | 'CNY' })}
+                        style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        <option value="USD">US Dollar ($)</option>
+                        <option value="CNY">人民币 (¥)</option>
+                      </select>
+                    </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输入价格 ($)</label>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输入价格 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
                         <input type="number" step="0.01" min="0" value={activeConfig.inputPricePerM ?? 2.50} onChange={e => updateConfig(activeConfig.id, { inputPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>缓存命中 ($)</label>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>缓存命中 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
                         <input type="number" step="0.01" min="0" value={activeConfig.cacheHitPricePerM ?? 1.25} onChange={e => updateConfig(activeConfig.id, { cacheHitPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输出价格 ($)</label>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输出价格 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
                         <input type="number" step="0.01" min="0" value={activeConfig.outputPricePerM ?? 10.00} onChange={e => updateConfig(activeConfig.id, { outputPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
                       </div>
                     </div>
@@ -748,7 +758,10 @@ function DisplaySettingsTab() {
 function TokenStatsTab() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const configs = useSettingsStore(s => s.configs)
+  const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const aiSettings = useSettingsStore(s => s.aiSettings)
+  const currency = configs.find(c => c.id === activeConfigId)?.currency || 'USD'
+  const cSym = currency === 'CNY' ? '¥' : '$'
   const [usage, setUsage] = useState<{
     entries: { timestamp: string; configName: string; model: string; inputTokens: number; outputTokens: number; cacheHitTokens: number; cost: number }[]
     totalCount: number
@@ -833,14 +846,14 @@ function TokenStatsTab() {
             <StatCard label="输入 Token" value={totals.input.toLocaleString()} color="#2563eb" />
             <StatCard label="输出 Token" value={totals.output.toLocaleString()} color="#16a34a" />
             {totals.cacheHit > 0 && <StatCard label="缓存命中" value={totals.cacheHit.toLocaleString()} color="#ca8a04" />}
-            <StatCard label="花费" value={`$${totals.cost.toFixed(4)}`} color="#7c3aed" />
+            <StatCard label="花费" value={`${cSym}${totals.cost.toFixed(4)}`} color="#7c3aed" />
           </div>
 
           {/* Budget bar */}
           {aiSettings.monthlyBudget > 0 && (
             <div style={{ marginTop: 4 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b5e54', marginBottom: 4 }}>
-                <span>当月预算 ${totals.cost.toFixed(2)} / ${aiSettings.monthlyBudget.toFixed(2)}</span>
+                <span>当月预算 {cSym}{totals.cost.toFixed(2)} / {cSym}{aiSettings.monthlyBudget.toFixed(2)}</span>
                 <span style={{ color: totals.cost > aiSettings.monthlyBudget ? '#dc2626' : totals.cost > aiSettings.monthlyBudget * 0.8 ? '#e67e00' : '#16a34a' }}>
                   {totals.cost > aiSettings.monthlyBudget ? '已超预算' : totals.cost > aiSettings.monthlyBudget * 0.8 ? '接近上限' : '正常'}
                 </span>
@@ -862,7 +875,7 @@ function TokenStatsTab() {
                     <span style={{ minWidth: 40, color: '#9b8e84' }}>{d.count}次</span>
                     <span style={{ minWidth: 60, color: '#2563eb' }}>入 {d.input.toLocaleString()}</span>
                     <span style={{ minWidth: 60, color: '#16a34a' }}>出 {d.output.toLocaleString()}</span>
-                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>${d.cost.toFixed(4)}</span>
+                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{d.cost.toFixed(4)}</span>
                   </div>
                 ))}
               </div>
@@ -881,7 +894,7 @@ function TokenStatsTab() {
                     <span style={{ minWidth: 40, color: '#9b8e84' }}>{c.count}次</span>
                     <span style={{ minWidth: 60, color: '#2563eb' }}>入 {c.input.toLocaleString()}</span>
                     <span style={{ minWidth: 60, color: '#16a34a' }}>出 {c.output.toLocaleString()}</span>
-                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>${c.cost.toFixed(4)}</span>
+                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{c.cost.toFixed(4)}</span>
                   </div>
                   <div style={{ height: 3, borderRadius: 2, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                     <div style={{ height: '100%', borderRadius: 2, background: '#7c3aed', width: totals.cost > 0 ? `${((c.cost / totals.cost) * 100).toFixed(0)}%` : '0%' }} />
@@ -899,12 +912,28 @@ function TokenStatsTab() {
             {showDetail && (
               <div className="custom-scrollbar" style={{ maxHeight: 300, overflowY: 'auto', marginTop: 8 }}>
                 {usage.entries.map((e, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, fontSize: 10, color: '#6b5e54', padding: '4px 6px', borderBottom: '1px solid rgba(0,0,0,0.02)' }}>
-                    <span style={{ minWidth: 140 }}>{e.timestamp?.split('T')[0]} {e.timestamp?.split('T')[1]?.slice(0, 8)}</span>
+                  <div key={i} style={{ display: 'flex', gap: 10, fontSize: 10, color: '#6b5e54', padding: '4px 6px', borderBottom: '1px solid rgba(0,0,0,0.02)', alignItems: 'center' }}>
+                    <span style={{ minWidth: 130 }}>{e.timestamp?.split('T')[0]} {e.timestamp?.split('T')[1]?.slice(0, 8)}</span>
                     <span style={{ minWidth: 60, color: '#4a3f38' }}>{e.configName || e.model}</span>
                     <span style={{ color: '#2563eb' }}>入 {e.inputTokens.toLocaleString()}</span>
                     <span style={{ marginLeft: 6, color: '#16a34a' }}>出 {e.outputTokens.toLocaleString()}</span>
-                    <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>${e.cost.toFixed(4)}</span>
+                    <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>{cSym}{(e as { cost: number }).cost.toFixed(4)}</span>
+                    <button
+                      onClick={() => {
+                        if (!confirm('删除此条记录？')) return
+                        statsService.deleteByLine((e as { _line: number })._line).then(() => {
+                          const filter = activeProjectId ? { projectId: activeProjectId } : {}
+                          if (filterConfigId) Object.assign(filter, { configId: filterConfigId })
+                          if (filterModel) Object.assign(filter, { model: filterModel })
+                          if (filterYear !== undefined) Object.assign(filter, { year: filterYear, month: filterMonth, day: filterDay })
+                          statsService.getUsage(filter).then(setUsage)
+                        })
+                      }}
+                      title="删除此条"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#d4ccc4', flexShrink: 0, marginLeft: 'auto' }}
+                    >
+                      <TrashIcon style={{ width: 11, height: 11 }} />
+                    </button>
                   </div>
                 ))}
               </div>
