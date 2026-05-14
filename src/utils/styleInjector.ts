@@ -93,6 +93,30 @@ export function buildStylePrompt(style: StyleProject): string {
     parts.push(s.join('\n'))
   }
 
+  // Identity dissolution (merged into corruptionArc or standalone)
+  const idis = style.profile?.features?.identityDissolution
+  if (idis && (idis.replacementIdentity || idis.correctionFrame || idis.hierarchyStructure)) {
+    const s: string[] = [`【身份系统与等级层级】`]
+    if (idis.preExistingIdentity) s.push(`旧身份: ${idis.preExistingIdentity}`)
+    if (idis.replacementIdentity) s.push(`新身份: ${idis.replacementIdentity}`)
+    if (idis.selfGaslightingPattern) s.push(`自我合理化: ${idis.selfGaslightingPattern}`)
+    if (idis.competitiveAbasement) s.push(`竞相自贬: ${idis.competitiveAbasement}`)
+    if (idis.correctionFrame) s.push(`管教框架: ${idis.correctionFrame}`)
+    if (idis.hierarchyStructure) s.push(`等级层级: ${idis.hierarchyStructure}`)
+    parts.push(s.join('\n'))
+  }
+
+  // Shame-voyeur loop
+  const svl = style.profile?.features?.shameVoyeurLoop
+  if (svl && svl.triggerPattern) {
+    const s: string[] = [`【羞耻-窥视心理循环 - 情感引擎】`]
+    if (svl.triggerPattern) s.push(`触发: ${svl.triggerPattern}`)
+    if (svl.excitementResponse) s.push(`兴奋: ${svl.excitementResponse}`)
+    if (svl.shameLayer) s.push(`羞耻: ${svl.shameLayer}`)
+    if (svl.feedbackAmplification) s.push(`闭环: ${svl.feedbackAmplification}`)
+    parts.push(s.join('\n'))
+  }
+
   return parts.join('\n')
 }
 

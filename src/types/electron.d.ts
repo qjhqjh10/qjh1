@@ -118,6 +118,7 @@ export interface ElectronAPI {
   kb: KBAPI
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
+  templates: { list: () => Promise<unknown[]>; save: (t: unknown) => Promise<void>; delete: (id: string) => Promise<void> }
 }
 
 declare global {

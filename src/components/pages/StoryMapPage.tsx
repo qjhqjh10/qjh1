@@ -25,6 +25,7 @@ import {
 type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth'
 
 const TABS: { key: TabKey; label: string; icon: typeof ClockIcon }[] = [
+  { key: 'growth', label: '成长', icon: ArrowTrendingUpIcon },
   { key: 'timeline', label: '时间线', icon: ClockIcon },
   { key: 'foreshadowing', label: '伏笔链', icon: LinkIcon },
   { key: 'consistency', label: '一致性', icon: ShieldCheckIcon },
@@ -33,7 +34,6 @@ const TABS: { key: TabKey; label: string; icon: typeof ClockIcon }[] = [
   { key: 'rhythm', label: '节奏', icon: ArrowsRightLeftIcon },
   { key: 'plotline', label: '支线', icon: Bars3Icon },
   { key: 'pov', label: 'POV', icon: EyeIcon },
-  { key: 'growth', label: '成长', icon: ArrowTrendingUpIcon },
 ]
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -64,7 +64,7 @@ export default function StoryMapPage() {
 
   const [projectPath, setProjectPath] = useState('')
   const [activeTab, setActiveTab] = useState<TabKey>('timeline')
-  const [graph, setGraph] = useState<StoryGraph>({ events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {} })
+  const [graph, setGraph] = useState<StoryGraph>({ events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {}, novelType: '' })
   const graphRef = useRef(graph)
   graphRef.current = graph
 
@@ -185,7 +185,16 @@ export default function StoryMapPage() {
         appearance: c.appearance?.slice(0, 100) || '',
       }))
 
-      const prompt = `你是小说分析专家。请分析以下章节内容，提取四类信息，输出严格 JSON（不要 markdown）：
+      const typeHints: Record<string, string> = {
+        '仙侠/玄幻': '这是一部仙侠/玄幻小说。请侧重关注: 角色境界突破、法宝丹药获得、功法技能修炼、门派身份变化。',
+        '都市/现实': '这是一部都市小说。请侧重关注: 角色职业发展、资产财富变化、社交圈层变动、情感状态起伏。',
+        '恋爱/言情': '这是一部恋爱小说。请侧重关注: 男女主感情阶段变化、好感度提升、情敌干扰、关系确认节点。',
+        '悬疑/推理': '这是一部悬疑小说。请侧重关注: 线索收集、嫌疑人圈变化、真相揭露进展、危险等级。',
+        '后宫': '这是一部后宫小说。请侧重关注: 新角色加入、好感度变化、修罗场冲突、关系阶段确认。',
+        '科幻': '这是一部科幻小说。请侧重关注: 科技等级提升、装备升级、组织地位变化、星际位置迁移。',
+      }
+      const typeHint = typeHints[graph.novelType] || (graph.novelType ? `这是一部${graph.novelType}类型的小说。` : '')
+      const prompt = `你是小说分析专家。${typeHint ? '\n\n' + typeHint + '\n' : ''}请分析以下章节内容，提取四类信息，输出严格 JSON（不要 markdown）：
 
 {
   "events": [
@@ -390,7 +399,8 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
         growthTracks: graph.growthTracks,
         growthEntries: mergedGrowthEntries,
         generatedAt: new Date().toISOString(),
-        scannedChapterIds: [...new Set([...graph.scannedChapterIds, ...chapterIds])],
+        scannedChapterIds: [...new Set([...latest.scannedChapterIds, ...chapterIds])],
+        novelType: latest.novelType,
         scannedChapterHashes: {
           ...graph.scannedChapterHashes,
           ...Object.fromEntries(chapterIds.map(id => {
@@ -687,10 +697,16 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
               <GrowthTimelineView
                 tracks={graph.growthTracks}
                 entries={graph.growthEntries}
+                novelType={graph.novelType}
                 characters={characters}
                 chapters={sortedChapters}
                 onUpdateTracks={async (tracks) => {
                   const newGraph = { ...graph, growthTracks: tracks }
+                  setGraph(newGraph)
+                  await saveGraph(newGraph)
+                }}
+                onUpdateNovelType={async (novelType) => {
+                  const newGraph = { ...graph, novelType }
                   setGraph(newGraph)
                   await saveGraph(newGraph)
                 }}
@@ -1775,7 +1791,7 @@ const CHANGE_COLORS: Record<string, string> = {
   new: '#3b82f6', upgrade: '#16a34a', downgrade: '#ef4444', lost: '#9b8e84', same: '#6b7280',
 }
 
-function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTracks, onAddEntry, onUpdateEntry, onDeleteEntry }: {
+function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTracks, onAddEntry, onUpdateEntry, onDeleteEntry, novelType, onUpdateNovelType }: {
   tracks: GrowthTrack[]
   entries: GrowthEntry[]
   characters: Character[]
@@ -1784,10 +1800,15 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
   onAddEntry: (entry: GrowthEntry) => void
   onUpdateEntry: (entry: GrowthEntry) => void
   onDeleteEntry: (id: string) => void
+  novelType: string
+  onUpdateNovelType: (type: string) => void
 }) {
   const [selectedCharId, setSelectedCharId] = useState('all')
   const [selectedTrackId, setSelectedTrackId] = useState('all')
   const [showTrackConfig, setShowTrackConfig] = useState(false)
+  const [showCustomType, setShowCustomType] = useState(false)
+  const [customTypeName, setCustomTypeName] = useState('')
+  const [customDims, setCustomDims] = useState<{ label: string; icon: string }[]>([{ label: '', icon: '' }, { label: '', icon: '' }, { label: '', icon: '' }, { label: '', icon: '' }, { label: '', icon: '' }])
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [editingEntry, setEditingEntry] = useState<GrowthEntry | null>(null)
 
@@ -1867,12 +1888,12 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
           {tracks.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
         </select>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowTrackConfig(true)} style={{ ...linkBtn, fontSize: 12 }}>配置维度</button>
-          <button onClick={() => {
+          <Button size="sm" variant="secondary" onClick={() => setShowTrackConfig(true)}>配置维度</Button>
+          <Button size="sm" variant="ghost" onClick={() => {
             if (confirm('确定重置所有维度？将回到类型选择页，现有记录保留但维度重新选择。')) {
-              onUpdateTracks([])
+              onUpdateTracks([]); onUpdateNovelType('')
             }
-          }} style={{ ...linkBtn, fontSize: 12, color: '#9b8e84' }}>重置维度</button>
+          }}>重置维度</Button>
           <Button size="sm" onClick={() => { resetForm(); setShowAddEntry(true) }} icon={<PlusIcon style={{ width: 12, height: 12 }} />}>
             手动添加
           </Button>
@@ -1888,11 +1909,17 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, maxWidth: 600, margin: '0 auto' }}>
             {Object.entries(GENRE_TRACK_PRESETS).map(([genre, preset]) => (
               <button key={genre} onClick={() => {
+                if (genre === '自定义') {
+                  setShowCustomType(true)
+                  return
+                }
                 const newTracks: GrowthTrack[] = preset.map((t, i) => ({ ...t, id: `gt_${nanoid(6)}`, order: i }))
                 onUpdateTracks(newTracks)
+                onUpdateNovelType(genre)
               }} style={{
-                padding: '14px 12px', borderRadius: 14, border: '1px solid rgba(0,0,0,0.08)',
-                background: '#fff', cursor: 'pointer', textAlign: 'center',
+                padding: '16px 14px', borderRadius: 14, border: '1px solid rgba(0,0,0,0.08)',
+                background: novelType === genre ? 'rgba(124,58,237,0.06)' : '#fff',
+                cursor: 'pointer', textAlign: 'center',
                 transition: 'all 0.15s ease',
               }}>
                 <div style={{ fontSize: 24, marginBottom: 6 }}>{preset[0]?.icon || '📌'}</div>
@@ -2107,6 +2134,34 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
             <Button variant="secondary" onClick={() => setShowAddEntry(false)}>取消</Button>
             <Button onClick={handleSaveEntry} disabled={!formCharId || !formTrackId || !formChapterId || !formValue.trim()}>添加</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Custom Type Modal */}
+      <Modal isOpen={showCustomType} onClose={() => setShowCustomType(false)} title="自定义类型" width={480}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={fieldLabel}>类型名称</label>
+            <input value={customTypeName} onChange={e => setCustomTypeName(e.target.value)} style={inputStyle} placeholder="如: 赛博朋克" />
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>成长维度 (名称 / 图标)</div>
+          {customDims.map((d, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input value={d.label} onChange={e => { const n = [...customDims]; n[i] = {...n[i], label: e.target.value}; setCustomDims(n) }} placeholder="维度名" style={{ ...inputStyle, flex: 1 }} />
+              <input value={d.icon} onChange={e => { const n = [...customDims]; n[i] = {...n[i], icon: e.target.value}; setCustomDims(n) }} placeholder="图标" style={{ ...inputStyle, width: 60 }} />
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+            <Button variant="secondary" onClick={() => setShowCustomType(false)}>取消</Button>
+            <Button onClick={() => {
+              const valid = customDims.filter(d => d.label.trim())
+              if (!customTypeName.trim() || valid.length === 0) return
+              const newTracks: GrowthTrack[] = valid.map((d, i) => ({ id: `gt_${nanoid(6)}`, label: d.label, icon: d.icon || '📌', order: i }))
+              onUpdateTracks(newTracks)
+              onUpdateNovelType(customTypeName)
+              setShowCustomType(false)
+            }} disabled={!customTypeName.trim()}>保存</Button>
           </div>
         </div>
       </Modal>

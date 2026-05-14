@@ -120,6 +120,11 @@ const api = {
     saveProject: (project: unknown): Promise<void> => ipcRenderer.invoke('style:saveProject', project),
     deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('style:deleteProject', id),
   },
+  templates: {
+    list: (): Promise<unknown[]> => ipcRenderer.invoke('template:list'),
+    save: (template: unknown): Promise<void> => ipcRenderer.invoke('template:save', template),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

@@ -10,6 +10,8 @@ import Modal from '@/components/common/Modal'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
 import BatchGenerationModal from '@/components/common/BatchGenerationModal'
+import EroticSceneModal from '@/components/common/EroticSceneModal'
+import NovelSceneModal from '@/components/common/NovelSceneModal'
 import ReviewModal from '@/components/common/ReviewModal'
 import ReviewResultsModal from '@/components/common/ReviewResultsModal'
 import {
@@ -58,6 +60,8 @@ export default function ChapterWritingPage() {
   const [showReview, setShowReview] = useState(false)
   const [showReviewResults, setShowReviewResults] = useState(false)
   const [showBatchGen, setShowBatchGen] = useState(false)
+  const [showErotic, setShowErotic] = useState(false)
+  const [showNovelScene, setShowNovelScene] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [versionHistory, setVersionHistory] = useState<VersionRecord[]>([])
   const [aiLoading, setAiLoading] = useState(false)
@@ -335,6 +339,12 @@ export default function ChapterWritingPage() {
               <button onClick={() => setShowAIGen(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <SparklesIcon style={{ width: 14, height: 14 }} /> AI生成
               </button>
+              <button onClick={() => setShowErotic(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#ec4899', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                <SparklesIcon style={{ width: 14, height: 14 }} /> 情色场景
+              </button>
+              <button onClick={() => setShowNovelScene(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                <SparklesIcon style={{ width: 14, height: 14 }} /> 场景编排
+              </button>
               <button onClick={() => setShowReview(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <ClipboardDocumentCheckIcon style={{ width: 14, height: 14 }} /> AI审稿
               </button>
@@ -455,6 +465,32 @@ export default function ChapterWritingPage() {
         onClose={() => setShowVersions(false)}
         versions={versionHistory}
         onRestore={(v) => { setContent(v.generatedContent); handleSave(v.generatedContent); setShowVersions(false) }}
+      />
+
+      <NovelSceneModal
+        isOpen={showNovelScene}
+        onClose={() => setShowNovelScene(false)}
+        chapterId={chapterId}
+        currentContent={content}
+        chapterDescription={detailedChapter?.description}
+        onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
+        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
+        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
+        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
+        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
+      />
+
+      <EroticSceneModal
+        isOpen={showErotic}
+        onClose={() => setShowErotic(false)}
+        chapterId={chapterId}
+        currentContent={content}
+        chapterDescription={detailedChapter?.description}
+        onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
+        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
+        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
+        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
+        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
       />
 
       <BatchGenerationModal

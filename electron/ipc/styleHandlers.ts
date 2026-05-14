@@ -40,6 +40,7 @@ export function registerStyleHandlers(ipcMain: IpcMain, styleProjectsPath: strin
           id: proj.id, name: proj.name, sourceFileName: proj.sourceFileName,
           chapterCount: proj.chapters.length, totalCharCount: proj.totalCharCount,
           hasProfile: proj.profile !== null, createdAt: proj.createdAt,
+          novelType: proj.novelType || '通用',
         })
       } catch { /* skip invalid */ }
     }

@@ -963,11 +963,32 @@ function VersionTab() {
   const [latestVersion, setLatestVersion] = useState('')
   const [releaseUrl, setReleaseUrl] = useState('')
 
-  const currentVersion = '1.0.0'
-  const currentDate = '2026-05-13'
+  const currentVersion = '1.1.0'
+  const currentDate = '2026-05-14'
   const repoUrl = 'https://github.com/qjhqjh10/qjh1/releases'
 
   const versionHistory = [
+    {
+      version: '1.1.0', date: '2026-05-14',
+      features: [
+        '风格工坊（导入TXT→章节拆分→AI逐章分析→整体风格总结→应用到写作项目）',
+        '风格分析系统15维可自选（基础通用11维+情色专属4维），支持多种小说类型预设',
+        '情色场景编排器（11区50+控件，结构化prompt自动构建，模板保存加载）',
+        '普通小说场景编排器（6区配置，按类型动态调整元素）',
+        '故事脉络成长标签前移+类型联动+自定义弹窗',
+        '章节版本对比（行级LCS diff算法，红绿灰高亮）',
+        '美元/人民币双货币切换+Token明细删除按钮',
+        '版本检查与更新功能',
+        '场景模板库（全局存储+IPC+CRUD）',
+      ],
+      fixes: [
+        'AI max_tokens兼容DeepSeek API（0值传undefined）',
+        '章节生成UX改造（遮罩+可拖动浮动卡片+实时编辑器输出）',
+        '20+处静默错误吞没→统一logger日志系统',
+        '外部链接改用系统浏览器打开',
+        '暗色模式CSS filter覆盖全量内联样式',
+      ],
+    },
     {
       version: '1.0.0', date: '2026-05-13',
       features: [

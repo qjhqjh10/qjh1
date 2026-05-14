@@ -9,7 +9,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
-import { DIMENSION_META } from '@/types/story'
+import { DIMENSION_META, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import {
   SparklesIcon, PlusIcon, TrashIcon, PencilIcon, XMarkIcon,
   DocumentTextIcon, PaintBrushIcon, FolderOpenIcon,
@@ -77,6 +77,9 @@ function parseAnalysisFromReply(reply: string): ChapterAnalysis {
     degradationRitual: parsed.degradationRitual || null,
     narrativeVoice: parsed.narrativeVoice || null,
     sceneMechanics: parsed.sceneMechanics || null,
+    somaticTension: parsed.somaticTension || null,
+    identityDissolution: parsed.identityDissolution || null,
+    shameVoyeurLoop: parsed.shameVoyeurLoop || null,
     excerpt: first.text || '',
     excerptNote: first.note || '',
     analyzedAt: new Date().toISOString(),
@@ -93,7 +96,8 @@ const FEATURE_LABELS: Record<string, string> = {
   rhythmStyle: '节奏', dialogueStyle: '对话', moodStyle: '氛围',
   perspectiveStyle: '视角', bodyLanguageStyle: '身体', sensoryStyle: '感官',
   tensionStyle: '张力', subtextStyle: '暗示', descriptionPattern: '描写结构',
-  corruptionArc: '堕落弧线', degradationRitual: '仪式剧本', narrativeVoice: '叙事声音', sceneMechanics: '场景装置',
+  corruptionArc: '人物演变', degradationRitual: '场景机制', narrativeVoice: '叙事声音', shameVoyeurLoop: '心理循环',
+  socialRealism: '社会现实', cultivationCombat: '修炼战斗', romanceArc: '感情发展', archaicStyle: '古风文言', suspensePacing: '悬疑节奏',
 }
 
 export default function StyleWorkshopPage() {
@@ -108,6 +112,8 @@ export default function StyleWorkshopPage() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false)
   const [analyzeMode, setAnalyzeMode] = useState<'precise' | 'quick'>('precise')
   const [showDimConfig, setShowDimConfig] = useState(false)
+  const [showDimDetail, setShowDimDetail] = useState(false)
+  const [detailType, setDetailType] = useState('通用')
   const [enabledDimensions, setEnabledDimensions] = useState<string[]>(Object.keys(DIMENSION_META))
   const [showResult, setShowResult] = useState(false)
   const [resultTab, setResultTab] = useState<ResultTab>('chapters')
@@ -131,14 +137,18 @@ export default function StyleWorkshopPage() {
       const result = await styleProjectService.importFile() as { name: string; content: string } | null
       if (!result) { setLoading(false); return }
       const chapters = splitChapters(result.content)
+      const dims = NOVEL_TYPE_DIMS['通用']
       const project: StyleProject = {
         id: `sp_${nanoid(8)}`, name: result.name.replace(/\.txt$/i, ''),
         sourceFileName: result.name, chapters, profile: null,
         createdAt: new Date().toISOString(), totalCharCount: result.content.length,
+        enabledDimensions: dims, novelType: '通用',
       }
       await styleProjectService.saveProject(project)
       await loadProjects()
-      setSelectedProject(project); setView('detail')
+      setSelectedProject(project)
+      setEnabledDimensions(dims)
+      setView('detail')
     } catch (err) { logError('导入TXT失败', err); alert('导入失败') }
     setLoading(false)
   }
@@ -147,9 +157,12 @@ export default function StyleWorkshopPage() {
     setLoading(true)
     try {
       const proj = await styleProjectService.loadProject(meta.id) as StyleProject
-      // Ensure all chapters have analysis field
+      // Ensure all chapters have analysis field and backward compat for novelType/enabledDimensions
       proj.chapters = proj.chapters.map(c => ({ ...c, analysis: c.analysis || null, analyzed: c.analyzed || false }))
+      if (!proj.novelType) proj.novelType = '通用'
+      if (!proj.enabledDimensions?.length) proj.enabledDimensions = NOVEL_TYPE_DIMS[proj.novelType] || NOVEL_TYPE_DIMS['通用']
       setSelectedProject(proj); setSelectedChapterId(proj.chapters[0]?.id || null)
+      setEnabledDimensions(proj.enabledDimensions)
       setAnalyzeIds(new Set()); setAnalyzeProgress(''); setView('detail')
     } catch { /* */ }
     setLoading(false)
@@ -233,7 +246,7 @@ export default function StyleWorkshopPage() {
     try {
       const analyses = analyzedChapters.map(c => {
         const a = c.analysis!
-        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)} 场景装置:${JSON.stringify(a.sceneMechanics)}`
+        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)} 场景装置:${JSON.stringify(a.sceneMechanics)} 躯体状态:${JSON.stringify(a.somaticTension)} 身份溶解:${JSON.stringify(a.identityDissolution)} 心理循环:${JSON.stringify(a.shameVoyeurLoop)}`
       }).join('\n\n')
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
@@ -251,6 +264,9 @@ export default function StyleWorkshopPage() {
           degradationRitual: result.degradationRitual || null,
           narrativeVoice: result.narrativeVoice || null,
           sceneMechanics: result.sceneMechanics || null,
+          somaticTension: result.somaticTension || null,
+          identityDissolution: result.identityDissolution || null,
+          shameVoyeurLoop: result.shameVoyeurLoop || null,
         },
         fullDescription: `句式: ${result.sentenceStyle}; 词汇: ${result.vocabularyStyle}; 修辞: ${result.rhetoricStyle}; 节奏: ${result.rhythmStyle}; 对话: ${result.dialogueStyle}; 氛围: ${result.moodStyle}; 视角: ${result.perspectiveStyle}; 身体: ${result.bodyLanguageStyle}; 感官: ${result.sensoryStyle}; 张力: ${result.tensionStyle}; 暗示: ${result.subtextStyle}`,
         excerpts: result.excerpt ? [{ text: result.excerpt, note: result.excerptNote }] : [],
@@ -300,7 +316,7 @@ export default function StyleWorkshopPage() {
                 <GlassCard key={p.id} hover={false} style={{ padding: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     <div style={{ flex: 1 }}><h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', marginBottom: 6 }}>{p.name}</h3>
-                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}><span>{p.sourceFileName}</span><span>{p.chapterCount}章</span><span>{(p.totalCharCount/10000).toFixed(1)}万字</span>{p.hasProfile && <span style={{ color: '#16a34a' }}>✓ 已总结</span>}</div>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}><span>{p.sourceFileName}</span><span>{p.chapterCount}章</span><span>{(p.totalCharCount/10000).toFixed(1)}万字</span><span style={{ color: '#7c3aed' }}>{p.novelType || '通用'}</span>{p.hasProfile && <span style={{ color: '#16a34a' }}>✓ 已总结</span>}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}><Button size="sm" onClick={() => handleEnterProject(p)}>查看详情</Button><Button size="sm" variant="ghost" onClick={() => { setShowApply(true) }}>应用</Button><button onClick={() => handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}><TrashIcon style={{ width: 16, height: 16 }} /></button></div>
                   </div>
@@ -340,7 +356,8 @@ export default function StyleWorkshopPage() {
         <button onClick={() => setAnalyzeIds(new Set(selectedProject.chapters.slice(0, 10).map(c => c.id)))} style={linkBtn}>前10章</button>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {analyzeIds.size}章</span>
         <select value={analyzeMode} onChange={e => setAnalyzeMode(e.target.value as 'precise' | 'quick')} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}><option value="precise">精确模式</option><option value="quick">快速模式</option></select>
-        <button onClick={() => setShowDimConfig(true)} style={{ ...linkBtn, fontSize: 11 }}>配置维度 ({enabledDimensions.length}/14)</button>
+        <Button size="sm" variant="secondary" onClick={() => setShowDimConfig(true)}>配置维度 ({enabledDimensions.length})</Button>
+        <Button size="sm" variant="ghost" onClick={() => setShowDimDetail(true)}>维度详情</Button>
         <Button size="sm" onClick={handleAnalyze} disabled={analyzeLoading || !activeConfigId || analyzeIds.size === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{analyzeLoading ? '分析中...' : '开始分析'}</Button>
         {analyzedChapters.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setShowResult(true); setResultTab('chapters') }}>分析结果 ({analyzedChapters.length}章)</Button>}
         {analyzeProgress && <span style={{ fontSize: 11, color: '#7c3aed' }}>{analyzeProgress}</span>}
@@ -360,7 +377,7 @@ export default function StyleWorkshopPage() {
               }} onClick={() => setSelectedChapterId(ch.id)}>
                 <input type="checkbox" checked={analyzeIds.has(ch.id)} onChange={() => toggleAnalyzeId(ch.id)}
                   style={{ width: 13, height: 13, accentColor: '#7c3aed', flexShrink: 0 }} onClick={e => e.stopPropagation()} />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
+                <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.4, wordBreak: 'break-all' }}>{ch.title}</span>
                 <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{(ch.charCount/1000).toFixed(0)}k</span>
                 {ch.analyzed && <span style={{ fontSize: 9, color: '#16a34a', fontWeight: 600, flexShrink: 0 }}>✓</span>}
                 {ch.analyzed && (
@@ -377,7 +394,7 @@ export default function StyleWorkshopPage() {
         {/* Right: chapter content */}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {selectedChapter ? (
-            <div style={{ flex: 1, padding: '20px 28px', overflowY: 'auto', fontSize: 24, lineHeight: 2.1, color: '#4a3f38', whiteSpace: 'pre-wrap' }} className="custom-scrollbar">
+            <div style={{ flex: 1, padding: '20px 28px', overflowY: 'auto', fontSize: 18, lineHeight: 2.0, color: '#4a3f38', whiteSpace: 'pre-wrap' }} className="custom-scrollbar">
               {selectedChapter.content || '（本章无内容）'}
             </div>
           ) : (
@@ -418,7 +435,7 @@ export default function StyleWorkshopPage() {
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {Object.entries(FEATURE_LABELS).map(([k, label]) => (
+                      {Object.entries(FEATURE_LABELS).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, label]) => (
                         <div key={k} style={{ fontSize: 11 }}>
                           <span style={{ fontWeight: 600, color: '#7c3aed' }}>{label}:</span>
                           <span style={{ color: '#4a3f38' }}> {ch.analysis![k as keyof ChapterAnalysis] as string}</span>
@@ -450,6 +467,21 @@ export default function StyleWorkshopPage() {
                         <span style={{ fontWeight: 700, color: '#8b5cf6' }}>场景装置:</span> {ch.analysis!.sceneMechanics.sensoryCounterpoint?.slice(0, 80)}
                       </div>
                     )}
+                    {ch.analysis!.somaticTension && (
+                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
+                        <span style={{ fontWeight: 700, color: '#06b6d4' }}>躯体状态:</span> {ch.analysis!.somaticTension.bodyCondition?.slice(0, 80)}
+                      </div>
+                    )}
+                    {ch.analysis!.identityDissolution && (
+                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(34,197,94,0.03)', border: '1px solid rgba(34,197,94,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
+                        <span style={{ fontWeight: 700, color: '#22c55e' }}>身份溶解:</span> {ch.analysis!.identityDissolution.replacementIdentity?.slice(0, 80)}
+                      </div>
+                    )}
+                    {ch.analysis!.shameVoyeurLoop && (
+                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(250,204,21,0.03)', border: '1px solid rgba(250,204,21,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
+                        <span style={{ fontWeight: 700, color: '#eab308' }}>心理循环:</span> {ch.analysis!.shameVoyeurLoop.triggerPattern?.slice(0, 80)}
+                      </div>
+                    )}
                     {ch.analysis!.excerpt && (
                       <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84', fontStyle: 'italic' }}>摘录: "{ch.analysis!.excerpt}" — {ch.analysis!.excerptNote}</div>
                     )}
@@ -474,7 +506,7 @@ export default function StyleWorkshopPage() {
                     <strong>风格综述：</strong>{selectedProject.profile.fullDescription}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','sceneMechanics'].includes(k)).map(([k, v]) => (
+                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
                         <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v}</div>
@@ -527,6 +559,40 @@ export default function StyleWorkshopPage() {
                       </div>
                     </div>
                   )}
+                  {selectedProject.profile.features.somaticTension && (
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.08)', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#06b6d4', marginBottom: 8 }}>躯体状态与精确解剖</div>
+                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
+                        {selectedProject.profile.features.somaticTension.bodyCondition && <div>躯体状态: {selectedProject.profile.features.somaticTension.bodyCondition}</div>}
+                        {selectedProject.profile.features.somaticTension.anatomicalPrecision && <div>解剖精度: {selectedProject.profile.features.somaticTension.anatomicalPrecision}</div>}
+                        {selectedProject.profile.features.somaticTension.orchestrationPattern && <div>协作编排: {selectedProject.profile.features.somaticTension.orchestrationPattern}</div>}
+                        {selectedProject.profile.features.somaticTension.powerAnxiety && <div>权力焦虑: {selectedProject.profile.features.somaticTension.powerAnxiety}</div>}
+                      </div>
+                    </div>
+                  )}
+                  {selectedProject.profile.features.identityDissolution && (
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(34,197,94,0.03)', border: '1px solid rgba(34,197,94,0.08)', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 8 }}>身份溶解机制</div>
+                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
+                        {selectedProject.profile.features.identityDissolution.preExistingIdentity && <div>旧身份: {selectedProject.profile.features.identityDissolution.preExistingIdentity}</div>}
+                        {selectedProject.profile.features.identityDissolution.replacementIdentity && <div>新身份: {selectedProject.profile.features.identityDissolution.replacementIdentity}</div>}
+                        {selectedProject.profile.features.identityDissolution.selfGaslightingPattern && <div>自我合理化: {selectedProject.profile.features.identityDissolution.selfGaslightingPattern}</div>}
+                        {selectedProject.profile.features.identityDissolution.competitiveAbasement && <div>竞相自贬: {selectedProject.profile.features.identityDissolution.competitiveAbasement}</div>}
+                        {selectedProject.profile.features.identityDissolution.correctionFrame && <div>管教框架: {selectedProject.profile.features.identityDissolution.correctionFrame}</div>}
+                      </div>
+                    </div>
+                  )}
+                  {selectedProject.profile.features.shameVoyeurLoop && (
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(250,204,21,0.03)', border: '1px solid rgba(250,204,21,0.08)', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#eab308', marginBottom: 8 }}>羞耻-窥视心理循环</div>
+                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
+                        {selectedProject.profile.features.shameVoyeurLoop.triggerPattern && <div>触发: {selectedProject.profile.features.shameVoyeurLoop.triggerPattern}</div>}
+                        {selectedProject.profile.features.shameVoyeurLoop.excitementResponse && <div>兴奋: {selectedProject.profile.features.shameVoyeurLoop.excitementResponse}</div>}
+                        {selectedProject.profile.features.shameVoyeurLoop.shameLayer && <div>羞耻: {selectedProject.profile.features.shameVoyeurLoop.shameLayer}</div>}
+                        {selectedProject.profile.features.shameVoyeurLoop.feedbackAmplification && <div>闭环: {selectedProject.profile.features.shameVoyeurLoop.feedbackAmplification}</div>}
+                      </div>
+                    </div>
+                  )}
                   {selectedProject.profile.features.descriptionPattern && (
                     <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 12 }}>
                       <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>描写结构模板</div>
@@ -554,21 +620,89 @@ export default function StyleWorkshopPage() {
         </div>
       </Modal>
 
-      {/* Dimension Config Modal */}
-      <Modal isOpen={showDimConfig} onClose={() => setShowDimConfig(false)} title={`选择分析维度 (${enabledDimensions.length}/14)`} width={560}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={linkBtn}>全选</button>
-            <button onClick={() => setEnabledDimensions([])} style={linkBtn}>清空</button>
-            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '基础文风'))} style={linkBtn}>仅基础</button>
+      {/* Dimension Detail Modal */}
+      <Modal isOpen={showDimDetail} onClose={() => setShowDimDetail(false)} title="分析维度详情" width={720}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {NOVEL_TYPES.map(t => {
+              const dims = NOVEL_TYPE_DIMS[t] || []
+              return (
+                <button key={t} onClick={() => setDetailType(t)} style={{
+                  ...presetBtn,
+                  background: detailType === t ? '#7c3aed' : '#fff',
+                  color: detailType === t ? '#fff' : '#2d2520',
+                  fontWeight: detailType === t ? 700 : 400,
+                }}>{t} ({dims.length}维)</button>
+              )
+            })}
           </div>
+          {[...new Set(Object.values(DIMENSION_META).map(m => m.category))].map(cat => {
+            const dimsInCat = Object.entries(DIMENSION_META).filter(([, m]) => m.category === cat)
+            if (dimsInCat.length === 0) return null
+            const activeIds = NOVEL_TYPE_DIMS[detailType] || []
+            const activeInCat = dimsInCat.filter(([k]) => activeIds.includes(k))
+            const inactiveInCat = dimsInCat.filter(([k]) => !activeIds.includes(k))
+            return (
+              <div key={cat}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : '#7c3aed', marginBottom: 8 }}>{cat} ({activeInCat.length}维)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {activeInCat.map(([k, m]) => (
+                    <div key={k} style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.1)', fontSize: 12, lineHeight: 1.7 }}>
+                      <span style={{ fontWeight: 700, color: '#7c3aed' }}>{m.label}</span>
+                      <span style={{ color: '#4a3f38', marginLeft: 8 }}>{parsePromptDescription(m.prompt)}</span>
+                    </div>
+                  ))}
+                  {inactiveInCat.map(([k, m]) => (
+                    <div key={k} style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', fontSize: 12, lineHeight: 1.7, opacity: 0.5 }}>
+                      <span style={{ fontWeight: 600, color: '#9b8e84' }}>{m.label}</span>
+                      <span style={{ color: '#9b8e84', marginLeft: 8 }}>{parsePromptDescription(m.prompt)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+            <span style={{ fontSize: 12, color: '#6b5e54' }}>{detailType} · {(NOVEL_TYPE_DIMS[detailType] || []).length} 个维度</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="secondary" onClick={() => setShowDimDetail(false)}>关闭</Button>
+              <Button onClick={() => { setEnabledDimensions(NOVEL_TYPE_DIMS[detailType] || []); setShowDimDetail(false) }}>应用此类型</Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Dimension Config Modal */}
+      <Modal isOpen={showDimConfig} onClose={() => setShowDimConfig(false)} title={`选择分析维度 (${enabledDimensions.length})`} width={580}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Presets */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>预设:</span>
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={presetBtn}>🔞 情色全维</button>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginLeft: 8 }}>类型:</span>
+            {['通用','都市','修仙','恋爱','古风','悬疑'].map(genre => (
+              <button key={genre} onClick={() => {
+                let dims = enabledDimensions.filter(k => DIMENSION_META[k].category !== '类型专属')
+                if (genre === '通用') { setEnabledDimensions(dims) }
+                else {
+                  const genreKeys = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && (k === ({'都市':'socialRealism','修仙':'cultivationCombat','恋爱':'romanceArc','古风':'archaicStyle','悬疑':'suspensePacing'}[genre])) )
+                  const others = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && !genreKeys.includes(k))
+                  setEnabledDimensions([...dims.filter(k => !others.includes(k)), ...genreKeys])
+                }
+              }} style={presetBtn}>{genre}</button>
+            ))}
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={{ ...presetBtn, fontSize: 10 }}>全选</button>
+            <button onClick={() => setEnabledDimensions([])} style={{ ...presetBtn, fontSize: 10, color: '#9b8e84' }}>清空</button>
+          </div>
+          {/* Grouped checkboxes */}
           {[...new Set(Object.values(DIMENSION_META).map(m => m.category))].map(cat => (
             <div key={cat}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>{cat}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : '#7c3aed', marginBottom: 6 }}>{cat}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
                 {Object.entries(DIMENSION_META).filter(([, m]) => m.category === cat).map(([k, m]) => (
-                  <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', cursor: 'pointer', borderRadius: 6, fontSize: 12, color: '#2d2520' }}>
-                    <input type="checkbox" checked={enabledDimensions.includes(k)} onChange={() => { setEnabledDimensions(prev => prev.includes(k) ? prev.filter(d => d !== k) : [...prev, k]) }} style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                  <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
+                    <input type="checkbox" checked={enabledDimensions.includes(k)} onChange={() => { setEnabledDimensions(prev => prev.includes(k) ? prev.filter(d => d !== k) : [...prev, k]) }} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
                     {m.label}
                   </label>
                 ))}
@@ -603,6 +737,31 @@ export default function StyleWorkshopPage() {
   )
 }
 
+// Extract readable description from DIMENSION_META prompt
+function parsePromptDescription(prompt: string): string {
+  // Handle simple string prompts: "描述1+描述2+描述3"
+  if (prompt.startsWith('"') && !prompt.startsWith('"[') && !prompt.startsWith('"{')) {
+    const inner = prompt.replace(/^"[^"]+":\s*"/, '').replace(/"$/, '')
+    return inner.split('+').map(p => p.replace(/[:：].*/, '').trim()).filter(Boolean).join('、')
+  }
+  // Handle JSON prompts: extract key fields and show them
+  const fields: string[] = []
+  const jsonMatch = prompt.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    const keyMatches = jsonMatch[0].matchAll(/"(\w+)":"([^"]+)"/g)
+    for (const m of keyMatches) {
+      if (fields.length < 5) fields.push(`${m[1]}: ${m[2].slice(0, 30)}`)
+    }
+    if (fields.length > 0) return fields.join('; ')
+  }
+  // Fallback: truncate
+  return prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt
+}
+
+const presetBtn: React.CSSProperties = {
+  padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', color: '#2d2520', fontWeight: 500,
+}
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', padding: 0, fontFamily: 'inherit',
 }

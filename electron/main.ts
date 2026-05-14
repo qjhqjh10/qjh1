@@ -7,6 +7,7 @@ import { registerAiHandlers } from './ipc/aiHandlers'
 import { registerKbHandlers, autoIndexProjectFile } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
+import { registerTemplateHandlers } from './ipc/templateHandlers'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -75,6 +76,9 @@ app.whenReady().then(() => {
 
   const styleProjectsPath = join(projectsPath, '..', 'style_projects')
   registerStyleHandlers(ipcMain, styleProjectsPath)
+
+  const templatesPath = join(projectsPath, '..', 'scene_templates')
+  registerTemplateHandlers(ipcMain, templatesPath)
 
   const win = createWindow()
 

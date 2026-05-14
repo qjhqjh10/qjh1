@@ -127,3 +127,9 @@ export const styleProjectService = {
   saveProject: (project: unknown) => e().styleProjects.saveProject(project),
   deleteProject: (id: string) => e().styleProjects.deleteProject(id),
 }
+
+export const templateService = {
+  list: () => e().templates.list(),
+  save: (template: unknown) => e().templates.save(template),
+  delete: (id: string) => e().templates.delete(id),
+}
