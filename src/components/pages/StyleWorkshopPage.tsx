@@ -9,6 +9,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
+import { DIMENSION_META } from '@/types/story'
 import {
   SparklesIcon, PlusIcon, TrashIcon, PencilIcon, XMarkIcon,
   DocumentTextIcon, PaintBrushIcon, FolderOpenIcon,
@@ -74,52 +75,24 @@ function parseAnalysisFromReply(reply: string): ChapterAnalysis {
     descriptionPattern: parsed.descriptionPattern || null,
     corruptionArc: parsed.corruptionArc || null,
     degradationRitual: parsed.degradationRitual || null,
+    narrativeVoice: parsed.narrativeVoice || null,
     excerpt: first.text || '',
     excerptNote: first.note || '',
     analyzedAt: new Date().toISOString(),
   }
 }
 
-const ANALYZE_PROMPT = `分析以下小说章节的写作风格特征。输出JSON（不要markdown，下面每个字段都须填写，不确定写"无"）：
-{
-  "sentenceStyle": "句式: 长短句偏好+标点习惯(破折号/省略号)+段落结构",
-  "vocabularyStyle": "词汇: 书面/口语倾向+高频词类(颜色/声音/身体部位)+成语频率",
-  "rhetoricStyle": "修辞: 比喻/拟人/排比/通感的使用习惯和密度",
-  "rhythmStyle": "节奏: 快慢段落交替模式+场景切换频率",
-  "dialogueStyle": "对话: 对白占比+语气风格+人物语言差异性",
-  "moodStyle": "氛围: 情绪基调+色调偏好(冷/暖/暗)",
-  "perspectiveStyle": "视角距离: 第一/第三人称紧贴/全知+内心独白频率",
-  "bodyLanguageStyle": "身体描写: 是否高频追踪生理反应(脸红/心跳/颤抖等)+部位描写偏好",
-  "sensoryStyle": "感官侧重: 视觉/听觉/嗅觉/触觉的比例分配",
-  "tensionStyle": "心理张力: 内心矛盾表现形式+欲望与压抑的拉扯方式",
-  "subtextStyle": "暗示技巧: 留白/委婉/间接描写+不点破的信息传达方式",
-  "descriptionPattern": {
-    "bodyOrder": ["女性角色出场描写的扫描顺序，如 头发、脸、胸、腰臀、腿、丝袜、脚、鞋"],
-    "sections": [{"part":"身体部位","sentenceCount":"该部位通常写1-2句还是2-3句","details":["必写的细节角度"],"order":1}],
-    "stockingDetail": "丝袜描写密度和角度(如: 极高频写透肉度+血管+脚背露出+脚趾形状)",
-    "characterVisualProfile": "不同年龄/身份女性角色分别侧重描写哪些部位和风格",
-    "detailFingerprints": ["指纹级细节习惯，即几乎每个角色都写的固定细节，如领口开几扣、鞋跟高度、丝袜透明度"]
-  },
-  "corruptionArc": {
-    "characterStates": [{"characterName":"角色名","currentState":"当前堕落状态","originalState":"堕落前的原始身份/状态","progressionSteps":["状态变化的阶梯步骤"]}],
-    "overallTrajectory": "整体堕落轨迹描述"
-  },
-  "degradationRitual": {
-    "sceneTemplate": ["每场羞辱戏的固定叙事步骤模板，如 场景设置→状态检查→权威入场→惩罚仪式→观众介入→惩罚升级→性交→堕落确认"],
-    "punishmentTools": ["常用的惩罚工具列表"],
-    "authorityEntryPattern": "权威者入场时的描写模式",
-    "audienceInvolvement": "观众/第三方的介入方式和作用",
-    "surrenderConfirmation": "受害者在惩罚后从抗拒转为顺从/快感的确认句式"
-  },
-  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}]
-}`
+function buildAnalyzePrompt(dims: string[]) {
+  const fields = dims.map(k => `  ${DIMENSION_META[k]?.prompt || `"${k}": "..."`}`).join(',\n')
+  return `分析以下小说章节的写作风格特征。输出JSON（不要markdown，不分析的维度不要输出）：\n{\n${fields},\n  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}]\n}`
+}
 
 const FEATURE_LABELS: Record<string, string> = {
   sentenceStyle: '句式', vocabularyStyle: '词汇', rhetoricStyle: '修辞',
   rhythmStyle: '节奏', dialogueStyle: '对话', moodStyle: '氛围',
   perspectiveStyle: '视角', bodyLanguageStyle: '身体', sensoryStyle: '感官',
   tensionStyle: '张力', subtextStyle: '暗示', descriptionPattern: '描写结构',
-  corruptionArc: '堕落弧线', degradationRitual: '仪式剧本',
+  corruptionArc: '堕落弧线', degradationRitual: '仪式剧本', narrativeVoice: '叙事声音',
 }
 
 export default function StyleWorkshopPage() {
@@ -133,6 +106,8 @@ export default function StyleWorkshopPage() {
   const [analyzeProgress, setAnalyzeProgress] = useState('')
   const [analyzeLoading, setAnalyzeLoading] = useState(false)
   const [analyzeMode, setAnalyzeMode] = useState<'precise' | 'quick'>('precise')
+  const [showDimConfig, setShowDimConfig] = useState(false)
+  const [enabledDimensions, setEnabledDimensions] = useState<string[]>(Object.keys(DIMENSION_META))
   const [showResult, setShowResult] = useState(false)
   const [resultTab, setResultTab] = useState<ResultTab>('chapters')
   const [summarizeLoading, setSummarizeLoading] = useState(false)
@@ -214,7 +189,7 @@ export default function StyleWorkshopPage() {
         setAnalyzeProgress(`快速模式: ${sample.length} 章...`)
         // Analyze all at once, then split result per chapter (simple approach: assign same analysis to each)
         for (const ch of sample) {
-          const reply = await aiService.chat([{ role: 'user' as const, content: `${ANALYZE_PROMPT}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
           updateChapterAnalysis(ch.id, parseAnalysisFromReply(reply))
           setAnalyzeProgress(`快速模式: ${sample.indexOf(ch) + 1}/${sample.length}`)
         }
@@ -224,7 +199,7 @@ export default function StyleWorkshopPage() {
         for (let i = 0; i < batches.length; i++) {
           setAnalyzeProgress(`精确模式: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${ANALYZE_PROMPT}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
             updateChapterAnalysis(ch.id, parseAnalysisFromReply(reply))
           }
         }
@@ -257,7 +232,7 @@ export default function StyleWorkshopPage() {
     try {
       const analyses = analyzedChapters.map(c => {
         const a = c.analysis!
-        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)}`
+        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)}`
       }).join('\n\n')
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
@@ -273,6 +248,7 @@ export default function StyleWorkshopPage() {
           descriptionPattern: result.descriptionPattern || null,
           corruptionArc: result.corruptionArc || null,
           degradationRitual: result.degradationRitual || null,
+          narrativeVoice: result.narrativeVoice || null,
         },
         fullDescription: `句式: ${result.sentenceStyle}; 词汇: ${result.vocabularyStyle}; 修辞: ${result.rhetoricStyle}; 节奏: ${result.rhythmStyle}; 对话: ${result.dialogueStyle}; 氛围: ${result.moodStyle}; 视角: ${result.perspectiveStyle}; 身体: ${result.bodyLanguageStyle}; 感官: ${result.sensoryStyle}; 张力: ${result.tensionStyle}; 暗示: ${result.subtextStyle}`,
         excerpts: result.excerpt ? [{ text: result.excerpt, note: result.excerptNote }] : [],
@@ -362,6 +338,7 @@ export default function StyleWorkshopPage() {
         <button onClick={() => setAnalyzeIds(new Set(selectedProject.chapters.slice(0, 10).map(c => c.id)))} style={linkBtn}>前10章</button>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {analyzeIds.size}章</span>
         <select value={analyzeMode} onChange={e => setAnalyzeMode(e.target.value as 'precise' | 'quick')} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}><option value="precise">精确模式</option><option value="quick">快速模式</option></select>
+        <button onClick={() => setShowDimConfig(true)} style={{ ...linkBtn, fontSize: 11 }}>配置维度 ({enabledDimensions.length}/14)</button>
         <Button size="sm" onClick={handleAnalyze} disabled={analyzeLoading || !activeConfigId || analyzeIds.size === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{analyzeLoading ? '分析中...' : '开始分析'}</Button>
         {analyzedChapters.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setShowResult(true); setResultTab('chapters') }}>分析结果 ({analyzedChapters.length}章)</Button>}
         {analyzeProgress && <span style={{ fontSize: 11, color: '#7c3aed' }}>{analyzeProgress}</span>}
@@ -461,6 +438,11 @@ export default function StyleWorkshopPage() {
                         <span style={{ fontWeight: 700, color: '#e67e00' }}>仪式剧本:</span> {ch.analysis!.degradationRitual.sceneTemplate?.join(' → ')?.slice(0, 100)}
                       </div>
                     )}
+                    {ch.analysis!.narrativeVoice && (
+                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
+                        <span style={{ fontWeight: 700, color: '#3b82f6' }}>叙事声音:</span> {ch.analysis!.narrativeVoice.toneContrast?.slice(0, 80)}
+                      </div>
+                    )}
                     {ch.analysis!.excerpt && (
                       <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84', fontStyle: 'italic' }}>摘录: "{ch.analysis!.excerpt}" — {ch.analysis!.excerptNote}</div>
                     )}
@@ -485,7 +467,7 @@ export default function StyleWorkshopPage() {
                     <strong>风格综述：</strong>{selectedProject.profile.fullDescription}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual'].includes(k)).map(([k, v]) => (
+                    {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
                         <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v}</div>
@@ -516,6 +498,18 @@ export default function StyleWorkshopPage() {
                       </div>
                     </div>
                   )}
+                  {selectedProject.profile.features.narrativeVoice && (
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.08)', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#3b82f6', marginBottom: 8 }}>叙事声音</div>
+                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
+                        {selectedProject.profile.features.narrativeVoice.toneContrast && <div>语态反差: {selectedProject.profile.features.narrativeVoice.toneContrast}</div>}
+                        {selectedProject.profile.features.narrativeVoice.internalMonologueRatio && <div>内心独白: {selectedProject.profile.features.narrativeVoice.internalMonologueRatio}</div>}
+                        {selectedProject.profile.features.narrativeVoice.worldBuildingStyle && <div>世界交代: {selectedProject.profile.features.narrativeVoice.worldBuildingStyle}</div>}
+                        {selectedProject.profile.features.narrativeVoice.routineCatalog && <div>日常编目: {selectedProject.profile.features.narrativeVoice.routineCatalog}</div>}
+                        {selectedProject.profile.features.narrativeVoice.powerResignation && <div>权力妥协: {selectedProject.profile.features.narrativeVoice.powerResignation}</div>}
+                      </div>
+                    </div>
+                  )}
                   {selectedProject.profile.features.descriptionPattern && (
                     <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 12 }}>
                       <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>描写结构模板</div>
@@ -539,6 +533,33 @@ export default function StyleWorkshopPage() {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
             <Button onClick={() => setShowResult(false)}>关闭</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Dimension Config Modal */}
+      <Modal isOpen={showDimConfig} onClose={() => setShowDimConfig(false)} title={`选择分析维度 (${enabledDimensions.length}/14)`} width={560}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={linkBtn}>全选</button>
+            <button onClick={() => setEnabledDimensions([])} style={linkBtn}>清空</button>
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '基础文风'))} style={linkBtn}>仅基础</button>
+          </div>
+          {[...new Set(Object.values(DIMENSION_META).map(m => m.category))].map(cat => (
+            <div key={cat}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>{cat}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {Object.entries(DIMENSION_META).filter(([, m]) => m.category === cat).map(([k, m]) => (
+                  <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', cursor: 'pointer', borderRadius: 6, fontSize: 12, color: '#2d2520' }}>
+                    <input type="checkbox" checked={enabledDimensions.includes(k)} onChange={() => { setEnabledDimensions(prev => prev.includes(k) ? prev.filter(d => d !== k) : [...prev, k]) }} style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+            <Button onClick={() => setShowDimConfig(false)}>确定</Button>
           </div>
         </div>
       </Modal>

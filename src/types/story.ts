@@ -151,6 +151,14 @@ export interface DegradationRitual {
   surrenderConfirmation: string
 }
 
+export interface NarrativeVoice {
+  internalMonologueRatio: string
+  toneContrast: string
+  worldBuildingStyle: string
+  routineCatalog: string
+  powerResignation: string
+}
+
 export interface ChapterAnalysis {
   sentenceStyle: string
   vocabularyStyle: string
@@ -166,6 +174,7 @@ export interface ChapterAnalysis {
   descriptionPattern: DescriptionPattern | null  // 描写结构模板
   corruptionArc: CorruptionArc | null           // 堕落弧线
   degradationRitual: DegradationRitual | null    // 仪式剧本
+  narrativeVoice: NarrativeVoice | null           // 叙事声音
   excerpt: string
   excerptNote: string
   analyzedAt: string
@@ -198,6 +207,7 @@ export interface StyleProfile {
     descriptionPattern: DescriptionPattern | null
     corruptionArc: CorruptionArc | null
     degradationRitual: DegradationRitual | null
+    narrativeVoice: NarrativeVoice | null
   }
   fullDescription: string
   excerpts: { text: string; note: string }[]
@@ -211,7 +221,7 @@ export const EMPTY_CHAPTER_ANALYSIS: ChapterAnalysis = {
   rhythmStyle: '', dialogueStyle: '', moodStyle: '',
   perspectiveStyle: '', bodyLanguageStyle: '', sensoryStyle: '',
   tensionStyle: '', subtextStyle: '', descriptionPattern: null,
-  corruptionArc: null, degradationRitual: null,
+  corruptionArc: null, degradationRitual: null, narrativeVoice: null,
   excerpt: '', excerptNote: '', analyzedAt: '',
 }
 
@@ -223,6 +233,26 @@ export interface StyleProject {
   profile: StyleProfile | null
   createdAt: string
   totalCharCount: number
+  enabledDimensions: string[]
+}
+
+// Dimension metadata: key → {label, promptTemplate}
+export const DIMENSION_META: Record<string, { label: string; category: string; prompt: string }> = {
+  sentenceStyle:    { label: '句式', category: '基础文风', prompt: '"sentenceStyle": "长短句偏好+标点习惯+段落结构"' },
+  vocabularyStyle:  { label: '词汇', category: '基础文风', prompt: '"vocabularyStyle": "书面/口语倾向+高频词类+成语频率"' },
+  rhetoricStyle:    { label: '修辞', category: '基础文风', prompt: '"rhetoricStyle": "比喻/拟人/排比/通感使用习惯和密度"' },
+  rhythmStyle:      { label: '节奏', category: '基础文风', prompt: '"rhythmStyle": "快慢段落交替模式+场景切换频率"' },
+  dialogueStyle:    { label: '对话', category: '基础文风', prompt: '"dialogueStyle": "对白占比+语气风格+人物语言差异性"' },
+  moodStyle:        { label: '氛围', category: '基础文风', prompt: '"moodStyle": "情绪基调+色调偏好(冷/暖/暗)"' },
+  perspectiveStyle: { label: '视角', category: '进阶技法', prompt: '"perspectiveStyle": "第一/第三人称紧贴/全知+内心独白频率"' },
+  bodyLanguageStyle:{ label: '身体', category: '进阶技法', prompt: '"bodyLanguageStyle": "生理反应追踪频率+部位描写偏好"' },
+  sensoryStyle:     { label: '感官', category: '进阶技法', prompt: '"sensoryStyle": "视觉/听觉/嗅觉/触觉的比例分配"' },
+  tensionStyle:     { label: '张力', category: '进阶技法', prompt: '"tensionStyle": "内心矛盾表现形式+欲望与压抑的拉扯方式"' },
+  subtextStyle:     { label: '暗示', category: '进阶技法', prompt: '"subtextStyle": "留白/委婉/间接描写+不点破的信息传达方式"' },
+  descriptionPattern:{ label: '描写结构', category: '进阶技法', prompt: '"descriptionPattern": {"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"部位","sentenceCount":"1-2句","details":["细节"],"order":1}],"stockingDetail":"丝袜描写密度","characterVisualProfile":"角色视觉配置","detailFingerprints":["指纹细节"]}' },
+  corruptionArc:    { label: '堕落弧线', category: '情色专属', prompt: '"corruptionArc": {"characterStates":[{"characterName":"角色名","currentState":"当前状态","originalState":"原始状态","progressionSteps":["阶梯步骤"]}],"overallTrajectory":"整体轨迹"}' },
+  degradationRitual:{ label: '仪式剧本', category: '情色专属', prompt: '"degradationRitual": {"sceneTemplate":["场景→状态→惩罚→观众→升级→交媾→确认"],"punishmentTools":["工具"],"authorityEntryPattern":"权威入场","audienceInvolvement":"观众介入","surrenderConfirmation":"屈服确认句式"}' },
+  narrativeVoice:   { label: '叙事声音', category: '情色专属', prompt: '"narrativeVoice": {"internalMonologueRatio":"内心独白占比描述","toneContrast":"极淫内容用极平淡/日常/事务性语气写的反差特征","worldBuildingStyle":"世界观设定在性场景中途以回忆插叙方式交代","routineCatalog":"是否存在每天都会发生的固定流程编目句式","powerResignation":"面对不可抗力量时的认命/转嫁/自我安慰心理模式"}' },
 }
 
 export interface StyleProjectMeta {

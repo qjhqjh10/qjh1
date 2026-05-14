@@ -71,6 +71,18 @@ export function buildStylePrompt(style: StyleProject): string {
     parts.push(s.join('\n'))
   }
 
+  // Narrative voice
+  const nv = style.profile?.features?.narrativeVoice
+  if (nv && (nv.toneContrast || nv.internalMonologueRatio)) {
+    const s: string[] = [`【叙事声音要求 - 决定整体阅读感受】`]
+    if (nv.toneContrast) s.push(`语态反差: ${nv.toneContrast}`)
+    if (nv.internalMonologueRatio) s.push(`内心独白: ${nv.internalMonologueRatio}`)
+    if (nv.worldBuildingStyle) s.push(`世界设定交代方式: ${nv.worldBuildingStyle}`)
+    if (nv.routineCatalog) s.push(`日常编目: ${nv.routineCatalog}`)
+    if (nv.powerResignation) s.push(`面对压迫/无力时的心理模式: ${nv.powerResignation}`)
+    parts.push(s.join('\n'))
+  }
+
   return parts.join('\n')
 }
 
