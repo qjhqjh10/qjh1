@@ -118,6 +118,39 @@ export interface GrowthEntry {
 
 // ---- Style Workshop ----
 
+export interface BodySection {
+  part: string
+  sentenceCount: string
+  details: string[]
+  order: number
+}
+
+export interface DescriptionPattern {
+  bodyOrder: string[]
+  sections: BodySection[]
+  stockingDetail: string
+  characterVisualProfile: string
+  detailFingerprints: string[]
+}
+
+export interface CorruptionArc {
+  characterStates: {
+    characterName: string
+    currentState: string
+    originalState: string
+    progressionSteps: string[]
+  }[]
+  overallTrajectory: string
+}
+
+export interface DegradationRitual {
+  sceneTemplate: string[]
+  punishmentTools: string[]
+  authorityEntryPattern: string
+  audienceInvolvement: string
+  surrenderConfirmation: string
+}
+
 export interface ChapterAnalysis {
   sentenceStyle: string
   vocabularyStyle: string
@@ -125,6 +158,14 @@ export interface ChapterAnalysis {
   rhythmStyle: string
   dialogueStyle: string
   moodStyle: string
+  perspectiveStyle: string     // 视角距离
+  bodyLanguageStyle: string    // 生理反应/身体描写
+  sensoryStyle: string         // 感官侧重
+  tensionStyle: string         // 心理张力/冲突手法
+  subtextStyle: string         // 暗示/留白技巧
+  descriptionPattern: DescriptionPattern | null  // 描写结构模板
+  corruptionArc: CorruptionArc | null           // 堕落弧线
+  degradationRitual: DegradationRitual | null    // 仪式剧本
   excerpt: string
   excerptNote: string
   analyzedAt: string
@@ -149,6 +190,14 @@ export interface StyleProfile {
     rhythmStyle: string
     dialogueStyle: string
     moodStyle: string
+    perspectiveStyle: string
+    bodyLanguageStyle: string
+    sensoryStyle: string
+    tensionStyle: string
+    subtextStyle: string
+    descriptionPattern: DescriptionPattern | null
+    corruptionArc: CorruptionArc | null
+    degradationRitual: DegradationRitual | null
   }
   fullDescription: string
   excerpts: { text: string; note: string }[]
@@ -160,6 +209,9 @@ export interface StyleProfile {
 export const EMPTY_CHAPTER_ANALYSIS: ChapterAnalysis = {
   sentenceStyle: '', vocabularyStyle: '', rhetoricStyle: '',
   rhythmStyle: '', dialogueStyle: '', moodStyle: '',
+  perspectiveStyle: '', bodyLanguageStyle: '', sensoryStyle: '',
+  tensionStyle: '', subtextStyle: '', descriptionPattern: null,
+  corruptionArc: null, degradationRitual: null,
   excerpt: '', excerptNote: '', analyzedAt: '',
 }
 
