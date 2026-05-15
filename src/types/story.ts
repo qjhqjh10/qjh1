@@ -592,6 +592,7 @@ export interface NovelExtraction {
   eventPattern: EventPattern | null; progressionRhythm: ProgressionRhythm | null
   characterArchetype: CharacterArchetype | null; emotionCurve: EmotionCurve | null
   generatedNovel: GeneratedNovel | null
+  outlineResults?: Record<string, string>
   status: 'draft' | 'extracting' | 'aggregated' | 'completed'
   createdAt: string; updatedAt: string
 }

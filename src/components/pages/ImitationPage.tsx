@@ -56,6 +56,19 @@ const STATUS_COLORS: Record<string, string> = { draft: '#9b8e84', extracting: '#
 
 const TYPE_LABELS: Record<string, string> = { general: '通用', urban: '都市', cultivation: '修仙', martial: '武侠', romance: '恋爱', ancient: '古风', mystery: '悬疑', historical: '历史', transmigration: '穿越', scifi: '科幻', erotic: '情色' }
 
+function normalizeRole(role: string): string {
+  const r = (role || '').trim()
+  // New prompt: AI outputs exact 6 categories
+  if (['男主','女主','男配','女配','反派'].includes(r)) return r
+  // Backward compat for old extraction data
+  if (r.includes('男主') || r === '主角') return '男主'
+  if (r.includes('女主')) return '女主'
+  if (r.includes('男配') || r.includes('兄弟') || r.includes('朋友')) return '男配'
+  if (r.includes('女配') || r.includes('姐妹')) return '女配'
+  if (r.includes('反派') || r.includes('敌人') || r.includes('对手')) return '反派'
+  return '其他'
+}
+
 const TYPE_DIM_PRESETS: Record<string, string[]> = {
   general: ['characters','worldbuilding','items','powerSystem','chapterSummary','events','foreshadowing','emotionalTone'],
   urban: ['characters','worldbuilding','chapterSummary','events','foreshadowing','emotionalTone'],
@@ -135,7 +148,7 @@ export default function ImitationPage() {
         id: `imt_${nanoid(8)}`, novelName: result.name.replace(/\.txt$/i, ''),
         sourceFileName: result.name, novelType,
         chapters: [], aggregated: null, plotStructure: null,
-        styleProfile: null, pacingTemplate: null, eventPattern: null, progressionRhythm: null, characterArchetype: null, emotionCurve: null, generatedNovel: null,
+        styleProfile: null, pacingTemplate: null, eventPattern: null, progressionRhythm: null, characterArchetype: null, emotionCurve: null, generatedNovel: null, outlineResults: {},
         status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
       ext.chapters = chapters.map((ch, i) => ({
@@ -158,6 +171,12 @@ export default function ImitationPage() {
       const ext = await extractionService.loadProject(id) as NovelExtraction
       setExtraction(ext); setSelectedChapterId(ext.chapters[0]?.chapterId || null)
       setExtractIds(new Set(ext.chapters.filter(c => c.extractedAt).map(c => c.chapterId))); setNovelType((ext.novelType as NovelType) || 'general')
+      // Restore saved outline results
+      const saved = (ext as any).outlineResults || {}
+      setOutlineResults(saved)
+      const gen: Record<string, boolean> = {}
+      Object.keys(saved).forEach(k => { gen[k] = true })
+      setOutlineGenerated(gen)
       if (ext.status === 'completed') setStep('completed')
       else if (ext.styleProfile) setStep('style')
       else if (ext.aggregated) setStep('extracting')
@@ -302,7 +321,14 @@ export default function ImitationPage() {
     setGenLoading(false)
     if (result) {
       setOutlineGenerated(prev => ({ ...prev, [dimKey]: true }))
-      setOutlineResults(prev => ({ ...prev, [dimKey]: result }))
+      setOutlineResults(prev => {
+        const updated = { ...prev, [dimKey]: result }
+        if (extraction) {
+          extractionService.saveProject({ ...extraction, outlineResults: updated, updatedAt: new Date().toISOString() })
+        }
+        return updated
+      })
+      setGenPreview(''); setGenType(null)
     }
   }
 
@@ -763,7 +789,7 @@ export default function ImitationPage() {
                     try { const p = JSON.parse(outlineResults.characters || '[]'); if (Array.isArray(p)) genChars = p } catch {}
                     const chars = isSrc ? srcChars : genChars
                     const groups: Record<string, any[]> = { '男主': [], '女主': [], '男配': [], '女配': [], '反派': [], '其他': [] }
-                    chars.forEach((c: any) => { const r = c.role || '其他'; if (groups[r]) groups[r].push(c); else groups['其他'].push(c) })
+                    chars.forEach((c: any) => { const r = normalizeRole(c.role); groups[r].push(c) })
                     return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {Object.entries(groups).filter(([, list]) => list.length > 0).map(([role, list]) => (
                         <div key={role}>
@@ -794,35 +820,132 @@ export default function ImitationPage() {
                         {ag.worldbuilding.factions.length > 0 && <div><div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>势力 ({ag.worldbuilding.factions.length})</div><div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.worldbuilding.factions.map(f => <div key={f.name} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{f.name}</strong>: {f.description}</div>)}</div></div>}
                       </div>
                     )
+                    // Try card display for generated data
+                    let genWb: any = null
+                    try { genWb = JSON.parse(outlineResults.worldbuilding || '') } catch {}
+                    if (genWb?.locations || genWb?.factions) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {genWb.locations?.length > 0 && <div><div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>地点 ({genWb.locations.length})</div><div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{genWb.locations.map((l: any) => <div key={l.name} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{l.name}</strong>: {l.description}</div>)}</div></div>}
+                        {genWb.factions?.length > 0 && <div><div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>势力 ({genWb.factions.length})</div><div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{genWb.factions.map((f: any) => <div key={f.name} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{f.name}</strong>: {f.description}</div>)}</div></div>}
+                      </div>
+                    )
                     return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.worldbuilding || ''}</pre>
                   }
 
                   // Items
                   if (dimSubTab === 'items') {
                     if (isSrc && ag) return <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.items.map(i => <div key={i.name} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)' }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>{i.name}</span><span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: '#e67e00' }}>{i.type}</span>{i.grade && <span style={{ fontSize: 9, color: '#9b8e84' }}>{i.grade}</span>}</div>{i.ability && <p style={{ fontSize: 10, color: '#6b5e54', margin: 0 }}>{i.ability}</p>}</div>)}</div>
+                    let genItems: any[] = []
+                    try { const p = JSON.parse(outlineResults.items || '[]'); if (Array.isArray(p)) genItems = p } catch {}
+                    if (genItems.length > 0) return <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{genItems.map((i: any) => <div key={i.name} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)' }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>{i.name}</span><span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: '#e67e00' }}>{i.type}</span>{i.grade && <span style={{ fontSize: 9, color: '#9b8e84' }}>{i.grade}</span>}</div>{i.ability && <p style={{ fontSize: 10, color: '#6b5e54', margin: 0 }}>{i.ability}</p>}</div>)}</div>
                     return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.items || ''}</pre>
                   }
 
                   // Power System
                   if (dimSubTab === 'powerSystem') {
-                    if (isSrc && ag) return <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ag.powerSystem.levels.map((l: string, i: number) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: i === 0 ? 'rgba(22,163,74,0.1)' : i === ag!.powerSystem.levels.length - 1 ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.03)', color: i === 0 ? '#16a34a' : '#7c3aed', fontWeight: 600 }}>{l}</span>)}</div>
+                    if (isSrc && ag) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {ag.powerSystem.levels.map((l: string, i: number) => (
+                          <div key={l} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 20, fontWeight: 800, color: i === 0 ? '#16a34a' : i === ag!.powerSystem.levels.length - 1 ? '#7c3aed' : '#3b82f6', minWidth: 36, textAlign: 'center' }}>{i + 1}</span>
+                            <div><span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{l}</span></div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                    let genPs: any = null
+                    try { genPs = JSON.parse(outlineResults.powerSystem || '') } catch {}
+                    if (genPs?.levels) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {genPs.levels.map((l: string, i: number) => (
+                          <div key={l} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 20, fontWeight: 800, color: i === 0 ? '#16a34a' : i === genPs!.levels.length - 1 ? '#7c3aed' : '#3b82f6', minWidth: 36, textAlign: 'center' }}>{i + 1}</span>
+                            <div><span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{l}</span></div>
+                          </div>
+                        ))}
+                      </div>
+                    )
                     return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.powerSystem || ''}</pre>
                   }
 
                   // Foreshadowing
                   if (dimSubTab === 'foreshadowing') {
-                    if (isSrc && ag) return <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{ag.foreshadowing.map(f => <div key={f.description} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11 }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: f.status === 'resolved' ? 'rgba(22,163,74,0.1)' : 'rgba(245,158,11,0.1)', color: f.status === 'resolved' ? '#16a34a' : '#f59e0b', fontWeight: 600, cursor: 'pointer' }}>{f.status === 'resolved' ? '已回收' : '已埋'}</span><span style={{ color: '#9b8e84', fontSize: 10 }}>第{f.plantChapter}章{f.payoffChapter ? ` → 第${f.payoffChapter}章` : ''}</span></div><p style={{ color: '#4a3f38', margin: 0 }}>{f.description}</p></div>)}</div>
+                    if (isSrc && ag) return <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{ag.foreshadowing.map(f => (
+                      <div key={f.description} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: f.status === 'resolved' ? 'rgba(22,163,74,0.1)' : 'rgba(245,158,11,0.1)', color: f.status === 'resolved' ? '#16a34a' : '#f59e0b', fontWeight: 600 }}>{f.status === 'resolved' ? '已回收' : '已埋'}</span>
+                          <span style={{ color: '#9b8e84', fontSize: 10 }}>第{f.plantChapter}章{f.payoffChapter ? ` → 第${f.payoffChapter}章` : ''}</span>
+                        </div>
+                        <p style={{ color: '#4a3f38', margin: 0 }}>{f.description}</p>
+                      </div>
+                    ))}</div>
+                    let genFs: any[] = []
+                    try { const p = JSON.parse(outlineResults.foreshadowing || '[]'); if (Array.isArray(p)) genFs = p } catch {}
+                    if (genFs.length > 0) return <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{genFs.map((f: any) => (
+                      <div key={f.description} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: f.status === 'resolved' ? 'rgba(22,163,74,0.1)' : 'rgba(245,158,11,0.1)', color: f.status === 'resolved' ? '#16a34a' : '#f59e0b', fontWeight: 600 }}>{f.status === 'resolved' ? '已回收' : '已埋'}</span>
+                          <span style={{ color: '#9b8e84', fontSize: 10 }}>{f.plantChapter ? `第${f.plantChapter}章` : ''}{f.payoffChapter ? ` → 第${f.payoffChapter}章` : ''}</span>
+                        </div>
+                        <p style={{ color: '#4a3f38', margin: 0 }}>{f.description}</p>
+                      </div>
+                    ))}</div>
                     return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.foreshadowing || ''}</pre>
                   }
 
                   // Emotion Curve
                   if (dimSubTab === 'emotionCurve') {
-                    const srcData = extraction.emotionCurve?.segments || []
-                    return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{(isSrc ? srcData : []).length > 0 ? srcData.map((s: any) => <span key={s.chapterStart} style={{ fontSize: 10, padding: '4px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', color: '#6b5e54' }}>第{s.chapterStart}-{s.chapterEnd}章: {s.dominantEmotion}</span>) : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.emotionCurve || '未生成'}</pre>}</div>
+                    let genEm: any[] = []
+                    if (!isSrc) { try { const p = JSON.parse(outlineResults.emotionCurve || '[]'); genEm = Array.isArray(p) ? p : [] } catch {} }
+                    if (genEm.length > 0) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {genEm.map((s: any, i: number) => (
+                          <div key={i} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: /热血|高潮|激动/.test(s.dominantEmotion || '') ? 'rgba(220,38,38,0.1)' : /压抑|悲伤|恐惧/.test(s.dominantEmotion || '') ? 'rgba(59,130,246,0.1)' : /温馨|希望/.test(s.dominantEmotion || '') ? 'rgba(22,163,74,0.1)' : 'rgba(0,0,0,0.03)', color: /热血|高潮|激动/.test(s.dominantEmotion || '') ? '#dc2626' : '#6b5e54', fontWeight: 600 }}>{s.dominantEmotion}</span>
+                            <span style={{ color: '#6b5e54' }}>{s.chapterStart ? `第${s.chapterStart}${s.chapterEnd ? `-${s.chapterEnd}` : ''}章` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                    if (isSrc && extraction.emotionCurve) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {extraction.emotionCurve.segments.map((s: any) => (
+                          <div key={s.chapterStart} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: /热血|高潮|激动/.test(s.dominantEmotion) ? 'rgba(220,38,38,0.1)' : /压抑|悲伤|恐惧/.test(s.dominantEmotion) ? 'rgba(59,130,246,0.1)' : /温馨|希望/.test(s.dominantEmotion) ? 'rgba(22,163,74,0.1)' : 'rgba(0,0,0,0.03)', color: /热血|高潮|激动/.test(s.dominantEmotion) ? '#dc2626' : /压抑|悲伤|恐惧/.test(s.dominantEmotion) ? '#3b82f6' : '#6b5e54', fontWeight: 600 }}>{s.dominantEmotion}</span>
+                            <span style={{ color: '#6b5e54' }}>第{s.chapterStart}-{s.chapterEnd}章</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.emotionCurve || '未生成'}</pre>
                   }
 
                   // Erotic
-                  if (dimSubTab === 'erotic') return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.erotic || (isSrc ? `已提取 ${extraction.chapters.filter(c => c.erotic).length} 章的情色数据` : '未生成')}</pre>
+                  if (dimSubTab === 'erotic') {
+                    let genEr: any = null
+                    if (!isSrc) { try { genEr = JSON.parse(outlineResults.erotic || '{}') } catch {} }
+                    if (genEr) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
+                        {genEr.characterRoles?.length > 0 && <div><div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>角色情色设定</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{genEr.characterRoles.map((cr: any) => <span key={cr.name} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{cr.name}({cr.domSub || 'sub'})</span>)}</div></div>}
+                        {genEr.powerDynamics && <div><span style={{ color: '#9b8e84' }}>权力关系:</span> <span style={{ color: '#4a3f38' }}>{genEr.powerDynamics}</span></div>}
+                        {genEr.degradationPatterns?.length > 0 && <div><span style={{ color: '#9b8e84' }}>羞辱模式:</span> {genEr.degradationPatterns.join('、')}</div>}
+                        {genEr.sceneFlow?.length > 0 && <div><span style={{ color: '#9b8e84' }}>场景流程:</span> {genEr.sceneFlow.map((sf: any) => sf.phase).join(' → ')}</div>}
+                        {genEr.techniques && <div><span style={{ color: '#9b8e84' }}>技法:</span> {genEr.techniques.soundStyle || ''} {genEr.techniques.moanDensity || ''}</div>}
+                      </div>
+                    )
+                    if (isSrc) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {extraction.chapters.filter(c => c.erotic).map(ch => (
+                          <div key={ch.chapterId} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(220,38,38,0.1)', fontSize: 11 }}>
+                            <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>第{ch.chapterNumber}章</div>
+                            {ch.erotic?.characterRoles && ch.erotic.characterRoles.length > 0 && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', fontSize: 9 }}>{ch.erotic.characterRoles.map((cr: any) => <span key={cr.name} style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{cr.name}({cr.domSub || 'sub'})</span>)}</div>}
+                            {ch.erotic?.powerDynamics && <p style={{ color: '#6b5e54', margin: '4px 0 0', fontSize: 10 }}>{ch.erotic.powerDynamics}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.erotic || '未生成'}</pre>
+                  }
 
                   return null
                 })()}
@@ -955,11 +1078,14 @@ export default function ImitationPage() {
                       { key: 'emotionCurve', label: '情绪模仿', icon: SparklesIcon },
                       ...(novelType === 'erotic' ? [{ key: 'erotic', label: '情色模仿', icon: FireIcon }] : []),
                     ].map(dim => (
-                      <Button key={dim.key} size="sm" variant={outlineGenerated[dim.key] ? 'secondary' : 'ghost'} onClick={() => handleGenerateDim(dim.key)} disabled={genLoading || !extraction.aggregated} icon={outlineGenerated[dim.key] ? <CheckCircleIcon style={{ width: 14, height: 14 }} /> : <SparklesIcon style={{ width: 14, height: 14 }} />}>{dim.label}{outlineGenerated[dim.key] ? ' ✓' : ''}</Button>
+                      <Button key={dim.key} size="sm" variant={outlineGenerated[dim.key] ? 'secondary' : 'ghost'} onClick={() => {
+                        if (outlineGenerated[dim.key] && !confirm(`${dim.label}已完成，是否重新生成？`)) return
+                        handleGenerateDim(dim.key)
+                      }} disabled={genLoading || !extraction.aggregated} icon={outlineGenerated[dim.key] ? <CheckCircleIcon style={{ width: 14, height: 14 }} /> : <SparklesIcon style={{ width: 14, height: 14 }} />}>{dim.label}{outlineGenerated[dim.key] ? ' ✓' : ''}</Button>
                     ))}
                     <Button size="sm" variant="secondary" onClick={async () => {
                       const keys = ['characters','worldbuilding','items','powerSystem','foreshadowing','emotionCurve',...(novelType === 'erotic' ? ['erotic'] : [])]
-                      for (const k of keys) { await handleGenerateDim(k) }
+                      for (const k of keys) { if (!outlineGenerated[k]) await handleGenerateDim(k) }
                     }} disabled={genLoading || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>自动模仿全部</Button>
                   </div>
                   {genPreview && genType && (

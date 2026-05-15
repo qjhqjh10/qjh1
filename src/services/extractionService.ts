@@ -186,7 +186,7 @@ const DIM_SCHEMAS: Record<string, string> = {
     {
       "name": "角色名",
       "aliases": ["别名1"],
-      "role": "推测的角色定位(主角/反派/配角/路人)",
+      "role": "角色身份: 男主/女主/男配/女配/反派/其他(从上下文推断角色性别和定位)",
       "traits": ["性格特征"],
       "appearance": "外貌描写",
       "action": "本章中做了什么",
