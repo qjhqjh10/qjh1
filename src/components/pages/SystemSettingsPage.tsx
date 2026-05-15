@@ -8,6 +8,7 @@ import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
+import versionData from '@/data/version_history.json'
 
 type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats' | 'version'
 
@@ -963,54 +964,10 @@ function VersionTab() {
   const [latestVersion, setLatestVersion] = useState('')
   const [releaseUrl, setReleaseUrl] = useState('')
 
-  const currentVersion = '1.1.0'
-  const currentDate = '2026-05-14'
+  const currentVersion = versionData.currentVersion
+  const currentDate = versionData.currentDate
   const repoUrl = 'https://github.com/qjhqjh10/qjh1/releases'
-
-  const versionHistory = [
-    {
-      version: '1.1.0', date: '2026-05-14',
-      features: [
-        '风格工坊（导入TXT→章节拆分→AI逐章分析→整体风格总结→应用到写作项目）',
-        '风格分析系统15维可自选（基础通用11维+情色专属4维），支持多种小说类型预设',
-        '情色场景编排器（11区50+控件，结构化prompt自动构建，模板保存加载）',
-        '普通小说场景编排器（6区配置，按类型动态调整元素）',
-        '故事脉络成长标签前移+类型联动+自定义弹窗',
-        '章节版本对比（行级LCS diff算法，红绿灰高亮）',
-        '美元/人民币双货币切换+Token明细删除按钮',
-        '版本检查与更新功能',
-        '场景模板库（全局存储+IPC+CRUD）',
-      ],
-      fixes: [
-        'AI max_tokens兼容DeepSeek API（0值传undefined）',
-        '章节生成UX改造（遮罩+可拖动浮动卡片+实时编辑器输出）',
-        '20+处静默错误吞没→统一logger日志系统',
-        '外部链接改用系统浏览器打开',
-        '暗色模式CSS filter覆盖全量内联样式',
-      ],
-    },
-    {
-      version: '1.0.0', date: '2026-05-13',
-      features: [
-        'AI对话助手（知识库语义搜索+联网搜索+上下文自动注入）',
-        '角色系统（AI生成角色+人物关系图可视化）',
-        '章节写作（AI生成/润色/续写/审稿/摘要，流式输出）',
-        '故事脉络系统9标签页（时间线/伏笔链/一致性/情绪曲线/出场/节奏/支线/POV/成长）',
-        '风格工坊（导入TXT→章节拆分→AI逐章分析→整体风格总结→应用到写作项目）',
-        '暗色模式 + 批量生成章节 + 章节版本对比(diff高亮)',
-        '角色成长追踪（自定义维度+跨章记录+7种类型预设）',
-        '提示词模板系统（10种类型）+ Token统计 + 知识库RAG',
-      ],
-      fixes: [
-        '20+处静默错误吞没→统一logger日志系统',
-        'AI max_tokens兼容DeepSeek API',
-        '章节生成UX改造（遮罩+可拖动浮动卡片+实时编辑器输出）',
-        'ES2022 target、ModelConfig统一、服务层绕过修复',
-        'KB自动索引连接修复、ErrorBoundary页面级扩展',
-        '建立27个自动化测试用例',
-      ],
-    },
-  ]
+  const versionHistory = versionData.history
 
   const handleCheckUpdate = async () => {
     setCheckResult('checking')

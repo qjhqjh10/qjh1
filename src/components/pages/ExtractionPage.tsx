@@ -82,8 +82,9 @@ export default function ExtractionPage() {
       const chapters = splitChapters(result.content)
       const ext: NovelExtraction = {
         id: `ext_${nanoid(8)}`, novelName: result.name.replace(/\.txt$/i, ''),
-        sourceFileName: result.name, chapters: [], aggregated: null, plotStructure: null,
-        styleProfile: null, pacingTemplate: null, generatedNovel: null,
+        sourceFileName: result.name, novelType: 'general',
+        chapters: [], aggregated: null, plotStructure: null,
+        styleProfile: null, pacingTemplate: null, eventPattern: null, progressionRhythm: null, characterArchetype: null, emotionCurve: null, generatedNovel: null,
         status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
       ext.chapters = chapters.map((ch, i) => ({

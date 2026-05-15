@@ -361,15 +361,19 @@ export interface StyleProjectMeta {
   createdAt: string; novelType: string
 }
 
-export const NOVEL_TYPES = ['通用','都市','修仙','恋爱','古风','悬疑','情色']
+export const NOVEL_TYPES = ['通用','都市','修仙','武侠','恋爱','古风','悬疑','历史','穿越','科幻','情色']
 
 export const NOVEL_TYPE_DIMS: Record<string, string[]> = {
   '通用': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern'],
   '都市': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism'],
   '修仙': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','cultivationCombat'],
+  '武侠': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','cultivationCombat','archaicStyle'],
   '恋爱': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','romanceArc'],
   '古风': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','archaicStyle'],
   '悬疑': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','suspensePacing'],
+  '历史': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','archaicStyle','socialRealism'],
+  '穿越': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism','cultivationCombat'],
+  '科幻': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism'],
   '情色': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop'],
 }
 
@@ -460,6 +464,48 @@ export function isForeshadowingEvent(e: StoryEvent): boolean {
   return e.type === 'foreshadowing' || e.type === 'payoff'
 }
 
+// ---- Pattern Types ----
+
+export interface PacingTemplate {
+  battleRatio: number; transitionRatio: number; climaxRatio: number
+  trainingRatio: number; socialRatio: number; avgChapterWords: number
+}
+
+export interface EventPattern {
+  cycles: { name: string; chapterSpan: number }[]
+  eventDensity: number
+}
+
+export interface ProgressionRhythm {
+  levelCount: number
+  pattern: string
+  stages: { name: string; chapters: string; levelsGained: number; avgChaptersPerLevel: number }[]
+}
+
+export interface CharacterArchetype {
+  archetypes: { role: string; function: string; arcSpan: string }[]
+}
+
+export interface EmotionCurve {
+  segments: { chapterStart: number; chapterEnd: number; dominantEmotion: string }[]
+  cycleLength: number
+}
+
+// ---- Character Erotic Extension ----
+
+export interface CharacterErotic {
+  domSub?: string; bodyState?: string; kinks?: string[]
+  shameLevel?: string; bodyProgression?: string
+  psychologicalPattern?: string; relationshipStairs?: string
+  triggerWords?: string
+}
+
+// EroticSceneConfig extensions (from extraction)
+export interface ExtractedEroticScene {
+  audienceDynamic?: string; costumeSystem?: string
+  aftercareRitual?: string; sensoryImmersion?: string
+}
+
 // ---- Novel Extraction System ----
 
 export interface ExtractedCharacterRaw {
@@ -485,12 +531,21 @@ export interface ExtractedForeshadow {
   description: string; type: 'planted' | 'resolved'; relatedChapter?: number
 }
 
+export interface EroticExtractionData {
+  characterRoles: { name: string; domSub: string; bodyState: string; kinks: string[]; shameLevel: string }[]
+  sceneFlow: { phase: string; actions: string[]; bodyReactions: string[]; duration: string }[]
+  techniques: { bodyFluids: string[]; touchFocus: string[]; soundStyle: string; moanDensity: string }
+  powerDynamics: string
+  degradationPatterns: string[]
+}
+
 export interface ChapterExtraction {
   chapterId: string; chapterNumber: number; chapterTitle: string; chapterContent: string
   characters: ExtractedCharacterRaw[]; worldbuilding: ExtractedWorldElement[]
   items: ExtractedItem[]; powerSystem: ExtractedPowerMention[]
   chapterSummary: string; events: string[]
   foreshadowing: ExtractedForeshadow[]; emotionalTone: string
+  erotic?: EroticExtractionData
   extractedAt: string
 }
 
@@ -515,18 +570,14 @@ export interface PlotStructure {
   plotThreads: { name: string; type: string; chapters: number[] }[]
 }
 
-export interface PacingTemplate {
-  battleRatio: number
-  transitionRatio: number
-  climaxRatio: number
-  trainingRatio: number
-  socialRatio: number
-  avgChapterWords: number
+export interface GeneratedDetailedOutline {
+  chapterNumber: number; title: string; summary: string
+  charactersAppearing: string[]; keyEvents: string[]; emotionalTone: string
 }
 
 export interface GeneratedNovel {
   outline: string
-  detailedOutlines: { chapterNumber: number; title: string; summary: string }[]
+  detailedOutlines: GeneratedDetailedOutline[]
   characters: { name: string; role: string; traits: string[]; background: string }[]
   worldbuilding: string
   powerSystem: { name: string; levels: string[]; description: string }
@@ -534,10 +585,12 @@ export interface GeneratedNovel {
 }
 
 export interface NovelExtraction {
-  id: string; novelName: string; sourceFileName: string
+  id: string; novelName: string; sourceFileName: string; novelType: string
   chapters: ChapterExtraction[]
   aggregated: AggregatedResult | null; plotStructure: PlotStructure | null
   styleProfile: StyleProfile | null; pacingTemplate: PacingTemplate | null
+  eventPattern: EventPattern | null; progressionRhythm: ProgressionRhythm | null
+  characterArchetype: CharacterArchetype | null; emotionCurve: EmotionCurve | null
   generatedNovel: GeneratedNovel | null
   status: 'draft' | 'extracting' | 'aggregated' | 'completed'
   createdAt: string; updatedAt: string

@@ -33,6 +33,7 @@ import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
 import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
 import ExtractionPage from '@/components/pages/ExtractionPage'
+import ImitationPage from '@/components/pages/ImitationPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
 
@@ -69,6 +70,7 @@ function AnimatedRoutes() {
           <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
           <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
+          <Route path="/imitation" element={<ImitationPage />} />
           <Route path="/extraction" element={<ExtractionPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />

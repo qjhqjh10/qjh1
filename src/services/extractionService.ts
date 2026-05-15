@@ -4,6 +4,8 @@ import type {
   AggregatedResult, AggregatedCharacter,
   NovelExtraction, PacingTemplate, GeneratedNovel,
   ChapterAnalysis, StyleProfile, StyleChapter,
+  EroticExtractionData, EventPattern, ProgressionRhythm,
+  CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
 
@@ -178,17 +180,9 @@ export function aggregateExtractions(chapters: ChapterExtraction[]): AggregatedR
   }
 }
 
-// Build extraction prompt
-export function buildExtractionPrompt(chapterTitle: string, chapterContent: string): string {
-  return `你是一位专业的小说分析师。请分析以下小说章节，提取结构化信息。
-
-【章节标题】${chapterTitle}
-【章节内容】
-${chapterContent}
-
-请严格输出以下 JSON（不要markdown，不要额外说明）：
-{
-  "characters": [
+// Dimension schemas for dynamic prompt building
+const DIM_SCHEMAS: Record<string, string> = {
+  characters: `"characters": [
     {
       "name": "角色名",
       "aliases": ["别名1"],
@@ -198,16 +192,16 @@ ${chapterContent}
       "action": "本章中做了什么",
       "newInfo": "本章新揭示的关于此角色的信息(没有填'')"
     }
-  ],
-  "worldbuilding": [
+  ]`,
+  worldbuilding: `"worldbuilding": [
     {
       "type": "location|faction|rule|history|other",
       "name": "名称",
       "description": "描述",
       "newInfo": "本章新信息"
     }
-  ],
-  "items": [
+  ]`,
+  items: `"items": [
     {
       "name": "物品/法宝/功法名",
       "type": "法宝|丹药|功法|武器|道具|其他",
@@ -216,30 +210,58 @@ ${chapterContent}
       "ability": "能力/效果",
       "acquisitionMethod": "获得方式"
     }
-  ],
-  "powerSystem": [
+  ]`,
+  powerSystem: `"powerSystem": [
     {
       "term": "等级术语(如'筑基期')",
       "context": "上下文描述",
       "inferredLevel": 数字(从低到高推测排序,练气=1,筑基=2...)
     }
-  ],
-  "chapterSummary": "本章3-5句剧情摘要",
-  "events": ["本章关键事件1", "本章关键事件2"],
-  "foreshadowing": [
+  ]`,
+  chapterSummary: `"chapterSummary": "本章150-300字详细剧情摘要（包含起因经过结果和情感转折）"`,
+  events: `"events": ["本章关键事件1", "本章关键事件2", "本章关键事件3"]`,
+  foreshadowing: `"foreshadowing": [
     {
       "description": "伏笔或回收描述",
       "type": "planted|resolved"
     }
-  ],
-  "emotionalTone": "本章情绪基调(紧张/温馨/悲伤/热血/悬疑...)"
+  ]`,
+  emotionalTone: `"emotionalTone": "本章情绪基调(紧张/温馨/悲伤/热血/悬疑...)"`,
+  erotic: `"erotic": {
+    "characterRoles": [
+      {"name": "角色名", "domSub": "dom|sub|switch", "bodyState": "正常|发情|改造|退行|...", "kinks": ["束缚","露出","..."], "shameLevel": "高|中|低"}
+    ],
+    "sceneFlow": [
+      {"phase": "前戏|渐进|主戏|高潮|收尾", "actions": ["具体动作"], "bodyReactions": ["身体反应"], "duration": "短|中|长"}
+    ],
+    "techniques": {"bodyFluids": ["精液","爱液","汗液","..."], "touchFocus": ["乳房","腿","..."], "soundStyle": "稀疏|适量|密集|极密集", "moanDensity": "稀疏|适量|密集|极密集"},
+    "powerDynamics": "本章的权力关系和变化",
+    "degradationPatterns": ["言语羞辱","公开暴露","..."]
+  }`,
+}
+
+// Dynamic extraction prompt builder
+export function buildExtractionPrompt(chapterTitle: string, chapterContent: string, dims?: string[]): string {
+  const selected = (dims && dims.length > 0) ? dims : ['characters', 'worldbuilding', 'items', 'powerSystem', 'chapterSummary', 'events', 'foreshadowing', 'emotionalTone']
+  const fields = selected.map(k => `  ${DIM_SCHEMAS[k]}`).join(',\n')
+  return `你是一位专业的小说分析师。请分析以下小说章节，提取结构化信息。
+
+【章节标题】${chapterTitle}
+【章节内容】
+${chapterContent}
+
+请严格输出以下 JSON（不要markdown，不要额外说明）。未选中的维度不要输出，选中的维度必须填写（无数据填[]或""）：
+{
+${fields}
 }
 
 要求:
 1. 只提取文中明确写出或强烈暗示的信息，不要编造
 2. 角色名使用文中原名称，保持一致性
 3. 等级术语不要翻译，保持原文用词
-4. 伏笔判断标准: 文中提到但未完全解释的信息=planted; 之前planted的信息在本章得到解释=resolved`
+4. 伏笔判断标准: 文中提到但未完全解释的信息=planted; 之前planted的信息在本章得到解释=resolved
+5. chapterSummary必须详细(150-300字)，包含本章的起因、经过、结果和情感转折，足够让没读过的人理解剧情
+6. events至少列出3-5个关键事件点`
 }
 
 // Parse AI reply into ChapterExtraction
@@ -352,6 +374,103 @@ export function computePacingTemplate(chapters: ChapterExtraction[]): PacingTemp
   }
 }
 
+// Compute event cycle patterns from chapter events
+export function computeEventPattern(chapters: ChapterExtraction[]): EventPattern {
+  const cycles: { name: string; chapterSpan: number }[] = []
+  const eventCounts = chapters.reduce((sum, c) => sum + c.events.length, 0)
+  const density = chapters.length > 0 ? Math.round((eventCounts / chapters.length) * 10) / 10 : 0
+  // Find recurring event keywords
+  const eventWords = new Map<string, number>()
+  for (const ch of chapters) {
+    for (const ev of ch.events) {
+      eventWords.set(ev, (eventWords.get(ev) || 0) + 1)
+    }
+  }
+  // Take top recurring events
+  const sorted = [...eventWords.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]).slice(0, 8)
+  for (const [name] of sorted) {
+    const spans = chapters.filter(c => c.events.includes(name)).map(c => c.chapterNumber)
+    const span = spans.length >= 2 ? Math.round((spans[spans.length - 1] - spans[0]) / (spans.length - 1)) : 1
+    cycles.push({ name, chapterSpan: span })
+  }
+  return { cycles, eventDensity: density }
+}
+
+// Compute progression rhythm from power system and chapter summaries
+export function computeProgressionRhythm(chapters: ChapterExtraction[], powerSystem?: { levels: string[] }): ProgressionRhythm {
+  const levelCount = powerSystem?.levels.length || 0
+  const totalChapters = chapters.length
+  if (totalChapters === 0 || levelCount === 0) return { levelCount, pattern: '', stages: [] }
+
+  // Find which chapters mention level terms
+  const levelMentions: { chapter: number; level: string }[] = []
+  for (const ch of chapters) {
+    for (const ps of ch.powerSystem) {
+      levelMentions.push({ chapter: ch.chapterNumber, level: ps.term })
+    }
+  }
+
+  let pattern = '均匀'
+  const third = Math.floor(totalChapters / 3)
+  if (third > 10) {
+    const early = levelMentions.filter(m => m.chapter <= third).length
+    const late = levelMentions.filter(m => m.chapter > totalChapters - third).length
+    if (early > late * 2) pattern = '前快后慢'
+    else if (late > early * 2) pattern = '前慢后快'
+  }
+
+  return {
+    levelCount,
+    pattern,
+    stages: [
+      { name: '前期', chapters: `1-${third}`, levelsGained: Math.round(levelCount * 0.3), avgChaptersPerLevel: Math.round(third / Math.max(1, levelCount * 0.3)) },
+      { name: '中期', chapters: `${third + 1}-${totalChapters - third}`, levelsGained: Math.round(levelCount * 0.35), avgChaptersPerLevel: Math.round((totalChapters - 2 * third) / Math.max(1, levelCount * 0.35)) },
+      { name: '后期', chapters: `${totalChapters - third + 1}-${totalChapters}`, levelsGained: Math.round(levelCount * 0.35), avgChaptersPerLevel: Math.round(third / Math.max(1, levelCount * 0.35)) },
+    ],
+  }
+}
+
+// Extract character archetypes from aggregated characters
+export function computeCharacterArchetype(characters: AggregatedCharacter[]): CharacterArchetype {
+  const archetypes = characters.slice(0, 8).map(c => ({
+    role: c.role || '配角',
+    function: c.traits.slice(0, 3).join('+'),
+    arcSpan: `${c.firstChapter}-${c.lastChapter}`,
+  }))
+  return { archetypes }
+}
+
+// Compute emotion curve from chapter tones
+export function computeEmotionCurve(chapters: ChapterExtraction[]): EmotionCurve {
+  const tones = chapters.filter(c => c.emotionalTone).map(c => c)
+  if (tones.length === 0) return { segments: [], cycleLength: 0 }
+
+  const segments: EmotionCurve['segments'] = []
+  let currentEmotion = tones[0].emotionalTone
+  let start = tones[0].chapterNumber
+
+  for (let i = 1; i < tones.length; i++) {
+    if (tones[i].emotionalTone !== currentEmotion) {
+      segments.push({ chapterStart: start, chapterEnd: tones[i - 1].chapterNumber, dominantEmotion: currentEmotion })
+      currentEmotion = tones[i].emotionalTone
+      start = tones[i].chapterNumber
+    }
+  }
+  segments.push({ chapterStart: start, chapterEnd: tones[tones.length - 1].chapterNumber, dominantEmotion: currentEmotion })
+
+  return { segments, cycleLength: Math.round(tones.length / Math.max(1, segments.length)) }
+}
+
+// Enhanced outline prompt with pattern constraints
+export function buildGenerateOutlinePromptWithPatterns(extraction: NovelExtraction): string {
+  let p = buildGenerateOutlinePrompt(extraction)
+  if (extraction.pacingTemplate) {
+    const pt = extraction.pacingTemplate
+    p += `\n节奏约束: 新大纲应保持战斗${pt.battleRatio}%、过渡${pt.transitionRatio}%、修炼${pt.trainingRatio}%、高潮${pt.climaxRatio}%、日常${pt.socialRatio}%的章比例`
+  }
+  return p
+}
+
 // ---- Generation prompts ----
 
 export function buildGenerateOutlinePrompt(extraction: NovelExtraction): string {
@@ -374,7 +493,7 @@ export function buildGenerateOutlinePrompt(extraction: NovelExtraction): string 
 }
 
 export function buildGenerateDetailedOutlinesPrompt(outline: string, extraction: NovelExtraction): string {
-  return `你是一位小说创作专家。以下是新小说的大纲，请为每一章生成详细的剧情摘要（3-5句话），包括主要事件、角色互动和情绪基调。
+  return `你是一位小说创作专家。以下是新小说的大纲，请为每一章生成详细的细纲信息。
 
 新大纲:
 ${outline}
@@ -382,9 +501,17 @@ ${outline}
 原作章节摘要参考（保持相似的节奏和密度）:
 ${extraction.chapters.filter(c => c.extractedAt).map(c => `第${c.chapterNumber}章: ${c.chapterSummary}`).join('\n').slice(0, 2000)}
 
-请输出JSON数组:
-[{"chapterNumber": 1, "title": "标题", "summary": "详细摘要"}]
-只输出JSON，不要额外说明。`
+请输出JSON数组，每章包含：
+{
+  "chapterNumber": 1,
+  "title": "章节标题",
+  "summary": "150-300字详细剧情摘要",
+  "charactersAppearing": ["出场角色1", "出场角色2"],
+  "keyEvents": ["关键事件1", "关键事件2"],
+  "emotionalTone": "情绪基调(紧张/温馨/悲伤/热血/悬疑...)"
+}
+
+只输出JSON数组，不要额外说明。`
 }
 
 export function buildGenerateCharactersPrompt(extraction: NovelExtraction): string {
@@ -447,6 +574,70 @@ export function parseGeneratedWorldbuilding(reply: string): { worldbuilding: str
     }
   }
   return { worldbuilding: '', powerSystem: { name: '', levels: [], description: '' } }
+}
+
+// ---- Erotic extraction ----
+
+// Append erotic section to extraction prompt (only for erotic novels)
+export function buildEroticExtractionPrompt(chapterTitle: string, chapterContent: string, dims?: string[]): string {
+  let p = buildExtractionPrompt(chapterTitle, chapterContent, dims)
+  p += `
+
+【情色分析 — 仅情色小说执行】
+请额外分析本章的情色要素，输出在 "erotic" 字段中（如果不含情色内容则输出 null）：
+{
+  "erotic": {
+    "characterRoles": [
+      {"name": "角色名", "domSub": "dom|sub|switch", "bodyState": "正常|发情|改造|退行|包茎|微型化|怀孕|哺乳期", "kinks": ["束缚","露出","..."], "shameLevel": "高|中|低→高"}
+    ],
+    "sceneFlow": [
+      {"phase": "前戏|渐进|主戏|高潮|收尾", "actions": ["具体动作"], "bodyReactions": ["身体反应"], "duration": "短|中|长"}
+    ],
+    "techniques": {"bodyFluids": ["精液","爱液","汗液","..."], "touchFocus": ["乳房","腿","..."], "soundStyle": "稀疏|适量|密集|极密集", "moanDensity": "稀疏|适量|密集|极密集"},
+    "powerDynamics": "本章的权力关系和变化",
+    "degradationPatterns": ["言语羞辱","公开暴露","..."]
+  }
+}`
+  return p
+}
+
+// Parse erotic extraction reply (extends parseExtractionReply)
+export function parseExtractionReplyWithErotic(reply: string, chapterId: string, chapterNumber: number, chapterTitle: string, chapterContent: string): ChapterExtraction {
+  const base = parseExtractionReply(reply, chapterId, chapterNumber, chapterTitle, chapterContent)
+  try {
+    let jsonStr = reply
+    const m = reply.match(/\{[\s\S]*\}/)
+    if (m) jsonStr = m[0]
+    const parsed = JSON.parse(jsonStr)
+    if (parsed.erotic) base.erotic = parsed.erotic as EroticExtractionData
+  } catch { /* erotic parsing failed, continue without */ }
+  return base
+}
+
+// ---- Erotic generation prompts ----
+
+export function buildEroticGenerateOutlinePrompt(extraction: NovelExtraction): string {
+  let p = buildGenerateOutlinePrompt(extraction)
+  p += '\n额外要求: 为每章标注情色节奏等级(1-5)，1=纯剧情，5=高尺度。在大纲中使用格式: "第X章: 标题 - 摘要 [情色Lv.Y]"'
+  return p
+}
+
+export function buildEroticGenerateCharactersPrompt(extraction: NovelExtraction): string {
+  let p = buildGenerateCharactersPrompt(extraction)
+  p += '\n额外字段: 每个角色增加 "domSub": "dom|sub|switch", "bodyState": "身体状态", "kinks": ["性癖1","性癖2"], "shameLevel": "羞耻度"'
+  return p
+}
+
+export function buildEroticGenerateDetailedOutlinesPrompt(outline: string, extraction: NovelExtraction): string {
+  let p = buildGenerateDetailedOutlinesPrompt(outline, extraction)
+  p += '\n额外字段: 每章增加 "eroticFlow": "前戏→主戏→高潮→收尾", "intensity": 1-5, "characterStates": {"角色名": "身体状态"}'
+  return p
+}
+
+export function buildEroticGenerateWorldbuildingPrompt(extraction: NovelExtraction): string {
+  let p = buildGenerateWorldbuildingPrompt(extraction)
+  p += '\n额外: 世界观测中增加身体改造规则、羞耻体系(等级层级+服从机制)、权力仪式、性爱相关的社会组织结构'
+  return p
 }
 
 // ---- Convert extraction chapters to StyleChapter format ----

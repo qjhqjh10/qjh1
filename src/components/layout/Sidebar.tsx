@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { path: '/story-map', label: '故事脉络', icon: FlagIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
-  { path: '/extraction', label: '小说反推', icon: DocumentMagnifyingGlassIcon },
+  { path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon },
 ]
 
 export default function Sidebar() {
