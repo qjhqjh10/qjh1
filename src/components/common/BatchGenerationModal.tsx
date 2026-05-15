@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService } from '@/services/fileService'
+import { getStyleInjection } from '@/utils/styleInjector'
 import type { DetailedChapter } from '@/types/chapter'
 import type { Character } from '@/types/character'
 import type { VersionRecord } from './ChapterGenerationModal'
@@ -84,8 +85,15 @@ export default function BatchGenerationModal({
 
   const chapterPrompt = prompts.find(p => p.type === '章节' && p.enabled)
 
-  const buildPromptForChapter = (ch: DetailedChapter) => {
+  const buildPromptForChapter = async (ch: DetailedChapter) => {
     const parts: string[] = []
+    // Style injection
+    const storeActiveProjectId = useStore.getState().activeProjectId
+    if (storeActiveProjectId) {
+      const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
+      const styleInjection = await getStyleInjection(storeActiveProjectId, assignments)
+      if (styleInjection) parts.push(styleInjection)
+    }
     if (useWorldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 3000)}`)
     if (useOutline && outlineContent) parts.push(`【小说大纲】\n${outlineContent.slice(0, 2000)}`)
     if (useDetailedOutline && ch.description) parts.push(`【本章细纲】\n${ch.description}`)
@@ -125,7 +133,7 @@ export default function BatchGenerationModal({
         const ch = sortedChapters.find(c => c.id === item.chapterId)
         const chContent = ch ? await fileService.read(`${projectsBasePath}/${activeProjectId}/chapters/${item.chapterId}.txt`).catch(() => '') : ''
 
-        const prompt = buildPromptForChapter(ch || sortedChapters[0])
+        const prompt = await buildPromptForChapter(ch || sortedChapters[0])
         const messages = [{ role: 'user' as const, content: prompt }]
 
         if (streamMode) {

@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { extractionService, aiService, fileService } from '@/services/fileService'
 import { loadCharacters, saveCharacter } from '@/services/characterService'
+import { saveDetailedChapter } from '@/services/chapterService'
 import {
   aggregateExtractions, buildExtractionPrompt, parseExtractionReply, splitChapters,
-  buildStyleAnalyzePrompt, parseStyleAnalysisReply, computePacingTemplate,
+  computePacingTemplate,
   buildGenerateOutlinePrompt, buildGenerateDetailedOutlinesPrompt,
   buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt,
   parseGeneratedOutline, parseGeneratedDetailedOutlines,
@@ -43,10 +45,14 @@ const STATUS_LABELS: Record<string, string> = { draft: '未开始', extracting: 
 const STATUS_COLORS: Record<string, string> = { draft: '#9b8e84', extracting: '#f59e0b', aggregated: '#3b82f6', completed: '#16a34a' }
 
 export default function ExtractionPage() {
+  const navigate = useNavigate()
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const setCharacters = useStore(s => s.setCharacters)
+  const setOutlineContent = useStore(s => s.setOutlineContent)
+  const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
+  const setDetailedChapters = useStore(s => s.setDetailedChapters)
 
   const [view, setView] = useState<ViewMode>('library')
   const [projects, setProjects] = useState<{ id: string; name: string; chapterCount: number; status: string; createdAt: string }[]>([])
@@ -57,8 +63,6 @@ export default function ExtractionPage() {
   const [loading, setLoading] = useState(false)
   const [previewTab, setPreviewTab] = useState<PreviewTab>('chapter')
   const [extractIds, setExtractIds] = useState<Set<string>>(new Set())
-  const [styleLoading, setStyleLoading] = useState(false)
-  const [styleProgress, setStyleProgress] = useState('')
   const [genLoading, setGenLoading] = useState(false)
   const [genPreview, setGenPreview] = useState('')
   const [genType, setGenType] = useState<string | null>(null)
@@ -204,33 +208,14 @@ ${summaries}
     } catch (err) { logError('结构推断失败', err) }
   }
 
-  // ---- Style analysis ----
-  const handleStyleAnalyze = async () => {
-    if (!extraction || !activeConfigId) return
-    const dims = ['sentenceStyle', 'vocabularyStyle', 'rhetoricStyle', 'rhythmStyle', 'dialogueStyle', 'moodStyle', 'perspectiveStyle', 'bodyLanguageStyle', 'sensoryStyle', 'tensionStyle']
-    const chapters = extraction.chapters.filter(c => c.extractedAt)
-    if (chapters.length === 0) { alert('请先提取章节内容'); return }
-    setStyleLoading(true)
-    const updated = { ...extraction }
-    for (let i = 0; i < chapters.length; i++) {
-      const ch = chapters[i]
-      setStyleProgress(`风格分析: ${i + 1}/${chapters.length}`)
-      try {
-        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(dims)}\n\n[${ch.chapterTitle}]\n${ch.chapterContent.slice(0, 3000)}` }], activeConfigId)
-        const analysis = parseStyleAnalysisReply(reply)
-        const idx = updated.chapters.findIndex(c => c.chapterId === ch.chapterId)
-        if (idx !== -1) { /* style stored separately, not on ChapterExtraction */ }
-      } catch (err) { logError(`风格分析章节 ${ch.chapterNumber} 失败`, err) }
-    }
-    // Build simple style profile from aggregated results
-    const profile: any = { fullDescription: '', features: { sentenceStyle: '', vocabularyStyle: '', rhetoricStyle: '', rhythmStyle: '', dialogueStyle: '', moodStyle: '', perspectiveStyle: '', bodyLanguageStyle: '', sensoryStyle: '', tensionStyle: '', subtextStyle: '', descriptionPattern: null, corruptionArc: null, degradationRitual: null, narrativeVoice: null, sceneMechanics: null, somaticTension: null, identityDissolution: null, shameVoyeurLoop: null } }
-    updated.styleProfile = profile as any
-    // Compute pacing
-    updated.pacingTemplate = computePacingTemplate(extraction.chapters.filter(c => c.extractedAt))
+  // ---- Style analysis (delegated to Style Workshop) ----
+  const handleOpenStyleWorkshop = () => {
+    if (!extraction) return
+    // Compute pacing template and save
+    const updated = { ...extraction, pacingTemplate: computePacingTemplate(extraction.chapters.filter(c => c.extractedAt)), updatedAt: new Date().toISOString() }
     setExtraction(updated)
-    await extractionService.saveProject(updated)
-    setStyleProgress('风格分析完成')
-    setStyleLoading(false)
+    extractionService.saveProject(updated)
+    navigate('/style-workshop')
   }
 
   // ---- Generation ----
@@ -294,10 +279,48 @@ ${summaries}
 
   // ---- Import to project ----
   const handleImportToProject = async () => {
-    if (!ag || !activeProjectId || !projectsBasePath) return
+    if (!ag || !activeProjectId || !projectsBasePath || !extraction) return
     const pp = `${projectsBasePath}/${activeProjectId}`
-    const existingChars = await loadCharacters(pp)
-    const existingNames = new Set(existingChars.map(c => c.name))
+    const gn = extraction.generatedNovel
+    const imported: string[] = []
+
+    // 1. Generated outline → outline/outline.txt
+    if (gn?.outline) {
+      await fileService.write(`${pp}/outline/outline.txt`, gn.outline)
+      setOutlineContent(gn.outline)
+      imported.push('大纲')
+    }
+
+    // 2. Generated detailed outlines → detailed_outline/{order}.json
+    if (gn?.detailedOutlines && gn.detailedOutlines.length > 0) {
+      await fileService.ensureDir(`${pp}/detailed_outline`)
+      for (const d of gn.detailedOutlines) {
+        if (!d.chapterNumber || !d.title) continue
+        const ch = { id: `ch_${d.chapterNumber}`, title: d.title, description: d.summary, summary: d.summary, order: d.chapterNumber - 1, status: 'outline' as const }
+        await saveDetailedChapter(pp, ch)
+      }
+      imported.push(`${gn.detailedOutlines.length}章细纲`)
+    }
+
+    // 3. Generated characters → characters/{id}.json
+    let existingNames = new Set<string>()
+    if (gn?.characters && gn.characters.length > 0) {
+      const existing = await loadCharacters(pp)
+      existingNames = new Set(existing.map(c => c.name))
+      for (const gc of gn!.characters) {
+        if (existingNames.has(gc.name)) continue
+        const char: Character = {
+          ...EMPTY_CHARACTER, id: nanoid(8), name: gc.name,
+          role: (['男主', '女主', '男配', '女配', '反派', '其他'].includes(gc.role) ? gc.role : '其他') as Character['role'],
+          personality: gc.traits?.join('、') || '', background: gc.background || '', importance: 50,
+        }
+        await saveCharacter(pp, char)
+        existingNames.add(gc.name)
+      }
+      imported.push(`${gn!.characters!.length}个角色`)
+    }
+
+    // 4. Aggregated characters (only those not already imported)
     for (const ac of ag.characters) {
       if (existingNames.has(ac.name)) continue
       const char: Character = {
@@ -310,24 +333,69 @@ ${summaries}
     }
     setCharacters(await loadCharacters(pp))
 
+    // 5. Worldbuilding: generated takes priority, else aggregated
     let wbContent = ''
-    if (ag.worldbuilding.locations.length > 0)
-      wbContent += '## 地点\n\n' + ag.worldbuilding.locations.map(l => `- ${l.name}: ${l.description}`).join('\n') + '\n\n'
-    if (ag.worldbuilding.factions.length > 0)
-      wbContent += '## 势力\n\n' + ag.worldbuilding.factions.map(f => `- ${f.name}: ${f.description}`).join('\n') + '\n\n'
-    if (ag.worldbuilding.rules.length > 0)
-      wbContent += '## 规则\n\n' + ag.worldbuilding.rules.map(r => `- ${r.name}: ${r.description}`).join('\n') + '\n\n'
-    if (ag.worldbuilding.history)
-      wbContent += '## 历史\n\n' + ag.worldbuilding.history + '\n\n'
-    if (ag.powerSystem.levels.length > 0) {
-      wbContent += '## 等级体系\n\n' + ag.powerSystem.levels.join(' → ') + '\n'
-      if (ag.powerSystem.description) wbContent += ag.powerSystem.description + '\n'
+    if (gn?.worldbuilding) {
+      wbContent = gn.worldbuilding
+      if (gn.powerSystem?.levels?.length > 0) {
+        wbContent += `\n\n## 等级体系\n\n${gn.powerSystem.levels.join(' → ')}\n\n${gn.powerSystem.description || ''}`
+      }
+    } else {
+      if (ag.worldbuilding.locations.length > 0)
+        wbContent += '## 地点\n\n' + ag.worldbuilding.locations.map(l => `- ${l.name}: ${l.description}`).join('\n') + '\n\n'
+      if (ag.worldbuilding.factions.length > 0)
+        wbContent += '## 势力\n\n' + ag.worldbuilding.factions.map(f => `- ${f.name}: ${f.description}`).join('\n') + '\n\n'
+      if (ag.worldbuilding.rules.length > 0)
+        wbContent += '## 规则\n\n' + ag.worldbuilding.rules.map(r => `- ${r.name}: ${r.description}`).join('\n') + '\n\n'
+      if (ag.worldbuilding.history)
+        wbContent += '## 历史\n\n' + ag.worldbuilding.history + '\n\n'
+      if (ag.powerSystem.levels.length > 0) {
+        wbContent += '## 等级体系\n\n' + ag.powerSystem.levels.join(' → ') + '\n'
+        if (ag.powerSystem.description) wbContent += ag.powerSystem.description + '\n'
+      }
     }
+
+    // 6. Aggregated items
+    if (ag.items.length > 0) {
+      wbContent += '\n## 道具目录\n\n' + ag.items.map(i => `- ${i.name}(${i.type}${i.grade ? '/' + i.grade : ''}): ${i.ability} [第${i.firstChapter}章]`).join('\n') + '\n'
+      imported.push(`${ag.items.length}个道具`)
+    }
+
     if (wbContent) {
-      const existing = await fileService.read(`${pp}/worldbuilding/worldbuilding.txt`)
-      await fileService.write(`${pp}/worldbuilding/worldbuilding.txt`, existing ? existing + '\n\n---\n\n' + wbContent : wbContent)
+      await fileService.write(`${pp}/worldbuilding/worldbuilding.txt`, wbContent)
+      setWorldbuildingContent(wbContent)
+      imported.push('世界观')
     }
-    alert(`已导入: ${ag.characters.length}个角色, ${ag.worldbuilding.locations.length}个地点, ${ag.items.length}个道具`)
+
+    // 7. Foreshadowing → outline_meta.json
+    if (ag.foreshadowing.length > 0) {
+      const metaPath = `${pp}/outline/outline_meta.json`
+      let existingMeta: any = { foreshadowing: [], plotThreads: [], updatedAt: '' }
+      try {
+        const raw = await fileService.read(metaPath)
+        if (raw) existingMeta = JSON.parse(raw)
+      } catch { /* not exist yet */ }
+      const newItems = ag.foreshadowing.map(f => ({
+        id: `fs_${nanoid(6)}`, description: f.description,
+        plantChapterId: String(f.plantChapter), payoffChapterId: f.payoffChapter ? String(f.payoffChapter) : '',
+        status: f.status,
+      }))
+      existingMeta.foreshadowing = [...(existingMeta.foreshadowing || []), ...newItems]
+      existingMeta.updatedAt = new Date().toISOString()
+      await fileService.ensureDir(`${pp}/outline`)
+      await fileService.write(metaPath, JSON.stringify(existingMeta, null, 2))
+      imported.push(`${newItems.length}条伏笔`)
+    }
+
+    // 8. Plot structure → append to outline
+    if (extraction.plotStructure?.acts && extraction.plotStructure.acts.length > 0) {
+      let structText = '\n\n---\n\n## 故事结构推断\n\n'
+      structText += extraction.plotStructure.acts.map((a: any) => `- **${a.name}**(第${a.chapters[0]}-${a.chapters[a.chapters.length - 1]}章): ${a.summary}`).join('\n')
+      const existing = await fileService.read(`${pp}/outline/outline.txt`)
+      await fileService.write(`${pp}/outline/outline.txt`, (existing || gn?.outline || '') + structText)
+    }
+
+    alert(`导入完成!\n${imported.join('\n')}`)
   }
 
   // ---- Render: Library ----
@@ -690,17 +758,17 @@ ${summaries}
             </>
           )}
 
-          {/* Style Analysis */}
+          {/* Style Analysis — delegates to Style Workshop */}
           {extractedCount > 0 && (
             <>
               <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', marginTop: 4 }} />
               <h4 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 2 }}>风格分析</h4>
-              <Button size="sm" onClick={handleStyleAnalyze} disabled={styleLoading || !activeConfigId} icon={<SparklesIcon style={{ width: 14, height: 14 }} />} style={{ width: '100%' }}>
-                {styleLoading ? styleProgress : extraction.styleProfile ? '重新分析' : `分析文风 (${extractedCount}章)`}
+              <p style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>前往风格工坊进行16维度深度文风分析</p>
+              <Button size="sm" onClick={handleOpenStyleWorkshop} icon={<SparklesIcon style={{ width: 14, height: 14 }} />} style={{ width: '100%' }}>
+                打开风格工坊
               </Button>
-              {extraction.styleProfile && <span style={{ fontSize: 10, color: '#16a34a' }}>✓ 风格已分析</span>}
               {extraction.pacingTemplate && (
-                <div style={{ fontSize: 10, color: '#6b5e54' }}>
+                <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>
                   战斗{extraction.pacingTemplate.battleRatio}% 过渡{extraction.pacingTemplate.transitionRatio}% 高潮{extraction.pacingTemplate.climaxRatio}%
                 </div>
               )}

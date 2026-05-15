@@ -1,4 +1,5 @@
 import { styleProjectService } from '@/services/fileService'
+import { logError } from '@/utils/logger'
 import type { StyleProject } from '@/types/story'
 
 // Cache loaded style projects to avoid repeated IPC calls
@@ -123,8 +124,14 @@ export function buildStylePrompt(style: StyleProject): string {
 // Get style injection text for a target project
 export async function getStyleInjection(targetProjectId: string, styleAssignments: Record<string, string>): Promise<string | null> {
   const styleId = styleAssignments[targetProjectId]
-  if (!styleId) return null
+  if (!styleId) {
+    logError('风格注入跳过: 当前项目未绑定风格档案', { targetProjectId })
+    return null
+  }
   const style = await getStyleForProject(styleId)
-  if (!style) return null
+  if (!style) {
+    logError('风格注入跳过: 风格档案加载失败或未完成AI总结', { styleId })
+    return null
+  }
   return buildStylePrompt(style)
 }
