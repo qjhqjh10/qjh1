@@ -568,12 +568,12 @@ export function parseGeneratedWorldbuilding(reply: string): { worldbuilding: str
   const m = reply.match(/\{[\s\S]*\}/)
   if (m) {
     const parsed = JSON.parse(m[0])
-    return {
-      worldbuilding: parsed.worldbuilding || '',
-      powerSystem: parsed.powerSystem || { name: '', levels: [], description: '' },
-    }
+    let wb = (parsed.worldbuilding || '').replace(/^#+ .*\n?/gm, '').trim()
+    const ps = parsed.powerSystem || { name: '', levels: [], description: '' }
+    if (ps.name) wb = `等级体系: ${ps.levels.join(' → ')}\n\n${ps.description}\n\n${wb}`
+    return { worldbuilding: wb, powerSystem: ps }
   }
-  return { worldbuilding: '', powerSystem: { name: '', levels: [], description: '' } }
+  return { worldbuilding: reply.replace(/^#+ .*\n?/gm, '').trim(), powerSystem: { name: '', levels: [], description: '' } }
 }
 
 // ---- Erotic extraction ----

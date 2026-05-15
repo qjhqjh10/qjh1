@@ -45,10 +45,10 @@ const TABS: { key: PreviewTab; label: string; icon: typeof DocumentTextIcon }[] 
   { key: 'chapter', label: '章节', icon: BookOpenIcon },
   { key: 'srcOutline', label: '原书大纲', icon: DocumentTextIcon },
   { key: 'srcDetails', label: '原书细纲', icon: ListBulletIcon },
+  { key: 'generate', label: '生成', icon: SparklesIcon },
   { key: 'outline', label: '大纲', icon: DocumentTextIcon },
   { key: 'details', label: '细纲', icon: ListBulletIcon },
   { key: 'timeline', label: '时间线', icon: LightBulbIcon },
-  { key: 'generate', label: '生成', icon: SparklesIcon },
 ]
 
 const STATUS_LABELS: Record<string, string> = { draft: '未开始', extracting: '提取中', aggregated: '已聚合', completed: '已完成' }
@@ -100,6 +100,11 @@ export default function ImitationPage() {
   const [genType, setGenType] = useState<string | null>(null)
   const [outlineGenerated, setOutlineGenerated] = useState<Record<string, boolean>>({})
   const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
+  const [detailsResults, setDetailsResults] = useState<string>('')
+  const [detailGenResults, setDetailGenResults] = useState<any[]>([])
+  const [detailGenRunning, setDetailGenRunning] = useState(false)
+  const [detailGenCurrent, setDetailGenCurrent] = useState(0)
+  const detailGenAbortRef = useRef(false)
   const [dimSubTab, setDimSubTab] = useState<DimKey>('characters')
   const [showDimDialog, setShowDimDialog] = useState(false)
   const [extractDims, setExtractDims] = useState<Set<string>>(new Set())
@@ -300,46 +305,48 @@ export default function ImitationPage() {
     if (!extraction || !ag || !activeConfigId) return
     const charResult = outlineResults['characters']
     if (!charResult) { alert('请先生成角色模仿'); return }
-    setGenLoading(true); setGenType('details_imitation'); setGenPreview('')
-    try {
-      const origSummaries = extraction.chapters.filter(c => c.extractedAt).map(c =>
-        `第${c.chapterNumber}章[${c.emotionalTone || '无'}]: ${c.chapterSummary} 出场[${c.characters.map(ch => ch.name || ch).join(', ')}] 事件[${c.events.join(', ')}]`
-      ).join('\n').slice(0, 3000)
+    const chs = extraction.chapters.filter(c => extractIds.has(c.chapterId) && c.extractedAt)
+    if (chs.length === 0) { alert('请先在左侧选择要生成细纲的章节'); return }
+    setDetailGenRunning(true); setDetailGenCurrent(0)
+    detailGenAbortRef.current = false
+    const results: any[] = []
+    const or = outlineResults
 
-      // Build comprehensive prompt with all available outline dimensions
-      const or = outlineResults
-      const sections: string[] = ['你是小说创作专家。以下是新小说的完整设定。请为每一章生成详细细纲。']
-      sections.push(`\n## 角色列表\n${charResult}\n要求: 每章"出场角色"只从以上列表中选取，含身份和性格。`)
-      if (or.powerSystem) sections.push(`\n## 等级体系\n${or.powerSystem}\n要求: 每章标注主角当前境界，升级节点参照此体系节奏。`)
-      else sections.push('\n## 等级体系\n未生成，请自行设计升级节奏。')
-      if (or.items) sections.push(`\n## 道具目录\n${or.items}\n要求: 每章使用的道具从以上列表中选取。`)
-      else sections.push('\n## 道具目录\n未生成，请自行设计道具分配。')
-      if (or.worldbuilding) sections.push(`\n## 世界观\n${or.worldbuilding}\n要求: 场景地点使用以上地名和势力名。`)
-      else sections.push('\n## 世界观\n未生成，请自行设计场景地名。')
-      if (or.foreshadowing) sections.push(`\n## 伏笔结构\n${or.foreshadowing}\n要求: 每章标注埋设/回收的伏笔，名称从以上列表中选取。`)
-      if (or.emotionCurve) sections.push(`\n## 情绪模板\n${or.emotionCurve}\n要求: 每章情绪基调参照此节奏。`)
-      if (or.erotic) sections.push(`\n## 情色设定\n${or.erotic}`)
-      sections.push(`\n## 原细纲节奏参考\n${origSummaries}`)
-      sections.push(`\n要求:
-1. 保持与原著相似的章节节奏和事件密度
-2. 每章细纲输出JSON对象:
-   {"chapterNumber":1,"title":"","summary":"150-300字剧情摘要",
-    "charactersAppearing":["角色名(身份,性格)"],
-    "levelChange":"本章等级变化(无则'')",
-    "itemsUsed":["使用的道具(无则[])"],
-    "location":"场景地点",
-    "foreshadowingOps":["埋设:xxx"|"回收:xxx"(无则[])"],
-    "keyEvents":["事件1","事件2","事件3"],
-    "emotionalTone":"情绪基调"}
-3. 所有名称和数据必须从以上设定中选取
-4. 剧情完全原创
-5. 输出JSON数组（不要markdown）。`)
+    for (let i = 0; i < chs.length; i++) {
+      if (detailGenAbortRef.current) { setDetailGenRunning(false); return }
+      const ch = chs[i]
+      setDetailGenCurrent(i + 1)
 
-      const prompt = sections.join('\n')
-      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-      try { const m = reply.match(/\[[\s\S]*\]/); const parsed = m ? JSON.parse(m[0]) : []; setGenPreview(JSON.stringify(parsed, null, 2)) } catch { setGenPreview(reply) }
-    } catch (err) { logError('生成细纲失败', err) }
-    setGenLoading(false)
+      // Build per-chapter prompt
+      const parts: string[] = ['你是小说创作专家。为新小说第' + ch.chapterNumber + '章生成细纲。']
+      parts.push(`\n## 新大纲设定\n角色:\n${charResult}`)
+      if (or.powerSystem) parts.push(`等级:\n${or.powerSystem}`)
+      if (or.items) parts.push(`道具:\n${or.items}`)
+      if (or.worldbuilding) parts.push(`世界观:\n${or.worldbuilding}`)
+      if (or.foreshadowing) parts.push(`伏笔:\n${or.foreshadowing}`)
+      // Original chapter reference
+      parts.push(`\n## 原作第${ch.chapterNumber}章参考\n摘要: ${ch.chapterSummary}`)
+      if (ch.characters.length > 0) parts.push(`出场角色: ${ch.characters.map((c: any) => c.name || c).join(', ')}`)
+      if (ch.events.length > 0) parts.push(`事件: ${ch.events.join(' · ')}`)
+      parts.push(`情绪: ${ch.emotionalTone || '无'}`)
+      if (ch.powerSystem.length > 0) parts.push(`等级提及: ${ch.powerSystem.map((p: any) => p.term).join(', ')}`)
+      if (ch.items.length > 0) parts.push(`道具提及: ${ch.items.map((it: any) => it.name).join(', ')}`)
+
+      parts.push(`\n要求: 为新书第${ch.chapterNumber}章生成细纲JSON:\n{"chapterNumber":${ch.chapterNumber},"title":"","summary":"150-300字","charactersAppearing":["角色(身份)"],"levelChange":"","itemsUsed":[],"location":"","foreshadowingOps":[],"keyEvents":[],"emotionalTone":""}\n角色从新列表中选, 道具/等级/世界观使用新设定中的名称, 剧情原创。只输出JSON。`)
+
+      try {
+        const reply = await aiService.chat([{ role: 'user' as const, content: parts.join('\n') }], activeConfigId)
+        const m = reply.match(/\{[\s\S]*\}/)
+        if (m) {
+          const parsed = JSON.parse(m[0])
+          parsed.chapterNumber = ch.chapterNumber // ensure correct chapter number
+          results.push(parsed)
+          setDetailGenResults([...results])
+        }
+      } catch (err) { logError(`细纲生成失败 第${ch.chapterNumber}章`, err) }
+    }
+    setDetailGenRunning(false)
+    setDetailsResults(JSON.stringify(results, null, 2))
   }
 
   // ---- Generate (legacy, kept for type support) ----
@@ -418,90 +425,108 @@ export default function ImitationPage() {
   const handleImportToProject = async () => {
     if (!ag || !activeProjectId || !projectsBasePath || !extraction) return
     const pp = `${projectsBasePath}/${activeProjectId}`
-    const gn = extraction.generatedNovel; const imported: string[] = []
+    const or = outlineResults
+    const imported: string[] = []
 
-    // Outline
-    if (gn?.outline) { await fileService.write(`${pp}/outline/outline.txt`, gn.outline); setOutlineContent(gn.outline); imported.push('大纲') }
-
-    // Detailed outlines
-    if (gn?.detailedOutlines && gn.detailedOutlines.length > 0) {
-      await fileService.ensureDir(`${pp}/detailed_outline`)
-      for (const d of gn.detailedOutlines) {
-        if (!d.chapterNumber || !d.title) continue
-        const origSummary = extraction.chapters.find(c => c.chapterNumber === d.chapterNumber)?.chapterSummary
-        const desc = d.summary + (origSummary ? `\n\n[原作参考]\n${origSummary}` : '')
-        await saveDetailedChapter(pp, { id: `ch_${d.chapterNumber}`, title: d.title, description: desc, summary: d.summary, order: d.chapterNumber - 1, status: 'outline' })
-      }
-      imported.push(`${gn.detailedOutlines.length}章细纲`)
+    // 1. Generated characters → characters/*.json
+    if (or.characters) {
+      const existing = await loadCharacters(pp)
+      const existingNames = new Set(existing.map(c => c.name))
+      try {
+        const chars = JSON.parse(or.characters)
+        if (Array.isArray(chars)) {
+          let count = 0
+          for (const c of chars) {
+            if (!c.name || existingNames.has(c.name)) continue
+            await saveCharacter(pp, { ...EMPTY_CHARACTER, id: nanoid(8), name: c.name, role: (['男主','女主','男配','女配','反派','其他'].includes(c.role) ? c.role : '其他') as Character['role'], personality: Array.isArray(c.traits) ? c.traits.join('、') : (c.traits || ''), background: c.background || '', importance: 50 })
+            existingNames.add(c.name); count++
+          }
+          if (count > 0) imported.push(`${count}个角色`)
+        }
+      } catch { /* parse failed, characters stored as text */ }
     }
-
-    // Characters
-    let existingNames = new Set<string>()
-    if (gn?.characters && gn.characters.length > 0) {
-      const existing = await loadCharacters(pp); existingNames = new Set(existing.map(c => c.name))
-      for (const gc of gn!.characters) {
-        if (existingNames.has(gc.name)) continue
-        await saveCharacter(pp, { ...EMPTY_CHARACTER, id: nanoid(8), name: gc.name, role: (['男主','女主','男配','女配','反派','其他'].includes(gc.role) ? gc.role : '其他') as Character['role'], personality: gc.traits?.join('、') || '', background: gc.background || '', importance: 50 })
-        existingNames.add(gc.name)
+    // Fallback: aggregated characters
+    if (!or.characters) {
+      const existing = await loadCharacters(pp)
+      const existingNames = new Set(existing.map(c => c.name))
+      for (const ac of ag.characters) {
+        if (existingNames.has(ac.name)) continue
+        await saveCharacter(pp, { ...EMPTY_CHARACTER, id: nanoid(8), name: ac.name, role: (['男主','女主','男配','女配','反派','其他'].includes(ac.role) ? ac.role : '其他') as Character['role'], personality: ac.traits.join('、'), appearance: ac.appearance, background: ac.background, importance: 50 })
       }
-      imported.push(`${gn.characters.length}个角色`)
-    }
-    for (const ac of ag.characters) {
-      if (existingNames.has(ac.name)) continue
-      await saveCharacter(pp, { ...EMPTY_CHARACTER, id: nanoid(8), name: ac.name, role: (['男主','女主','男配','女配','反派','其他'].includes(ac.role) ? ac.role : '其他') as Character['role'], personality: ac.traits.join('、'), appearance: ac.appearance, background: ac.background, importance: 50 })
     }
     setCharacters(await loadCharacters(pp))
 
-    // Worldbuilding
-    let wbContent = gn?.worldbuilding || ''
-    if (!wbContent) {
+    // 2. Worldbuilding → worldbuilding.txt
+    const wb = or.worldbuilding || ''
+    const items = or.items || ''
+    const power = or.powerSystem || ''
+    const erotic = or.erotic || ''
+    let wbContent = wb
+    if (!wbContent && ag) {
       if (ag.worldbuilding.locations.length > 0) wbContent += '## 地点\n\n' + ag.worldbuilding.locations.map(l => `- ${l.name}: ${l.description}`).join('\n') + '\n\n'
       if (ag.worldbuilding.factions.length > 0) wbContent += '## 势力\n\n' + ag.worldbuilding.factions.map(f => `- ${f.name}: ${f.description}`).join('\n') + '\n\n'
       if (ag.worldbuilding.rules.length > 0) wbContent += '## 规则\n\n' + ag.worldbuilding.rules.map(r => `- ${r.name}: ${r.description}`).join('\n') + '\n\n'
       if (ag.worldbuilding.history) wbContent += '## 历史\n\n' + ag.worldbuilding.history + '\n\n'
-      if (ag.powerSystem.levels.length > 0) { wbContent += '## 等级体系\n\n' + ag.powerSystem.levels.join(' → ') + '\n'; if (ag.powerSystem.description) wbContent += ag.powerSystem.description + '\n' }
     }
-    if (ag.items.length > 0) { wbContent += '\n## 道具目录\n\n' + ag.items.map(i => `- ${i.name}(${i.type}): ${i.ability}`).join('\n') + '\n'; imported.push(`${ag.items.length}个道具`) }
+    if (power) wbContent += '\n## 等级体系\n\n' + power + '\n'
+    else if (ag?.powerSystem.levels.length) { wbContent += '\n## 等级体系\n\n' + ag.powerSystem.levels.join(' → ') + '\n' }
+    if (items) wbContent += '\n## 道具目录\n\n' + items + '\n'
+    else if (ag?.items.length) { wbContent += '\n## 道具目录\n\n' + ag.items.map(i => `- ${i.name}(${i.type}): ${i.ability}`).join('\n') + '\n' }
+    if (erotic) wbContent += '\n## 情色设定\n\n' + erotic + '\n'
     if (wbContent) { await fileService.write(`${pp}/worldbuilding/worldbuilding.txt`, wbContent); setWorldbuildingContent(wbContent); imported.push('世界观') }
 
-    // Erotic scene configs (auto-create for erotic novels)
-    if (novelType === 'erotic') {
-      let sceneCount = 0
-      await fileService.ensureDir(`${pp}/scenes`)
-      for (const ch of extraction.chapters.filter(c => c.erotic && c.extractedAt)) {
-        const ed = ch.erotic!
-        const esc: EroticSceneConfig = {
-          characters: ed.characterRoles.map(cr => ({ characterId: '', characterName: cr.name, role: (cr.domSub === 'dom' ? 'dom' : 'sub') as any, bodyState: cr.bodyState, customNote: '' })),
-          location: '', time: '', atmosphere: '', publicity: '',
-          selectedKinks: [...new Set(ed.characterRoles.flatMap(cr => cr.kinks))], kinkNote: '',
-          opening: ed.sceneFlow.filter(sf => sf.phase === '前戏').flatMap(sf => sf.actions).slice(0, 3),
-          mainPose: '无偏好', mainRhythm: '无偏好', poseChanges: '2-3次转换',
-          climax: ed.sceneFlow.filter(sf => sf.phase === '高潮').flatMap(sf => sf.actions).slice(0, 3),
-          aftermath: ed.sceneFlow.filter(sf => sf.phase === '收尾').flatMap(sf => sf.actions).slice(0, 2),
-          soundDensity: ed.techniques.soundStyle || '密集', moanStyle: ed.techniques.moanDensity || '密集',
-          degradeLangs: ed.degradationPatterns || [],
-          intensity: 3, wordTarget: 3000, streamMode: true, replaceMode: true,
-          useStyleProfile: true, useChapterOutline: true, extraNote: ed.powerDynamics,
-          kinkIntensities: {}, customKink: '', customCharacters: [],
-          customLocation: '', customTime: '', customAtmosphere: '', customPublicity: '',
-          extraPhases: ed.sceneFlow.map(sf => ({ name: sf.phase, desc: sf.actions.join('、') })),
-          customInsults: '', bannedWords: '', narrativePOV: '第三人称',
-        }
-        await sceneService.saveChapterSceneConfig(pp, { chapterId: ch.chapterId, chapterTitle: ch.chapterTitle, eroticScene: esc, novelScene: null, updatedAt: new Date().toISOString() })
-        sceneCount++
-      }
-      if (sceneCount > 0) imported.push(`${sceneCount}个情色场景配置`)
+    // 3. Outline → outline.txt (from all dimension results as a combined view)
+    const outlineParts: string[] = []
+    if (or.characters) outlineParts.push('## 角色\n\n' + or.characters)
+    if (or.worldbuilding) outlineParts.push('## 世界观\n\n' + or.worldbuilding)
+    if (or.items) outlineParts.push('## 道具\n\n' + or.items)
+    if (or.powerSystem) outlineParts.push('## 等级体系\n\n' + or.powerSystem)
+    if (or.foreshadowing) outlineParts.push('## 伏笔结构\n\n' + or.foreshadowing)
+    if (or.emotionCurve) outlineParts.push('## 情绪模板\n\n' + or.emotionCurve)
+    if (outlineParts.length > 0) {
+      const outline = `# 生成的小说设定\n\n${outlineParts.join('\n\n')}`
+      await fileService.write(`${pp}/outline/outline.txt`, outline)
+      setOutlineContent(outline)
+      imported.push('大纲')
     }
 
-    // Foreshadowing + plot structure
-    if (ag.foreshadowing.length > 0) {
+    // 4. Detailed outlines → detailed_outline/*.json
+    const detResult = detailsResults || or.characters // use stored details or check if we have details
+    if (detailsResults) {
+      try {
+        const details = JSON.parse(detailsResults)
+        if (Array.isArray(details) && details.length > 0) {
+          await fileService.ensureDir(`${pp}/detailed_outline`)
+          for (const d of details) {
+            if (!d.chapterNumber) continue
+            const desc = (d.summary || '') + '\n\n出场角色:' + (d.charactersAppearing || []).join(', ') + '\n关键事件:' + (d.keyEvents || []).join(' · ')
+            await saveDetailedChapter(pp, { id: `ch_${d.chapterNumber}`, title: d.title || `第${d.chapterNumber}章`, description: desc, summary: d.summary || '', order: d.chapterNumber - 1, status: 'outline' })
+          }
+          imported.push(`${details.length}章细纲`)
+        }
+      } catch { /* parse failed */ }
+    }
+
+    // 5. Foreshadowing → outline_meta.json
+    const fs = or.foreshadowing
+    if (fs || ag.foreshadowing.length > 0) {
       const metaPath = `${pp}/outline/outline_meta.json`
       let existingMeta: any = { foreshadowing: [], plotThreads: [], updatedAt: '' }
       try { const raw = await fileService.read(metaPath); if (raw) existingMeta = JSON.parse(raw) } catch { /* */ }
-      existingMeta.foreshadowing = [...(existingMeta.foreshadowing || []), ...ag.foreshadowing.map(f => ({ id: `fs_${nanoid(6)}`, description: f.description, plantChapterId: String(f.plantChapter), payoffChapterId: f.payoffChapter ? String(f.payoffChapter) : '', status: f.status }))]
+      if (fs) {
+        try {
+          const fsArr = JSON.parse(fs)
+          if (Array.isArray(fsArr)) {
+            existingMeta.foreshadowing = [...(existingMeta.foreshadowing || []), ...fsArr.map((f: any) => ({ id: `fs_${nanoid(6)}`, description: f.description || f, plantChapterId: String(f.plantChapter || 1), payoffChapterId: f.payoffChapter ? String(f.payoffChapter) : '', status: f.status || 'planted' }))]
+          }
+        } catch { /* raw text */ }
+      }
+      if (!fs && ag.foreshadowing.length > 0) {
+        existingMeta.foreshadowing = [...(existingMeta.foreshadowing || []), ...ag.foreshadowing.map(f => ({ id: `fs_${nanoid(6)}`, description: f.description, plantChapterId: String(f.plantChapter), payoffChapterId: f.payoffChapter ? String(f.payoffChapter) : '', status: f.status }))]
+      }
       existingMeta.updatedAt = new Date().toISOString()
       await fileService.ensureDir(`${pp}/outline`); await fileService.write(metaPath, JSON.stringify(existingMeta, null, 2))
-      imported.push(`${ag.foreshadowing.length}条伏笔`)
+      imported.push(`${existingMeta.foreshadowing.length}条伏笔`)
     }
 
     alert(`导入完成!\n${imported.join('\n')}`)
@@ -615,6 +640,9 @@ export default function ImitationPage() {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <Button size="sm" onClick={() => { const preset = TYPE_DIM_PRESETS[novelType] || TYPE_DIM_PRESETS.general; setExtractDims(new Set(preset)); setShowDimDialog(true) }} disabled={!activeConfigId || extractIds.size === 0 || extractingRef.current} icon={<PlayIcon style={{ width: 14, height: 14 }} />}>提取({extractIds.size}章)</Button>
+          {extractedCount > 0 && !extractingRef.current && (
+            <Button size="sm" variant="ghost" onClick={() => setExtractIds(new Set(extraction.chapters.filter(c => !c.extractedAt).map(c => c.chapterId)))} title="选择所有尚未提取的章节（提取失败的章节可重新提取）">提取剩余</Button>
+          )}
           {extractingRef.current && (
             <>
               <Button size="sm" variant="ghost" onClick={() => { pausedRef.current = !pausedRef.current }}>{pausedRef.current ? '继续提取' : '暂停提取'}</Button>
@@ -637,21 +665,13 @@ export default function ImitationPage() {
         <button onClick={() => setExtractIds(new Set(extraction.chapters.slice(0, 50).map(c => c.chapterId)))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed' }}>前50章</button>
         <button onClick={() => setExtractIds(new Set(extraction.chapters.slice(0, 10).map(c => c.chapterId)))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed' }}>前10章</button>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {extractIds.size}章</span>
-        {(step === 'extracting' || progress.total > 0) && (
-          <>
-            <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.05)', overflow: 'hidden', minWidth: 100 }}>
-              <div style={{ height: '100%', width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%`, background: '#7c3aed', borderRadius: 2, transition: 'width 0.3s' }} />
-            </div>
-            <span style={{ fontSize: 10, color: '#9b8e84' }}>{progress.current}/{progress.total} {progress.text}</span>
-          </>
-        )}
       </div>
 
       {/* Next step guide after extraction */}
       {extractedCount > 0 && !extractingRef.current && !extraction.styleProfile && (
         <div style={{ padding: '8px 20px', background: 'rgba(124,58,237,0.04)', borderBottom: '1px solid rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: '#7c3aed' }}>
           <SparklesIcon style={{ width: 14, height: 14 }} />
-          提取完成 (数据已自动聚合)。下一步建议: ①风格分析 → ②模仿生成 → ③导入到项目
+          提取完成 (已自动聚合)。下一步: ①切换到「生成」Tab → ②大纲模仿(生成新设定) → ③细纲模仿(逐章生成) → ④「导入到项目」
         </div>
       )}
 
@@ -755,44 +775,42 @@ export default function ImitationPage() {
             </ScrollArea>
           )}
 
-          {/* === 原书细纲 & 细纲 Tab === */}
-          {(previewTab === 'srcDetails' || previewTab === 'details') && (
+{/* === 原书细纲 Tab: extracted chapter cards === */}
+          {previewTab === 'srcDetails' && (
             <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
               <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {(previewTab === 'srcDetails'
-                  ? extraction.chapters.filter(c => c.extractedAt)
-                  : (extraction.chapters.filter(c => c.extractedAt).length > 0 ? extraction.chapters.filter(c => c.extractedAt) : [])
-                ).length > 0 ? (
-                  (previewTab === 'srcDetails'
-                    ? extraction.chapters.filter(c => c.extractedAt)
-                    : extraction.chapters.filter(c => c.extractedAt)
-                  ).map((ch: any) => (
+                {extraction.chapters.filter(c => c.extractedAt).length > 0 ? (
+                  extraction.chapters.filter(c => c.extractedAt).map((ch: any) => (
                     <div key={ch.chapterId} style={{ padding: '12px 16px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.05)' }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>第{ch.chapterNumber}章: {ch.chapterTitle}</div>
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>剧情摘要</div>
-                        <p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{ch.chapterSummary}</p>
-                      </div>
-                      {ch.characters && ch.characters.length > 0 && (
-                        <div style={{ marginBottom: 6 }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>出场角色</div>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {ch.characters.map((c: any) => <span key={c.name || c} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>{typeof c === 'string' ? c : (c.name + (c.role ? `(${c.role})` : ''))}</span>)}
-                          </div>
-                        </div>
-                      )}
-                      {ch.events && ch.events.length > 0 && (
-                        <div style={{ marginBottom: 6 }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>关键事件</div>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {ch.events.map((ev: string) => <span key={ev} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.06)', color: '#3b82f6' }}>{ev}</span>)}
-                          </div>
-                        </div>
-                      )}
+                      <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>剧情摘要</div><p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{ch.chapterSummary}</p></div>
+                      {ch.characters && ch.characters.length > 0 && (<div style={{ marginBottom: 6 }}><div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>出场角色</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ch.characters.map((c: any) => <span key={c.name || c} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>{typeof c === 'string' ? c : (c.name + (c.role ? `(${c.role})` : ''))}</span>)}</div></div>)}
+                      {ch.events && ch.events.length > 0 && (<div style={{ marginBottom: 6 }}><div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>关键事件</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ch.events.map((ev: string) => <span key={ev} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.06)', color: '#3b82f6' }}>{ev}</span>)}</div></div>)}
                       {ch.emotionalTone && <div style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>情绪基调:</span> <span style={{ color: '#4a3f38' }}>{ch.emotionalTone}</span></div>}
                     </div>
                   ))
                 ) : <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>请先提取章节</div>}
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* === 细纲 Tab: generated imitation chapter cards === */}
+          {previewTab === 'details' && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(detailGenResults.length > 0 ? detailGenResults : (() => { try { return detailsResults ? JSON.parse(detailsResults) : [] } catch { return [] } })()).length > 0 ? (
+                  (detailGenResults.length > 0 ? detailGenResults : JSON.parse(detailsResults || '[]')).map((d: any) => (
+                    <div key={d.chapterNumber} style={{ padding: '12px 16px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.05)' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#3b82f6', marginBottom: 8 }}>第{d.chapterNumber}章: {d.title}</div>
+                      <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>剧情摘要</div><p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{d.summary}</p></div>
+                      {d.charactersAppearing?.length > 0 && (<div style={{ marginBottom: 6 }}><div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>出场角色</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{d.charactersAppearing.map((c: string) => <span key={c} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: 'rgba(59,130,246,0.06)', color: '#3b82f6' }}>{c}</span>)}</div></div>)}
+                      {d.levelChange && <div style={{ marginBottom: 6 }}><span style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>等级:</span> <span style={{ color: '#16a34a' }}>{d.levelChange}</span></span></div>}
+                      {d.itemsUsed?.length > 0 && (<div style={{ marginBottom: 6 }}><span style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>道具:</span> {d.itemsUsed.map((i: string) => <span key={i} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.06)', color: '#e67e00', marginRight: 4 }}>{i}</span>)}</span></div>)}
+                      {d.keyEvents?.length > 0 && (<div style={{ marginBottom: 6 }}><span style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>事件:</span> {d.keyEvents.join(' · ')}</span></div>)}
+                      {d.emotionalTone && <div style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>情绪基调:</span> <span style={{ color: '#4a3f38' }}>{d.emotionalTone}</span></div>}
+                    </div>
+                  ))
+                ) : <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>尚未生成细纲。切换到「生成」Tab → 细纲模仿 → 开始逐章生成。</div>}
               </div>
             </ScrollArea>
           )}
@@ -884,6 +902,10 @@ export default function ImitationPage() {
                     ].map(dim => (
                       <Button key={dim.key} size="sm" variant={outlineGenerated[dim.key] ? 'secondary' : 'ghost'} onClick={() => handleGenerateDim(dim.key)} disabled={genLoading || !extraction.aggregated} icon={outlineGenerated[dim.key] ? <CheckCircleIcon style={{ width: 14, height: 14 }} /> : <SparklesIcon style={{ width: 14, height: 14 }} />}>{dim.label}{outlineGenerated[dim.key] ? ' ✓' : ''}</Button>
                     ))}
+                    <Button size="sm" variant="secondary" onClick={async () => {
+                      const keys = ['characters','worldbuilding','items','powerSystem','foreshadowing','emotionCurve',...(novelType === 'erotic' ? ['erotic'] : [])]
+                      for (const k of keys) { await handleGenerateDim(k) }
+                    }} disabled={genLoading || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>自动模仿全部</Button>
                   </div>
                   {genPreview && genType && (
                     <div>
@@ -902,13 +924,40 @@ export default function ImitationPage() {
                   )}
                 </div>
                 <div style={{ padding: 14, borderRadius: 16, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.1)' }}>
-                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#3b82f6', marginBottom: 10 }}>细纲模仿 — 基于大纲生成每章剧情</h4>
-                  <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8 }}>需要先生成角色模仿，细纲中的出场角色将从新角色列表中选取。</p>
-                  <Button size="sm" onClick={() => handleGenerateDetailsImitation()} disabled={genLoading || !outlineGenerated['characters'] || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
-                    {genLoading && genType === 'details_imitation' ? '生成中...' : '开始生成细纲'}
-                  </Button>
-                  {genPreview && genType === 'details_imitation' && (
-                    <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.7, whiteSpace: 'pre-wrap', padding: 10, borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', maxHeight: 500, overflow: 'auto', color: '#4a3f38' }}>{genPreview}</div>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#3b82f6', marginBottom: 10 }}>细纲模仿 — 逐章生成（每章对照原作对应章）</h4>
+                  <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8 }}>先生成角色模仿。每章AI会拿到：①原作该章摘要+②新大纲全部设定。逐章生成，精确对应。</p>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                    <Button size="sm" onClick={() => handleGenerateDetailsImitation()} disabled={detailGenRunning || !outlineGenerated['characters'] || !extraction.aggregated || extractIds.size === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
+                      {detailGenRunning ? `生成中 ${detailGenCurrent}/${extractIds.size}` : `开始逐章生成 (${extractIds.size}章)`}
+                    </Button>
+                    {detailGenRunning && <Button size="sm" variant="danger" onClick={() => { detailGenAbortRef.current = true }}>停止</Button>}
+                    {detailGenResults.length > 0 && !detailGenRunning && (
+                      <Button size="sm" variant="secondary" onClick={() => { setDetailsResults(JSON.stringify(detailGenResults, null, 2)); alert(`已保存 ${detailGenResults.length} 章细纲`) }}>保存全部细纲</Button>
+                    )}
+                  </div>
+                  {detailGenRunning && (
+                    <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.05)', overflow: 'hidden', marginBottom: 8 }}>
+                      <div style={{ height: '100%', width: `${extractIds.size > 0 ? (detailGenCurrent / extractIds.size) * 100 : 0}%`, background: '#3b82f6', borderRadius: 2, transition: 'width 0.3s' }} />
+                    </div>
+                  )}
+                  {detailGenResults.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 400, overflow: 'auto' }}>
+                      {detailGenResults.map((d: any) => (
+                        <div key={d.chapterNumber} style={{ padding: '8px 10px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}>
+                          <div style={{ fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>第{d.chapterNumber}章: {d.title}</div>
+                          <div style={{ color: '#4a3f38', lineHeight: 1.6, marginBottom: 4 }}>{d.summary}</div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 9 }}>
+                            {d.charactersAppearing?.length > 0 && <span style={{ color: '#7c3aed' }}>角色:{d.charactersAppearing.join(',')}</span>}
+                            {d.levelChange && <span style={{ color: '#16a34a' }}>等级:{d.levelChange}</span>}
+                            {d.itemsUsed?.length > 0 && <span style={{ color: '#e67e00' }}>道具:{d.itemsUsed.join(',')}</span>}
+                            {d.emotionalTone && <span style={{ color: '#9b8e84' }}>情绪:{d.emotionalTone}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {detailsResults && detailGenResults.length === 0 && (
+                    <div style={{ fontSize: 10, color: '#16a34a' }}>✓ 细纲已保存 ({(() => { try { return JSON.parse(detailsResults).length } catch { return 0 } })()}章)</div>
                   )}
                 </div>
               </div>
@@ -929,6 +978,24 @@ export default function ImitationPage() {
           {ag && activeProjectId && <><div style={{ height: 1, background: 'rgba(0,0,0,0.05)' }} /><Button onClick={handleImportToProject} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />} style={{ width: '100%' }}>导入到项目</Button></>}
         </div>
       </div>
+
+      {/* Extraction Progress Dialog */}
+      {extractingRef.current && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: 360, textAlign: 'center', boxShadow: '0 16px 48px rgba(0,0,0,0.15)' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(124,58,237,0.1)', borderTopColor: '#7c3aed', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+            <div style={{ height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.05)', overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ height: '100%', width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%`, background: '#7c3aed', borderRadius: 3, transition: 'width 0.3s' }} />
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#7c3aed', marginBottom: 4 }}>{progress.current}/{progress.total}</div>
+            <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 16 }}>{progress.text || '正在提取...'}</div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <Button size="sm" variant="ghost" onClick={() => { pausedRef.current = !pausedRef.current }}>{pausedRef.current ? '继续提取' : '暂停提取'}</Button>
+              <Button size="sm" variant="danger" onClick={() => { abortRef.current = true; pausedRef.current = false }}>停止提取</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dimension Selection Dialog */}
       {showDimDialog && (
