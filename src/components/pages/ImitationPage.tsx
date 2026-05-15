@@ -31,22 +31,22 @@ import type { Character } from '@/types/character'
 import { EMPTY_CHARACTER } from '@/types/character'
 import {
   SparklesIcon, TrashIcon, DocumentTextIcon, UserGroupIcon, GlobeAltIcon,
-  LightBulbIcon, PlayIcon, StopIcon, ArrowPathIcon, FolderOpenIcon,
-  CheckCircleIcon, ArrowLeftIcon, BookOpenIcon, FireIcon,
+  LightBulbIcon, PlayIcon, StopIcon, FolderOpenIcon,
+  ArrowLeftIcon, BookOpenIcon, FireIcon, ListBulletIcon, CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 
 type ViewMode = 'typeSelect' | 'library' | 'detail'
 type NovelType = 'general' | 'urban' | 'cultivation' | 'martial' | 'romance' | 'ancient' | 'mystery' | 'historical' | 'transmigration' | 'scifi' | 'erotic'
 type Step = 'import' | 'extracting' | 'style' | 'generating' | 'completed'
-type PreviewTab = 'chapter' | 'characters' | 'worldbuilding' | 'outline' | 'items' | 'power' | 'generate'
+type PreviewTab = 'chapter' | 'srcOutline' | 'srcDetails' | 'outline' | 'details' | 'generate'
+type DimKey = 'characters' | 'worldbuilding' | 'items' | 'powerSystem' | 'foreshadowing' | 'emotionCurve' | 'erotic'
 
 const TABS: { key: PreviewTab; label: string; icon: typeof DocumentTextIcon }[] = [
   { key: 'chapter', label: '章节', icon: BookOpenIcon },
-  { key: 'characters', label: '角色', icon: UserGroupIcon },
-  { key: 'worldbuilding', label: '世界观', icon: GlobeAltIcon },
-  { key: 'outline', label: '章节摘要', icon: DocumentTextIcon },
-  { key: 'items', label: '道具', icon: SparklesIcon },
-  { key: 'power', label: '等级', icon: LightBulbIcon },
+  { key: 'srcOutline', label: '原书大纲', icon: DocumentTextIcon },
+  { key: 'srcDetails', label: '原书细纲', icon: ListBulletIcon },
+  { key: 'outline', label: '大纲', icon: DocumentTextIcon },
+  { key: 'details', label: '细纲', icon: ListBulletIcon },
   { key: 'generate', label: '生成', icon: SparklesIcon },
 ]
 
@@ -97,6 +97,9 @@ export default function ImitationPage() {
   const [genLoading, setGenLoading] = useState(false)
   const [genPreview, setGenPreview] = useState('')
   const [genType, setGenType] = useState<string | null>(null)
+  const [outlineGenerated, setOutlineGenerated] = useState<Record<string, boolean>>({})
+  const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
+  const [dimSubTab, setDimSubTab] = useState<DimKey>('characters')
   const [showDimDialog, setShowDimDialog] = useState(false)
   const [extractDims, setExtractDims] = useState<Set<string>>(new Set())
   const [showStyleDimDialog, setShowStyleDimDialog] = useState(false)
@@ -252,7 +255,77 @@ export default function ImitationPage() {
     setStyleProgress('完成'); setStyleLoading(false); setStylePaused(false); setStep('generating')
   }
 
-  // ---- Generate ----
+  // ---- Outline Dim Generation ----
+  const handleGenerateDim = async (dimKey: string) => {
+    if (!extraction || !activeConfigId || !ag) return
+    setGenLoading(true); setGenType(dimKey); setGenPreview('')
+    try {
+      let prompt = ''
+      switch (dimKey) {
+        case 'characters':
+          prompt = buildGenerateCharactersPrompt(extraction)
+          break
+        case 'worldbuilding':
+          prompt = buildGenerateWorldbuildingPrompt(extraction)
+          break
+        case 'items':
+          prompt = `以下是原作的道具目录，请生成一套全新的道具目录（保持相同数量和类型分布，名称和能力完全原创）:\n${ag.items.map(i => `${i.name}(${i.type}): ${i.ability}`).join('\n')}\n\n输出JSON数组: [{"name":"","type":"","grade":"","owner":"","ability":""}]`
+          break
+        case 'powerSystem':
+          prompt = `以下是原作的等级体系，请生成一套全新的等级体系（保持相同级数和晋升节奏，名称完全原创）:\n${ag.powerSystem.levels.join(' → ')} (共${ag.powerSystem.levels.length}级)\n${ag.powerSystem.description}\n\n输出JSON: {"name":"","levels":[],"description":""}`
+          break
+        case 'foreshadowing':
+          prompt = `以下是原作的伏笔清单，请生成一套全新的伏笔结构（保持相似数量和分布）:\n${ag.foreshadowing.map(f => `${f.description} [${f.status}]`).join('\n')}\n\n输出JSON数组: [{"description":"","plantChapter":0,"payoffChapter":0,"status":"planted"}]`
+          break
+        case 'emotionCurve':
+          prompt = extraction.emotionCurve ? `以下是原作的情绪分布，请生成一套全新的情绪模板:\n${extraction.emotionCurve.segments.map(s => `第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}`).join('\n')}\n周期: 约${extraction.emotionCurve.cycleLength}章\n\n输出JSON数组: [{"chapterStart":1,"chapterEnd":10,"dominantEmotion":"压抑"}]` : '生成全新的情绪分布模板'
+          break
+        case 'erotic':
+          prompt = `以下是原作的情色设定，请生成一套全新的情色设定:\n角色情色数据章节数: ${extraction.chapters.filter(c => c.erotic).length}\n\n输出JSON: {"characterRoles":[],"sceneFlow":[],"techniques":{},"powerDynamics":"","degradationPatterns":[]}`
+          break
+      }
+      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+      // Parse JSON replies into readable text
+      if (['characters', 'foreshadowing', 'emotionCurve', 'erotic'].includes(dimKey)) {
+        try { const m = reply.match(/\[[\s\S]*\]/); setGenPreview(m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply) } catch { setGenPreview(reply) }
+      } else if (['worldbuilding', 'powerSystem', 'items'].includes(dimKey)) {
+        try { const m = reply.match(/\{[\s\S]*\}/); setGenPreview(m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply) } catch { setGenPreview(reply) }
+      } else { setGenPreview(reply) }
+    } catch (err) { logError('生成失败', err) }
+    setGenLoading(false)
+  }
+
+  const handleGenerateDetailsImitation = async () => {
+    if (!extraction || !ag || !activeConfigId) return
+    const charResult = outlineResults['characters']
+    if (!charResult) { alert('请先生成角色模仿'); return }
+    setGenLoading(true); setGenType('details_imitation'); setGenPreview('')
+    try {
+      const origSummaries = extraction.chapters.filter(c => c.extractedAt).map(c =>
+        `第${c.chapterNumber}章[${c.emotionalTone}]: ${c.chapterSummary} 出场[${c.characters.map(ch => ch.name || ch).join(', ')}]`
+      ).join('\n').slice(0, 3000)
+      const prompt = `你是小说创作专家。以下是新小说的角色列表，请为每一章生成细纲。
+
+新角色列表:
+${charResult}
+
+原小说的章节节奏参考:
+${origSummaries}
+
+要求:
+1. 保持与原著相似的章节节奏和事件密度
+2. 每章出现的角色必须从新角色列表中选取
+3. 每章输出JSON: {"chapterNumber":1,"title":"","summary":"","charactersAppearing":[],"keyEvents":[],"emotionalTone":""}
+4. 剧情完全原创
+
+输出JSON数组（不要markdown）。`
+      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+      try { const m = reply.match(/\[[\s\S]*\]/); const parsed = m ? JSON.parse(m[0]) : []; setGenPreview(JSON.stringify(parsed, null, 2)) } catch { setGenPreview(reply) }
+    } catch (err) { logError('生成细纲失败', err) }
+    setGenLoading(false)
+  }
+
+  // ---- Generate (legacy, kept for type support) ----
   const handleGenerate = async (type: string) => {
     if (!extraction || !activeConfigId) return
     setGenLoading(true); setGenType(type); setGenPreview('')
@@ -600,82 +673,161 @@ export default function ImitationPage() {
               }}><tab.icon style={{ width: 13, height: 13 }} />{tab.label}</button>
             ))}
           </div>
-          <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
-            <div style={{ padding: 10 }}>
-              {previewTab === 'chapter' && (!selectedChapter
-                ? <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 12 }}>请从左侧选择章节</div>
-                : (
-                <div>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>{selectedChapter.chapterTitle}</h3>
-                  {selectedChapter.chapterSummary && (
-                    <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.1)', marginBottom: 10 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 4 }}>AI 摘要</div>
-                      <p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{selectedChapter.chapterSummary}</p>
-                    </div>
-                  )}
-                  <div style={{ fontSize: 15, lineHeight: 2.2, color: '#2d2520', whiteSpace: 'pre-wrap', padding: '10px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)' }}>
-                    {selectedChapter.chapterContent}
-                  </div>
-                </div>
+          {/* Dim switcher for 大纲 tabs (outside scroll area) */}
+          {(previewTab === 'srcOutline' || previewTab === 'outline') && (
+            <div style={{ display: 'flex', gap: 4, padding: '4px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', flexWrap: 'wrap', flexShrink: 0 }}>
+              {(['characters','worldbuilding','items','powerSystem','foreshadowing','emotionCurve',...(novelType === 'erotic' ? ['erotic' as DimKey] : [])] as DimKey[]).map(dk => (
+                <button key={dk} onClick={() => setDimSubTab(dk)} style={{
+                  padding: '3px 8px', borderRadius: 6, border: 'none', fontSize: 10, cursor: 'pointer',
+                  background: dimSubTab === dk ? 'rgba(124,58,237,0.08)' : 'transparent',
+                  color: dimSubTab === dk ? '#7c3aed' : '#6b5e54', fontWeight: dimSubTab === dk ? 600 : 400,
+                }}>{{characters:'角色',worldbuilding:'世界观',items:'道具',powerSystem:'等级',foreshadowing:'伏笔',emotionCurve:'情绪',erotic:'情色'}[dk]}</button>
               ))}
-
-              {previewTab === 'characters' && ag && <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{ag.characters.map(c => <div key={c.name} style={{ padding: '10px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.05)' }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{c.name}</span>{c.role && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.08)', color: '#7c3aed' }}>{c.role}</span>}<span style={{ fontSize: 9, color: '#9b8e84', marginLeft: 'auto' }}>第{c.firstChapter}-{c.lastChapter}章</span></div>{c.traits.length > 0 && <p style={{ fontSize: 10, color: '#6b5e54', margin: '2px 0' }}>{c.traits.join('、')}</p>}</div>)}</div>}
-
-              {previewTab === 'worldbuilding' && ag && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{ag.worldbuilding.locations.length > 0 && <div><h4 style={{ fontSize: 12, fontWeight: 700 }}>地点</h4>{ag.worldbuilding.locations.map(l => <div key={l.name} style={{ fontSize: 10, padding: '2px 0' }}><strong>{l.name}</strong>: {l.description}</div>)}</div>}{ag.worldbuilding.factions.length > 0 && <div><h4 style={{ fontSize: 12, fontWeight: 700 }}>势力</h4>{ag.worldbuilding.factions.map(f => <div key={f.name} style={{ fontSize: 10, padding: '2px 0' }}><strong>{f.name}</strong>: {f.description}</div>)}</div>}{ag.powerSystem.levels.length > 0 && <div><h4 style={{ fontSize: 12, fontWeight: 700 }}>等级</h4><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ag.powerSystem.levels.map((l: string) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', color: '#6b5e54', fontWeight: 600 }}>{l}</span>)}</div></div>}</div>}
-
-              {previewTab === 'outline' && <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{extraction.chapters.filter(c => c.extractedAt).map(ch => <div key={ch.chapterId} style={{ padding: '8px 10px', borderRadius: 8, background: '#fff', border: '1px solid rgba(0,0,0,0.04)' }}><div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed' }}>第{ch.chapterNumber}章: {ch.chapterTitle}</div><p style={{ fontSize: 10, color: '#4a3f38', lineHeight: 1.6, margin: '3px 0 0' }}>{ch.chapterSummary}</p></div>)}</div>}
-
-              {previewTab === 'items' && ag && <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.items.map(item => <div key={item.name} style={{ padding: '8px 10px', borderRadius: 8, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 10 }}><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ fontWeight: 600, color: '#2d2520' }}>{item.name}</span><span style={{ fontSize: 8, padding: '1px 4px', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>{item.type}</span></div></div>)}</div>}
-
-              {previewTab === 'power' && ag && <div>{ag.powerSystem.levels.length > 0 ? <><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>{ag.powerSystem.levels.map((l: string, i: number) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: i === 0 ? 'rgba(22,163,74,0.1)' : i === ag!.powerSystem.levels.length - 1 ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.03)', color: i === 0 ? '#16a34a' : i === ag!.powerSystem.levels.length - 1 ? '#7c3aed' : '#6b5e54', fontWeight: 600 }}>{l}</span>)}</div></> : <div style={{ padding: 32, fontSize: 12, color: '#9b8e84', textAlign: 'center' }}>未检测到</div>}</div>}
-
-              {previewTab === 'generate' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <Button size="sm" onClick={() => handleGenerate('outline')} disabled={genLoading || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>生成新大纲</Button>
-                    <Button size="sm" onClick={() => handleGenerate('details')} disabled={genLoading || !extraction.generatedNovel?.outline} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>生成新细纲</Button>
-                    <Button size="sm" onClick={() => handleGenerate('characters')} disabled={genLoading || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>生成新角色</Button>
-                    <Button size="sm" onClick={() => handleGenerate('worldbuilding')} disabled={genLoading || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>生成新世界观</Button>
+            </div>
+          )}
+          {previewTab === 'chapter' && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 10 }}>
+                {!selectedChapter
+                  ? <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 12 }}>请从左侧选择章节</div>
+                  : <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>{selectedChapter.chapterTitle}</h3>
+                    {selectedChapter.chapterSummary && (
+                      <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.1)', marginBottom: 10 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 4 }}>AI 摘要</div>
+                        <p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{selectedChapter.chapterSummary}</p>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 15, lineHeight: 2.2, color: '#2d2520', whiteSpace: 'pre-wrap', padding: '10px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)' }}>{selectedChapter.chapterContent}</div>
                   </div>
-                  {/* Current generation preview */}
-                  {genPreview && <div><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{genLoading ? '生成中...' : '预览'}</span><Button size="sm" onClick={handleSaveGenerated}>保存</Button></div><div style={{ fontSize: 12, lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: 12, borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', maxHeight: 600, overflow: 'auto' }}>{genPreview}</div></div>}
-                  {/* Saved generated content */}
-                  {extraction.generatedNovel && !genPreview && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {extraction.generatedNovel.outline && (
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>✓ 已保存的大纲</div>
-                          <div style={{ fontSize: 12, lineHeight: 1.8, whiteSpace: 'pre-wrap', padding: 10, borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', maxHeight: 400, overflow: 'auto' }}>{extraction.generatedNovel.outline.slice(0, 3000)}{extraction.generatedNovel.outline.length > 3000 && '...'}</div>
-                        </div>
-                      )}
-                      {extraction.generatedNovel.detailedOutlines.length > 0 && (
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>✓ 已保存的细纲 ({extraction.generatedNovel.detailedOutlines.length}章)</div>
-                          <div style={{ fontSize: 11, color: '#4a3f38', maxHeight: 300, overflow: 'auto' }}>
-                            {extraction.generatedNovel.detailedOutlines.slice(0, 10).map(d => (
-                              <div key={d.chapterNumber} style={{ padding: '4px 0', borderBottom: '1px solid rgba(0,0,0,0.03)' }}>
-                                第{d.chapterNumber}章 {d.title}: {d.summary?.slice(0, 80)}...
-                              </div>
-                            ))}
+                }
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* === 原书大纲 & 大纲 Tab === */}
+          {(previewTab === 'srcOutline' || previewTab === 'outline') && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 10 }}>
+                {previewTab === 'outline' && !outlineResults[dimSubTab] && (
+                  <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>该维度尚未生成。切换到「生成」Tab → 大纲模仿 → 点击对应维度按钮进行模仿。</div>
+                )}
+                {dimSubTab === 'characters' && (previewTab === 'srcOutline' && ag
+                  ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.characters.map(c => <div key={c.name} style={{ padding: '8px 10px', borderRadius: 8, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{c.name}</strong>{c.role && <span style={{ marginLeft: 6, color: '#7c3aed' }}>{c.role}</span>}<span style={{ float: 'right', color: '#9b8e84', fontSize: 10 }}>第{c.firstChapter}-{c.lastChapter}章</span>{c.traits.length > 0 && <div style={{ color: '#6b5e54', marginTop: 2 }}>{c.traits.join('、')}</div>}</div>)}</div>
+                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.characters || ''}</pre>
+                )}
+                {dimSubTab === 'worldbuilding' && (previewTab === 'srcOutline' && ag
+                  ? <div style={{ fontSize: 11 }}>{ag.worldbuilding.locations.map(l => l.name).join('、')} | {ag.worldbuilding.factions.map(f => f.name).join('、')}</div>
+                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.worldbuilding || ''}</pre>
+                )}
+                {dimSubTab === 'items' && (previewTab === 'srcOutline' && ag
+                  ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{ag.items.map(i => <span key={i.name} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.08)', color: '#e67e00' }}>{i.name}({i.type})</span>)}</div>
+                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.items || ''}</pre>
+                )}
+                {dimSubTab === 'powerSystem' && (previewTab === 'srcOutline' && ag
+                  ? <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ag.powerSystem.levels.map((l: string, i: number) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: i === 0 ? 'rgba(22,163,74,0.1)' : i === ag!.powerSystem.levels.length - 1 ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.03)', color: i === 0 ? '#16a34a' : '#7c3aed', fontWeight: 600 }}>{l}</span>)}</div>
+                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.powerSystem || ''}</pre>
+                )}
+                {dimSubTab === 'foreshadowing' && (previewTab === 'srcOutline' && ag
+                  ? <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>{ag.foreshadowing.map(f => <div key={f.description} style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ color: f.status === 'resolved' ? '#16a34a' : '#f59e0b' }}>{f.status === 'resolved' ? '✓' : '○'}</span><span style={{ color: '#4a3f38' }}>{f.description}</span></div>)}</div>
+                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.foreshadowing || ''}</pre>
+                )}
+                {dimSubTab === 'emotionCurve' && <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.emotionCurve || (previewTab === 'srcOutline' && extraction.emotionCurve ? extraction.emotionCurve.segments.map((s: any) => `第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}`).join('\n') : '')}</pre>}
+                {dimSubTab === 'erotic' && <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.erotic || (previewTab === 'srcOutline' ? `已提取 ${extraction.chapters.filter(c => c.erotic).length} 章的情色数据` : '')}</pre>}
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* === 原书细纲 & 细纲 Tab === */}
+          {(previewTab === 'srcDetails' || previewTab === 'details') && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(previewTab === 'srcDetails'
+                  ? extraction.chapters.filter(c => c.extractedAt)
+                  : (extraction.chapters.filter(c => c.extractedAt).length > 0 ? extraction.chapters.filter(c => c.extractedAt) : [])
+                ).length > 0 ? (
+                  (previewTab === 'srcDetails'
+                    ? extraction.chapters.filter(c => c.extractedAt)
+                    : extraction.chapters.filter(c => c.extractedAt)
+                  ).map((ch: any) => (
+                    <div key={ch.chapterId} style={{ padding: '12px 16px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.05)' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>第{ch.chapterNumber}章: {ch.chapterTitle}</div>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>剧情摘要</div>
+                        <p style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, margin: 0 }}>{ch.chapterSummary}</p>
+                      </div>
+                      {ch.characters && ch.characters.length > 0 && (
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>出场角色</div>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {ch.characters.map((c: any) => <span key={c.name || c} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>{typeof c === 'string' ? c : (c.name + (c.role ? `(${c.role})` : ''))}</span>)}
                           </div>
                         </div>
                       )}
-                      {extraction.generatedNovel.characters.length > 0 && (
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>✓ 已保存的角色 ({extraction.generatedNovel.characters.length}个)</div>
+                      {ch.events && ch.events.length > 0 && (
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>关键事件</div>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {ch.events.map((ev: string) => <span key={ev} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.06)', color: '#3b82f6' }}>{ev}</span>)}
+                          </div>
                         </div>
                       )}
-                      {extraction.generatedNovel.worldbuilding && (
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>✓ 已保存的世界观</div>
-                        </div>
-                      )}
+                      {ch.emotionalTone && <div style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>情绪基调:</span> <span style={{ color: '#4a3f38' }}>{ch.emotionalTone}</span></div>}
+                    </div>
+                  ))
+                ) : <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>请先提取章节</div>}
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* === 生成 Tab === */}
+          {previewTab === 'generate' && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ padding: 14, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#7c3aed', marginBottom: 10 }}>大纲模仿 — 逐维度生成新设定</h4>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {[
+                      { key: 'characters', label: '角色模仿', icon: UserGroupIcon },
+                      { key: 'worldbuilding', label: '世界观模仿', icon: GlobeAltIcon },
+                      { key: 'items', label: '道具模仿', icon: SparklesIcon },
+                      { key: 'powerSystem', label: '等级模仿', icon: LightBulbIcon },
+                      { key: 'foreshadowing', label: '伏笔模仿', icon: BookOpenIcon },
+                      { key: 'emotionCurve', label: '情绪模仿', icon: SparklesIcon },
+                      ...(novelType === 'erotic' ? [{ key: 'erotic', label: '情色模仿', icon: FireIcon }] : []),
+                    ].map(dim => (
+                      <Button key={dim.key} size="sm" variant={outlineGenerated[dim.key] ? 'secondary' : 'ghost'} onClick={() => handleGenerateDim(dim.key)} disabled={genLoading || !extraction.aggregated} icon={outlineGenerated[dim.key] ? <CheckCircleIcon style={{ width: 14, height: 14 }} /> : <SparklesIcon style={{ width: 14, height: 14 }} />}>{dim.label}{outlineGenerated[dim.key] ? ' ✓' : ''}</Button>
+                    ))}
+                  </div>
+                  {genPreview && genType && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed' }}>{genLoading ? '生成中...' : genType + ' 预览'}</span>
+                        <Button size="sm" onClick={() => { setOutlineGenerated({ ...outlineGenerated, [genType!]: true }); setOutlineResults({ ...outlineResults, [genType!]: genPreview }); setGenPreview(''); setGenType(null) }}>保存此维度</Button>
+                      </div>
+                      <div style={{ fontSize: 11, lineHeight: 1.7, whiteSpace: 'pre-wrap', padding: 10, borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', maxHeight: 400, overflow: 'auto', color: '#4a3f38' }}>{genPreview}</div>
                     </div>
                   )}
+                  {Object.keys(outlineResults).length > 0 && !genPreview && (
+                    <div style={{ fontSize: 10, color: '#9b8e84' }}>已生成: {Object.entries(outlineResults).map(([k]) => {
+                      const labels: Record<string, string> = { characters: '角色', worldbuilding: '世界观', items: '道具', powerSystem: '等级', foreshadowing: '伏笔', emotionCurve: '情绪', erotic: '情色' }
+                      return labels[k] || k
+                    }).join(' · ')}</div>
+                  )}
                 </div>
-              )}
-            </div>
-          </ScrollArea>
+                <div style={{ padding: 14, borderRadius: 16, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.1)' }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#3b82f6', marginBottom: 10 }}>细纲模仿 — 基于大纲生成每章剧情</h4>
+                  <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8 }}>需要先生成角色模仿，细纲中的出场角色将从新角色列表中选取。</p>
+                  <Button size="sm" onClick={() => handleGenerateDetailsImitation()} disabled={genLoading || !outlineGenerated['characters'] || !extraction.aggregated} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
+                    {genLoading && genType === 'details_imitation' ? '生成中...' : '开始生成细纲'}
+                  </Button>
+                  {genPreview && genType === 'details_imitation' && (
+                    <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.7, whiteSpace: 'pre-wrap', padding: 10, borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', maxHeight: 500, overflow: 'auto', color: '#4a3f38' }}>{genPreview}</div>
+                  )}
+                </div>
+              </div>
+            </ScrollArea>
+          )}
         </div>
 
         {/* Right: Stats */}
