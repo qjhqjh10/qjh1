@@ -265,6 +265,7 @@ export default function ImitationPage() {
   const handleGenerateDim = async (dimKey: string) => {
     if (!extraction || !activeConfigId || !ag) return
     setGenLoading(true); setGenType(dimKey); setGenPreview('')
+    let result = ''
     try {
       let prompt = ''
       switch (dimKey) {
@@ -275,13 +276,13 @@ export default function ImitationPage() {
           prompt = buildGenerateWorldbuildingPrompt(extraction)
           break
         case 'items':
-          prompt = `以下是原作的道具目录，请生成一套全新的道具目录（保持相同数量和类型分布，名称和能力完全原创）:\n${ag.items.map(i => `${i.name}(${i.type}): ${i.ability}`).join('\n')}\n\n输出JSON数组: [{"name":"","type":"","grade":"","owner":"","ability":""}]`
+          prompt = `以下是原作的道具目录，请生成一套全新的道具目录（保持相同数量和类型分布，名称和能力完全原创）:\n${ag.items.map(i => `${i.name}(${i.type}${i.grade ? '/' + i.grade : ''}): ${i.ability}`).join('\n')}\n\n输出JSON数组(每个道具必须有完整的name/type/ability字段): [{"name":"","type":"法宝|丹药|功法|武器|道具|其他","grade":"等级(无则'')","ability":"详细能力和效果描述","owner":"持有者"}]`
           break
         case 'powerSystem':
           prompt = `以下是原作的等级体系，请生成一套全新的等级体系（保持相同级数和晋升节奏，名称完全原创）:\n${ag.powerSystem.levels.join(' → ')} (共${ag.powerSystem.levels.length}级)\n${ag.powerSystem.description}\n\n输出JSON: {"name":"","levels":[],"description":""}`
           break
         case 'foreshadowing':
-          prompt = `以下是原作的伏笔清单，请生成一套全新的伏笔结构（保持相似数量和分布）:\n${ag.foreshadowing.map(f => `${f.description} [${f.status}]`).join('\n')}\n\n输出JSON数组: [{"description":"","plantChapter":0,"payoffChapter":0,"status":"planted"}]`
+          prompt = `以下是原作的伏笔清单，请生成一套全新的伏笔结构（保持相似数量和分布）:\n${ag.foreshadowing.map(f => `${f.description} [第${f.plantChapter}章埋 ${f.payoffChapter ? '第' + f.payoffChapter + '章回收' : '未回收'}]`).join('\n')}\n\n输出JSON数组(每个伏笔含描述/埋设章节/回收章节/状态): [{"description":"伏笔描述","plantChapter":1,"payoffChapter":0,"status":"planted|resolved"}]`
           break
         case 'emotionCurve':
           prompt = extraction.emotionCurve ? `以下是原作的情绪分布，请生成一套全新的情绪模板:\n${extraction.emotionCurve.segments.map(s => `第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}`).join('\n')}\n周期: 约${extraction.emotionCurve.cycleLength}章\n\n输出JSON数组: [{"chapterStart":1,"chapterEnd":10,"dominantEmotion":"压抑"}]` : '生成全新的情绪分布模板'
@@ -291,14 +292,18 @@ export default function ImitationPage() {
           break
       }
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-      // Parse JSON replies into readable text
       if (['characters', 'foreshadowing', 'emotionCurve', 'erotic'].includes(dimKey)) {
-        try { const m = reply.match(/\[[\s\S]*\]/); setGenPreview(m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply) } catch { setGenPreview(reply) }
-      } else if (['worldbuilding', 'powerSystem', 'items'].includes(dimKey)) {
-        try { const m = reply.match(/\{[\s\S]*\}/); setGenPreview(m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply) } catch { setGenPreview(reply) }
-      } else { setGenPreview(reply) }
-    } catch (err) { logError('生成失败', err) }
+        try { const m = reply.match(/\[[\s\S]*\]/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply }
+      } else {
+        try { const m = reply.match(/\{[\s\S]*\}/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply.replace(/^#+ .*\n?/gm, '').trim() }
+      }
+      setGenPreview(result)
+    } catch (err) { logError('生成失败', err); result = '' }
     setGenLoading(false)
+    if (result) {
+      setOutlineGenerated(prev => ({ ...prev, [dimKey]: true }))
+      setOutlineResults(prev => ({ ...prev, [dimKey]: result }))
+    }
   }
 
   const handleGenerateDetailsImitation = async () => {
@@ -641,7 +646,7 @@ export default function ImitationPage() {
         <div style={{ display: 'flex', gap: 6 }}>
           <Button size="sm" onClick={() => { const preset = TYPE_DIM_PRESETS[novelType] || TYPE_DIM_PRESETS.general; setExtractDims(new Set(preset)); setShowDimDialog(true) }} disabled={!activeConfigId || extractIds.size === 0 || extractingRef.current} icon={<PlayIcon style={{ width: 14, height: 14 }} />}>提取({extractIds.size}章)</Button>
           {extractedCount > 0 && !extractingRef.current && (
-            <Button size="sm" variant="ghost" onClick={() => setExtractIds(new Set(extraction.chapters.filter(c => !c.extractedAt).map(c => c.chapterId)))} title="选择所有尚未提取的章节（提取失败的章节可重新提取）">提取剩余</Button>
+            <Button size="sm" variant="ghost" onClick={() => setExtractIds(new Set(extraction.chapters.filter(c => !c.extractedAt).map(c => c.chapterId)))}>提取剩余</Button>
           )}
           {extractingRef.current && (
             <>
@@ -742,35 +747,85 @@ export default function ImitationPage() {
             </ScrollArea>
           )}
 
-          {/* === 原书大纲 & 大纲 Tab === */}
+{/* === 原书大纲 & 大纲 Tab === */}
           {(previewTab === 'srcOutline' || previewTab === 'outline') && (
             <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
               <div style={{ padding: 10 }}>
-                {previewTab === 'outline' && !outlineResults[dimSubTab] && (
-                  <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>该维度尚未生成。切换到「生成」Tab → 大纲模仿 → 点击对应维度按钮进行模仿。</div>
-                )}
-                {dimSubTab === 'characters' && (previewTab === 'srcOutline' && ag
-                  ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.characters.map(c => <div key={c.name} style={{ padding: '8px 10px', borderRadius: 8, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{c.name}</strong>{c.role && <span style={{ marginLeft: 6, color: '#7c3aed' }}>{c.role}</span>}<span style={{ float: 'right', color: '#9b8e84', fontSize: 10 }}>第{c.firstChapter}-{c.lastChapter}章</span>{c.traits.length > 0 && <div style={{ color: '#6b5e54', marginTop: 2 }}>{c.traits.join('、')}</div>}</div>)}</div>
-                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.characters || ''}</pre>
-                )}
-                {dimSubTab === 'worldbuilding' && (previewTab === 'srcOutline' && ag
-                  ? <div style={{ fontSize: 11 }}>{ag.worldbuilding.locations.map(l => l.name).join('、')} | {ag.worldbuilding.factions.map(f => f.name).join('、')}</div>
-                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.worldbuilding || ''}</pre>
-                )}
-                {dimSubTab === 'items' && (previewTab === 'srcOutline' && ag
-                  ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{ag.items.map(i => <span key={i.name} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.08)', color: '#e67e00' }}>{i.name}({i.type})</span>)}</div>
-                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.items || ''}</pre>
-                )}
-                {dimSubTab === 'powerSystem' && (previewTab === 'srcOutline' && ag
-                  ? <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ag.powerSystem.levels.map((l: string, i: number) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: i === 0 ? 'rgba(22,163,74,0.1)' : i === ag!.powerSystem.levels.length - 1 ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.03)', color: i === 0 ? '#16a34a' : '#7c3aed', fontWeight: 600 }}>{l}</span>)}</div>
-                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.powerSystem || ''}</pre>
-                )}
-                {dimSubTab === 'foreshadowing' && (previewTab === 'srcOutline' && ag
-                  ? <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>{ag.foreshadowing.map(f => <div key={f.description} style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ color: f.status === 'resolved' ? '#16a34a' : '#f59e0b' }}>{f.status === 'resolved' ? '✓' : '○'}</span><span style={{ color: '#4a3f38' }}>{f.description}</span></div>)}</div>
-                  : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.foreshadowing || ''}</pre>
-                )}
-                {dimSubTab === 'emotionCurve' && <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.emotionCurve || (previewTab === 'srcOutline' && extraction.emotionCurve ? extraction.emotionCurve.segments.map((s: any) => `第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}`).join('\n') : '')}</pre>}
-                {dimSubTab === 'erotic' && <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.erotic || (previewTab === 'srcOutline' ? `已提取 ${extraction.chapters.filter(c => c.erotic).length} 章的情色数据` : '')}</pre>}
+                {(() => {
+                  const isSrc = previewTab === 'srcOutline'
+                  const isGen = previewTab === 'outline'
+                  if (isGen && !outlineResults[dimSubTab]) return <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>该维度尚未生成。切换到「生成」Tab → 大纲模仿 → 点击对应维度按钮进行模仿。</div>
+
+                  // Characters
+                  if (dimSubTab === 'characters') {
+                    const srcChars = ag?.characters || []
+                    let genChars: any[] = []
+                    try { const p = JSON.parse(outlineResults.characters || '[]'); if (Array.isArray(p)) genChars = p } catch {}
+                    const chars = isSrc ? srcChars : genChars
+                    const groups: Record<string, any[]> = { '男主': [], '女主': [], '男配': [], '女配': [], '反派': [], '其他': [] }
+                    chars.forEach((c: any) => { const r = c.role || '其他'; if (groups[r]) groups[r].push(c); else groups['其他'].push(c) })
+                    return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {Object.entries(groups).filter(([, list]) => list.length > 0).map(([role, list]) => (
+                        <div key={role}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{role} ({list.length})</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {list.map((c: any, idx: number) => (
+                              <div key={c.name || idx} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{c.name}</span>
+                                  <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>{role}</span>
+                                  {isSrc && <span style={{ fontSize: 9, color: '#9b8e84', marginLeft: 'auto' }}>第{c.firstChapter}-{c.lastChapter}章</span>}
+                                </div>
+                                {c.traits && <p style={{ fontSize: 10, color: '#6b5e54', margin: '2px 0' }}>{Array.isArray(c.traits) ? c.traits.join('、') : c.traits}</p>}
+                                {c.background && <p style={{ fontSize: 9, color: '#9b8e84', margin: 0 }}>{c.background}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  }
+
+                  // Worldbuilding
+                  if (dimSubTab === 'worldbuilding') {
+                    if (isSrc && ag) return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {ag.worldbuilding.locations.length > 0 && <div><div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>地点 ({ag.worldbuilding.locations.length})</div><div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.worldbuilding.locations.map(l => <div key={l.name} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{l.name}</strong>: {l.description}</div>)}</div></div>}
+                        {ag.worldbuilding.factions.length > 0 && <div><div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>势力 ({ag.worldbuilding.factions.length})</div><div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.worldbuilding.factions.map(f => <div key={f.name} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.04)', fontSize: 11 }}><strong>{f.name}</strong>: {f.description}</div>)}</div></div>}
+                      </div>
+                    )
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.worldbuilding || ''}</pre>
+                  }
+
+                  // Items
+                  if (dimSubTab === 'items') {
+                    if (isSrc && ag) return <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{ag.items.map(i => <div key={i.name} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)' }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>{i.name}</span><span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: '#e67e00' }}>{i.type}</span>{i.grade && <span style={{ fontSize: 9, color: '#9b8e84' }}>{i.grade}</span>}</div>{i.ability && <p style={{ fontSize: 10, color: '#6b5e54', margin: 0 }}>{i.ability}</p>}</div>)}</div>
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.items || ''}</pre>
+                  }
+
+                  // Power System
+                  if (dimSubTab === 'powerSystem') {
+                    if (isSrc && ag) return <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ag.powerSystem.levels.map((l: string, i: number) => <span key={l} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, background: i === 0 ? 'rgba(22,163,74,0.1)' : i === ag!.powerSystem.levels.length - 1 ? 'rgba(124,58,237,0.1)' : 'rgba(0,0,0,0.03)', color: i === 0 ? '#16a34a' : '#7c3aed', fontWeight: 600 }}>{l}</span>)}</div>
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.powerSystem || ''}</pre>
+                  }
+
+                  // Foreshadowing
+                  if (dimSubTab === 'foreshadowing') {
+                    if (isSrc && ag) return <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{ag.foreshadowing.map(f => <div key={f.description} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 11 }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 6, background: f.status === 'resolved' ? 'rgba(22,163,74,0.1)' : 'rgba(245,158,11,0.1)', color: f.status === 'resolved' ? '#16a34a' : '#f59e0b', fontWeight: 600, cursor: 'pointer' }}>{f.status === 'resolved' ? '已回收' : '已埋'}</span><span style={{ color: '#9b8e84', fontSize: 10 }}>第{f.plantChapter}章{f.payoffChapter ? ` → 第${f.payoffChapter}章` : ''}</span></div><p style={{ color: '#4a3f38', margin: 0 }}>{f.description}</p></div>)}</div>
+                    return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.foreshadowing || ''}</pre>
+                  }
+
+                  // Emotion Curve
+                  if (dimSubTab === 'emotionCurve') {
+                    const srcData = extraction.emotionCurve?.segments || []
+                    return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{(isSrc ? srcData : []).length > 0 ? srcData.map((s: any) => <span key={s.chapterStart} style={{ fontSize: 10, padding: '4px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', color: '#6b5e54' }}>第{s.chapterStart}-{s.chapterEnd}章: {s.dominantEmotion}</span>) : <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.emotionCurve || '未生成'}</pre>}</div>
+                  }
+
+                  // Erotic
+                  if (dimSubTab === 'erotic') return <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', color: '#4a3f38' }}>{outlineResults.erotic || (isSrc ? `已提取 ${extraction.chapters.filter(c => c.erotic).length} 章的情色数据` : '未生成')}</pre>
+
+                  return null
+                })()}
               </div>
             </ScrollArea>
           )}

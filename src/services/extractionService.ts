@@ -526,7 +526,9 @@ ${charDesc}
 要求:
 1. 保持相同的角色数量(${ag.characters.length}个)和类型分布
 2. 所有姓名完全原创
-3. 每个角色保留原作对应角色的性格特征模式，但具体内容不同
+3. role必须从以下选择: "男主" / "女主" / "男配" / "女配" / "反派" / "其他"
+4. 男主只能有一个，女主可以有多个(后宫/多女主小说中允许多个女主)
+5. 每个角色保留原作对应角色的性格特征模式，但具体内容不同
 
 请输出JSON数组:
 [{"name": "新角色名", "role": "主角|女主|导师|反派|配角", "traits": ["特征1", "特征2"], "background": "背景简介"}]
@@ -542,7 +544,8 @@ export function buildGenerateWorldbuildingPrompt(extraction: NovelExtraction): s
   if (ag.worldbuilding.rules.length > 0) p += `原作规则: ${ag.worldbuilding.rules.map(r => r.name).join('、')}\n`
   if (ag.powerSystem.levels.length > 0) p += `原作等级体系: ${ag.powerSystem.levels.join(' → ')} (共${ag.powerSystem.levels.length}级)\n`
   p += '\n要求: 保持相同的地点数、势力数、规则数、等级数，但名称和内容完全原创\n\n'
-  p += '请输出JSON:\n{"worldbuilding": "世界观设定全文(Markdown格式)", "powerSystem": {"name": "新体系名", "levels": ["级1", "级2", ...], "description": "体系描述"}}\n只输出JSON，不要额外说明。'
+  p += '请输出JSON:\n{"locations": [{"name":"","description":""}], "factions": [{"name":"","description":""}], "rules": [{"name":"","description":""}], "powerSystem": {"name":"新体系名","levels":["级1","级2",...],"description":"体系描述"}}\n只输出JSON，不要额外说明。'
+  p += '\n注意: locations数组中每个地点是一个独立对象,不是一段文字。factions同理。'
   return p
 }
 
@@ -568,8 +571,18 @@ export function parseGeneratedWorldbuilding(reply: string): { worldbuilding: str
   const m = reply.match(/\{[\s\S]*\}/)
   if (m) {
     const parsed = JSON.parse(m[0])
-    let wb = (parsed.worldbuilding || '').replace(/^#+ .*\n?/gm, '').trim()
     const ps = parsed.powerSystem || { name: '', levels: [], description: '' }
+    // New structured format
+    if (parsed.locations || parsed.factions || parsed.rules) {
+      let wb = ''
+      if (parsed.locations?.length > 0) wb += '## 地点\n\n' + parsed.locations.map((l: any) => `- ${l.name}: ${l.description}`).join('\n') + '\n\n'
+      if (parsed.factions?.length > 0) wb += '## 势力\n\n' + parsed.factions.map((f: any) => `- ${f.name}: ${f.description}`).join('\n') + '\n\n'
+      if (parsed.rules?.length > 0) wb += '## 规则\n\n' + parsed.rules.map((r: any) => `- ${r.name}: ${r.description}`).join('\n') + '\n\n'
+      if (ps.levels.length > 0) wb += '## 等级体系\n\n' + ps.levels.join(' → ') + '\n\n' + (ps.description || '')
+      return { worldbuilding: wb.trim(), powerSystem: ps }
+    }
+    // Old format fallback
+    let wb = (parsed.worldbuilding || '').replace(/^#+ .*\n?/gm, '').trim()
     if (ps.name) wb = `等级体系: ${ps.levels.join(' → ')}\n\n${ps.description}\n\n${wb}`
     return { worldbuilding: wb, powerSystem: ps }
   }
