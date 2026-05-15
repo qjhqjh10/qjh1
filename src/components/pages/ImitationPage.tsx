@@ -113,11 +113,16 @@ export default function ImitationPage() {
   const [genType, setGenType] = useState<string | null>(null)
   const [outlineGenerated, setOutlineGenerated] = useState<Record<string, boolean>>({})
   const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
+  const [chapterWriteView, setChapterWriteView] = useState<string | null>(null)
+  const [chapterContents, setChapterContents] = useState<Record<string, string>>({})
+  const [writeContent, setWriteContent] = useState('')
+  const [writeLoading, setWriteLoading] = useState(false)
   const [detailsResults, setDetailsResults] = useState<string>('')
   const [detailGenResults, setDetailGenResults] = useState<any[]>([])
   const [detailGenRunning, setDetailGenRunning] = useState(false)
   const [detailGenCurrent, setDetailGenCurrent] = useState(0)
   const detailGenAbortRef = useRef(false)
+  const [toast, setToast] = useState('')
   const [dimSubTab, setDimSubTab] = useState<DimKey>('characters')
   const [showDimDialog, setShowDimDialog] = useState(false)
   const [extractDims, setExtractDims] = useState<Set<string>>(new Set())
@@ -177,6 +182,10 @@ export default function ImitationPage() {
       const gen: Record<string, boolean> = {}
       Object.keys(saved).forEach(k => { gen[k] = true })
       setOutlineGenerated(gen)
+      // Restore saved details
+      if ((ext as any).detailsResults) setDetailsResults((ext as any).detailsResults)
+      if ((ext as any).detailGenResults) setDetailGenResults((ext as any).detailGenResults)
+      if ((ext as any).chapterContents) setChapterContents((ext as any).chapterContents)
       if (ext.status === 'completed') setStep('completed')
       else if (ext.styleProfile) setStep('style')
       else if (ext.aggregated) setStep('extracting')
@@ -307,11 +316,27 @@ export default function ImitationPage() {
           prompt = extraction.emotionCurve ? `以下是原作的情绪分布，请生成一套全新的情绪模板:\n${extraction.emotionCurve.segments.map(s => `第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}`).join('\n')}\n周期: 约${extraction.emotionCurve.cycleLength}章\n\n输出JSON数组: [{"chapterStart":1,"chapterEnd":10,"dominantEmotion":"压抑"}]` : '生成全新的情绪分布模板'
           break
         case 'erotic':
-          prompt = `以下是原作的情色设定，请生成一套全新的情色设定:\n角色情色数据章节数: ${extraction.chapters.filter(c => c.erotic).length}\n\n输出JSON: {"characterRoles":[],"sceneFlow":[],"techniques":{},"powerDynamics":"","degradationPatterns":[]}`
+          const erChs = extraction.chapters.filter(c => c.erotic)
+          const allRoles = [...new Set(erChs.flatMap(c => c.erotic?.characterRoles?.map((cr: any) => cr.name) || []))]
+          prompt = `以下是原作所有情色角色的统计，请生成一套全新的情色设定。必须为每个原角色生成对应的新角色，数量相同。
+
+原作情色角色(${allRoles.length}个): ${allRoles.join('、')}
+
+原作情色章节数: ${erChs.length}章
+
+必须输出JSON(每个字段必填，不要省略):
+{
+  "characterRoles": [${allRoles.map(() => `{"name":"新角色名","domSub":"dom|sub|switch","bodyState":"正常|发情|改造|退行","kinks":["性癖"],"shameLevel":"高|中|低"}`).join(',\n    ')}],
+  "sceneFlow": [{"phase":"前戏","actions":["动作"],"bodyReactions":["反应"],"duration":"短|中|长"},{"phase":"主戏","actions":["动作"],"bodyReactions":["反应"],"duration":"短|中|长"},{"phase":"高潮","actions":["动作"],"bodyReactions":["反应"],"duration":"短|中|长"},{"phase":"收尾","actions":["动作"],"bodyReactions":["反应"],"duration":"短|中|长"}],
+  "techniques": {"bodyFluids":["体液"],"touchFocus":["部位"],"soundStyle":"密集","moanDensity":"密集"},
+  "powerDynamics": "权力关系描述",
+  "degradationPatterns": ["模式1","模式2"]
+}
+要求: characterRoles数量必须等于${allRoles.length}，每个角色的名字、属性都必须是全新的。`
           break
       }
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-      if (['characters', 'foreshadowing', 'emotionCurve', 'erotic'].includes(dimKey)) {
+      if (['characters', 'foreshadowing', 'emotionCurve'].includes(dimKey)) {
         try { const m = reply.match(/\[[\s\S]*\]/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply }
       } else {
         try { const m = reply.match(/\{[\s\S]*\}/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply.replace(/^#+ .*\n?/gm, '').trim() }
@@ -329,6 +354,9 @@ export default function ImitationPage() {
         return updated
       })
       setGenPreview(''); setGenType(null)
+      const labels: Record<string,string> = {characters:'角色',worldbuilding:'世界观',items:'道具',powerSystem:'等级',foreshadowing:'伏笔',emotionCurve:'情绪',erotic:'情色'}
+      setToast(`${labels[dimKey] || dimKey}模仿完成`)
+      setTimeout(() => setToast(''), 5000)
     }
   }
 
@@ -377,7 +405,14 @@ export default function ImitationPage() {
       } catch (err) { logError(`细纲生成失败 第${ch.chapterNumber}章`, err) }
     }
     setDetailGenRunning(false)
-    setDetailsResults(JSON.stringify(results, null, 2))
+    const json = JSON.stringify(results, null, 2)
+    setDetailsResults(json)
+    // Persist to extraction
+    if (extraction) {
+      extractionService.saveProject({ ...extraction, detailsResults: json, detailGenResults: results, updatedAt: new Date().toISOString() })
+    }
+    setToast(`细纲模仿完成: ${results.length}章`)
+    setTimeout(() => setToast(''), 5000)
   }
 
   // ---- Generate (legacy, kept for type support) ----
@@ -661,6 +696,12 @@ export default function ImitationPage() {
 
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 500, padding: '10px 24px', borderRadius: 12, background: '#16a34a', color: '#fff', fontSize: 13, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', pointerEvents: 'none' }}>
+          ✓ {toast}
+        </div>
+      )}
       {/* Header */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -706,8 +747,99 @@ export default function ImitationPage() {
         </div>
       )}
 
-      {/* Main body */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+      {/* Chapter Writing View */}
+      {chapterWriteView && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '8px 20px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            <button onClick={() => { setChapterWriteView(null); setWriteContent('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', display: 'flex', padding: 4 }}><ArrowLeftIcon style={{ width: 20, height: 20 }} /></button>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>第{chapterWriteView}章</span>
+            <span style={{ fontSize: 12, color: '#9b8e84' }}>{detailGenResults.find((d: any) => d.chapterNumber === parseInt(chapterWriteView))?.title || ''}</span>
+            <div style={{ flex: 1 }} />
+            <Button size="sm" onClick={async () => {
+              if (!activeConfigId) return
+              setWriteLoading(true)
+              const d = detailGenResults.find((d: any) => d.chapterNumber === parseInt(chapterWriteView))
+              if (!d) { setWriteLoading(false); return }
+              const or = outlineResults
+              let prompt = `你是小说创作专家。根据以下设定写一章完整的小说正文(2000-5000字)。\n\n`
+              if (or.characters) prompt += `## 角色\n${or.characters}\n\n`
+              if (or.powerSystem) prompt += `## 等级\n${or.powerSystem}\n\n`
+              if (or.worldbuilding) prompt += `## 世界观\n${or.worldbuilding}\n\n`
+              prompt += `## 本章细纲\n标题: ${d.title}\n剧情: ${d.summary}\n出场角色: ${(d.charactersAppearing || []).join(', ')}\n场景: ${d.location || ''}\n情绪: ${d.emotionalTone || ''}\n\n要求: 使用新设定中的名称,文笔流畅,叙事自然。直接输出正文,不要markdown。`
+              let streamed = ''
+              await new Promise<void>((resolve) => {
+                aiService.chatStream([{ role: 'user' as const, content: prompt }], activeConfigId, undefined,
+                  (data) => { setWriteContent(data.accumulated); streamed = data.accumulated },
+                  () => { resolve() }, () => { resolve() }, () => { resolve() }
+                )
+              })
+              setWriteLoading(false)
+            }} disabled={writeLoading || !activeConfigId} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
+              {writeLoading ? '生成中...' : 'AI生成'}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => {
+              const updated = { ...chapterContents, [chapterWriteView]: writeContent }
+              setChapterContents(updated)
+              if (extraction) extractionService.saveProject({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() })
+              setToast('章节已保存')
+              setTimeout(() => setToast(''), 3000)
+            }} disabled={!writeContent.trim()}>保存</Button>
+            {/* Prev/Next */}
+            <Button size="sm" variant="ghost" onClick={() => { const prev = parseInt(chapterWriteView) - 1; if (detailGenResults.find((d: any) => d.chapterNumber === prev)) { setChapterContents(prev => ({ ...prev, [chapterWriteView]: writeContent })); setChapterWriteView(String(prev)); setWriteContent(chapterContents[String(prev)] || '') } }} disabled={parseInt(chapterWriteView) <= 1}>上一章</Button>
+            <Button size="sm" variant="ghost" onClick={() => { const next = parseInt(chapterWriteView) + 1; if (detailGenResults.find((d: any) => d.chapterNumber === next)) { setChapterContents(prev => ({ ...prev, [chapterWriteView]: writeContent })); setChapterWriteView(String(next)); setWriteContent(chapterContents[String(next)] || '') } }} disabled={!detailGenResults.find((d: any) => d.chapterNumber === parseInt(chapterWriteView) + 1)}>下一章</Button>
+          </div>
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+            {/* Left: chapter 细纲 reference */}
+            <div style={{ width: 250, borderRight: '1px solid rgba(0,0,0,0.05)', padding: 12, overflow: 'auto', fontSize: 11 }}>
+              {(() => {
+                const d = detailGenResults.find((d: any) => d.chapterNumber === parseInt(chapterWriteView))
+                if (!d) return <div style={{ color: '#9b8e84' }}>未找到细纲</div>
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div><div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>剧情摘要</div><p style={{ color: '#4a3f38', lineHeight: 1.6, margin: 0 }}>{d.summary}</p></div>
+                    {d.charactersAppearing?.length > 0 && <div><div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>出场角色</div>{d.charactersAppearing.map((c: string) => <div key={c} style={{ color: '#6b5e54', padding: '1px 0' }}>{c}</div>)}</div>}
+                    {d.levelChange && <div><span style={{ color: '#9b8e84' }}>等级: </span><span style={{ color: '#16a34a' }}>{d.levelChange}</span></div>}
+                    {d.itemsUsed?.length > 0 && <div><span style={{ color: '#9b8e84' }}>道具: </span>{d.itemsUsed.join(', ')}</div>}
+                    {d.location && <div><span style={{ color: '#9b8e84' }}>场景: </span><span style={{ color: '#4a3f38' }}>{d.location}</span></div>}
+                    {d.emotionalTone && <div><span style={{ color: '#9b8e84' }}>情绪: </span><span style={{ color: '#4a3f38' }}>{d.emotionalTone}</span></div>}
+                  </div>
+                )
+              })()}
+            </div>
+            {/* Center: Editor */}
+            <div style={{ flex: 1, padding: 12, overflow: 'auto' }}>
+              <textarea
+                value={writeContent}
+                onChange={e => setWriteContent(e.target.value)}
+                placeholder={chapterContents[chapterWriteView] ? '' : '点击「AI生成」或手动输入正文...'}
+                style={{
+                  width: '100%', height: '100%', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12,
+                  padding: 16, fontSize: 15, lineHeight: 2, color: '#2d2520', background: '#faf9f8',
+                  resize: 'none', fontFamily: 'inherit', outline: 'none',
+                }}
+              />
+            </div>
+            {/* Right: Outline reference */}
+            <div style={{ width: 220, borderLeft: '1px solid rgba(0,0,0,0.05)', padding: 12, overflow: 'auto', fontSize: 10 }}>
+              {outlineResults && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {outlineResults.characters && <div><div style={{ fontWeight: 700, color: '#9b8e84', marginBottom: 2 }}>角色</div><pre style={{ whiteSpace: 'pre-wrap', margin: 0, color: '#4a3f38' }}>{outlineResults.characters.slice(0, 500)}</pre></div>}
+                  {outlineResults.powerSystem && <div><div style={{ fontWeight: 700, color: '#9b8e84', marginBottom: 2 }}>等级</div><pre style={{ whiteSpace: 'pre-wrap', margin: 0, color: '#4a3f38' }}>{outlineResults.powerSystem.slice(0, 300)}</pre></div>}
+                  {outlineResults.worldbuilding && <div><div style={{ fontWeight: 700, color: '#9b8e84', marginBottom: 2 }}>世界观</div><pre style={{ whiteSpace: 'pre-wrap', margin: 0, color: '#4a3f38' }}>{outlineResults.worldbuilding.slice(0, 300)}</pre></div>}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ padding: '6px 20px', borderTop: '1px solid rgba(0,0,0,0.04)', fontSize: 10, color: '#9b8e84', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>字数: {writeContent.length}</span>
+            {writeContent.length > 0 && <span style={{ color: '#16a34a' }}>已编辑</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Main body — tabs (hidden when writing) */}
+      {!chapterWriteView && <>
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
         {/* Left: Chapter list */}
         <div style={{ width: 280, minWidth: 260, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 4 }}>
@@ -925,12 +1057,47 @@ export default function ImitationPage() {
                     let genEr: any = null
                     if (!isSrc) { try { genEr = JSON.parse(outlineResults.erotic || '{}') } catch {} }
                     if (genEr) return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
-                        {genEr.characterRoles?.length > 0 && <div><div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>角色情色设定</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{genEr.characterRoles.map((cr: any) => <span key={cr.name} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{cr.name}({cr.domSub || 'sub'})</span>)}</div></div>}
-                        {genEr.powerDynamics && <div><span style={{ color: '#9b8e84' }}>权力关系:</span> <span style={{ color: '#4a3f38' }}>{genEr.powerDynamics}</span></div>}
-                        {genEr.degradationPatterns?.length > 0 && <div><span style={{ color: '#9b8e84' }}>羞辱模式:</span> {genEr.degradationPatterns.join('、')}</div>}
-                        {genEr.sceneFlow?.length > 0 && <div><span style={{ color: '#9b8e84' }}>场景流程:</span> {genEr.sceneFlow.map((sf: any) => sf.phase).join(' → ')}</div>}
-                        {genEr.techniques && <div><span style={{ color: '#9b8e84' }}>技法:</span> {genEr.techniques.soundStyle || ''} {genEr.techniques.moanDensity || ''}</div>}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+                        {genEr.characterRoles?.length > 0 && (
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>角色情色设定 ({genEr.characterRoles.length}个)</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {genEr.characterRoles.map((cr: any) => (
+                                <div key={cr.name} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(220,38,38,0.12)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                    <span style={{ fontWeight: 700, color: '#dc2626', fontSize: 13 }}>{cr.name}</span>
+                                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(220,38,38,0.1)', color: '#dc2626' }}>{cr.domSub || 'sub'}</span>
+                                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(0,0,0,0.03)', color: '#6b5e54' }}>{cr.bodyState || '正常'}</span>
+                                    {cr.shameLevel && <span style={{ fontSize: 9, color: '#9b8e84' }}>羞耻: {cr.shameLevel}</span>}
+                                  </div>
+                                  {cr.kinks?.length > 0 && <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>{cr.kinks.map((k: string) => <span key={k} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{k}</span>)}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {genEr.sceneFlow?.length > 0 && (
+                          <div style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.04)' }}>
+                            <div style={{ fontWeight: 600, color: '#dc2626', marginBottom: 4 }}>场景流程</div>
+                            {genEr.sceneFlow.map((sf: any, i: number) => (
+                              <div key={i} style={{ marginBottom: i < genEr.sceneFlow.length - 1 ? 4 : 0 }}>
+                                <span style={{ fontWeight: 600, color: '#4a3f38' }}>{sf.phase || `阶段${i+1}`}:</span>
+                                <span style={{ color: '#6b5e54' }}> {sf.actions?.join('、') || ''}</span>
+                                {sf.bodyReactions?.length > 0 && <span style={{ color: '#9b8e84', fontSize: 10 }}> → {sf.bodyReactions.join('、')}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {genEr.techniques && (
+                          <div style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.04)' }}>
+                            <div style={{ fontWeight: 600, color: '#dc2626', marginBottom: 4 }}>技法参数</div>
+                            {genEr.techniques.bodyFluids?.length > 0 && <div style={{ marginTop: 2 }}><span style={{ color: '#9b8e84' }}>体液:</span> <span style={{ color: '#4a3f38' }}>{genEr.techniques.bodyFluids.join('、')}</span></div>}
+                            {genEr.techniques.touchFocus?.length > 0 && <div style={{ marginTop: 2 }}><span style={{ color: '#9b8e84' }}>触感焦点:</span> <span style={{ color: '#4a3f38' }}>{genEr.techniques.touchFocus.join('、')}</span></div>}
+                            <div style={{ marginTop: 2 }}><span style={{ color: '#9b8e84' }}>声音:</span> <span style={{ color: '#4a3f38' }}>{genEr.techniques.soundStyle || '密集'} · {genEr.techniques.moanDensity || '密集'}</span></div>
+                          </div>
+                        )}
+                        {genEr.powerDynamics && <div style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.04)' }}><div style={{ fontWeight: 600, color: '#dc2626', marginBottom: 4 }}>权力关系</div><span style={{ color: '#4a3f38' }}>{genEr.powerDynamics}</span></div>}
+                        {genEr.degradationPatterns?.length > 0 && <div style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.04)' }}><div style={{ fontWeight: 600, color: '#dc2626', marginBottom: 4 }}>羞辱模式</div><div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{genEr.degradationPatterns.map((p: string, i: number) => <span key={i} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{p}</span>)}</div></div>}
                       </div>
                     )
                     if (isSrc) return (
@@ -938,8 +1105,19 @@ export default function ImitationPage() {
                         {extraction.chapters.filter(c => c.erotic).map(ch => (
                           <div key={ch.chapterId} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(220,38,38,0.1)', fontSize: 11 }}>
                             <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>第{ch.chapterNumber}章</div>
-                            {ch.erotic?.characterRoles && ch.erotic.characterRoles.length > 0 && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', fontSize: 9 }}>{ch.erotic.characterRoles.map((cr: any) => <span key={cr.name} style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{cr.name}({cr.domSub || 'sub'})</span>)}</div>}
-                            {ch.erotic?.powerDynamics && <p style={{ color: '#6b5e54', margin: '4px 0 0', fontSize: 10 }}>{ch.erotic.powerDynamics}</p>}
+                            {ch.erotic?.characterRoles && ch.erotic.characterRoles.length > 0 && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 4 }}>
+                                {ch.erotic.characterRoles.map((cr: any) => (
+                                  <div key={cr.name} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontWeight: 600, color: '#dc2626' }}>{cr.name}</span>
+                                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(220,38,38,0.06)', color: '#dc2626' }}>{cr.domSub || 'sub'}</span>
+                                    <span style={{ fontSize: 9, color: '#9b8e84' }}>{cr.bodyState}</span>
+                                    {cr.kinks?.length > 0 && cr.kinks.map((k: string) => <span key={k} style={{ fontSize: 8, color: '#e67e00' }}>#{k}</span>)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {ch.erotic?.powerDynamics && <p style={{ color: '#6b5e54', margin: '2px 0 0', fontSize: 10 }}>{ch.erotic.powerDynamics}</p>}
                           </div>
                         ))}
                       </div>
@@ -986,6 +1164,10 @@ export default function ImitationPage() {
                       {d.itemsUsed?.length > 0 && (<div style={{ marginBottom: 6 }}><span style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>道具:</span> {d.itemsUsed.map((i: string) => <span key={i} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.06)', color: '#e67e00', marginRight: 4 }}>{i}</span>)}</span></div>)}
                       {d.keyEvents?.length > 0 && (<div style={{ marginBottom: 6 }}><span style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>事件:</span> {d.keyEvents.join(' · ')}</span></div>)}
                       {d.emotionalTone && <div style={{ fontSize: 10 }}><span style={{ color: '#9b8e84' }}>情绪基调:</span> <span style={{ color: '#4a3f38' }}>{d.emotionalTone}</span></div>}
+                      <div style={{ marginTop: 8, display: 'flex', gap: 4 }}>
+                        <Button size="sm" variant="ghost" onClick={() => { setChapterWriteView(String(d.chapterNumber)); setWriteContent(chapterContents[String(d.chapterNumber)] || '') }}>写本章</Button>
+                        {chapterContents[String(d.chapterNumber)] && <span style={{ fontSize: 10, color: '#16a34a', padding: '4px 0' }}>✓ 已写 {chapterContents[String(d.chapterNumber)].length}字</span>}
+                      </div>
                     </div>
                   ))
                 ) : <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>尚未生成细纲。切换到「生成」Tab → 细纲模仿 → 开始逐章生成。</div>}
@@ -1111,9 +1293,22 @@ export default function ImitationPage() {
                     <Button size="sm" onClick={() => handleGenerateDetailsImitation()} disabled={detailGenRunning || !outlineGenerated['characters'] || !extraction.aggregated || extractIds.size === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
                       {detailGenRunning ? `生成中 ${detailGenCurrent}/${extractIds.size}` : `开始逐章生成 (${extractIds.size}章)`}
                     </Button>
+                    <Button size="sm" variant="ghost" onClick={() => {
+                      const leftovers = extraction.chapters.filter(c => extractIds.has(c.chapterId) && c.extractedAt && !detailGenResults.find((d: any) => d.chapterNumber === c.chapterNumber))
+                      if (leftovers.length === 0) { alert('所有选中章节已生成细纲'); return }
+                      setExtractIds(new Set(leftovers.map(c => c.chapterId)))
+                      setTimeout(() => handleGenerateDetailsImitation(), 100)
+                    }} disabled={detailGenRunning || !outlineGenerated['characters'] || extractIds.size === 0}>
+                      生成剩余
+                    </Button>
                     {detailGenRunning && <Button size="sm" variant="danger" onClick={() => { detailGenAbortRef.current = true }}>停止</Button>}
                     {detailGenResults.length > 0 && !detailGenRunning && (
-                      <Button size="sm" variant="secondary" onClick={() => { setDetailsResults(JSON.stringify(detailGenResults, null, 2)); alert(`已保存 ${detailGenResults.length} 章细纲`) }}>保存全部细纲</Button>
+                      <Button size="sm" variant="secondary" onClick={() => {
+                      const json = JSON.stringify(detailGenResults, null, 2)
+                      setDetailsResults(json)
+                      if (extraction) extractionService.saveProject({ ...extraction, detailsResults: json, detailGenResults, updatedAt: new Date().toISOString() })
+                      alert(`已保存 ${detailGenResults.length} 章细纲`)
+                    }}>保存全部细纲</Button>
                     )}
                   </div>
                   {detailGenRunning && (
@@ -1159,6 +1354,7 @@ export default function ImitationPage() {
           {ag && activeProjectId && <><div style={{ height: 1, background: 'rgba(0,0,0,0.05)' }} /><Button onClick={handleImportToProject} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />} style={{ width: '100%' }}>导入到项目</Button></>}
         </div>
       </div>
+      </>}
 
       {/* Extraction Progress Dialog */}
       {extractingRef.current && (
