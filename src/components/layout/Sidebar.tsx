@@ -3,7 +3,6 @@ import { useMemo } from 'react'
 import { useStore } from '@/store'
 import {
   HomeIcon,
-  GlobeAltIcon,
   UserGroupIcon,
   DocumentTextIcon,
   ListBulletIcon,
@@ -11,6 +10,7 @@ import {
   FlagIcon,
   PaintBrushIcon,
   SparklesIcon,
+  DocumentMagnifyingGlassIcon,
   Cog6ToothIcon,
   FolderIcon,
   ChevronLeftIcon,
@@ -19,7 +19,6 @@ import {
 
 const NAV_ITEMS = [
   { path: '/', label: '首页', icon: HomeIcon },
-  { path: '/worldbuilding', label: '世界观', icon: GlobeAltIcon },
   { path: '/characters', label: '角色', icon: UserGroupIcon },
   { path: '/outline', label: '小说大纲', icon: DocumentTextIcon },
   { path: '/detailed-outline', label: '小说细纲', icon: ListBulletIcon },
@@ -27,6 +26,7 @@ const NAV_ITEMS = [
   { path: '/story-map', label: '故事脉络', icon: FlagIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
+  { path: '/extraction', label: '小说反推', icon: DocumentMagnifyingGlassIcon },
 ]
 
 export default function Sidebar() {

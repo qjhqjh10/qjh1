@@ -21,48 +21,68 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
   { key: 'importance', label: '重要程度', isNumber: true },
 ]
 
+function jsonPath(projectPath: string, id: string) {
+  return `${projectPath}/characters/${id}.json`
+}
+
+function txtPath(projectPath: string, id: string) {
+  return `${projectPath}/characters/${id}.txt`
+}
+
 export async function saveCharacter(projectPath: string, character: Character) {
-  const lines: string[] = []
-  for (const f of CHARACTER_FIELDS) {
-    if (f.key === 'id') continue
-    const val = character[f.key]
-    if (f.key === 'relationshipTags') {
-      lines.push(`${f.label}: ${(val as string[]).join('、')}`)
-    } else {
-      lines.push(`${f.label}: ${val || ''}`)
-    }
-  }
-  await fileService.write(`${projectPath}/characters/${character.id}.txt`, lines.join('\n'))
+  await fileService.write(jsonPath(projectPath, character.id), JSON.stringify(character, null, 2))
 }
 
 export async function loadCharacters(projectPath: string): Promise<Character[]> {
   try {
     const files = await fileService.listDir(`${projectPath}/characters`)
-    const txtFiles = files.filter(f => f.endsWith('.txt'))
     const chars: Character[] = []
 
+    // Prefer .json files
+    const jsonFiles = files.filter(f => f.endsWith('.json'))
+    const seenIds = new Set<string>()
+
+    for (const file of jsonFiles) {
+      try {
+        const content = await fileService.read(`${projectPath}/characters/${file}`)
+        const char = JSON.parse(content) as Character
+        chars.push(char)
+        seenIds.add(file.replace('.json', ''))
+      } catch { /* skip invalid */ }
+    }
+
+    // Fallback: legacy .txt files not yet migrated
+    const txtFiles = files.filter(f => {
+      if (!f.endsWith('.txt')) return false
+      const id = f.replace('.txt', '')
+      return !seenIds.has(id)
+    })
+
     for (const file of txtFiles) {
-      const content = await fileService.read(`${projectPath}/characters/${file}`)
-      const char: Character = { ...EMPTY_CHARACTER, id: file.replace('.txt', '') }
-      const lines = content.split('\n')
-      for (const line of lines) {
-        const match = line.match(/^(.+?): (.+)$/)
-        if (match) {
-          const field = CHARACTER_FIELDS.find(f => f.label === match[1])
-          if (field) {
-            if (field.key === 'relationshipTags') {
-              char.relationshipTags = match[2].split('、').filter(Boolean) as Character['relationshipTags']
-            } else if (field.isNumber) {
-              const n = parseInt(match[2], 10)
-              if (!isNaN(n)) (char as unknown as Record<string, number>)[field.key] = n
-            } else {
-              (char as unknown as Record<string, string>)[field.key] = match[2]
+      try {
+        const content = await fileService.read(`${projectPath}/characters/${file}`)
+        const char: Character = { ...EMPTY_CHARACTER, id: file.replace('.txt', '') }
+        const lines = content.split('\n')
+        for (const line of lines) {
+          const match = line.match(/^(.+?): (.+)$/)
+          if (match) {
+            const field = CHARACTER_FIELDS.find(f => f.label === match[1])
+            if (field) {
+              if (field.key === 'relationshipTags') {
+                char.relationshipTags = match[2].split('、').filter(Boolean) as Character['relationshipTags']
+              } else if (field.isNumber) {
+                const n = parseInt(match[2], 10)
+                if (!isNaN(n)) (char as unknown as Record<string, number>)[field.key] = n
+              } else {
+                (char as unknown as Record<string, string>)[field.key] = match[2]
+              }
             }
           }
         }
-      }
-      chars.push(char)
+        chars.push(char)
+      } catch { /* skip invalid */ }
     }
+
     return chars
   } catch {
     return []

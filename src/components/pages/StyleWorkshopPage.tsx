@@ -7,6 +7,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
+import { buildStyleAnalyzePrompt, parseStyleAnalysisReply } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
@@ -23,8 +24,8 @@ const CHAPTER_PATTERNS: { regex: RegExp; type: StyleChapter['chapterType'] }[] =
   { regex: /^楔子\s*$/, type: 'prologue' }, { regex: /^序章\s*$/, type: 'prologue' },
   { regex: /^引子\s*$/, type: 'prologue' }, { regex: /^前言\s*$/, type: 'prologue' },
   { regex: /^终章\s*$/, type: 'epilogue' }, { regex: /^尾声\s*$/, type: 'epilogue' },
-  { regex: /^后记\s*$/, type: 'afterword' }, { regex: /^番外[一二三四五六七八九十百千零\d]*\s*/, type: 'sideStory' },
-  { regex: /^第[一二三四五六七八九十百千零\d]+[章卷节回]\s*/, type: 'chapter' },
+  { regex: /^后记\s*$/, type: 'afterword' }, { regex: /^番外[一二三四五六七八九十百千零\d]+\s*$/, type: 'sideStory' },
+  { regex: /^第[一二三四五六七八九十百千零\d]+[章卷节回](\s+.{1,40})?$/, type: 'chapter' },
 ]
 
 function splitChapters(content: string): StyleChapter[] {
@@ -32,7 +33,8 @@ function splitChapters(content: string): StyleChapter[] {
   const chapters: { title: string; type: StyleChapter['chapterType']; startLine: number }[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
-    if (!line || line.length > 80) continue
+    if (!line) continue
+    if (line.length > 40) continue
     for (const pat of CHAPTER_PATTERNS) {
       if (pat.regex.test(line)) { chapters.push({ title: line, type: pat.type, startLine: i }) }
     }
@@ -52,45 +54,6 @@ function splitChapters(content: string): StyleChapter[] {
   }
   return result
 }
-
-function parseAnalysisFromReply(reply: string): ChapterAnalysis {
-  let jsonStr = reply
-  const m = reply.match(/\{[\s\S]*\}/)
-  if (m) jsonStr = m[0]
-  const parsed = JSON.parse(jsonStr)
-  const excerpts = parsed.excerpts || []
-  const first = excerpts[0] || {}
-  return {
-    sentenceStyle: parsed.sentenceStyle || '',
-    vocabularyStyle: parsed.vocabularyStyle || '',
-    rhetoricStyle: parsed.rhetoricStyle || '',
-    rhythmStyle: parsed.rhythmStyle || '',
-    dialogueStyle: parsed.dialogueStyle || '',
-    moodStyle: parsed.moodStyle || '',
-    perspectiveStyle: parsed.perspectiveStyle || '',
-    bodyLanguageStyle: parsed.bodyLanguageStyle || '',
-    sensoryStyle: parsed.sensoryStyle || '',
-    tensionStyle: parsed.tensionStyle || '',
-    subtextStyle: parsed.subtextStyle || '',
-    descriptionPattern: parsed.descriptionPattern || null,
-    corruptionArc: parsed.corruptionArc || null,
-    degradationRitual: parsed.degradationRitual || null,
-    narrativeVoice: parsed.narrativeVoice || null,
-    sceneMechanics: parsed.sceneMechanics || null,
-    somaticTension: parsed.somaticTension || null,
-    identityDissolution: parsed.identityDissolution || null,
-    shameVoyeurLoop: parsed.shameVoyeurLoop || null,
-    excerpt: first.text || '',
-    excerptNote: first.note || '',
-    analyzedAt: new Date().toISOString(),
-  }
-}
-
-function buildAnalyzePrompt(dims: string[]) {
-  const fields = dims.map(k => `  ${DIMENSION_META[k]?.prompt || `"${k}": "..."`}`).join(',\n')
-  return `分析以下小说章节的写作风格特征。输出JSON（不要markdown，不分析的维度不要输出）：\n{\n${fields},\n  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}]\n}`
-}
-
 const FEATURE_LABELS: Record<string, string> = {
   sentenceStyle: '句式', vocabularyStyle: '词汇', rhetoricStyle: '修辞',
   rhythmStyle: '节奏', dialogueStyle: '对话', moodStyle: '氛围',
@@ -203,8 +166,8 @@ export default function StyleWorkshopPage() {
         setAnalyzeProgress(`快速模式: ${sample.length} 章...`)
         // Analyze all at once, then split result per chapter (simple approach: assign same analysis to each)
         for (const ch of sample) {
-          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-          updateChapterAnalysis(ch.id, parseAnalysisFromReply(reply))
+          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+          updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply))
           setAnalyzeProgress(`快速模式: ${sample.indexOf(ch) + 1}/${sample.length}`)
         }
       } else {
@@ -213,8 +176,8 @@ export default function StyleWorkshopPage() {
         for (let i = 0; i < batches.length; i++) {
           setAnalyzeProgress(`精确模式: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-            updateChapterAnalysis(ch.id, parseAnalysisFromReply(reply))
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply))
           }
         }
       }
@@ -250,7 +213,7 @@ export default function StyleWorkshopPage() {
       }).join('\n\n')
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-      const result = parseAnalysisFromReply(reply)
+      const result = parseStyleAnalysisReply(reply)
       const profile: StyleProfile = {
         features: {
           sentenceStyle: result.sentenceStyle, vocabularyStyle: result.vocabularyStyle,

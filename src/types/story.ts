@@ -301,6 +301,29 @@ export interface NovelSceneConfig {
   useStyleProfile: boolean; useChapterOutline: boolean; extraNote: string
 }
 
+// Outline metadata
+export interface ForeshadowItem {
+  id: string
+  description: string
+  plantChapterId: string
+  payoffChapterId: string
+  status: 'planted' | 'resolved'
+}
+
+export interface PlotThread {
+  id: string
+  name: string
+  type: 'main' | 'sub' | 'hidden'
+  color: string
+  chapterIds: string[]
+}
+
+export interface OutlineMeta {
+  foreshadowing: ForeshadowItem[]
+  plotThreads: PlotThread[]
+  updatedAt: string
+}
+
 // Per-chapter scene configuration (saved to projects/{project}/scenes/{chapterId}.json)
 export interface ChapterSceneConfig {
   chapterId: string
@@ -435,4 +458,87 @@ export interface StoryGraph {
 
 export function isForeshadowingEvent(e: StoryEvent): boolean {
   return e.type === 'foreshadowing' || e.type === 'payoff'
+}
+
+// ---- Novel Extraction System ----
+
+export interface ExtractedCharacterRaw {
+  name: string; aliases: string[]; role: string; traits: string[]
+  appearance: string; action: string; newInfo: string
+}
+
+export interface ExtractedWorldElement {
+  type: 'location' | 'faction' | 'rule' | 'history' | 'other'
+  name: string; description: string; newInfo: string
+}
+
+export interface ExtractedItem {
+  name: string; type: string; grade: string; owner: string
+  ability: string; firstChapter: number; acquisitionMethod: string
+}
+
+export interface ExtractedPowerMention {
+  term: string; context: string; inferredLevel: number
+}
+
+export interface ExtractedForeshadow {
+  description: string; type: 'planted' | 'resolved'; relatedChapter?: number
+}
+
+export interface ChapterExtraction {
+  chapterId: string; chapterNumber: number; chapterTitle: string; chapterContent: string
+  characters: ExtractedCharacterRaw[]; worldbuilding: ExtractedWorldElement[]
+  items: ExtractedItem[]; powerSystem: ExtractedPowerMention[]
+  chapterSummary: string; events: string[]
+  foreshadowing: ExtractedForeshadow[]; emotionalTone: string
+  extractedAt: string
+}
+
+export interface AggregatedCharacter {
+  name: string; aliases: string[]; role: string; traits: string[]
+  appearance: string; background: string; arc: string
+  firstChapter: number; lastChapter: number
+  relationships: { target: string; type: string; evolution: string; chapters: number[] }[]
+}
+
+export interface AggregatedResult {
+  characters: AggregatedCharacter[]
+  worldbuilding: { locations: ExtractedWorldElement[]; factions: ExtractedWorldElement[]; rules: ExtractedWorldElement[]; history: string }
+  items: ExtractedItem[]
+  powerSystem: { name: string; levels: string[]; description: string }
+  foreshadowing: { description: string; plantChapter: number; payoffChapter: number | null; status: 'planted' | 'resolved' }[]
+}
+
+export interface PlotStructure {
+  acts: { name: string; chapters: number[]; summary: string }[]
+  turningPoints: { chapter: number; type: string; desc: string }[]
+  plotThreads: { name: string; type: string; chapters: number[] }[]
+}
+
+export interface PacingTemplate {
+  battleRatio: number
+  transitionRatio: number
+  climaxRatio: number
+  trainingRatio: number
+  socialRatio: number
+  avgChapterWords: number
+}
+
+export interface GeneratedNovel {
+  outline: string
+  detailedOutlines: { chapterNumber: number; title: string; summary: string }[]
+  characters: { name: string; role: string; traits: string[]; background: string }[]
+  worldbuilding: string
+  powerSystem: { name: string; levels: string[]; description: string }
+  generatedAt: string
+}
+
+export interface NovelExtraction {
+  id: string; novelName: string; sourceFileName: string
+  chapters: ChapterExtraction[]
+  aggregated: AggregatedResult | null; plotStructure: PlotStructure | null
+  styleProfile: StyleProfile | null; pacingTemplate: PacingTemplate | null
+  generatedNovel: GeneratedNovel | null
+  status: 'draft' | 'extracting' | 'aggregated' | 'completed'
+  createdAt: string; updatedAt: string
 }

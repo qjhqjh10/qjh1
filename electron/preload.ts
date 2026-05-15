@@ -125,6 +125,13 @@ const api = {
     save: (template: unknown): Promise<void> => ipcRenderer.invoke('template:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
   },
+  extractions: {
+    importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('extraction:importFile'),
+    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('extraction:listProjects'),
+    loadProject: (id: string): Promise<unknown> => ipcRenderer.invoke('extraction:loadProject', id),
+    saveProject: (project: unknown): Promise<void> => ipcRenderer.invoke('extraction:saveProject', project),
+    deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('extraction:deleteProject', id),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

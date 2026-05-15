@@ -135,3 +135,11 @@ export const templateService = {
   save: (template: unknown) => e().templates.save(template),
   delete: (id: string) => e().templates.delete(id),
 }
+
+export const extractionService = {
+  importFile: () => e().extractions.importFile(),
+  listProjects: () => e().extractions.listProjects(),
+  loadProject: (id: string) => e().extractions.loadProject(id),
+  saveProject: (project: unknown) => e().extractions.saveProject(project),
+  deleteProject: (id: string) => e().extractions.deleteProject(id),
+}

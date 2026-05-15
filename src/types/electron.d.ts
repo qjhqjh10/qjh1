@@ -108,6 +108,14 @@ export interface KBAPI {
   webSearch: (query: string, maxResults?: number) => Promise<KBWebSearchResult[]>
 }
 
+export interface ExtractionAPI {
+  importFile: () => Promise<{ name: string; content: string } | null>
+  listProjects: () => Promise<{ id: string; name: string; chapterCount: number; status: string; createdAt: string }[]>
+  loadProject: (id: string) => Promise<unknown>
+  saveProject: (project: unknown) => Promise<void>
+  deleteProject: (id: string) => Promise<void>
+}
+
 export interface ElectronAPI {
   files: FileAPI
   project: ProjectAPI
@@ -120,6 +128,7 @@ export interface ElectronAPI {
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
   templates: { list: () => Promise<unknown[]>; save: (t: unknown) => Promise<void>; delete: (id: string) => Promise<void> }
+  extractions: ExtractionAPI
 }
 
 declare global {

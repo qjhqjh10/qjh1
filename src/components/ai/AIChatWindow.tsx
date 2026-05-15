@@ -233,15 +233,17 @@ export default function AIChatWindow() {
         ? '\n以上知识库信息仅供参考，请以你的模型知识为主要依据进行回答。'
         : ''
 
-    if (activePage === 'worldbuilding' && worldbuildingContent) {
-      parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 2000)}]`)
-      parts.push('用户正在编辑世界观设定，你可以分析现有内容的逻辑完整性、指出不足、提出扩展建议或修改方案。请标注建议针对原文的哪一部分。')
+    if (activePage === 'outline') {
+      if (outlineContent) {
+        parts.push(`[当前大纲:\n${outlineContent.slice(0, 2000)}]`)
+      }
+      if (worldbuildingContent) {
+        parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 2000)}]`)
+      }
+      parts.push('用户正在编辑大纲/世界观设定，你可以分析现有大纲的结构、节奏、逻辑完整性，分析世界观的逻辑一致性，指出不足，提出扩展建议或修改方案。')
     } else if (activePage === 'characters' && characters.length > 0) {
       const cs = characters.map(c => `${c.name}(${c.role}): ${c.personality?.slice(0, 100) || ''}`).join('\n')
       parts.push(`[当前角色列表:\n${cs}]`)
-    } else if (activePage === 'outline' && outlineContent) {
-      parts.push(`[当前大纲:\n${outlineContent.slice(0, 2000)}]`)
-      parts.push('用户正在编辑大纲，你可以分析现有大纲的结构、节奏、逻辑完整性，指出不足，提出扩展建议或修改方案。请标注建议针对原文的哪一部分。')
     } else if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
       const cs = detailedChapters.map(c => `章节: ${c.title}\n描述: ${c.description?.slice(0, 200) || ''}`).join('\n---\n')
       parts.push(`[当前细纲:\n${cs}]`)
@@ -447,8 +449,6 @@ export default function AIChatWindow() {
 
   const handleApplyToEditor = (content: string) => {
     switch (activePage) {
-      case 'worldbuilding':
-        setWorldbuildingContent(worldbuildingContent ? worldbuildingContent + '\n\n' + content : content); break
       case 'outline':
         setOutlineContent(outlineContent ? outlineContent + '\n\n' + content : content); break
       case 'detailed-outline':

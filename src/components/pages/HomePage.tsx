@@ -81,7 +81,7 @@ export default function HomePage() {
 
   const handleEnterProject = (project: Project) => {
     setActiveProject(project.id)
-    navigate('/worldbuilding')
+    navigate('/outline')
   }
 
   const activeProject = projects.find(p => p.id === activeProjectId)

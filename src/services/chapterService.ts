@@ -2,11 +2,43 @@ import { fileService } from '@/services/fileService'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { logError } from '@/utils/logger'
 
+function jsonPath(projectPath: string, id: string) {
+  return `${projectPath}/detailed_outline/${id}.json`
+}
+
+function txtPath(projectPath: string, id: string) {
+  return `${projectPath}/detailed_outline/${id}.txt`
+}
+
+export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
+  await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
+}
+
 export async function loadDetailedChapters(projectPath: string): Promise<DetailedChapter[]> {
   try {
     const files = await fileService.listDir(`${projectPath}/detailed_outline`)
-    const txtFiles = files.filter(f => f.endsWith('.txt'))
     const chapters: DetailedChapter[] = []
+    const seenIds = new Set<string>()
+
+    // Prefer .json files
+    const jsonFiles = files.filter(f => f.endsWith('.json'))
+    for (const file of jsonFiles) {
+      try {
+        const content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
+        const ch = JSON.parse(content) as DetailedChapter
+        chapters.push(ch)
+        seenIds.add(file.replace('.json', ''))
+      } catch (e) {
+        logError(`解析细纲JSON文件失败: ${file}`, e)
+      }
+    }
+
+    // Fallback: legacy .txt files not yet migrated
+    const txtFiles = files.filter(f => {
+      if (!f.endsWith('.txt')) return false
+      const id = f.replace('.txt', '')
+      return !seenIds.has(id)
+    })
 
     for (const file of txtFiles) {
       try {
@@ -37,7 +69,7 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
 
         chapters.push({ id, title, description, summary, order, status })
       } catch (e) {
-        logError(`解析细纲文件失败: ${file}`, e)
+        logError(`解析细纲TXT文件失败: ${file}`, e)
         chapters.push({ id: file.replace('.txt', ''), title: '', description: '', summary: '', order: 0, status: 'outline' })
       }
     }

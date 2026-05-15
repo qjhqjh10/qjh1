@@ -8,7 +8,7 @@ import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
-import { loadDetailedChapters } from '@/services/chapterService'
+import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
 
 export default function DetailedOutlinePage() {
   const navigate = useNavigate()
@@ -43,8 +43,7 @@ export default function DetailedOutlinePage() {
   }, [activeProjectId, projectsBasePath])
 
   const saveDetailedChapterToFile = async (ch: DetailedChapter) => {
-    const content = `顺序: ${ch.order}\n状态: ${ch.status || 'outline'}\n标题: ${ch.title}\n\n描述:\n${ch.description}\n\n摘要:\n${ch.summary || ''}`
-    await fileService.write(`${projectPath}/detailed_outline/${ch.id}.txt`, content)
+    await saveDetailedChapter(projectPath, ch)
   }
 
   const handleNewChapter = async () => {
@@ -68,7 +67,7 @@ export default function DetailedOutlinePage() {
   }
 
   const handleDeleteChapter = async (ch: DetailedChapter) => {
-    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.txt`)
+    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.json`)
     removeDetailedChapter(ch.id)
   }
 

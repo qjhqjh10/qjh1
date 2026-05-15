@@ -221,7 +221,7 @@ ${JSON.stringify(charList, null, 2)}
   }
 
   const handleDelete = async (char: Character) => {
-    await fileService.deleteFile(`${projectPath}/characters/${char.id}.txt`)
+    await fileService.deleteFile(`${projectPath}/characters/${char.id}.json`)
     removeCharacter(char.id)
   }
 

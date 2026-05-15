@@ -23,7 +23,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
 }
 import AppLayout from '@/components/layout/AppLayout'
 import HomePage from '@/components/pages/HomePage'
-import WorldbuildingPage from '@/components/pages/WorldbuildingPage'
 import CharactersPage from '@/components/pages/CharactersPage'
 import OutlinePage from '@/components/pages/OutlinePage'
 import DetailedOutlinePage from '@/components/pages/DetailedOutlinePage'
@@ -33,6 +32,7 @@ import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
 import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
 import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
+import ExtractionPage from '@/components/pages/ExtractionPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
 
@@ -61,7 +61,6 @@ function AnimatedRoutes() {
       >
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/worldbuilding" element={<WorldbuildingPage />} />
           <Route path="/characters" element={<CharactersPage />} />
           <Route path="/outline" element={<OutlinePage />} />
           <Route path="/detailed-outline" element={<DetailedOutlinePage />} />
@@ -70,6 +69,7 @@ function AnimatedRoutes() {
           <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
           <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
+          <Route path="/extraction" element={<ExtractionPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

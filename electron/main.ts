@@ -8,6 +8,7 @@ import { registerKbHandlers, autoIndexProjectFile } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
+import { registerExtractionHandlers } from './ipc/extractionHandlers'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -79,6 +80,9 @@ app.whenReady().then(() => {
 
   const templatesPath = join(projectsPath, '..', 'scene_templates')
   registerTemplateHandlers(ipcMain, templatesPath)
+
+  const extractionsPath = join(projectsPath, '..', 'extractions')
+  registerExtractionHandlers(ipcMain, extractionsPath)
 
   const win = createWindow()
 
