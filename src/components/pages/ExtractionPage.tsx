@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
-import { extractionService, aiService, fileService } from '@/services/fileService'
+import { extractionService, aiService, fileService, styleProjectService } from '@/services/fileService'
 import { loadCharacters, saveCharacter } from '@/services/characterService'
 import { saveDetailedChapter } from '@/services/chapterService'
 import {
   aggregateExtractions, buildExtractionPrompt, parseExtractionReply, splitChapters,
-  computePacingTemplate,
+  computePacingTemplate, chaptersToStyleChapters,
   buildGenerateOutlinePrompt, buildGenerateDetailedOutlinesPrompt,
   buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt,
   parseGeneratedOutline, parseGeneratedDetailedOutlines,
@@ -209,12 +209,24 @@ ${summaries}
   }
 
   // ---- Style analysis (delegated to Style Workshop) ----
-  const handleOpenStyleWorkshop = () => {
+  const handleSendToStyleWorkshop = async () => {
     if (!extraction) return
-    // Compute pacing template and save
+    // Compute pacing + save
     const updated = { ...extraction, pacingTemplate: computePacingTemplate(extraction.chapters.filter(c => c.extractedAt)), updatedAt: new Date().toISOString() }
     setExtraction(updated)
     extractionService.saveProject(updated)
+    // Create StyleProject from extraction chapters
+    const styleId = `sp_${extraction.id.replace('ext_', '')}`
+    const styleProj = {
+      id: styleId, name: extraction.novelName + '_风格',
+      sourceFileName: extraction.sourceFileName,
+      chapters: chaptersToStyleChapters(extraction.chapters),
+      profile: null, createdAt: new Date().toISOString(),
+      totalCharCount: extraction.chapters.reduce((s, c) => s + c.chapterContent.length, 0),
+      enabledDimensions: ['sentenceStyle', 'vocabularyStyle', 'rhetoricStyle', 'rhythmStyle', 'dialogueStyle', 'moodStyle', 'perspectiveStyle', 'bodyLanguageStyle', 'sensoryStyle', 'tensionStyle'],
+      novelType: '通用',
+    }
+    await styleProjectService.saveProject(styleProj)
     navigate('/style-workshop')
   }
 
@@ -296,7 +308,10 @@ ${summaries}
       await fileService.ensureDir(`${pp}/detailed_outline`)
       for (const d of gn.detailedOutlines) {
         if (!d.chapterNumber || !d.title) continue
-        const ch = { id: `ch_${d.chapterNumber}`, title: d.title, description: d.summary, summary: d.summary, order: d.chapterNumber - 1, status: 'outline' as const }
+        // Attach original chapter summary as reference
+        const origSummary = extraction.chapters.find(c => c.chapterNumber === d.chapterNumber)?.chapterSummary
+        const desc = d.summary + (origSummary ? `\n\n[原作参考]\n${origSummary}` : '')
+        const ch = { id: `ch_${d.chapterNumber}`, title: d.title, description: desc, summary: d.summary, order: d.chapterNumber - 1, status: 'outline' as const }
         await saveDetailedChapter(pp, ch)
       }
       imported.push(`${gn.detailedOutlines.length}章细纲`)
@@ -396,6 +411,12 @@ ${summaries}
     }
 
     alert(`导入完成!\n${imported.join('\n')}`)
+    // Check if style is assigned
+    const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
+    if (!assignments[activeProjectId]) {
+      const go = confirm('数据已导入。当前项目未绑定风格档案，是否前往风格工坊分析文风？')
+      if (go) navigate('/style-workshop')
+    }
   }
 
   // ---- Render: Library ----
@@ -763,9 +784,9 @@ ${summaries}
             <>
               <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', marginTop: 4 }} />
               <h4 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 2 }}>风格分析</h4>
-              <p style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>前往风格工坊进行16维度深度文风分析</p>
-              <Button size="sm" onClick={handleOpenStyleWorkshop} icon={<SparklesIcon style={{ width: 14, height: 14 }} />} style={{ width: '100%' }}>
-                打开风格工坊
+              <p style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>一键发送章节到风格工坊，无需重复导入</p>
+              <Button size="sm" onClick={handleSendToStyleWorkshop} icon={<SparklesIcon style={{ width: 14, height: 14 }} />} style={{ width: '100%' }}>
+                发送到风格工坊
               </Button>
               {extraction.pacingTemplate && (
                 <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>

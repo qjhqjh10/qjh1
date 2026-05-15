@@ -225,6 +225,18 @@ export default function ChapterWritingPage() {
           </div>
         )}
 
+        {/* No scene config hint */}
+        {!chapterSceneConfig?.eroticScene && !chapterSceneConfig?.novelScene && detailedChapter?.description && (
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', background: 'rgba(245,158,11,0.03)' }}>
+            <p style={{ fontSize: 10, color: '#f59e0b', margin: 0 }}>
+              本章尚未配置场景，AI生成可能缺少具体指导。
+            </p>
+            <button onClick={() => navigate('/scene-workshop')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed', textDecoration: 'underline', marginTop: 2, padding: 0 }}>
+              前往场景工坊配置
+            </button>
+          </div>
+        )}
+
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
           {/* Key Characters */}
           <div style={{ padding: '14px 16px' }}>
@@ -407,7 +419,7 @@ export default function ChapterWritingPage() {
               content={content}
               onContentChange={setContent}
               onBlur={handleSave}
-              placeholder="开始创作你的章节内容..."
+              placeholder={!content.trim() && detailedChapter?.description ? '本章细纲已就绪，点击上方 AI生成 开始写作，或手动输入内容...' : '开始创作你的章节内容...'}
             />
           </div>
         </div>

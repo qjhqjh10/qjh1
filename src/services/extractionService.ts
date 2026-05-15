@@ -3,7 +3,7 @@ import type {
   ExtractedItem, ExtractedPowerMention, ExtractedForeshadow,
   AggregatedResult, AggregatedCharacter,
   NovelExtraction, PacingTemplate, GeneratedNovel,
-  ChapterAnalysis, StyleProfile,
+  ChapterAnalysis, StyleProfile, StyleChapter,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
 
@@ -447,4 +447,18 @@ export function parseGeneratedWorldbuilding(reply: string): { worldbuilding: str
     }
   }
   return { worldbuilding: '', powerSystem: { name: '', levels: [], description: '' } }
+}
+
+// ---- Convert extraction chapters to StyleChapter format ----
+export function chaptersToStyleChapters(chapters: ChapterExtraction[]): StyleChapter[] {
+  return chapters.map((ch, i) => ({
+    id: `ch_${i + 1}`,
+    title: ch.chapterTitle,
+    chapterNumber: ch.chapterNumber,
+    chapterType: 'chapter' as StyleChapter['chapterType'],
+    content: ch.chapterContent,
+    charCount: ch.chapterContent.length,
+    analyzed: false,
+    analysis: null,
+  }))
 }

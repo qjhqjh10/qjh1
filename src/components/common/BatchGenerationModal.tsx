@@ -188,6 +188,12 @@ export default function BatchGenerationModal({
 
     setRunning(false)
     abortRef.current = null
+    // Show summary
+    const errs = items.filter(it => it.status === 'error').length
+    const oks = items.filter(it => it.status === 'done').length
+    if (errs > 0) {
+      alert(`批量生成完成: ${oks}章成功, ${errs}章失败。请检查下方红色标记的章节，可重新选择后再次生成。`)
+    }
   }
 
   const updateQueueItem = (idx: number, updates: Partial<QueueItem>) => {
