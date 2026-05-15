@@ -1052,10 +1052,10 @@ function VersionTab() {
                   ))}
                 </div>
               )}
-              {v.fixes.length > 0 && (
+              {v.fixes && v.fixes.length > 0 && (
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>修复问题</div>
-                  {v.fixes.map((f, i) => (
+                  {v.fixes.map((f: any, i: number) => (
                     <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(59,130,246,0.2)', marginLeft: 4, marginBottom: 2 }}>
                       {f}
                     </div>

@@ -38,7 +38,7 @@ import {
 type ViewMode = 'typeSelect' | 'library' | 'detail'
 type NovelType = 'general' | 'urban' | 'cultivation' | 'martial' | 'romance' | 'ancient' | 'mystery' | 'historical' | 'transmigration' | 'scifi' | 'erotic'
 type Step = 'import' | 'extracting' | 'style' | 'generating' | 'completed'
-type PreviewTab = 'chapter' | 'srcOutline' | 'srcDetails' | 'outline' | 'details' | 'generate'
+type PreviewTab = 'chapter' | 'srcOutline' | 'srcDetails' | 'outline' | 'details' | 'timeline' | 'generate'
 type DimKey = 'characters' | 'worldbuilding' | 'items' | 'powerSystem' | 'foreshadowing' | 'emotionCurve' | 'erotic'
 
 const TABS: { key: PreviewTab; label: string; icon: typeof DocumentTextIcon }[] = [
@@ -47,6 +47,7 @@ const TABS: { key: PreviewTab; label: string; icon: typeof DocumentTextIcon }[] 
   { key: 'srcDetails', label: '原书细纲', icon: ListBulletIcon },
   { key: 'outline', label: '大纲', icon: DocumentTextIcon },
   { key: 'details', label: '细纲', icon: ListBulletIcon },
+  { key: 'timeline', label: '时间线', icon: LightBulbIcon },
   { key: 'generate', label: '生成', icon: SparklesIcon },
 ]
 
@@ -302,23 +303,39 @@ export default function ImitationPage() {
     setGenLoading(true); setGenType('details_imitation'); setGenPreview('')
     try {
       const origSummaries = extraction.chapters.filter(c => c.extractedAt).map(c =>
-        `第${c.chapterNumber}章[${c.emotionalTone}]: ${c.chapterSummary} 出场[${c.characters.map(ch => ch.name || ch).join(', ')}]`
+        `第${c.chapterNumber}章[${c.emotionalTone || '无'}]: ${c.chapterSummary} 出场[${c.characters.map(ch => ch.name || ch).join(', ')}] 事件[${c.events.join(', ')}]`
       ).join('\n').slice(0, 3000)
-      const prompt = `你是小说创作专家。以下是新小说的角色列表，请为每一章生成细纲。
 
-新角色列表:
-${charResult}
-
-原小说的章节节奏参考:
-${origSummaries}
-
-要求:
+      // Build comprehensive prompt with all available outline dimensions
+      const or = outlineResults
+      const sections: string[] = ['你是小说创作专家。以下是新小说的完整设定。请为每一章生成详细细纲。']
+      sections.push(`\n## 角色列表\n${charResult}\n要求: 每章"出场角色"只从以上列表中选取，含身份和性格。`)
+      if (or.powerSystem) sections.push(`\n## 等级体系\n${or.powerSystem}\n要求: 每章标注主角当前境界，升级节点参照此体系节奏。`)
+      else sections.push('\n## 等级体系\n未生成，请自行设计升级节奏。')
+      if (or.items) sections.push(`\n## 道具目录\n${or.items}\n要求: 每章使用的道具从以上列表中选取。`)
+      else sections.push('\n## 道具目录\n未生成，请自行设计道具分配。')
+      if (or.worldbuilding) sections.push(`\n## 世界观\n${or.worldbuilding}\n要求: 场景地点使用以上地名和势力名。`)
+      else sections.push('\n## 世界观\n未生成，请自行设计场景地名。')
+      if (or.foreshadowing) sections.push(`\n## 伏笔结构\n${or.foreshadowing}\n要求: 每章标注埋设/回收的伏笔，名称从以上列表中选取。`)
+      if (or.emotionCurve) sections.push(`\n## 情绪模板\n${or.emotionCurve}\n要求: 每章情绪基调参照此节奏。`)
+      if (or.erotic) sections.push(`\n## 情色设定\n${or.erotic}`)
+      sections.push(`\n## 原细纲节奏参考\n${origSummaries}`)
+      sections.push(`\n要求:
 1. 保持与原著相似的章节节奏和事件密度
-2. 每章出现的角色必须从新角色列表中选取
-3. 每章输出JSON: {"chapterNumber":1,"title":"","summary":"","charactersAppearing":[],"keyEvents":[],"emotionalTone":""}
+2. 每章细纲输出JSON对象:
+   {"chapterNumber":1,"title":"","summary":"150-300字剧情摘要",
+    "charactersAppearing":["角色名(身份,性格)"],
+    "levelChange":"本章等级变化(无则'')",
+    "itemsUsed":["使用的道具(无则[])"],
+    "location":"场景地点",
+    "foreshadowingOps":["埋设:xxx"|"回收:xxx"(无则[])"],
+    "keyEvents":["事件1","事件2","事件3"],
+    "emotionalTone":"情绪基调"}
+3. 所有名称和数据必须从以上设定中选取
 4. 剧情完全原创
+5. 输出JSON数组（不要markdown）。`)
 
-输出JSON数组（不要markdown）。`
+      const prompt = sections.join('\n')
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
       try { const m = reply.match(/\[[\s\S]*\]/); const parsed = m ? JSON.parse(m[0]) : []; setGenPreview(JSON.stringify(parsed, null, 2)) } catch { setGenPreview(reply) }
     } catch (err) { logError('生成细纲失败', err) }
@@ -778,6 +795,75 @@ ${origSummaries}
                 ) : <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>请先提取章节</div>}
               </div>
             </ScrollArea>
+          )}
+
+          {/* === 时间线 Tab === */}
+          {previewTab === 'timeline' && extraction.chapters.some(c => c.extractedAt) && (
+            <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {extraction.chapters.filter(c => c.extractedAt).map(ch => (
+                  <div key={ch.chapterId} style={{ padding: '12px 16px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.05)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 10 }}>第{ch.chapterNumber}章: {ch.chapterTitle}</div>
+                    {/* Characters */}
+                    {ch.characters.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>出场角色</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {ch.characters.map((c: any) => <span key={c.name} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>{c.name}{c.role ? `(${c.role})` : ''}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* Power System mentions */}
+                    {ch.powerSystem.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>等级</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {ch.powerSystem.map((ps: any, idx: number) => <span key={idx} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(22,163,74,0.06)', color: '#16a34a' }}>{ps.term}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* Items */}
+                    {ch.items.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>道具</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {ch.items.map((it: any, idx: number) => <span key={idx} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.06)', color: '#e67e00' }}>{it.name}({it.type})</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* Worldbuilding */}
+                    {ch.worldbuilding.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>世界观</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {ch.worldbuilding.map((w: any, idx: number) => <span key={idx} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.06)', color: '#3b82f6' }}>{w.name}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* Foreshadowing */}
+                    {ch.foreshadowing.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>伏笔</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {ch.foreshadowing.map((f: any, idx: number) => <span key={idx} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: f.type === 'planted' ? 'rgba(245,158,11,0.06)' : 'rgba(22,163,74,0.06)', color: f.type === 'planted' ? '#f59e0b' : '#16a34a' }}>{f.type==='planted'?'埋':'收'}:{f.description.slice(0,30)}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* Events + Emotion */}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 10, marginTop: 4 }}>
+                      {ch.events.length > 0 && <span style={{ color: '#4a3f38' }}>事件: {ch.events.join(' · ')}</span>}
+                      {ch.emotionalTone && <span style={{ color: '#9b8e84' }}>情绪: {ch.emotionalTone}</span>}
+                    </div>
+                    {ch.erotic && <div style={{ fontSize: 9, color: '#dc2626', marginTop: 4 }}>含情色数据</div>}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+          {previewTab === 'timeline' && !extraction.chapters.some(c => c.extractedAt) && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ textAlign: 'center', color: '#9b8e84', fontSize: 12 }}>请先提取章节数据</div>
+            </div>
           )}
 
           {/* === 生成 Tab === */}
