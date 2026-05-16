@@ -25,6 +25,8 @@ import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
+import EroticSceneModal from '@/components/common/EroticSceneModal'
+import NovelSceneModal from '@/components/common/NovelSceneModal'
 import { logError } from '@/utils/logger'
 import { countChineseWords, formatWordCount } from '@/utils/textUtils'
 import type { NovelExtraction, AggregatedResult, EroticSceneConfig } from '@/types/story'
@@ -120,6 +122,11 @@ export default function ImitationPage() {
   const [chapterContents, setChapterContents] = useState<Record<string, string>>({})
   const [writeContent, setWriteContent] = useState('')
   const [writeLoading, setWriteLoading] = useState(false)
+  const [writeGenOverlay, setWriteGenOverlay] = useState(false)
+  const [writeGenWordCount, setWriteGenWordCount] = useState(0)
+  const writeGenAbortRef = useRef<(() => void) | null>(null)
+  const [showWriteErotic, setShowWriteErotic] = useState(false)
+  const [showWriteNovel, setShowWriteNovel] = useState(false)
   const [detailsResults, setDetailsResults] = useState<string>('')
   const [detailGenResults, setDetailGenResults] = useState<any[]>([])
   const [detailGenRunning, setDetailGenRunning] = useState(false)
@@ -136,6 +143,20 @@ export default function ImitationPage() {
   const pausedRef = useRef(false)
 
   useEffect(() => { loadProjects() }, [])
+
+  // Inject imitation data into Zustand store when write tab selected (for modals)
+  useEffect(() => {
+    if (previewTab !== 'write' || !outlineResults.characters) return
+    try {
+      const chars = JSON.parse(outlineResults.characters)
+      if (Array.isArray(chars)) {
+        const mapped: Character[] = chars.map((c: any) => ({ ...EMPTY_CHARACTER, id: nanoid(8), name: c.name || '', role: (['男主','女主','男配','女配','反派','其他'].includes(c.role) ? c.role : '其他') as Character['role'], personality: Array.isArray(c.traits) ? c.traits.join('、') : (c.traits || ''), background: c.background || '', importance: 50 }))
+        setCharacters(mapped)
+      }
+    } catch {}
+    if (outlineResults.worldbuilding) setWorldbuildingContent(outlineResults.worldbuilding)
+    if (outlineResults.powerSystem) setOutlineContent('等级: ' + outlineResults.powerSystem)
+  }, [previewTab, outlineResults.characters])
 
   const loadProjects = async () => {
     try { setProjects(await extractionService.listProjects() as any[]) } catch { /* */ }
@@ -397,8 +418,15 @@ export default function ImitationPage() {
       parts.push(`情绪: ${ch.emotionalTone || '无'}`)
       if (ch.powerSystem.length > 0) parts.push(`等级提及: ${ch.powerSystem.map((p: any) => p.term).join(', ')}`)
       if (ch.items.length > 0) parts.push(`道具提及: ${ch.items.map((it: any) => it.name).join(', ')}`)
+      // Erotic reference
+      if (ch.erotic) {
+        if (ch.erotic.powerDynamics) parts.push(`情色权力关系: ${ch.erotic.powerDynamics}`)
+        if (ch.erotic.characterRoles?.length > 0) parts.push(`情色角色: ${ch.erotic.characterRoles.map((cr: any) => `${cr.name}(${cr.domSub}/${cr.bodyState})`).join(', ')}`)
+        if (ch.erotic.sceneFlow?.length > 0) parts.push(`情色流程: ${ch.erotic.sceneFlow.map((sf: any) => sf.phase).join(' → ')}`)
+        if (ch.erotic.degradationPatterns?.length > 0) parts.push(`羞辱模式: ${ch.erotic.degradationPatterns.join('、')}`)
+      }
 
-      parts.push(`\n要求: 为新书第${ch.chapterNumber}章生成细纲JSON:\n{"chapterNumber":${ch.chapterNumber},"title":"","summary":"150-300字","charactersAppearing":["角色(身份)"],"levelChange":"","itemsUsed":[],"location":"","foreshadowingOps":[],"keyEvents":[],"emotionalTone":""}\n角色从新列表中选, 道具/等级/世界观使用新设定中的名称, 剧情原创。只输出JSON。`)
+      parts.push(`\n要求: 为新书第${ch.chapterNumber}章生成细纲JSON:\n{"chapterNumber":${ch.chapterNumber},"title":"","summary":"150-300字","charactersAppearing":["角色(身份)"],"levelChange":"","itemsUsed":[],"location":"","foreshadowingOps":[],"keyEvents":[],"emotionalTone":"","eroticScene":"本章情色剧情设计(如有,含角色状态/流程/尺度)"}\n角色从新列表中选, 道具/等级/世界观使用新设定中的名称, 剧情原创。${ch.erotic ? '如果原作本章有情色内容,请为新书对应章设计情色场景(eroticScene字段),使用新角色的情色属性。' : ''}只输出JSON。`)
 
       try {
         const reply = await aiService.chat([{ role: 'user' as const, content: parts.join('\n') }], activeConfigId)
@@ -1474,6 +1502,19 @@ export default function ImitationPage() {
                 开始分析 ({[...styleDims].length}维 · {styleChapterIds.size || 20}章)
               </Button>
             </div>
+
+	      {/* Generation Overlay */}
+	      {writeGenOverlay && (
+	        <div style={{ position: "fixed", inset: 0, zIndex: 99, background: "rgba(0,0,0,0.25)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+	          <div style={{ background: "#fff", borderRadius: 20, padding: "24px 40px", textAlign: "center", boxShadow: "0 16px 48px rgba(0,0,0,0.15)" }}>
+	            <div style={{ width: 36, height: 36, borderRadius: "50%", border: "3px solid rgba(124,58,237,0.1)", borderTopColor: "#7c3aed", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+	            <div style={{ fontSize: 13, color: "#2d2520", marginBottom: 4 }}>AI 正在生成章节</div>
+	            <div style={{ fontSize: 24, fontWeight: 800, color: "#7c3aed" }}>{writeGenWordCount.toLocaleString()}</div>
+	            <button onClick={() => writeGenAbortRef.current?.()} style={{ marginTop: 12, padding: "4px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.1)", background: "#fff", cursor: "pointer", fontSize: 11 }}>取消生成</button>
+	          </div>
+	        </div>
+	      )}
+
           </div>
         </div>
       )}

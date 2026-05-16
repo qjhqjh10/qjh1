@@ -1,7 +1,17 @@
 {
-  "currentVersion": "2.2.0",
+  "currentVersion": "2.3.0",
   "currentDate": "2026-05-16",
   "history": [
+    {
+      "version": "2.3.0",
+      "date": "2026-05-16",
+      "features": [
+        "章节创作对齐: 生成浮层(实时字数+取消), AI生成设置弹窗(字数/上下文开关)",
+        "情色场景/场景编排: store注入仿写角色, 复用EroticSceneModal/NovelSceneModal",
+        "情色剧情模仿链: 原书每章情色数据传入细纲prompt, 细纲输出eroticScene字段",
+        "风格注入: AI生成前自动调getStyleInjection注入文风"
+      ]
+    },
     {
       "version": "2.2.0",
       "date": "2026-05-16",
