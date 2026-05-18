@@ -151,7 +151,7 @@ export default function ContinuationWorkspacePage() {
   const handleGeneratePlan = async () => {
     if (!activeConfigId || !storyUnderstand) return
     setAggregating(true)
-    const tc = (inferredOutline as any)?.estimatedChapters || 10
+    const tc = (inferredOutline as any)?.estimatedChapters || inferredOutline?.estimatedTotalChapters || 10
     try {
       const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), JSON.stringify(inferredOutline || {}), tc)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)

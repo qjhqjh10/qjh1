@@ -4,7 +4,7 @@ import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
 import { registerExportHandlers } from './ipc/exportHandlers'
 import { registerAiHandlers } from './ipc/aiHandlers'
-import { registerKbHandlers, autoIndexProjectFile } from './ipc/kbHandlers'
+import { registerKbHandlers } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
 import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
@@ -72,7 +72,7 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   const projectsPath = getProjectsBasePath()
 
-  registerFileHandlers(ipcMain, (filePath, content) => autoIndexProjectFile(filePath, content, projectsPath, safeStorage), projectsPath)
+  registerFileHandlers(ipcMain, undefined, projectsPath)
   registerProjectHandlers(ipcMain, projectsPath)
   registerExportHandlers(ipcMain, () => mainWindow)
   registerAiHandlers(ipcMain, safeStorage)

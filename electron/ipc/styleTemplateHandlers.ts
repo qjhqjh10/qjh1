@@ -10,6 +10,12 @@ function getTemplatesPath(): string {
   return templatesPath
 }
 
+function safeTemplatePath(id: string): string {
+  const safe = path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+  if (!safe) throw new Error('Invalid style template ID')
+  return path.join(getTemplatesPath(), `${safe}.json`)
+}
+
 async function ensureDir() {
   await fs.mkdir(getTemplatesPath(), { recursive: true })
 }
@@ -34,7 +40,7 @@ async function listTemplates(): Promise<StyleTemplate[]> {
 
 async function readTemplate(id: string): Promise<StyleTemplate | null> {
   try {
-    const raw = await fs.readFile(path.join(getTemplatesPath(), `${id}.json`), 'utf-8')
+    const raw = await fs.readFile(safeTemplatePath(id), 'utf-8')
     return JSON.parse(raw)
   } catch {
     return null
@@ -47,7 +53,7 @@ async function saveTemplate(template: StyleTemplate): Promise<StyleTemplate> {
   template.updatedAt = new Date().toISOString()
   if (!template.createdAt) template.createdAt = template.updatedAt
   await fs.writeFile(
-    path.join(getTemplatesPath(), `${template.id}.json`),
+    safeTemplatePath(template.id),
     JSON.stringify(template, null, 2),
     'utf-8',
   )
@@ -56,7 +62,7 @@ async function saveTemplate(template: StyleTemplate): Promise<StyleTemplate> {
 
 async function deleteTemplate(id: string): Promise<void> {
   try {
-    await fs.unlink(path.join(getTemplatesPath(), `${id}.json`))
+    await fs.unlink(safeTemplatePath(id))
   } catch { /* not found */ }
 }
 

@@ -71,7 +71,10 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
             const field = CHARACTER_FIELDS.find(f => f.label === match[1])
             if (field) {
               if (field.key === 'relationshipTags') {
-                char.relationshipTags = match[2].split('、').filter(Boolean) as Character['relationshipTags']
+                char.relationshipTags = match[2].split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) as Character['relationshipTags']
+              } else if (field.key === 'role') {
+                const roleMatch = ROLES.find(r => r === match[2])
+                Object.assign(char, { [field.key]: roleMatch || '其他' })
               } else if (field.isNumber) {
                 const n = parseInt(match[2], 10)
                 if (!isNaN(n)) Object.assign(char, { [field.key]: n })

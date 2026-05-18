@@ -28,12 +28,9 @@ export default function KnowledgeBasePage() {
   const [selectedFile, setSelectedFile] = useState<KnowledgeFile | null>(null)
   const [fileContent, setFileContent] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [kbTab, setKbTab] = useState<'upload' | 'project'>('upload')
   const [loading, setLoading] = useState(false)
   const [indexing, setIndexing] = useState<string | null>(null)
 
-  // Collapse & multi-select
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set())
 
   // Estimate dialog
@@ -98,14 +95,8 @@ export default function KnowledgeBasePage() {
     setEstimatedFiles([])
   }
 
-  const toggleCollapse = (pid: string) => {
-    setCollapsedProjects(prev => { const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next })
-  }
   const toggleSelect = (fid: string) => {
     setSelectedFileIds(prev => { const next = new Set(prev); next.has(fid) ? next.delete(fid) : next.add(fid); return next })
-  }
-  const selectAllInProject = (files: KnowledgeFile[]) => {
-    setSelectedFileIds(prev => { const next = new Set(prev); files.forEach(f => next.add(f.id)); return next })
   }
   const batchDelete = async () => {
     if (selectedFileIds.size === 0) return
@@ -115,22 +106,6 @@ export default function KnowledgeBasePage() {
     setSelectedFile(null)
     await loadFiles()
   }
-  const deleteProjectFiles = async (files: KnowledgeFile[]) => {
-    if (!confirm(`确定删除该项目关联的全部 ${files.length} 个文件？`)) return
-    for (const f of files) { await kbService.delete(f.id) }
-    setSelectedFileIds(new Set())
-    setSelectedFile(null)
-    await loadFiles()
-  }
-
-  const handleClearProjectFiles = async () => {
-    const projectFiles = files.filter(f => f.source === 'project')
-    if (projectFiles.length === 0) return
-    if (!confirm(`确定删除全部 ${projectFiles.length} 个旧版自动索引文件？此操作不可撤销。`)) return
-    for (const f of projectFiles) { await kbService.delete(f.id) }
-    await loadFiles()
-  }
-
   const handleDelete = async (file: KnowledgeFile) => {
     await kbService.delete(file.id)
     if (selectedFile?.id === file.id) {
@@ -172,25 +147,9 @@ export default function KnowledgeBasePage() {
   }
 
   const filteredFiles = files.filter(f => {
-    if (kbTab === 'upload' && f.source !== 'upload') return false
-    if (kbTab === 'project' && f.source !== 'project') return false
     if (searchQuery && !f.originalName.toLowerCase().includes(searchQuery.toLowerCase())) return false
     return true
   })
-
-  // Group project files by project
-  const projectGroupedFiles = kbTab === 'project'
-    ? (() => {
-        const map = new Map<string, KnowledgeFile[]>()
-        for (const f of filteredFiles) {
-          for (const pid of f.projects) {
-            if (!map.has(pid)) map.set(pid, [])
-            map.get(pid)!.push(f)
-          }
-        }
-        return map
-      })()
-    : null
 
   const isEditable = selectedFile && (selectedFile.type === 'txt' || selectedFile.type === 'md')
   const isIndexable = selectedFile && selectedFile.type !== 'pdf' && selectedFile.type !== 'docx'
@@ -218,17 +177,9 @@ export default function KnowledgeBasePage() {
               }}
             />
           </div>
-          {/* Old project files cleanup */}
-          {files.some(f => f.source === 'project') && (
-            <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#fff3cd', border: '1px solid #ffc107', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 11, color: '#856404' }}>检测到旧版自动索引文件，建议清理</span>
-              <button onClick={handleClearProjectFiles} style={{ padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, background: '#ffc107', color: '#856404' }}>一键清理</button>
-            </div>
-          )}
         </div>
 
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '8px 12px' }}>
-          {/* Uploaded files list */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {filteredFiles.filter(f => f.source === 'upload').map(file => (
               <button key={file.id} onClick={() => handleSelectFile(file)} style={{

@@ -16,7 +16,13 @@ export async function loadOutlineContent(projectPath: string): Promise<string> {
 
   try {
     const raw = await fileService.read(`${projectPath}/outline/outline.txt`)
-    // Auto-migrate: save as JSON so future loads use the new format
+    // Back up corrupt JSON if it exists before overwriting
+    try {
+      const existing = await fileService.read(`${projectPath}/outline/outline.json`)
+      if (existing) {
+        await fileService.write(`${projectPath}/outline/outline.json.bak`, existing)
+      }
+    } catch { /* no corrupt JSON to back up */ }
     const data: OutlineContentData = { content: raw, updatedAt: new Date().toISOString() }
     await fileService.write(`${projectPath}/outline/outline.json`, JSON.stringify(data, null, 2))
     return raw
@@ -46,6 +52,13 @@ export async function loadWorldbuildingContent(projectPath: string): Promise<str
 
   try {
     const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.txt`)
+    // Back up corrupt JSON if it exists before overwriting
+    try {
+      const existing = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.json`)
+      if (existing) {
+        await fileService.write(`${projectPath}/worldbuilding/worldbuilding.json.bak`, existing)
+      }
+    } catch { /* no corrupt JSON to back up */ }
     const data: WorldbuildingContentData = { content: raw, updatedAt: new Date().toISOString() }
     await fileService.write(`${projectPath}/worldbuilding/worldbuilding.json`, JSON.stringify(data, null, 2))
     return raw

@@ -71,7 +71,7 @@ const api = {
       ipcRenderer.invoke('ai:listModels', configId),
   },
   settings: {
-    saveConfigs: (configs: ModelConfig[]): Promise<void> =>
+    saveConfigs: (configs: ModelConfig[]): Promise<{warning?: string}> =>
       ipcRenderer.invoke('settings:saveConfigs', configs),
     loadConfigs: (): Promise<ModelConfig[]> =>
       ipcRenderer.invoke('settings:loadConfigs'),

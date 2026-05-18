@@ -33,7 +33,7 @@ export function splitChaptersByHeadings(content: string): ChapterSplitResult[] {
     const start = headings[c].startLine
     const end = c < headings.length - 1 ? headings[c + 1].startLine : lines.length
     const body = lines.slice(start, end).join('\n').trim()
-    if (body.length < 50) continue
+    if (body.length < 10) continue
     chapterNum++
     result.push({ title: headings[c].title, content: body, chapterNumber: chapterNum, chapterType: headings[c].type })
   }
@@ -48,6 +48,7 @@ export function stripHtml(html: string): string {
   return html.replace(stripHtmlRegex, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
 }
 
+// Count all non-whitespace characters (Chinese convention: each character = 1 word)
 export function countChineseWords(text: string): number {
   if (!text) return 0
   // Strip HTML tags before counting to avoid counting markup

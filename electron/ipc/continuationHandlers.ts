@@ -6,6 +6,12 @@ import type { ContinuationProject } from '../../src/types/continuation'
 
 let projectsPath = ''
 
+function safeFilePath(id: string): string {
+  const safe = path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+  if (!safe) throw new Error('Invalid continuation project ID')
+  return path.join(projectsPath, `${safe}.json`)
+}
+
 export function registerContinuationHandlers(ipcMain: IpcMain, basePath: string) {
   projectsPath = path.join(basePath, 'continuation_projects')
 
@@ -27,7 +33,7 @@ export function registerContinuationHandlers(ipcMain: IpcMain, basePath: string)
 
   ipcMain.handle('continuation:read', async (_event, id: string) => {
     try {
-      const raw = await fs.readFile(path.join(projectsPath, `${id}.json`), 'utf-8')
+      const raw = await fs.readFile(safeFilePath(id), 'utf-8')
       return JSON.parse(raw)
     } catch { return null }
   })
@@ -38,7 +44,7 @@ export function registerContinuationHandlers(ipcMain: IpcMain, basePath: string)
     project.updatedAt = new Date().toISOString()
     if (!project.createdAt) project.createdAt = project.updatedAt
     await fs.writeFile(
-      path.join(projectsPath, `${project.id}.json`),
+      safeFilePath(project.id),
       JSON.stringify(project, null, 2),
       'utf-8',
     )
@@ -46,6 +52,6 @@ export function registerContinuationHandlers(ipcMain: IpcMain, basePath: string)
   })
 
   ipcMain.handle('continuation:delete', async (_event, id: string) => {
-    try { await fs.unlink(path.join(projectsPath, `${id}.json`)) } catch {}
+    try { await fs.unlink(safeFilePath(id)) } catch {}
   })
 }

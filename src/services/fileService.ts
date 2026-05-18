@@ -44,7 +44,7 @@ export const aiService = {
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed.text === 'string') return parsed.text
       return raw
-    } catch (e) { logError('解析 AI 回复 JSON 失败', e); return raw }
+    } catch (err) { logError('解析 AI 回复 JSON 失败', err); return raw }
   },
   chatWithUsage: async (messages: { role: string; content: string }[], configId: string, projectId?: string) => {
     const raw = await e().ai.chat(messages, configId, projectId)
@@ -56,7 +56,7 @@ export const aiService = {
       if (parsed && parsed.usage) {
         return { text: raw, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
       }
-    } catch (e) { logError('解析 AI 回复 JSON 失败 (chatWithUsage)', e) }
+    } catch (err) { logError('解析 AI 回复 JSON 失败 (chatWithUsage)', err) }
     return { text: raw, usage: undefined }
   },
   listModels: (configId: string) => e().ai.listModels(configId),

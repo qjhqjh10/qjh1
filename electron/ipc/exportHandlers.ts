@@ -1,7 +1,7 @@
-import { IpcMain, BrowserWindow } from 'electron'
+import { IpcMain, BrowserWindow, app } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { showSaveDialog } from './utils'
+import { showSaveDialog, isSafePath } from './utils'
 import { logError } from './logger'
 
 export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => BrowserWindow | null) {
@@ -10,6 +10,9 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
     outputPath: string
     type: 'summary' | 'body'
   }) => {
+    if (!isSafePath(options.outputPath, app.getPath('documents'))) {
+      throw new Error('导出路径不在允许范围内')
+    }
     const output = options.chapters
       .map(ch => `=== ${ch.title || '未命名'} ===\n\n${ch.content || ''}\n\n`)
       .join('')
@@ -25,6 +28,9 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('export:singleChapter', async (_event, options: {
     title: string; content: string; outputPath: string
   }) => {
+    if (!isSafePath(options.outputPath, app.getPath('documents'))) {
+      throw new Error('导出路径不在允许范围内')
+    }
     const output = `${options.title || '未命名'}\n\n${options.content || ''}`
     try {
       await fs.mkdir(path.dirname(options.outputPath), { recursive: true })

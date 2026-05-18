@@ -424,8 +424,8 @@ export default function OutlinePage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>{TAB_LABELS[activeTab]}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {activeTab === 'basic' && <><WordCount text={outlineContent} /><Button variant="secondary" size="sm" onClick={() => setOutlineContent('')}>清空</Button><Button size="sm" onClick={saveOutline}>保存</Button></>}
-              {activeTab === 'worldbuilding' && <><WordCount text={worldbuildingContent} /><Button variant="secondary" size="sm" onClick={() => setWorldbuildingContent('')}>清空</Button><Button size="sm" onClick={handleSaveWorldbuilding}>保存</Button></>}
+              {activeTab === 'basic' && <><WordCount text={outlineContent} /><Button variant="secondary" size="sm" onClick={async () => { setOutlineContent(''); if (projectPath) await saveOutlineContent(projectPath, '') }}>清空</Button><Button size="sm" onClick={saveOutline}>保存</Button></>}
+              {activeTab === 'worldbuilding' && <><WordCount text={worldbuildingContent} /><Button variant="secondary" size="sm" onClick={async () => { setWorldbuildingContent(''); if (projectPath) await saveWorldbuildingContent(projectPath, '') }}>清空</Button><Button size="sm" onClick={handleSaveWorldbuilding}>保存</Button></>}
             </div>
           </div>
           {renderMainContent()}

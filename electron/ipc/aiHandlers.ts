@@ -97,7 +97,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
   })
 
   // Track abort handlers per webContents to prevent listener accumulation across concurrent streams
-  const streamAbortHandlers = new Map<number, () => void>()
+  const streamAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
 
   // Streaming chat: renders chunks via events
   ipcMain.handle('ai:chat-stream', async (event, messages: { role: string; content: string }[], configId: string, projectId?: string) => {
@@ -124,7 +124,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
 
     const abortController = new AbortController()
     const wcId = event.sender.id
-    const onAbort = () => { abortController.abort() }
+    const onAbort = (_event: Electron.IpcMainEvent) => { if (_event.sender.id === wcId) abortController.abort() }
     if (streamAbortHandlers.has(wcId)) {
       ipcMain.removeListener('ai:abort-stream', streamAbortHandlers.get(wcId)!)
     }

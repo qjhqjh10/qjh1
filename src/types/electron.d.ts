@@ -1,6 +1,8 @@
 import type { ModelConfig } from './settings'
 import type { StyleProject, SceneTemplate } from './story'
 import type { KnowledgeFile, KnowledgeMetadata } from './knowledge'
+import type { StyleTemplate } from './styleTemplate'
+import type { ContinuationProject } from './continuation'
 
 export interface FileAPI {
   read: (path: string) => Promise<string>
@@ -54,7 +56,7 @@ export interface AppAPI {
 }
 
 export interface SettingsAPI {
-  saveConfigs: (configs: ModelConfig[]) => Promise<void>
+  saveConfigs: (configs: ModelConfig[]) => Promise<{warning?: string}>
   loadConfigs: () => Promise<ModelConfig[]>
 }
 
@@ -142,9 +144,9 @@ export interface ElectronAPI {
   kb: KBAPI
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
-  styleTemplates: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (template: any) => Promise<any>; delete: (id: string) => Promise<void> }
+  styleTemplates: { list: () => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void> }
   templates: { list: () => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
-  continuation: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (p: any) => Promise<any>; delete: (id: string) => Promise<void> }
+  continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
 }
 
