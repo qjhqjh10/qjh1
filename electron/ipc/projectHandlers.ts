@@ -31,10 +31,13 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     for (const dir of PROJECT_DIRS) {
       await fs.mkdir(path.join(projectPath, dir), { recursive: true })
     }
-    await fs.writeFile(path.join(projectPath, 'worldbuilding', 'worldbuilding.txt'), '', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'outline.txt'), '', 'utf-8')
+    const emptyOutline = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
+    const emptyWorldbuilding = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
+    await fs.writeFile(path.join(projectPath, 'worldbuilding', 'worldbuilding.json'), emptyWorldbuilding, 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'outline.json'), emptyOutline, 'utf-8')
     // Persist project type metadata
-    await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: type === 'imitation' ? 'imitation' : 'writing' }), 'utf-8')
+    const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
+    await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType }), 'utf-8')
   })
 
   ipcMain.handle('project:delete', async (_event, projectPath: string) => {
@@ -67,6 +70,7 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
       const metaRaw = await fs.readFile(path.join(projectPath, 'project.json'), 'utf-8')
       const meta = JSON.parse(metaRaw)
       if (meta.type === 'imitation') type = 'imitation'
+      else if (meta.type === 'continuation') type = 'continuation'
     } catch { /* no project.json, legacy project */ }
 
     return { name, chapterCount, wordCount: charCount, path: projectPath, type }

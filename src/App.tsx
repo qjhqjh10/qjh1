@@ -32,6 +32,11 @@ import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
 import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
 import TemplateLibraryPage from '@/components/pages/TemplateLibraryPage'
+import ContinuationPage from '@/components/pages/ContinuationPage'
+import ContinuationWorkspacePage from '@/components/pages/ContinuationWorkspacePage'
+import ContinuationOutlinePage from '@/components/pages/ContinuationOutlinePage'
+import ContinuationDetailedPage from '@/components/pages/ContinuationDetailedPage'
+import ContinuationWritingPage from '@/components/pages/ContinuationWritingPage'
 import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
 import ImitationPage from '@/components/pages/ImitationPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
@@ -70,6 +75,11 @@ function AnimatedRoutes() {
           <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
           <Route path="/style-templates" element={<TemplateLibraryPage />} />
+          <Route path="/continuation" element={<ContinuationPage />} />
+          <Route path="/continuation-workspace" element={<ContinuationWorkspacePage />} />
+          <Route path="/continuation-outline" element={<ContinuationOutlinePage />} />
+          <Route path="/continuation-detailed" element={<ContinuationDetailedPage />} />
+          <Route path="/continuation-writing" element={<ContinuationWritingPage />} />
           <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
           <Route path="/imitation" element={<ImitationPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />

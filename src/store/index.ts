@@ -14,6 +14,8 @@ export interface AppState {
   // Project
   projects: Project[]
   activeProjectId: string | null
+  activeProjectType: string | null
+  activeProjectName: string | null
   projectsBasePath: string
 
   // Worldbuilding
@@ -48,7 +50,8 @@ export interface AppState {
   // Actions - Project
   setProjectsBasePath: (p: string) => void
   setProjects: (projects: Project[]) => void
-  setActiveProject: (id: string | null) => void
+  setActiveProject: (id: string | null, type?: string) => void
+  setActiveProjectName: (name: string) => void
   addProject: (p: Project) => void
   removeProject: (id: string) => void
 
@@ -105,6 +108,8 @@ export const useStore = create<AppState>()(
   immer((set, get) => ({
     projects: [],
     activeProjectId: null,
+    activeProjectType: null,
+    activeProjectName: null,
     projectsBasePath: '',
     ...initialProjectState,
     activePage: 'home',
@@ -116,8 +121,32 @@ export const useStore = create<AppState>()(
     insertionAction: null,
 
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
-    setProjects: (projects) => set({ projects }),
-    setActiveProject: (id) => set({ activeProjectId: id }),
+    setProjects: (projects) => set(s => {
+      // Preserve non-writing projects (continuation/imitation) that are in the store but not on disk
+      const special = s.projects.filter(p => p.type !== 'writing' && !projects.find(np => np.id === p.id))
+      s.projects = [...projects, ...special]
+    }),
+    setActiveProject: (id, projectType) => set(s => {
+      s.activeProjectId = id || null
+      s.activeProjectType = projectType || null
+      // For continuation/imitation projects, ensure they appear in the sidebar project list
+      if (id && projectType && projectType !== 'writing') {
+        const exists = s.projects.find(p => p.id === id)
+        if (!exists) {
+          s.projects.push({ id, name: s.activeProjectName || id, path: '', chapterCount: 0, wordCount: 0, type: projectType as any })
+        } else {
+          // Update the type if it was previously loaded as writing
+          const p = s.projects.find(p => p.id === id)
+          if (p) (p as any).type = projectType
+        }
+      }
+    }),
+    setActiveProjectName: (name) => set(s => {
+      s.activeProjectName = name
+      // Update the name in the projects list too
+      const p = s.projects.find(p => p.id === s.activeProjectId)
+      if (p) p.name = name
+    }),
     addProject: (p) => set(s => { s.projects.push(p) }),
     removeProject: (id) => set(s => {
       s.projects = s.projects.filter(p => p.id !== id)

@@ -4,5 +4,5 @@ export interface Project {
   path: string
   chapterCount: number
   wordCount: number
-  type: 'writing' | 'imitation'
+  type: 'writing' | 'imitation' | 'continuation'
 }

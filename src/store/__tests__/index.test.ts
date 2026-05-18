@@ -37,7 +37,7 @@ describe('useStore', () => {
 
   it('manages detailed chapters', () => {
     const chapter: DetailedChapter = {
-      id: 'dc1', title: '第一章', description: '', summary: '', order: 0, status: 'outline',
+      id: 'dc1', title: '第一章', description: '', summary: '', order: 0, status: 'incomplete',
     }
     useStore.getState().addDetailedChapter(chapter)
     expect(useStore.getState().detailedChapters).toHaveLength(1)

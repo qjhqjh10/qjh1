@@ -304,7 +304,8 @@ export default function StyleWorkshopPage() {
   if (view === 'library') {
     return (
       <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
-        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto', flex: 1 }}>
+        <ScrollArea style={{ flex: 1 }}>
+        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
             <div><h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d2520' }}>风格工坊</h2><p style={{ fontSize: 13, color: '#9b8e84', marginTop: 4 }}>导入名家作品，AI分析提取写作风格</p></div>
             <Button onClick={handleImport} disabled={loading} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />}>{loading ? '导入中...' : '导入TXT小说'}</Button>
@@ -326,6 +327,7 @@ export default function StyleWorkshopPage() {
             </div>
           )}
         </div>
+        </ScrollArea>
       </div>
     )
   }

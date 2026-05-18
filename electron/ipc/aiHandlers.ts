@@ -62,6 +62,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
         messages: apiMessages,
         temperature: config.temperature,
         max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
+        ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } as any : {}),
       })
 
       // Log token usage (always, even without projectId)
@@ -131,12 +132,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
     ipcMain.on('ai:abort-stream', onAbort)
 
     try {
+      // @ts-ignore TS2769 — reasoning_effort not in OpenAI SDK types yet
       const stream = await client.chat.completions.create({
-        model: config.model,
-        messages: apiMessages,
-        temperature: config.temperature,
-        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
-        stream: true,
+        model: config.model, messages: apiMessages, temperature: config.temperature,
+        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined, stream: true,
+        ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
       }, { signal: abortController.signal })
 
       let fullContent = ''

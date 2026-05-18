@@ -30,6 +30,7 @@ const COMMON_ITEMS: NavItem[] = [
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/style-templates', label: '风格模板', icon: TagIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
+  { path: '/continuation', label: '小说续写', icon: BookOpenIcon },
 ]
 
 const WRITING_ITEMS: NavItem[] = [
@@ -58,7 +59,8 @@ export default function Sidebar() {
   const detailedChapters = useStore(s => s.detailedChapters)
 
   const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId])
-  const projectType = activeProject?.type
+  const activeProjectType = useStore(s => s.activeProjectType)
+  const projectType = activeProject?.type || activeProjectType
 
   const navItems = useMemo((): NavItem[] => {
     const items: NavItem[] = [{ path: '/', label: '首页', icon: HomeIcon }]
@@ -73,6 +75,10 @@ export default function Sidebar() {
       if (detailedChapters.length > 0) {
         items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
       }
+    } else if (projectType === 'continuation') {
+      items.push({ path: '/continuation-workspace', label: '续写工作台', icon: DocumentTextIcon })
+      items.push({ path: '/continuation-outline', label: '(续写)大纲', icon: ListBulletIcon })
+      items.push({ path: '/continuation-detailed', label: '(续写)细纲', icon: BookOpenIcon })
     }
 
     items.push(...COMMON_ITEMS)
@@ -241,6 +247,7 @@ export default function Sidebar() {
                 <>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {project.type === 'imitation' && <span style={{ fontSize: 10, color: '#7c3aed', marginRight: 4, fontWeight: 600 }}>仿</span>}
+                    {project.type === 'continuation' && <span style={{ fontSize: 10, color: '#16a34a', marginRight: 4, fontWeight: 600 }}>续</span>}
                     {project.name}
                   </span>
                   <span style={{ fontSize: 11, color: '#9b8e84', flexShrink: 0 }}>

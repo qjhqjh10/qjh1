@@ -41,7 +41,7 @@ export interface VersionRecord {
 }
 
 const STATUS_LABELS: Record<ChapterStatus, string> = {
-  outline: '大纲', draft: '初稿', revising: '修改中', final: '定稿',
+  incomplete: '未完成', completed: '已完成',
 }
 
 export async function saveVersionRecord(projectPath: string, chapterId: string, record: VersionRecord) {
@@ -270,7 +270,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       } catch { /* skip */ }
     }
 
-    const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。'
+    const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。正文用空行分隔自然段，禁止全文一堆到底。'
     parts.push(`【创作要求】\n${template}\n\n字数目标: ${wordTarget}字\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}`)
 
     return parts.join('\n\n---\n\n')

@@ -146,7 +146,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', alignItems: 'center' }}>
       {/* Toolbar — full width */}
       <div style={{ padding: '0', marginBottom: 6, width: '100%' }}>
         <div style={{ borderRadius: '8px 8px 0 0', overflow: 'hidden' }}>
@@ -162,7 +162,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       {showFind && <FindReplace editor={editor} onClose={() => setShowFind(false)} />}
 
       {/* Writing paper — centered with maxWidth */}
-      <div className="writing-paper" style={{ flex: 1, borderRadius: '0 0 8px 8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 900 }}>
+      <div className="writing-paper" style={{ flex: 1, borderRadius: '0 0 8px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 900 }}>
         <div onContextMenu={handleContextMenu} style={{ flex: 1 }}>
           {polishLoading && <div role="status" aria-live="polite" style={{ padding: '12px 24px', fontSize: 13, color: '#7c3aed', textAlign: 'center' }}>AI 生成中...</div>}
           {polishError && <div role="alert" style={{ padding: '12px 24px', fontSize: 13, color: '#dc2626', textAlign: 'center' }}>{polishError}</div>}

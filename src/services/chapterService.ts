@@ -53,9 +53,9 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
         const orderMatch = content.match(/^顺序: (\d+)$/m)
         if (orderMatch) order = parseInt(orderMatch[1], 10) || 0
 
-        let status: ChapterStatus = 'outline'
+        let status: ChapterStatus = 'incomplete'
         const statusMatch = content.match(/^状态: (\w+)$/m)
-        if (statusMatch && ['outline', 'draft', 'revising', 'final'].includes(statusMatch[1])) {
+        if (statusMatch && ['incomplete', 'completed'].includes(statusMatch[1])) {
           status = statusMatch[1] as ChapterStatus
         }
 
@@ -71,7 +71,7 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
         chapters.push({ id, title, description, summary, order, status })
       } catch (e) {
         logError(`解析细纲TXT文件失败: ${file}`, e)
-        chapters.push({ id: file.replace('.txt', ''), title: '', description: '', summary: '', order: 0, status: 'outline' })
+        chapters.push({ id: file.replace('.txt', ''), title: '', description: '', summary: '', order: 0, status: 'incomplete' })
       }
     }
 

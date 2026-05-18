@@ -150,6 +150,13 @@ export const templateService = {
   delete: (id: string) => e().templates.delete(id),
 }
 
+export const continuationService = {
+  list: () => e().continuation.list(),
+  read: (id: string) => e().continuation.read(id),
+  save: (project: any) => e().continuation.save(project),
+  delete: (id: string) => e().continuation.delete(id),
+}
+
 export const extractionService = {
   importFile: () => e().extractions.importFile(),
 }

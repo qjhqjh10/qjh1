@@ -4,6 +4,7 @@ import { useStore, useSettingsStore } from '@/store'
 import { extractionService, aiService, fileService, styleProjectService, exportService, dialogService } from '@/services/fileService'
 import { loadCharacters, saveCharacter } from '@/services/characterService'
 import { saveDetailedChapter } from '@/services/chapterService'
+import { saveOutlineContent, saveWorldbuildingContent } from '@/services/outlineService'
 import {
   aggregateExtractions, parseExtractionReply, splitChapters,
   buildExtractionPrompt, parseExtractionReplyWithErotic, buildEroticExtractionPrompt,
@@ -191,7 +192,7 @@ export default function ImitationPage() {
         ].filter(Boolean).join('\n'),
         summary: [d.summary || '', d.eroticScene ? '【本章含情色场景】' : ''].filter(Boolean).join(' '),
         order: d.chapterNumber - 1,
-        status: 'outline' as const,
+        status: 'incomplete' as const,
       }))
       useStore.getState().setDetailedChapters(fakeChapters)
     }
@@ -704,7 +705,7 @@ ${summaryParts.join('\n')}
     if (charCount > 0) imported.push(`${charCount}个角色`)
     setCharacters(await loadCharacters(pp))
 
-    // 2. Worldbuilding → worldbuilding.txt
+    // 2. Worldbuilding → worldbuilding.json
     const wb = or.worldbuilding || ''
     const items = or.items || ''
     const power = or.powerSystem || ''
@@ -721,9 +722,9 @@ ${summaryParts.join('\n')}
     if (items) wbContent += '\n## 道具目录\n\n' + items + '\n'
     else if (ag?.items.length) { wbContent += '\n## 道具目录\n\n' + ag.items.map(i => `- ${i.name}(${i.type}): ${i.ability}`).join('\n') + '\n' }
     if (erotic) wbContent += '\n## 情色设定\n\n' + erotic + '\n'
-    if (wbContent) { await fileService.write(`${pp}/worldbuilding/worldbuilding.txt`, wbContent); setWorldbuildingContent(wbContent); imported.push('世界观') }
+    if (wbContent) { await saveWorldbuildingContent(pp, wbContent); setWorldbuildingContent(wbContent); imported.push('世界观') }
 
-    // 3. Outline → outline.txt (from all dimension results as a combined view)
+    // 3. Outline → outline.json (from all dimension results as a combined view)
     const outlineParts: string[] = []
     if (or.characters) outlineParts.push('## 角色\n\n' + or.characters)
     if (or.worldbuilding) outlineParts.push('## 世界观\n\n' + or.worldbuilding)
@@ -733,7 +734,7 @@ ${summaryParts.join('\n')}
     if (or.emotionCurve) outlineParts.push('## 情绪模板\n\n' + or.emotionCurve)
     if (outlineParts.length > 0) {
       const outline = `# 生成的小说设定\n\n${outlineParts.join('\n\n')}`
-      await fileService.write(`${pp}/outline/outline.txt`, outline)
+      await saveOutlineContent(pp, outline)
       setOutlineContent(outline)
       imported.push('大纲')
     }
@@ -757,7 +758,7 @@ ${summaryParts.join('\n')}
               d.foreshadowingOps?.length > 0 ? '伏笔: ' + d.foreshadowingOps.join(', ') : '',
               d.eroticScene ? '情色场景: ' + d.eroticScene : '',
             ].filter(Boolean).join('\n')
-            await saveDetailedChapter(pp, { id: String(d.chapterNumber), title: d.title || `第${d.chapterNumber}章`, description: desc, summary: d.summary || '', order: d.chapterNumber - 1, status: 'outline' })
+            await saveDetailedChapter(pp, { id: String(d.chapterNumber), title: d.title || `第${d.chapterNumber}章`, description: desc, summary: d.summary || '', order: d.chapterNumber - 1, status: 'incomplete' })
           }
           imported.push(`${details.length}章细纲`)
         }
@@ -798,7 +799,7 @@ ${summaryParts.join('\n')}
       description: d.summary || '',
       summary: d.summary || '',
       order: d.chapterNumber - 1,
-      status: 'outline' as const,
+      status: 'incomplete' as const,
     }))
     useStore.getState().setDetailedChapters(fakeChaps)
     setTimeout(() => navigate('/chapter/' + String(detailGenResults[0]?.chapterNumber || '1')), 300)

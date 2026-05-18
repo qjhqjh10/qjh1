@@ -4,8 +4,8 @@ import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
 import { sceneService } from '@/services/sceneService'
 import { loadCharacters } from '@/services/characterService'
+import { loadOutlineContent, saveOutlineContent, loadWorldbuildingContent, saveWorldbuildingContent } from '@/services/outlineService'
 import { nanoid } from 'nanoid'
-import { useFileSync } from '@/hooks/useFileSync'
 import WordCount from '@/components/common/WordCount'
 import Button from '@/components/common/Button'
 import RichTextEditor from '@/components/common/RichTextEditor'
@@ -70,8 +70,6 @@ export default function OutlinePage() {
   const detailedChapters = useStore(s => s.detailedChapters)
 
   const [projectPath, setProjectPath] = useState('')
-  const [outlinePath, setOutlinePath] = useState<string | null>(null)
-  const [worldbuildingPath, setWorldbuildingPath] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const tab = searchParams.get('tab')
     if (tab && TABS.some(t => t.key === tab)) return tab as Tab
@@ -100,7 +98,10 @@ export default function OutlinePage() {
   const [editingLevel, setEditingLevel] = useState('')
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null)
 
-  const { save: saveOutline } = useFileSync(outlinePath, outlineContent, setOutlineContent)
+  const saveOutline = useCallback(async () => {
+    if (!projectPath) return
+    await saveOutlineContent(projectPath, outlineContent)
+  }, [projectPath, outlineContent])
 
   // Sync tab to URL
   useEffect(() => {
@@ -119,13 +120,8 @@ export default function OutlinePage() {
     setProjectPath(pp)
     setLoading(true)
 
-    const op = `${pp}/outline/outline.txt`
-    const wp = `${pp}/worldbuilding/worldbuilding.txt`
-    setOutlinePath(op)
-    setWorldbuildingPath(wp)
-
-    fileService.read(op).then(c => { setOutlineContent(c) }).catch(() => {})
-    fileService.read(wp).then(c => { setWorldbuildingContent(c) }).catch(() => {})
+    loadOutlineContent(pp).then(c => { setOutlineContent(c) })
+    loadWorldbuildingContent(pp).then(c => { setWorldbuildingContent(c) })
     loadCharacters(pp).then(chars => { useStore.getState().setCharacters(chars) })
     fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
       try { setMeta(JSON.parse(c) as OutlineMeta) } catch { setMeta(DEFAULT_OUTLINE_META) }
@@ -154,9 +150,9 @@ export default function OutlinePage() {
   }, [activeProjectId, projectsBasePath])
 
   const handleSaveWorldbuilding = useCallback(async () => {
-    if (!worldbuildingPath) return
-    await fileService.write(worldbuildingPath, worldbuildingContent)
-  }, [worldbuildingPath, worldbuildingContent])
+    if (!projectPath) return
+    await saveWorldbuildingContent(projectPath, worldbuildingContent)
+  }, [projectPath, worldbuildingContent])
 
   const saveMeta = async (newMeta: OutlineMeta) => {
     setMeta(newMeta)

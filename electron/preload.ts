@@ -133,6 +133,12 @@ const api = {
     save: (template: SceneTemplate): Promise<void> => ipcRenderer.invoke('template:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
   },
+  continuation: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('continuation:list'),
+    read: (id: string): Promise<any> => ipcRenderer.invoke('continuation:read', id),
+    save: (project: any): Promise<any> => ipcRenderer.invoke('continuation:save', project),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('continuation:delete', id),
+  },
   extractions: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('extraction:importFile'),
   },

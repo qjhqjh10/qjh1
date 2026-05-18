@@ -1,7 +1,22 @@
 {
-  "currentVersion": "2.16.0",
+  "currentVersion": "3.0.0",
   "currentDate": "2026-05-18",
   "history": [
+    {
+      "version": "3.0.0",
+      "date": "2026-05-18",
+      "features": [
+        "小说续写系统: 6步向导式(导入→分析→理解→大纲→细纲→续写)，AI理解剧情后沿原作逻辑继续创作",
+        "续写分析引擎: 9维剧情分析(角色追踪/事件/伏笔/世界观/情绪/时间线/章节定位/未解问题)，支持单章或全篇分析",
+        "续写大纲与细纲: AI反推原作设定+生成续写结构(幕/卷/转折/结局)，逐章细纲可拖拽编辑",
+        "项目类型扩展: 写作/仿写/续写三种项目类型，新建项目时选择，侧边栏自动切换导航",
+        "章节状态简化: 4种状态→2种(未完成/已完成)，左右栏布局(大纲参考+细纲列表)",
+        "服务商预设: DeepSeek/OpenAI/智谱/通义千问等10家，选择后自动填写接口地址",
+        "推理深度设置: reasoning_effort选项(min~max)，支持DeepSeek Pro最强推理模式",
+        "滚动失效修复: RichTextEditor minHeight+overflow:auto，StyleWorkshopPage ScrollArea包裹",
+        "段落格式统一: styleInjector/settings/ChapterGenerationModal/continuationService四路径全覆盖"
+      ]
+    },
     {
       "version": "2.16.0",
       "date": "2026-05-18",

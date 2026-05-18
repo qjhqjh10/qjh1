@@ -9,6 +9,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
+import { loadOutlineContent } from '@/services/outlineService'
 import { logError } from '@/utils/logger'
 
 export default function DetailedOutlinePage() {
@@ -21,6 +22,12 @@ export default function DetailedOutlinePage() {
   const updateDetailedChapter = useStore(s => s.updateDetailedChapter)
   const removeDetailedChapter = useStore(s => s.removeDetailedChapter)
   const outlineContent = useStore(s => s.outlineContent)
+  const worldbuildingContent = useStore(s => s.worldbuildingContent)
+  const characters = useStore(s => s.characters)
+
+  const os: React.CSSProperties = { padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', marginBottom: 8 }
+  const ost: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#2d2520', marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid rgba(0,0,0,0.06)' }
+  const osb: React.CSSProperties = { fontSize: 11, lineHeight: 1.6, color: '#4a3f38', whiteSpace: 'pre-wrap' }
 
   const [projectPath, setProjectPath] = useState('')
   const [loading, setLoading] = useState(true)
@@ -35,9 +42,9 @@ export default function DetailedOutlinePage() {
 
     const currentOutline = useStore.getState().outlineContent
     if (!currentOutline) {
-      fileService.read(`${pp}/outline/outline.txt`).then(c => {
-        useStore.getState().setOutlineContent(c)
-      }).catch(() => { /* file may not exist yet */ })
+      loadOutlineContent(pp).then(c => {
+        if (c) useStore.getState().setOutlineContent(c)
+      })
     }
 
     setLoading(true)
@@ -55,7 +62,7 @@ export default function DetailedOutlinePage() {
       description: '',
       summary: '',
       order: detailedChapters.length,
-      status: 'outline',
+      status: 'incomplete',
     }
     addDetailedChapter(newCh)
     await saveDetailedChapterToFile(newCh)
@@ -118,15 +125,38 @@ export default function DetailedOutlinePage() {
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>全局大纲参考</h3>
         </div>
-        <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 16 }}>
-          <div style={{
-            fontSize: 13,
-            lineHeight: 1.7,
-            color: '#4a3f38',
-            whiteSpace: 'pre-wrap',
-          }}>
-            {outlineContent || '暂无大纲内容'}
-          </div>
+        <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 12 }}>
+          {(!outlineContent && !worldbuildingContent && characters.length === 0) ? (
+            <div style={{ fontSize: 11, color: '#9b8e84', padding: 8 }}>暂无大纲数据，请先在大纲页填写</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {outlineContent && (
+                <div style={os}>
+                  <div style={ost}>基础设定</div>
+                  <div style={osb}>{outlineContent.slice(0, 500)}{outlineContent.length > 500 ? '...' : ''}</div>
+                </div>
+              )}
+              {worldbuildingContent && (
+                <div style={os}>
+                  <div style={ost}>世界观</div>
+                  <div style={osb}>{worldbuildingContent.slice(0, 500)}{worldbuildingContent.length > 500 ? '...' : ''}</div>
+                </div>
+              )}
+              {characters.length > 0 && (
+                <div style={os}>
+                  <div style={ost}>角色 ({characters.length})</div>
+                  <div style={osb}>
+                    {characters.map((c, i) => (
+                      <div key={i} style={{ marginBottom: 2, fontSize: 11 }}>
+                        <span style={{ fontWeight: 600 }}>{c.name}</span>
+                        {c.role && <span style={{ color: '#9b8e84' }}> — {c.role}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </ScrollArea>
       </div>
 
@@ -184,7 +214,7 @@ export default function DetailedOutlinePage() {
                         章节{idx + 1}
                       </span>
                       <select
-                        value={ch.status || 'outline'}
+                        value={ch.status || 'incomplete'}
                         onChange={e => {
                           updateDetailedChapter(ch.id, { ...ch, status: e.target.value as ChapterStatus })
                           handleSaveChapter(ch.id)
@@ -192,15 +222,14 @@ export default function DetailedOutlinePage() {
                         style={{
                           padding: '2px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
                           fontSize: 10, fontFamily: 'inherit', cursor: 'pointer',
-                          color: { outline: '#f59e0b', draft: '#e67e00', revising: '#2563eb', final: '#16a34a' }[ch.status || 'outline'],
+                          color: ch.status === 'completed' ? '#16a34a' : '#ef4444',
+                          fontWeight: 600,
                           background: 'transparent', flexShrink: 0,
                         }}
                         title="章节状态"
                       >
-                        <option value="outline">🟡 大纲</option>
-                        <option value="draft">🟠 初稿</option>
-                        <option value="revising">🔵 修改中</option>
-                        <option value="final">🟢 定稿</option>
+                        <option value="incomplete">🔴 未完成</option>
+                        <option value="completed">🟢 已完成</option>
                       </select>
                       <input
                         type="text"

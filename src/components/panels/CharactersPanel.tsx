@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
 import { loadCharacters, saveCharacter, parseCharacterFromAI, CHARACTER_FIELDS } from '@/services/characterService'
+import { loadWorldbuildingContent } from '@/services/outlineService'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Modal from '@/components/common/Modal'
@@ -207,8 +208,8 @@ ${JSON.stringify(charList, null, 2)}
     setProjectPath(pp)
 
     if (!worldbuildingContent) {
-      fileService.read(`${pp}/worldbuilding/worldbuilding.txt`).then(c => {
-        useStore.getState().setWorldbuildingContent(c)
+      loadWorldbuildingContent(pp).then(c => {
+        if (c) useStore.getState().setWorldbuildingContent(c)
       })
     }
     loadCharacters(pp).then(setCharacters)

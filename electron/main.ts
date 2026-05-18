@@ -10,6 +10,7 @@ import { registerStyleHandlers } from './ipc/styleHandlers'
 import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
+import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { logError } from './ipc/logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -88,6 +89,7 @@ app.whenReady().then(() => {
   registerTemplateHandlers(ipcMain, templatesPath)
 
   registerExtractionHandlers(ipcMain)
+  registerContinuationHandlers(ipcMain, parentDir)
 
   const win = createWindow()
 

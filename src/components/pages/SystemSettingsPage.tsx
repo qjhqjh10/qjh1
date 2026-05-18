@@ -7,7 +7,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
 import type { UsageResult } from '@/types/electron'
-import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS } from '@/types/settings'
+import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESETS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
 import versionData from '@/data/version_history.json'
 import { logError } from '@/utils/logger'
@@ -209,13 +209,34 @@ function ModelSettingsTab() {
                 <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>基础配置区</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <FormField label="服务商">
-                    <input
-                      type="text"
-                      value={activeConfig.provider}
-                      onChange={e => updateConfig(activeConfig.id, { provider: e.target.value })}
-                      style={inputStyle}
-                      placeholder="如: openai"
-                    />
+                    <select
+                      value={PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) ? activeConfig.provider : '__custom__'}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v === '__custom__') return
+                        const preset = PROVIDER_PRESETS.find(p => p.name === v)
+                        updateConfig(activeConfig.id, {
+                          provider: v,
+                          apiUrl: preset ? preset.apiUrl : activeConfig.apiUrl,
+                        })
+                      }}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                    >
+                      <option value="">-- 选择服务商 --</option>
+                      {PROVIDER_PRESETS.map(p => (
+                        <option key={p.name} value={p.name}>{p.label}</option>
+                      ))}
+                      <option value="__custom__">自定义...</option>
+                    </select>
+                    {!PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) && activeConfig.provider && (
+                      <input
+                        type="text"
+                        value={activeConfig.provider}
+                        onChange={e => updateConfig(activeConfig.id, { provider: e.target.value })}
+                        style={{ ...inputStyle, marginTop: 6 }}
+                        placeholder="输入服务商名称"
+                      />
+                    )}
                   </FormField>
                   <FormField label="接口地址">
                     <input
@@ -347,6 +368,21 @@ function ModelSettingsTab() {
                       onChange={e => updateConfig(activeConfig.id, { maxTokens: parseInt(e.target.value) || 0 })}
                       style={inputStyle}
                     />
+                  </FormField>
+                  <FormField label="推理深度 (reasoning_effort)">
+                    <select
+                      value={activeConfig.reasoningEffort || ''}
+                      onChange={e => updateConfig(activeConfig.id, { reasoningEffort: (e.target.value || undefined) as any })}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                    >
+                      <option value="">默认（不设置，兼容所有模型）</option>
+                      <option value="min">min — 最低推理</option>
+                      <option value="low">low — 低推理</option>
+                      <option value="medium">medium — 中等推理</option>
+                      <option value="high">high — 高推理</option>
+                      <option value="max">max — 最强推理（DeepSeek Pro 推荐）</option>
+                    </select>
+                    <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>仅 DeepSeek Pro / OpenAI o 系列支持。设为空则不传此参数，兼容所有模型。</div>
                   </FormField>
                   <FormField label="系统提示词">
                     <textarea

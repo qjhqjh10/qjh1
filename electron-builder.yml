@@ -24,3 +24,11 @@ extraResources:
     to: knowledge_base/
     filter:
       - "**/*"
+  - from: scene_templates/
+    to: scene_templates/
+    filter:
+      - "**/*"
+  - from: style_projects/
+    to: style_projects/
+    filter:
+      - "**/*"

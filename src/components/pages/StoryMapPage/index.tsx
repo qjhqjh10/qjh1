@@ -11,6 +11,7 @@ import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import { loadCharacters } from '@/services/characterService'
 import { loadDetailedChapters } from '@/services/chapterService'
+import { loadOutlineContent } from '@/services/outlineService'
 import type { Character } from '@/types/character'
 import type { DetailedChapter } from '@/types/chapter'
 import type { StoryEvent, StoryLink, CharacterSnapshot, StoryGraph, ChapterEmotion, CharacterPresence, ChapterRhythm, ChapterPlotline, ChapterPOV, Plotline, GrowthTrack, GrowthEntry } from '@/types/story'
@@ -81,8 +82,8 @@ export default function StoryMapPage() {
 
     // Load outline if needed
     if (!outlineContent) {
-      fileService.read(`${pp}/outline/outline.txt`).then(c => {
-        useStore.getState().setOutlineContent(c)
+      loadOutlineContent(pp).then(c => {
+        if (c) useStore.getState().setOutlineContent(c)
       })
     }
 

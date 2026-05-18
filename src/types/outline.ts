@@ -54,3 +54,13 @@ export interface OutlineLocationsData {
 export interface OutlineFactionsData {
   factions: OutlineFaction[]
 }
+
+export interface OutlineContentData {
+  content: string
+  updatedAt: string
+}
+
+export interface WorldbuildingContentData {
+  content: string
+  updatedAt: string
+}

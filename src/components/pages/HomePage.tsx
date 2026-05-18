@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
-import { projectService } from '@/services/fileService'
+import { projectService, continuationService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
@@ -30,7 +30,7 @@ export default function HomePage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
-  const [newProjectType, setNewProjectType] = useState<'writing' | 'imitation'>('writing')
+  const [newProjectType, setNewProjectType] = useState<'writing' | 'imitation' | 'continuation'>('writing')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
@@ -42,7 +42,8 @@ export default function HomePage() {
       const projList: Project[] = []
       for (const name of names) {
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-        projList.push({ id: name, ...meta, type: (meta.type as string) === 'imitation' ? 'imitation' : 'writing' })
+        const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
+projList.push({ id: name, ...meta, type: pt })
       }
       setProjects(projList)
     } catch (err) {
@@ -63,6 +64,15 @@ export default function HomePage() {
       await projectService.create(name, projectsBasePath, newProjectType)
       const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
       addProject({ id: name, ...meta, type: newProjectType })
+      // For continuation projects, also create the ContinuationProject entry (with same ID)
+      if (newProjectType === 'continuation') {
+        try {
+          await continuationService.save({
+            id: name, name, sourceFileName: '', sourceChapters: [], writtenChapters: [],
+            status: 'imported', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          })
+        } catch {}
+      }
       setNewProjectName('')
       setShowCreate(false)
       // Navigate to imitation page if imitation project
@@ -80,7 +90,12 @@ export default function HomePage() {
 
   const handleDeleteProject = async (project: Project) => {
     try {
-      await projectService.delete(project.path)
+      if (project.type === 'continuation') {
+        // Continuation projects are stored in continuation_projects/, not projects/
+        try { await continuationService.delete(project.id) } catch {}
+      } else {
+        await projectService.delete(project.path)
+      }
       removeProject(project.id)
     } catch (err) {
       logError('Failed to delete project', err)
@@ -255,6 +270,14 @@ export default function HomePage() {
               }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'imitation' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📋 小说仿写</div>
                 <div style={{ fontSize: 11, color: '#9b8e84' }}>导入小说 → AI分析结构 → 模仿生成新作</div>
+              </button>
+              <button onClick={() => setNewProjectType('continuation')} style={{
+                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
+                border: newProjectType === 'continuation' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
+                background: newProjectType === 'continuation' ? 'rgba(124,58,237,0.04)' : '#fff',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'continuation' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📖 小说续写</div>
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>导入未完结小说 → AI理解剧情 → 沿着原作逻辑续写</div>
               </button>
             </div>
           </div>

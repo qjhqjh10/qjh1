@@ -144,6 +144,7 @@ export interface ElectronAPI {
   styleProjects: StyleProjectsAPI
   styleTemplates: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (template: any) => Promise<any>; delete: (id: string) => Promise<void> }
   templates: { list: () => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
+  continuation: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (p: any) => Promise<any>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
 }
 

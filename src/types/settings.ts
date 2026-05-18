@@ -9,6 +9,7 @@ export interface ModelConfig {
   temperature: number
   maxTokens: number
   systemPrompt: string
+  reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
   inputPricePerM: number
   outputPricePerM: number
   cacheHitPricePerM: number
@@ -88,6 +89,21 @@ export interface DisplaySettings {
   toolbarFontSize: string
   theme: 'light' | 'dark'
 }
+
+export interface ProviderPreset { name: string; label: string; apiUrl: string }
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  { name: 'deepseek', label: 'DeepSeek（深度求索）', apiUrl: 'https://api.deepseek.com' },
+  { name: 'openai', label: 'OpenAI', apiUrl: 'https://api.openai.com/v1' },
+  { name: 'azure', label: 'Azure OpenAI', apiUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
+  { name: 'anthropic', label: 'Anthropic（Claude）', apiUrl: 'https://api.anthropic.com' },
+  { name: 'zhipu', label: '智谱AI（GLM）', apiUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  { name: 'qwen', label: '通义千问（阿里云）', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { name: 'moonshot', label: 'Moonshot（月之暗面）', apiUrl: 'https://api.moonshot.cn/v1' },
+  { name: 'baidu', label: '百度文心一言', apiUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop' },
+  { name: 'siliconflow', label: '硅基流动（SiliconFlow）', apiUrl: 'https://api.siliconflow.cn/v1' },
+  { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
+]
 
 export const DEFAULT_PROMPTS: PromptTemplate[] = [
   {
