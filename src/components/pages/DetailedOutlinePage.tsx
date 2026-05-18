@@ -9,6 +9,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
+import { logError } from '@/utils/logger'
 
 export default function DetailedOutlinePage() {
   const navigate = useNavigate()
@@ -32,10 +33,11 @@ export default function DetailedOutlinePage() {
     const pp = `${projectsBasePath}/${activeProjectId}`
     setProjectPath(pp)
 
-    if (!outlineContent) {
+    const currentOutline = useStore.getState().outlineContent
+    if (!currentOutline) {
       fileService.read(`${pp}/outline/outline.txt`).then(c => {
         useStore.getState().setOutlineContent(c)
-      })
+      }).catch(() => { /* file may not exist yet */ })
     }
 
     setLoading(true)
@@ -90,7 +92,7 @@ export default function DetailedOutlinePage() {
       }
       await fileService.write(outputPath, content)
     } catch (err) {
-      console.error('Failed to export detailed outline:', err)
+      logError('Failed to export detailed outline', err)
     }
   }
 

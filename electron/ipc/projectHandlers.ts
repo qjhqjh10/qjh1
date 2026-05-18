@@ -1,47 +1,49 @@
-import { IpcMain, app } from 'electron'
+import { IpcMain } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { isSafePath } from './utils'
+import { logError } from './logger'
 
 const PROJECT_DIRS = ['worldbuilding', 'characters', 'outline', 'detailed_outline', 'chapters']
 
 let projectsBasePath = ''
-
-function isSafePath(inputPath: string): boolean {
-  if (!inputPath || typeof inputPath !== 'string') return false
-  const normalized = path.normalize(inputPath)
-  const base = path.normalize(projectsBasePath)
-  if (!base) return false
-  // Must be within projectsBasePath
-  return normalized.startsWith(base + path.sep) || normalized === base
-}
 
 export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
   projectsBasePath = path.resolve(basePath)
 
   // Ensure projects directory exists
   fs.mkdir(projectsBasePath, { recursive: true }).catch(err => {
-    console.error('Failed to create projects directory:', projectsBasePath, err.message)
+    logError(`项目目录创建失败: ${projectsBasePath}`, err)
   })
 
-  ipcMain.handle('project:create', async (_event, name: string, _basePath: string) => {
+  ipcMain.handle('project:create', async (_event, name: string, _basePath: string, type: string = 'writing') => {
     if (!name || typeof name !== 'string' || name.includes('..') || name.includes('/') || name.includes('\\')) {
       throw new Error('Invalid project name')
     }
     const projectPath = path.join(projectsBasePath, name)
+    try {
+      await fs.access(projectPath)
+      throw new Error(`项目 "${name}" 已存在`)
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === `项目 "${name}" 已存在`) throw err
+      // ENOENT means directory doesn't exist, which is what we want
+    }
     for (const dir of PROJECT_DIRS) {
       await fs.mkdir(path.join(projectPath, dir), { recursive: true })
     }
     await fs.writeFile(path.join(projectPath, 'worldbuilding', 'worldbuilding.txt'), '', 'utf-8')
     await fs.writeFile(path.join(projectPath, 'outline', 'outline.txt'), '', 'utf-8')
+    // Persist project type metadata
+    await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: type === 'imitation' ? 'imitation' : 'writing' }), 'utf-8')
   })
 
   ipcMain.handle('project:delete', async (_event, projectPath: string) => {
-    if (!isSafePath(projectPath)) throw new Error('Access denied: path outside projects directory')
+    if (!isSafePath(projectPath, projectsBasePath)) throw new Error('Access denied: path outside projects directory')
     await fs.rm(projectPath, { recursive: true, force: true })
   })
 
   ipcMain.handle('project:getMeta', async (_event, projectPath: string) => {
-    if (!isSafePath(projectPath)) throw new Error('Access denied: path outside projects directory')
+    if (!isSafePath(projectPath, projectsBasePath)) throw new Error('Access denied: path outside projects directory')
     const name = path.basename(projectPath)
     let chapterCount = 0
     let charCount = 0
@@ -59,7 +61,15 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
       charCount = contents.reduce((sum, c) => sum + c.replace(/\s/g, '').length, 0)
     } catch { /* chapter dir might not exist yet */ }
 
-    return { name, chapterCount, wordCount: charCount, path: projectPath }
+    // Read project type metadata (default to 'writing' for legacy projects)
+    let type: string = 'writing'
+    try {
+      const metaRaw = await fs.readFile(path.join(projectPath, 'project.json'), 'utf-8')
+      const meta = JSON.parse(metaRaw)
+      if (meta.type === 'imitation') type = 'imitation'
+    } catch { /* no project.json, legacy project */ }
+
+    return { name, chapterCount, wordCount: charCount, path: projectPath, type }
   })
 
   ipcMain.handle('project:listProjects', async (_event, _basePath: string) => {
@@ -73,9 +83,5 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
 
   ipcMain.handle('app:getProjectsBasePath', async () => {
     return projectsBasePath
-  })
-
-  ipcMain.handle('app:getAppPath', async () => {
-    return app.getAppPath()
   })
 }

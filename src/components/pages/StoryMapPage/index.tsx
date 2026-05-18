@@ -21,33 +21,9 @@ import {
   MapPinIcon, UserIcon, FlagIcon, ArrowRightIcon, ChartBarIcon,
   EyeIcon, TableCellsIcon, ArrowsRightLeftIcon, Bars3Icon, ArrowTrendingUpIcon,
 } from '@heroicons/react/24/outline'
-
-type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth'
-
-const TABS: { key: TabKey; label: string; icon: typeof ClockIcon }[] = [
-  { key: 'growth', label: '成长', icon: ArrowTrendingUpIcon },
-  { key: 'timeline', label: '时间线', icon: ClockIcon },
-  { key: 'foreshadowing', label: '伏笔链', icon: LinkIcon },
-  { key: 'consistency', label: '一致性', icon: ShieldCheckIcon },
-  { key: 'emotion', label: '情绪', icon: ChartBarIcon },
-  { key: 'presence', label: '出场', icon: TableCellsIcon },
-  { key: 'rhythm', label: '节奏', icon: ArrowsRightLeftIcon },
-  { key: 'plotline', label: '支线', icon: Bars3Icon },
-  { key: 'pov', label: 'POV', icon: EyeIcon },
-]
-
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  event: '事件', foreshadowing: '伏笔·埋', payoff: '伏笔·收',
-}
-
-const EVENT_TYPE_COLORS: Record<string, string> = {
-  event: '#3b82f6', foreshadowing: '#f59e0b', payoff: '#16a34a',
-}
-
-const EMPTY_EVENT: Omit<StoryEvent, 'id' | 'createdAt'> = {
-  type: 'event', timeLabel: '', chapterId: '', chapterOrder: 0, chapterTitle: '',
-  characters: [], location: '', summary: '', quote: '', source: 'manual',
-}
+import type { TabKey } from './constants'
+import { TABS, EVENT_TYPE_LABELS, EVENT_TYPE_COLORS, EMPTY_EVENT, EMOTION_LINES, PLOTLINE_COLORS, POV_TYPE_LABELS, CHANGE_LABELS, CHANGE_COLORS } from './constants'
+import { fieldLabel, linkBtn, iconBtn } from './styles'
 
 export default function StoryMapPage() {
   const navigate = useNavigate()
@@ -244,7 +220,7 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
 
 角色参考列表：${JSON.stringify(charRef)}
 
-章节列表：${JSON.stringify(chapterData.map(c => ({ id: c.id, title: c.title, order: c.order, content: c.content.slice(0, 3000), description: c.description })))}
+章节列表：${JSON.stringify(chapterData.map(c => ({ id: c.id, title: c.title, order: c.order, content: c.content.slice(0, 12000), description: c.description })))}
 
 注意：
 - events.type: foreshadowing=伏笔埋设, payoff=伏笔回收, event=普通事件
@@ -662,7 +638,7 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
 章节列表：${JSON.stringify(chIds.map(id => {
   const dc = chapterMap.get(id)
   const wc = writingChapters[id]
-  return { id, title: dc?.title || '', content: (wc?.content || '').slice(0, 2000) }
+  return { id, title: dc?.title || '', content: (wc?.content || '').slice(0, 8000) }
 }))}
 
 输出 JSON：{ "chapterPlotlines": [{ "chapterId": "章节ID", "plotlines": [{ "plotlineId": "支线ID", "plotlineName": "支线名", "intensity": 强度0-10 }] }] }`
@@ -802,10 +778,6 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
 }
 
 // ---- Sub-components ----
-
-const fieldLabel: React.CSSProperties = {
-  display: 'block', fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 4,
-}
 
 // ============= Timeline View =============
 
@@ -1196,14 +1168,6 @@ function AIScanButton({ chapters, scannedIds, loading, onScan }: {
 
 // ============= Emotion Curve View =============
 
-const EMOTION_LINES = [
-  { key: 'tension', label: '紧张', color: '#ef4444' },
-  { key: 'warmth', label: '温情', color: '#ec4899' },
-  { key: 'sadness', label: '悲伤', color: '#3b82f6' },
-  { key: 'excitement', label: '激昂', color: '#f59e0b' },
-  { key: 'lightness', label: '轻松', color: '#16a34a' },
-] as const
-
 function EmotionCurveView({ emotions }: { emotions: ChapterEmotion[] }) {
   const [selectedLines, setSelectedLines] = useState<Set<string>>(
     new Set(EMOTION_LINES.map(l => l.key))
@@ -1495,8 +1459,6 @@ function RhythmAnalysisView({ rhythms }: { rhythms: ChapterRhythm[] }) {
 
 // ============= Plotline Manager View =============
 
-const PLOTLINE_COLORS = ['#7c3aed', '#ec4899', '#3b82f6', '#f59e0b', '#16a34a']
-
 function PlotlineManagerView({ plotlines, chapterPlotlines, chapters, onUpdate, onScanPlotlines }: {
   plotlines: Plotline[]
   chapterPlotlines: ChapterPlotline[]
@@ -1647,10 +1609,6 @@ function PlotlineManagerView({ plotlines, chapterPlotlines, chapters, onUpdate, 
 
 // ============= POV Tracking View =============
 
-const POV_TYPE_LABELS: Record<string, string> = {
-  first: '第一人称', 'third-close': '第三人称·近', 'third-omniscient': '第三人称·全知', mixed: '混合视角',
-}
-
 function POVTrackingView({ povs, characters, chapters }: {
   povs: ChapterPOV[]
   characters: Character[]
@@ -1783,13 +1741,6 @@ function POVTrackingView({ povs, characters, chapters }: {
 }
 
 // ============= Growth Timeline View =============
-
-const CHANGE_LABELS: Record<string, string> = {
-  new: '+新增', upgrade: '↑升级', downgrade: '↓降级', lost: '✕失去', same: '初始',
-}
-const CHANGE_COLORS: Record<string, string> = {
-  new: '#3b82f6', upgrade: '#16a34a', downgrade: '#ef4444', lost: '#9b8e84', same: '#6b7280',
-}
 
 function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTracks, onAddEntry, onUpdateEntry, onDeleteEntry, novelType, onUpdateNovelType }: {
   tracks: GrowthTrack[]
@@ -2169,9 +2120,3 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
   )
 }
 
-const linkBtn: React.CSSProperties = {
-  background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', padding: 0, fontFamily: 'inherit',
-}
-const iconBtn = (color: string): React.CSSProperties => ({
-  background: 'none', border: 'none', cursor: 'pointer', padding: 4, color, display: 'flex', borderRadius: 6,
-})

@@ -48,7 +48,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
     setError('')
     setSaved(false)
     try {
-      const msg = `${promptContent}\n\n---\n章节标题: ${chapterTitle}\n\n章节正文:\n${chapterContent.slice(0, 15000)}`
+      const msg = `${promptContent}\n\n---\n章节标题: ${chapterTitle}\n\n章节正文:\n${chapterContent.slice(0, 50000)}`
       const reply = await aiService.chat([{ role: 'user', content: msg }], configId, projectId || undefined)
       setResult(reply)
       // Save review as KB file
@@ -76,7 +76,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
           {reviewPrompt ? `审稿提示词: ${reviewPrompt.title}` : '使用默认审稿提示词（可在提示词库中自定义）'}
         </div>
         <div style={{ fontSize: 11, color: '#6b5e54' }}>
-          当前章节 {chapterContent.length} 字符，将截取前 15000 字进行分析
+          当前章节 {chapterContent.length} 字符，将截取前 50000 字进行分析
         </div>
         {result && (
           <div style={{ padding: 14, borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.06)', fontSize: 13, lineHeight: 1.8, color: '#2d2520', whiteSpace: 'pre-wrap', maxHeight: 500, overflowY: 'auto' }} className="custom-scrollbar">

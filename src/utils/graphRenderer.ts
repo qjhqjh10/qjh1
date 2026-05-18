@@ -1,5 +1,6 @@
 import { Graph } from '@antv/g6'
 import type { RelationshipGraph } from '@/types/character'
+import { logError } from '@/utils/logger'
 
 const NODE_COLORS: Record<string, string> = {
   '男主': '#7c3aed',
@@ -35,8 +36,8 @@ export function renderRelationshipGraph(
     data: { name: n.name, role: n.role },
   } as any))
 
-  const edges = data.edges.map((e, i) => ({
-    id: `edge_${i}`,
+  const edges = data.edges.map((e) => ({
+    id: `edge_${e.source}_${e.target}_${e.relation || ''}`,
     source: e.source,
     target: e.target,
     style: {
@@ -78,13 +79,13 @@ export function renderRelationshipGraph(
   // Node click → edit character
   if (onNodeClick) {
     graph.on('node:click', (evt: any) => {
-      const nodeId = evt.target?.id
+      const nodeId = evt.item?.getID?.() || evt.target?.id
       if (nodeId) onNodeClick(nodeId as string)
     })
   }
 
   const destroy = () => {
-    try { graph.destroy() } catch { /* ignore */ }
+    try { graph.destroy() } catch (e) { logError('图表销毁失败', e) }
   }
 
   return { destroy }

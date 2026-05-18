@@ -26,6 +26,7 @@ interface Props {
   onGenChunk: (data: { charCount: number }) => void
   onGenDone: () => void
   onGenError: (msg: string) => void
+  externalAbortRef?: React.MutableRefObject<(() => void) | null>
 }
 
 type QueueStatus = 'waiting' | 'generating' | 'done' | 'error'
@@ -41,7 +42,7 @@ interface QueueItem {
 
 export default function BatchGenerationModal({
   isOpen, onClose, chapters, worldbuildingContent, characters, outlineContent,
-  onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError,
+  onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError, externalAbortRef,
 }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
@@ -70,6 +71,7 @@ export default function BatchGenerationModal({
   const abortRef = useRef<(() => void) | null>(null)
   const queueRef = useRef<QueueItem[]>([])
   const idxRef = useRef(0)
+  const runningRef = useRef(false)
 
   // Reset on open
   useEffect(() => {
@@ -94,8 +96,8 @@ export default function BatchGenerationModal({
       const styleInjection = await getStyleInjection(storeActiveProjectId, assignments)
       if (styleInjection) parts.push(styleInjection)
     }
-    if (useWorldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 3000)}`)
-    if (useOutline && outlineContent) parts.push(`【小说大纲】\n${outlineContent.slice(0, 2000)}`)
+    if (useWorldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}`)
+    if (useOutline && outlineContent) parts.push(`【小说大纲】\n${outlineContent.slice(0, 15000)}`)
     if (useDetailedOutline && ch.description) parts.push(`【本章细纲】\n${ch.description}`)
     if (useCharacters && characters.length > 0) {
       const charDescs = characters.map(c => [c.name, c.role, c.personality].filter(Boolean).join('，')).join('\n')
@@ -119,11 +121,15 @@ export default function BatchGenerationModal({
     queueRef.current = items
     idxRef.current = 0
     setRunning(true)
+    runningRef.current = true
     setCurrentIdx(0)
+
+    let successCount = 0
+    let errorCount = 0
 
     // Sequential processing
     for (let i = 0; i < items.length; i++) {
-      if (!running) break // cancelled
+      if (!runningRef.current) break // cancelled
       const item = items[i]
       updateQueueItem(i, { status: 'generating' })
       setCurrentIdx(i)
@@ -161,6 +167,7 @@ export default function BatchGenerationModal({
                 }
                 updateQueueItem(i, { status: 'done', wordCount: data.text.length })
                 setTotalWords(prev => prev + data.text.length)
+                successCount++
                 onGenDone()
                 resolve()
               },
@@ -168,6 +175,7 @@ export default function BatchGenerationModal({
               (data) => { onGenError(data.message); updateQueueItem(i, { status: 'error', error: data.message }); reject(new Error(data.message)) },
             )
             abortRef.current = handle.abort
+            if (externalAbortRef) externalAbortRef.current = handle.abort
           })
         } else {
           await new Promise<void>(async (resolve, reject) => {
@@ -183,16 +191,17 @@ export default function BatchGenerationModal({
         }
       } catch (err) {
         updateQueueItem(i, { status: 'error', error: err instanceof Error ? err.message : '生成失败' })
+        errorCount++
       }
     }
 
     setRunning(false)
+    runningRef.current = false
     abortRef.current = null
+    if (externalAbortRef) externalAbortRef.current = null
     // Show summary
-    const errs = items.filter(it => it.status === 'error').length
-    const oks = items.filter(it => it.status === 'done').length
-    if (errs > 0) {
-      alert(`批量生成完成: ${oks}章成功, ${errs}章失败。请检查下方红色标记的章节，可重新选择后再次生成。`)
+    if (errorCount > 0) {
+      alert(`批量生成完成: ${successCount}章成功, ${errorCount}章失败。请检查下方红色标记的章节，可重新选择后再次生成。`)
     }
   }
 
@@ -202,7 +211,10 @@ export default function BatchGenerationModal({
 
   const handleCancel = () => {
     abortRef.current?.()
+    abortRef.current = null
+    if (externalAbortRef) externalAbortRef.current = null
     setRunning(false)
+    runningRef.current = false
   }
 
   const doneCount = queue.filter(q => q.status === 'done').length

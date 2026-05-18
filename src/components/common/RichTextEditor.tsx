@@ -16,6 +16,7 @@ import ContextMenu from '@/components/common/ContextMenu'
 import PolishPreview from '@/components/common/PolishPreview'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService } from '@/services/fileService'
+import { parseAiErrorMessage } from '@/utils/textUtils'
 
 interface Props {
   content: string
@@ -112,11 +113,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       if (genId === generationRef.current) setPolishResult(reply)
     } catch (err) {
       if (genId === generationRef.current) {
-        const msg = err instanceof Error ? err.message : ''
-        if (msg.startsWith('[CONTENT_POLICY]')) setPolishError(msg.replace('[CONTENT_POLICY] ', ''))
-        else if (msg.startsWith('[AUTH_ERROR]')) setPolishError(msg.replace('[AUTH_ERROR] ', ''))
-        else if (msg.startsWith('[NETWORK]')) setPolishError(msg.replace('[NETWORK] ', ''))
-        else setPolishError('请求失败，请检查 AI 配置')
+        setPolishError(parseAiErrorMessage(err, '请求失败，请检查 AI 配置'))
       }
     }
     if (genId === generationRef.current) setPolishLoading(false)
@@ -137,11 +134,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       if (genId === generationRef.current) setPolishResult(reply)
     } catch (err) {
       if (genId === generationRef.current) {
-        const msg = err instanceof Error ? err.message : ''
-        if (msg.startsWith('[CONTENT_POLICY]')) setPolishError(msg.replace('[CONTENT_POLICY] ', ''))
-        else if (msg.startsWith('[AUTH_ERROR]')) setPolishError(msg.replace('[AUTH_ERROR] ', ''))
-        else if (msg.startsWith('[NETWORK]')) setPolishError(msg.replace('[NETWORK] ', ''))
-        else setPolishError('请求失败，请检查 AI 配置')
+        setPolishError(parseAiErrorMessage(err, '请求失败，请检查 AI 配置'))
       }
     }
     if (genId === generationRef.current) setPolishLoading(false)

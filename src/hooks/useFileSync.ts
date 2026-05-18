@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { fileService } from '@/services/fileService'
+import { logError } from '@/utils/logger'
 
 export function useFileSync(
   filePath: string | null,
@@ -9,7 +10,10 @@ export function useFileSync(
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastWrittenRef = useRef<string>(storeContent)
   const contentRef = useRef(storeContent)
+  const pathRef = useRef(filePath)
+  const generationRef = useRef(0)
   contentRef.current = storeContent
+  pathRef.current = filePath
 
   // Debounced save: store -> file. Flush on unmount with correct path.
   useEffect(() => {
@@ -17,24 +21,26 @@ export function useFileSync(
     if (storeContent === lastWrittenRef.current) return
 
     const pathForCleanup = filePath
+    const contentForCleanup = storeContent
+    const gen = ++generationRef.current
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
+      if (gen !== generationRef.current) return // newer effect has taken over
       try {
-        await fileService.write(pathForCleanup, storeContent)
-        lastWrittenRef.current = storeContent
+        await fileService.write(pathForCleanup, contentForCleanup)
+        lastWrittenRef.current = contentForCleanup
       } catch (err) {
-        console.error('Failed to save file:', err)
+        logError('Failed to save file', err)
       }
     }, 500)
 
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
-        // Use closure-captured path, not ref (ref has already changed to new path)
-        const currentContent = contentRef.current
-        if (pathForCleanup && lastWrittenRef.current !== currentContent) {
-          fileService.write(pathForCleanup, currentContent).catch(() => {})
+        // Only flush if this is still the latest generation and content differs
+        if (gen === generationRef.current && pathForCleanup && lastWrittenRef.current !== contentForCleanup) {
+          fileService.write(pathForCleanup, contentForCleanup).catch(() => {})
         }
         saveTimerRef.current = null
       }
@@ -45,11 +51,11 @@ export function useFileSync(
   useEffect(() => {
     if (!filePath) return
 
-    const path = filePath
+    const curPath = filePath
     const unsub = fileService.onExternalChange((event) => {
-      const evtPath = event.path.replace(/\\\\/g, '/')
-      const curPath = path.replace(/\\\\/g, '/')
-      if (evtPath === curPath && event.content !== contentRef.current) {
+      const evtPath = event.path.replace(/\\/g, '/')
+      const normalizedPath = curPath.replace(/\\/g, '/')
+      if (evtPath === normalizedPath && event.content !== contentRef.current) {
         lastWrittenRef.current = event.content
         setStoreContent(event.content)
       }
@@ -65,7 +71,7 @@ export function useFileSync(
       await fileService.write(filePath, storeContent)
       lastWrittenRef.current = storeContent
     } catch (err) {
-      console.error('Failed to save file:', err)
+      logError('Failed to save file', err)
     }
   }, [filePath, storeContent])
 

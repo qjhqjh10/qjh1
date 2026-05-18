@@ -1,7 +1,178 @@
 {
-  "currentVersion": "2.3.0",
-  "currentDate": "2026-05-16",
+  "currentVersion": "2.16.0",
+  "currentDate": "2026-05-18",
   "history": [
+    {
+      "version": "2.16.0",
+      "date": "2026-05-18",
+      "features": [
+        "风格工坊重构: 新增模板库系统，支持手动创建/编辑风格模板（26维+双层基调架构），AI分析结果可一键保存为模板",
+        "风格分析V3: 标记块+扁平数组混合输出格式，解决DeepSeek深层嵌套JSON频繁解析失败问题（可靠性从~50%→100%）",
+        "章节创作集成风格模板: AI生成弹窗新增G.风格模板选项，选中后风格约束自动注入生成prompt",
+        "新增叙事基调维度(narrativeTone): 26维统领性元维度，自动识别世界观类型(古代/现代/西幻/日系)",
+        "风格注入双层架构: 底层色情淫靡（不可动摇）+上层风格辨识（分析得出），冲突时色情优先",
+        "风格注入全面增强: 角色构架/服装情色功能/动作微观分解/篇幅展开/字数硬约束/段落格式统一管控",
+        "代码清理: nanoid ESM兼容修复、死import清理、段落格式修复，E2E端到端验证双风格通过"
+      ]
+    },
+    {
+      "version": "2.15.0",
+      "date": "2026-05-18",
+      "features": [
+        "普通小说场景工坊全面扩展: 6区块→10区块卡片式，新增叙事技法/情绪设计/感官细节/伏笔转折",
+        "普通小说新增12字段: narrativeStyle/timeCompression/introspection/sensoryAnchors/dominantEmotion/emotionCurveInput/pacing/props/appearance/bodyLanguage/foreshadowUse/sceneTurningPoint",
+        "情色小说新增4字段: pacing(情色节奏)/bodyLanguage(非言语表达)/consentDynamic(同意动态)/aftercareDetail(事后关怀)",
+        "AI自动模式: 所有字段支持autoFields标记，buildScenePrompt自动输出\"AI根据上下文自主决定\""
+      ]
+    },
+    {
+      "version": "2.14.0",
+      "date": "2026-05-18",
+      "features": [
+        "仿写导航修复: ImitationPage添加searchParams监听，侧边栏(仿写)大纲/细纲可正确切换Tab",
+        "等级系统改造: PowerLevel类型(名称+描述)替代纯字符串，等级标签可点击选择并编辑描述",
+        "CustomInput反馈: 添加自定义值后显示1.5秒\"已添加 ✓\"提示"
+      ]
+    },
+    {
+      "version": "2.13.0",
+      "date": "2026-05-18",
+      "features": [
+        "场景工坊自定义标签全面修复: CustomInput添加hideDisplay prop消除重复显示",
+        "流程转换/声音密度/呻吟: 启用customPoseChanges/customSoundDensity/customMoanStyle字段，支持多个自定义值",
+        "叙事视角崩溃修复: safeCSV防御性转换+加载模板时normalize数组为字符串",
+        "叙事风格/时间: CustomInput过滤默认值避免与inline标签重复",
+        "内省: 移除自定义功能，添加各标签按钮作用说明",
+        "感官锚点/主导情绪/情绪曲线/触发词/世界规则/道具/服装: 全部hideDisplay消除重复"
+      ]
+    },
+    {
+      "version": "2.12.0",
+      "date": "2026-05-18",
+      "features": [
+        "导航重构: 侧边栏上下文感知(无项目/写作/仿写三种状态)，隐藏无关按钮",
+        "大纲Hub改造: OutlinePage从5Tab扩展到10Tab(基础设定/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线)",
+        "角色嵌入大纲: CharactersPanel提取为可复用组件，角色管理作为大纲Hub的一个Tab",
+        "仿写页面分离: ImitationPage支持URL深度链接(/imitation?tab=outline)，侧边栏(仿写)大纲/(仿写)细纲独立入口",
+        "路由清理: /characters重定向到/outline?tab=characters，结构化JSON数据持久化(items/locations/factions/powerSystem/emotion)"
+      ]
+    },
+    {
+      "version": "2.11.0",
+      "date": "2026-05-17",
+      "features": [
+        "ImitationPage拆分: 1774行→~900行，提取6个Tab组件+4个Dialog组件",
+        "SceneWorkshopPage小说模板字段补全: 8→23字段(场景目的/角色/环境/情绪弧线/类型元素等)",
+        "abortRef修复: ChapterGenerationModal+BatchGenerationModal暴露externalAbortRef给父组件",
+        "取消按钮修复: 仿写/章节创作AI生成现在可以正确中断"
+      ]
+    },
+    {
+      "version": "2.10.0",
+      "date": "2026-05-17",
+      "features": [
+        "安全修复: kb:estimate路径校验+KB文件路径穿越防护+kb:download二进制读取+webSearch输入限制",
+        "Bug修复: Store迁移空指针防护+deleteSceneConfig错误处理+catch块日志补全",
+        "死代码清理: 3个死IPC handler+9个死extraction函数+死弹窗/状态/导入/类型 (~300行)",
+        "类型安全: SceneWorkshopPage移除@ts-nocheck+ImitationPage关键any替换+extractionService类型收窄",
+        "重复消除: 18个情色场景常量提取到eroticSceneConstants.ts共享模块"
+      ]
+    },
+    {
+      "version": "2.9.1",
+      "date": "2026-05-17",
+      "features": [
+        "场景工坊修复: 感官锚点/流程转换/声音密度呻吟/情绪主导 CustomTagButton 补全",
+        "叙事视角崩溃修复: customPOVs 从 string 改为 string[]处理",
+        "内省说明: 自定义功能取消, 增加四段详细描述(无/低/中/高)",
+        "卡片描述: 角色/地点/时间/氛围/公开度/性癖/流程/性爱流程 各加说明",
+        "时间/叙事风格自定义重复key修复, APP启动CLUE_LABELS时序修复"
+      ]
+    },
+    {
+      "version": "2.9.0",
+      "date": "2026-05-17",
+      "features": [
+        "场景工坊23区块: 叙事技法拆分为4卡片(风格/时间/内省/感官锚点), 字数独立为场景字数",
+        "自定义标签系统: CustomTagButton支持点击选中/取消, 全部区块自定义值持久化+可恢复",
+        "世界规则/道具/服装: 预设按钮组(各8个)+自定义, 多选逗号拼接",
+        "EroticSceneConfig新增10个自定义预设字段, renderSectionEditor完整重写23个case"
+      ]
+    },
+    {
+      "version": "2.8.0",
+      "date": "2026-05-17",
+      "features": [
+        "场景工坊卡片化: 17个区块以摘要卡片展示, 点击进入Modal弹窗编辑",
+        "AI生成场景注入: ChapterGenerationModal新增F部分, 加载场景工坊模板注入prompt",
+        "场景工坊新增14-17区块: 身体焦点/叙事技法/情绪心理/特殊设定",
+        "EroticSceneConfig新增12个类型字段(bodyFluidFocus/narrativeStyle/dominantEmotion等)",
+        "去掉独立情色场景/场景编排按钮, 统一到AI生成弹窗场景注入",
+        "SceneWorkshopPage JSX修复: 200+处损坏样式属性批量修复",
+        "重复kinkNote字段清理, EroticSceneModal DEFAULT_CONFIG补全"
+      ]
+    },
+    {
+      "version": "2.7.1",
+      "date": "2026-05-17",
+      "features": [
+        "场景工坊自定义: 全部9个配置区支持自定义输入(姿势/节奏/视角/起始/高潮/余韵/侮辱词等)",
+        "EroticSceneConfig新增7个自定义字段(customPoses/customRhythms/customPOVs等)",
+        "CustomInput组件: 输入+添加+标签删除，支持回车快捷添加"
+      ]
+    },
+    {
+      "version": "2.7.0",
+      "date": "2026-05-17",
+      "features": [
+        "仿写流程修复: ChapterGenerationModal ID匹配, 导航变量修复, 导入后章节ID统一",
+        "场景工坊重构: 模板库模式(情色/普通), 去章节列表, 新建/编辑/复制/删除模板",
+        "场景模板类型扩展: SceneTemplate增加type字段, 支持erotic/novel双类型",
+        "项目导航: 写作项目创建后自动跳转大纲, 仿写项目类型守卫"
+      ]
+    },
+    {
+      "version": "2.6.0",
+      "date": "2026-05-17",
+      "features": [
+        "项目类型统一: 新建项目可选「普通写作」或「小说仿写」, 仿写项目原生支持角色库/上下文联动",
+        "仿写数据存项目目录: extraction.json随项目持久化, 无需「导入到项目」",
+        "细纲交互: 原书细纲点击查看完整字段(含情色分析), 模仿细纲点击编辑全字段",
+        "角色导入弹窗: ImportCharactersModal预览冲突, 支持新建/跳过/覆盖/合并",
+        "Bug修复: 项目切换重新加载, 情色/场景生成自动存盘, 上/下章导航持久化",
+        "死代码清理: handleGenerate+handleImportToProject+view状态移除"
+      ]
+    },
+    {
+      "version": "2.5.0",
+      "date": "2026-05-16",
+      "features": [
+        "细纲卡片完善: 原书细纲显示情色分析标记, 模仿细纲显示eroticScene预览",
+        "细纲点击查看编辑: DetailViewModal弹窗全字段编辑(标题/摘要/角色/道具/场景/情色场景)",
+        "itemsUsed渲染修复: safeItemName处理对象数组",
+        "情色管道完善: 导入项目保留eroticScene, eroticStats注入大纲生成, 写章自动风格注入"
+      ]
+    },
+    {
+      "version": "2.4.1",
+      "date": "2026-05-16",
+      "features": [
+        "Bug修复: NOVEL_TYPE_DIMS键名不匹配(情色风格维度预设从未激活), 双重JSON.parse保护, 死代码清理(handleGenerate+11个导入), ref→state修复",
+        "提示词库补全: 世界观/细纲/润色/续写/审稿 5个默认模板",
+        "提示词库升级: 共10个默认模板覆盖全部10个类型"
+      ]
+    },
+    {
+      "version": "2.4.0",
+      "date": "2026-05-16",
+      "features": [
+        "代码审查修复: 9个Bug修复(数据损坏/静默数据丢失/流冲突/配置同步/路径安全等)",
+        "死代码清理: 移除未使用导出/死导入/死状态变量",
+        "错误日志统一: console.error → logError",
+        "重复代码消除: splitChapters/AI错误解析/saveAndNavigate抽取共享",
+        "大文件拆分: ImitationPage→目录(1523行)/StoryMapPage→目录(2178行)"
+      ]
+    },
     {
       "version": "2.3.0",
       "date": "2026-05-16",

@@ -6,12 +6,13 @@ function jsonPath(projectPath: string, id: string) {
   return `${projectPath}/detailed_outline/${id}.json`
 }
 
-function txtPath(projectPath: string, id: string) {
-  return `${projectPath}/detailed_outline/${id}.txt`
-}
-
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
-  await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
+  try {
+    await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
+  } catch (e) {
+    logError(`保存细纲失败: ${chapter.title || chapter.id}`, e)
+    throw e
+  }
 }
 
 export async function loadDetailedChapters(projectPath: string): Promise<DetailedChapter[]> {
@@ -76,7 +77,8 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
 
     chapters.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
     return chapters
-  } catch {
+  } catch (e) {
+    logError('加载细纲列表失败', e)
     return []
   }
 }

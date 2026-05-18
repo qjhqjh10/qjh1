@@ -5,7 +5,7 @@ import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
 import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings } from '@/types/settings'
-import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS } from '@/types/settings'
+import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS } from '@/types/settings'
 import { nanoid } from 'nanoid'
 
 // ---- App Store ----
@@ -166,7 +166,7 @@ export const useStore = create<AppState>()(
     setAIChatOpen: (open) => set({ isAIChatOpen: open }),
     setExportModalOpen: (open) => set({ isExportModalOpen: open }),
     toggleSidebar: () => set(s => { s.sidebarCollapsed = !s.sidebarCollapsed }),
-    setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model || '' }),
+    setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
 
     resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),
@@ -199,7 +199,7 @@ export const useSettingsStore = create<SettingsState>()(
     immer((set) => ({
       configs: [],
       activeConfigId: null,
-      prompts: [],
+      prompts: DEFAULT_PROMPTS,
       aiSettings: DEFAULT_AI_SETTINGS,
       displaySettings: DEFAULT_DISPLAY_SETTINGS,
       setConfigs: (configs) => set({ configs }),
@@ -225,6 +225,27 @@ export const useSettingsStore = create<SettingsState>()(
       setAISettings: (settings) => set(s => { Object.assign(s.aiSettings, settings) }),
       setDisplaySettings: (settings) => set(s => { Object.assign(s.displaySettings, settings) }),
     })),
-    { name: 'novel-writer-settings' }
+    {
+      name: 'novel-writer-settings',
+      version: 1,
+      partialize: (state) => ({
+        ...state,
+        configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '' })),
+      }),
+      migrate: (persisted: unknown, version: number) => {
+        if (version < 1) {
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          return {
+            configs: Array.isArray(p.configs) ? p.configs as ModelConfig[] : [],
+            activeConfigId: typeof p.activeConfigId === 'string' ? p.activeConfigId : null,
+            prompts: Array.isArray(p.prompts) && (p.prompts as PromptTemplate[]).length > 0
+              ? p.prompts : DEFAULT_PROMPTS,
+            aiSettings: { ...DEFAULT_AI_SETTINGS, ...(p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings as Partial<AIAssistantSettings> : {}) },
+            displaySettings: { ...DEFAULT_DISPLAY_SETTINGS, ...(p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings as Partial<DisplaySettings> : {}) },
+          }
+        }
+        return persisted
+      },
+    }
   )
 )

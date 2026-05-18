@@ -1,4 +1,5 @@
 import { fileService } from '@/services/fileService'
+import { logError } from '@/utils/logger'
 import type { ChapterSceneConfig } from '@/types/story'
 
 const SCENES_DIR = 'scenes'
@@ -12,19 +13,30 @@ export const sceneService = {
     try {
       const raw = await fileService.read(sceneFilePath(projectPath, chapterId))
       return JSON.parse(raw) as ChapterSceneConfig
-    } catch {
+    } catch (e) {
+      logError(`加载场景配置失败: ${chapterId}`, e)
       return null
     }
   },
 
   async saveChapterSceneConfig(projectPath: string, config: ChapterSceneConfig): Promise<void> {
-    await fileService.ensureDir(`${projectPath}/${SCENES_DIR}`)
-    config.updatedAt = new Date().toISOString()
-    await fileService.write(sceneFilePath(projectPath, config.chapterId), JSON.stringify(config, null, 2))
+    try {
+      await fileService.ensureDir(`${projectPath}/${SCENES_DIR}`)
+      const toSave = { ...config, updatedAt: new Date().toISOString() }
+      await fileService.write(sceneFilePath(projectPath, config.chapterId), JSON.stringify(toSave, null, 2))
+    } catch (e) {
+      logError(`保存场景配置失败: ${config.chapterId}`, e)
+      throw e
+    }
   },
 
   async deleteChapterSceneConfig(projectPath: string, chapterId: string): Promise<void> {
-    await fileService.deleteFile(sceneFilePath(projectPath, chapterId))
+    try {
+      await fileService.deleteFile(sceneFilePath(projectPath, chapterId))
+    } catch (e) {
+      logError(`删除场景配置失败: ${chapterId}`, e)
+      throw e
+    }
   },
 
   async listSceneConfigs(projectPath: string): Promise<ChapterSceneConfig[]> {
@@ -36,7 +48,7 @@ export const sceneService = {
         try {
           const raw = await fileService.read(`${projectPath}/${SCENES_DIR}/${file}`)
           configs.push(JSON.parse(raw) as ChapterSceneConfig)
-        } catch { /* skip invalid */ }
+        } catch (err) { logError(`跳过无效场景配置: ${file}`, err) }
       }
       return configs
     } catch {

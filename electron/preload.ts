@@ -1,4 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ModelConfig } from '../src/types/settings'
+import type { StyleProject, SceneTemplate } from '../src/types/story'
+import type { KnowledgeFile, KnowledgeMetadata } from '../src/types/knowledge'
+import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, ModelPrice, UsageResult } from '../src/types/electron'
 
 const api = {
   files: {
@@ -17,12 +21,12 @@ const api = {
     },
   },
   project: {
-    create: (name: string, basePath: string): Promise<void> =>
-      ipcRenderer.invoke('project:create', name, basePath),
+    create: (name: string, basePath: string, type?: string): Promise<void> =>
+      ipcRenderer.invoke('project:create', name, basePath, type),
     delete: (projectPath: string): Promise<void> =>
       ipcRenderer.invoke('project:delete', projectPath),
     getMeta: (projectPath: string): Promise<{
-      name: string; chapterCount: number; wordCount: number; path: string
+      name: string; chapterCount: number; wordCount: number; path: string; type: string
     }> => ipcRenderer.invoke('project:getMeta', projectPath),
     listProjects: (basePath: string): Promise<string[]> =>
       ipcRenderer.invoke('project:listProjects', basePath),
@@ -67,70 +71,70 @@ const api = {
       ipcRenderer.invoke('ai:listModels', configId),
   },
   settings: {
-    saveConfigs: (configs: unknown[]): Promise<void> =>
+    saveConfigs: (configs: ModelConfig[]): Promise<void> =>
       ipcRenderer.invoke('settings:saveConfigs', configs),
-    loadConfigs: (): Promise<unknown[]> =>
+    loadConfigs: (): Promise<ModelConfig[]> =>
       ipcRenderer.invoke('settings:loadConfigs'),
   },
   dialog: {
-    selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:selectDirectory'),
     saveFile: (defaultName: string): Promise<string | null> =>
       ipcRenderer.invoke('dialog:saveFile', defaultName),
   },
   app: {
-    getAppPath: (): Promise<string> => ipcRenderer.invoke('app:getAppPath'),
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),
   },
   kb: {
-    list: (): Promise<unknown> => ipcRenderer.invoke('kb:list'),
-    read: (fileId: string): Promise<unknown> => ipcRenderer.invoke('kb:read', fileId),
-    upload: (activeProjectId: string): Promise<unknown> => ipcRenderer.invoke('kb:upload', activeProjectId),
+    list: (): Promise<KnowledgeMetadata> => ipcRenderer.invoke('kb:list'),
+    read: (fileId: string): Promise<{ file: KnowledgeFile; content: string }> => ipcRenderer.invoke('kb:read', fileId),
     selectFiles: (): Promise<string[]> => ipcRenderer.invoke('kb:selectFiles'),
-    uploadFiles: (filePaths: string[], activeProjectId: string): Promise<unknown> =>
+    uploadFiles: (filePaths: string[], activeProjectId: string): Promise<KnowledgeFile[]> =>
       ipcRenderer.invoke('kb:uploadFiles', filePaths, activeProjectId),
     delete: (fileId: string): Promise<void> => ipcRenderer.invoke('kb:delete', fileId),
     write: (fileId: string, content: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content),
-    index: (fileId: string, apiUrl: string, apiKey: string, embeddingModel: string): Promise<unknown> =>
-      ipcRenderer.invoke('kb:index', fileId, apiUrl, apiKey, embeddingModel),
-    search: (query: string, projectId: string, apiUrl: string, apiKey: string, embeddingModel: string, topK?: number, fileIds?: string[]): Promise<unknown[]> =>
-      ipcRenderer.invoke('kb:search', query, projectId, apiUrl, apiKey, embeddingModel, topK ?? 3, fileIds),
+    index: (fileId: string, configId: string): Promise<{ chunkCount: number }> =>
+      ipcRenderer.invoke('kb:index', fileId, configId),
+    search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]): Promise<KBSearchResult[]> =>
+      ipcRenderer.invoke('kb:search', query, projectId, configId, topK ?? 3, fileIds),
     assignProject: (fileId: string, projectId: string, assigned: boolean): Promise<void> =>
       ipcRenderer.invoke('kb:assignProject', fileId, projectId, assigned),
     rename: (fileId: string, newName: string): Promise<void> =>
       ipcRenderer.invoke('kb:rename', fileId, newName),
     download: (fileId: string): Promise<boolean> =>
       ipcRenderer.invoke('kb:download', fileId),
-    getEmbedding: (text: string, apiUrl: string, apiKey: string, embeddingModel: string): Promise<number[]> =>
-      ipcRenderer.invoke('kb:getEmbedding', text, apiUrl, apiKey, embeddingModel),
-    estimate: (filePath: string): Promise<unknown> => ipcRenderer.invoke('kb:estimate', filePath),
-    webSearch: (query: string, maxResults?: number): Promise<unknown[]> =>
-      ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5),
+    getEmbedding: (text: string, configId: string): Promise<number[]> =>
+      ipcRenderer.invoke('kb:getEmbedding', text, configId),
+    estimate: (filePath: string): Promise<KBFileEstimate> => ipcRenderer.invoke('kb:estimate', filePath),
+    webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]): Promise<KBWebSearchResult[]> =>
+      ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5, safeSearch ?? 'moderate', prioritySites ?? []),
   },
   stats: {
-    getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }): Promise<unknown> =>
+    getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }): Promise<UsageResult> =>
       ipcRenderer.invoke('stats:getUsage', opts || {}),
-    getPrices: (): Promise<unknown> => ipcRenderer.invoke('stats:getPrices'),
-    savePrices: (prices: unknown[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
+    getPrices: (): Promise<ModelPrice[]> => ipcRenderer.invoke('stats:getPrices'),
+    savePrices: (prices: ModelPrice[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
     deleteByLine: (lineNumber: number): Promise<void> => ipcRenderer.invoke('stats:deleteByLine', lineNumber),
+    getMonthCost: (): Promise<number> => ipcRenderer.invoke('stats:getMonthCost'),
   },
   styleProjects: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),
-    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('style:listProjects'),
-    loadProject: (id: string): Promise<unknown> => ipcRenderer.invoke('style:loadProject', id),
-    saveProject: (project: unknown): Promise<void> => ipcRenderer.invoke('style:saveProject', project),
+    listProjects: (): Promise<{ id: string; name: string; sourceFileName: string; chapterCount: number; totalCharCount: number; hasProfile: boolean; createdAt: string }[]> => ipcRenderer.invoke('style:listProjects'),
+    loadProject: (id: string): Promise<StyleProject> => ipcRenderer.invoke('style:loadProject', id),
+    saveProject: (project: StyleProject): Promise<void> => ipcRenderer.invoke('style:saveProject', project),
     deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('style:deleteProject', id),
   },
+  styleTemplates: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('styleTemplate:list'),
+    read: (id: string): Promise<any> => ipcRenderer.invoke('styleTemplate:read', id),
+    save: (template: any): Promise<any> => ipcRenderer.invoke('styleTemplate:save', template),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:delete', id),
+  },
   templates: {
-    list: (): Promise<unknown[]> => ipcRenderer.invoke('template:list'),
-    save: (template: unknown): Promise<void> => ipcRenderer.invoke('template:save', template),
+    list: (): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:list'),
+    save: (template: SceneTemplate): Promise<void> => ipcRenderer.invoke('template:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
   },
   extractions: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('extraction:importFile'),
-    listProjects: (): Promise<unknown[]> => ipcRenderer.invoke('extraction:listProjects'),
-    loadProject: (id: string): Promise<unknown> => ipcRenderer.invoke('extraction:loadProject', id),
-    saveProject: (project: unknown): Promise<void> => ipcRenderer.invoke('extraction:saveProject', project),
-    deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('extraction:deleteProject', id),
   },
 }
 

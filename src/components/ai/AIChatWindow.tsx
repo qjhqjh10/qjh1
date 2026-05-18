@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService } from '@/services/fileService'
+import { aiService, kbService, statsService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, UserIcon, SparklesIcon,
   ArrowDownTrayIcon, BookOpenIcon, GlobeAltIcon,
@@ -11,6 +11,7 @@ import {
 import ScrollArea from '@/components/common/ScrollArea'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
+import { parseAiErrorMessage } from '@/utils/textUtils'
 import { getStyleInjection } from '@/utils/styleInjector'
 
 interface Message {
@@ -130,6 +131,7 @@ export default function AIChatWindow() {
   const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startR: 0, startB: 0, corner: '' })
   const dragRef = useRef({ startX: 0, startY: 0, startR: 0, startB: 0 })
   const cleanupDragRef = useRef<(() => void) | null>(null)
+  const budgetWarnedRef = useRef(false)
 
   // Cleanup drag/resize listeners on unmount
   useEffect(() => {
@@ -235,22 +237,22 @@ export default function AIChatWindow() {
 
     if (activePage === 'outline') {
       if (outlineContent) {
-        parts.push(`[当前大纲:\n${outlineContent.slice(0, 2000)}]`)
+        parts.push(`[当前大纲:\n${outlineContent.slice(0, 10000)}]`)
       }
       if (worldbuildingContent) {
-        parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 2000)}]`)
+        parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 20000)}]`)
       }
       parts.push('用户正在编辑大纲/世界观设定，你可以分析现有大纲的结构、节奏、逻辑完整性，分析世界观的逻辑一致性，指出不足，提出扩展建议或修改方案。')
     } else if (activePage === 'characters' && characters.length > 0) {
-      const cs = characters.map(c => `${c.name}(${c.role}): ${c.personality?.slice(0, 100) || ''}`).join('\n')
+      const cs = characters.map(c => `${c.name}(${c.role}): ${c.personality?.slice(0, 500) || ''}`).join('\n')
       parts.push(`[当前角色列表:\n${cs}]`)
     } else if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
-      const cs = detailedChapters.map(c => `章节: ${c.title}\n描述: ${c.description?.slice(0, 200) || ''}`).join('\n---\n')
+      const cs = detailedChapters.map(c => `章节: ${c.title}\n描述: ${c.description?.slice(0, 1000) || ''}`).join('\n---\n')
       parts.push(`[当前细纲:\n${cs}]`)
     } else if (activePage === 'chapter' && currentChapter) {
       parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}]`)
-      if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 1000)}]`)
-      if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 4000)}]`)
+      if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
+      if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 20000)}]`)
       parts.push('\n如果用户要求生成描写、对话或叙述性内容，请按以下格式输出：\n【插入参考】\n原文关键词: <引述原文中要插入位置的上下文句子>\n建议位置: 该段之后\n\n【生成内容】\n<你的创作内容>')
     }
 
@@ -277,9 +279,7 @@ export default function AIChatWindow() {
           const selIds = currentSelections[activePage]
           const fileIds = (selIds && selIds.length > 0) ? selIds : undefined
           const results = await kbService.search(
-            userMsg.content, activeProjectId,
-            activeConfig.apiUrl, activeConfig.apiKey,
-            activeConfig.embeddingModel || 'text-embedding-3-small', 3, fileIds,
+            userMsg.content, activeProjectId, activeConfig.id, 3, fileIds,
           ) as { content: string; fileName: string; score: number }[]
           if (results.length > 0) {
             kbContext = '\n\n[知识库参考]\n'
@@ -296,7 +296,7 @@ export default function AIChatWindow() {
       const webSources: { title: string; url: string }[] = []
       if (webSearchEnabled) {
         try {
-          const results = await kbService.webSearch(userMsg.content, 5) as { title: string; snippet: string; url: string }[]
+          const results = await kbService.webSearch(userMsg.content, 5, aiSettings.safeSearch, aiSettings.prioritySites) as { title: string; snippet: string; url: string }[]
           if (results.length > 0) {
             webContext = '\n\n[网络搜索结果]\n'
             results.forEach((r, i) => {
@@ -312,7 +312,7 @@ export default function AIChatWindow() {
       for (const ref of selectedRefs) {
         try {
           const result = await kbService.read(ref.id) as { content: string }
-          if (result.content) refContext += `\n\n[引用文件: ${ref.name}]\n${result.content.slice(0, 5000)}`
+          if (result.content) refContext += `\n\n[引用文件: ${ref.name}]\n${result.content.slice(0, 30000)}`
         } catch (e) { logError('读取引用文件失败', e) }
       }
       setSelectedRefs([])
@@ -345,23 +345,26 @@ export default function AIChatWindow() {
         sources: { kb: kbSources, web: webSources },
       }
       setMessages(prev => [...prev, assistantMsg])
-    } catch (err) {
-      const rawMsg = err instanceof Error ? err.message : '请求失败'
-      let userMsg = ''
 
-      if (rawMsg.startsWith('[CONTENT_POLICY]')) {
-        userMsg = rawMsg.replace('[CONTENT_POLICY] ', '')
-      } else if (rawMsg.startsWith('[RATE_LIMIT]')) {
-        userMsg = rawMsg.replace('[RATE_LIMIT] ', '')
-      } else if (rawMsg.startsWith('[AUTH_ERROR]')) {
-        userMsg = rawMsg.replace('[AUTH_ERROR] ', '')
-      } else if (rawMsg.startsWith('[NETWORK]')) {
-        userMsg = rawMsg.replace('[NETWORK] ', '')
-      } else if (rawMsg.startsWith('[API_ERROR]')) {
-        userMsg = rawMsg.replace('[API_ERROR] ', '')
-      } else {
-        userMsg = rawMsg
+      // Budget warning check (delayed so logTokenUsage completes on backend)
+      const storedAiSettings = useSettingsStore.getState().aiSettings
+      if (storedAiSettings.budgetWarning && storedAiSettings.monthlyBudget > 0 && !budgetWarnedRef.current) {
+        const budget = storedAiSettings.monthlyBudget
+        setTimeout(async () => {
+          try {
+            const monthCost = await statsService.getMonthCost()
+            if (monthCost > budget) {
+              budgetWarnedRef.current = true
+              setMessages(prev => [...prev, {
+                id: Date.now().toString() + '_bw', role: 'assistant',
+                content: `⚠️ **月度预算预警**\n\n本月 API 费用已达 **$${monthCost.toFixed(2)}**，超出设定的预算上限 **$${budget.toFixed(2)}**。请关注费用使用情况。`,
+              }])
+            }
+          } catch { /* non-critical */ }
+        }, 800)
       }
+    } catch (err) {
+      const userMsg = parseAiErrorMessage(err)
 
       setMessages(prev => [...prev, {
         id: Date.now().toString() + '_e', role: 'assistant',

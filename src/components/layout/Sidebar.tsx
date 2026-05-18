@@ -3,7 +3,6 @@ import { useMemo } from 'react'
 import { useStore } from '@/store'
 import {
   HomeIcon,
-  UserGroupIcon,
   DocumentTextIcon,
   ListBulletIcon,
   BookOpenIcon,
@@ -13,20 +12,35 @@ import {
   DocumentMagnifyingGlassIcon,
   Cog6ToothIcon,
   FolderIcon,
+  TagIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
 } from '@heroicons/react/24/outline'
 
-const NAV_ITEMS = [
-  { path: '/', label: '首页', icon: HomeIcon },
-  { path: '/characters', label: '角色', icon: UserGroupIcon },
-  { path: '/outline', label: '小说大纲', icon: DocumentTextIcon },
-  { path: '/detailed-outline', label: '小说细纲', icon: ListBulletIcon },
+interface NavItem {
+  path: string
+  label: string
+  icon: typeof HomeIcon
+}
+
+// Always-visible items (no project required)
+const COMMON_ITEMS: NavItem[] = [
   { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/story-map', label: '故事脉络', icon: FlagIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
+  { path: '/style-templates', label: '风格模板', icon: TagIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
+]
+
+const WRITING_ITEMS: NavItem[] = [
+  { path: '/outline', label: '大纲', icon: DocumentTextIcon },
+  { path: '/detailed-outline', label: '细纲', icon: ListBulletIcon },
+]
+
+const IMITATION_ITEMS: NavItem[] = [
   { path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon },
+  { path: '/imitation?tab=outline', label: '(仿写)大纲', icon: DocumentTextIcon },
+  { path: '/imitation?tab=details', label: '(仿写)细纲', icon: ListBulletIcon },
 ]
 
 export default function Sidebar() {
@@ -43,14 +57,27 @@ export default function Sidebar() {
   const connectedModel = useStore(s => s.connectedModel)
   const detailedChapters = useStore(s => s.detailedChapters)
 
-  const navItems = useMemo(() => {
-    if (activeProjectId && detailedChapters.length > 0) {
-      const items = [...NAV_ITEMS]
-      items.splice(5, 0, { path: '/chapter', label: '章节创作', icon: BookOpenIcon })
-      return items
+  const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId])
+  const projectType = activeProject?.type
+
+  const navItems = useMemo((): NavItem[] => {
+    const items: NavItem[] = [{ path: '/', label: '首页', icon: HomeIcon }]
+
+    if (projectType === 'writing') {
+      items.push(...WRITING_ITEMS)
+      if (detailedChapters.length > 0) {
+        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+      }
+    } else if (projectType === 'imitation') {
+      items.push(...IMITATION_ITEMS)
+      if (detailedChapters.length > 0) {
+        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+      }
     }
-    return NAV_ITEMS
-  }, [activeProjectId, detailedChapters.length])
+
+    items.push(...COMMON_ITEMS)
+    return items
+  }, [projectType, detailedChapters.length])
 
   const handleNav = (path: string) => {
     if (path === '/chapter') {
@@ -62,12 +89,16 @@ export default function Sidebar() {
       navigate('/detailed-outline')
       return
     }
-    setActivePage(path === '/' ? 'home' : path.slice(1))
+    setActivePage(path === '/' ? 'home' : path.split('?')[0].slice(1))
     navigate(path)
   }
 
   const isActive = (path: string) => {
+    if (path.includes('?')) {
+      return location.pathname + location.search === path
+    }
     if (path === '/') return location.pathname === '/'
+    if (path === '/imitation') return location.pathname === '/imitation'
     return location.pathname.startsWith(path)
   }
 
@@ -181,7 +212,7 @@ export default function Sidebar() {
                   setActiveProject(project.id)
                 }
                 setActivePage('home')
-                navigate('/')
+                navigate(project.type === 'imitation' ? '/imitation' : '/')
               }}
               title={collapsed ? project.name : undefined}
               style={{
@@ -209,6 +240,7 @@ export default function Sidebar() {
               {!collapsed && (
                 <>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {project.type === 'imitation' && <span style={{ fontSize: 10, color: '#7c3aed', marginRight: 4, fontWeight: 600 }}>仿</span>}
                     {project.name}
                   </span>
                   <span style={{ fontSize: 11, color: '#9b8e84', flexShrink: 0 }}>

@@ -5,6 +5,10 @@ import type { SceneTemplate } from '../../src/types/story'
 
 let basePath = ''
 
+function sanitizeId(id: string): string {
+  return path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
 export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string) {
   basePath = templatesPath
 
@@ -22,11 +26,13 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
   })
 
   ipcMain.handle('template:save', async (_e, template: SceneTemplate) => {
+    if (!template.id) throw new Error('Template ID is required')
     await fs.mkdir(basePath, { recursive: true })
-    await fs.writeFile(path.join(basePath, `${template.id}.json`), JSON.stringify(template, null, 2), 'utf-8')
+    await fs.writeFile(path.join(basePath, `${sanitizeId(template.id)}.json`), JSON.stringify(template, null, 2), 'utf-8')
   })
 
   ipcMain.handle('template:delete', async (_e, id: string) => {
-    await fs.unlink(path.join(basePath, `${id}.json`)).catch(() => {})
+    if (!id) return
+    await fs.unlink(path.join(basePath, `${sanitizeId(id)}.json`)).catch(() => {})
   })
 }

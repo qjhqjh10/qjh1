@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
 import { registerExportHandlers } from './ipc/exportHandlers'
@@ -7,10 +7,13 @@ import { registerAiHandlers } from './ipc/aiHandlers'
 import { registerKbHandlers, autoIndexProjectFile } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
+import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
+import { logError } from './ipc/logger'
 
 let mainWindow: BrowserWindow | null = null
+let watcher: ReturnType<typeof setupFileWatcher> | null = null
 
 function getProjectsBasePath(): string {
   if (process.env.NODE_ENV === 'development' || process.env.ELECTRON_RENDERER_URL) {
@@ -68,26 +71,27 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   const projectsPath = getProjectsBasePath()
 
-  registerFileHandlers(ipcMain, (filePath, content) => autoIndexProjectFile(filePath, content, projectsPath), projectsPath)
+  registerFileHandlers(ipcMain, (filePath, content) => autoIndexProjectFile(filePath, content, projectsPath, safeStorage), projectsPath)
   registerProjectHandlers(ipcMain, projectsPath)
   registerExportHandlers(ipcMain, () => mainWindow)
   registerAiHandlers(ipcMain, safeStorage)
-  registerKbHandlers(ipcMain, projectsPath, () => mainWindow)
+  registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
   registerStatsHandlers(ipcMain)
 
-  const styleProjectsPath = join(projectsPath, '..', 'style_projects')
+  const parentDir = dirname(projectsPath)
+  const styleProjectsPath = join(parentDir, 'style_projects')
   registerStyleHandlers(ipcMain, styleProjectsPath)
 
-  const templatesPath = join(projectsPath, '..', 'scene_templates')
+  registerStyleTemplateHandlers(ipcMain, parentDir)
+
+  const templatesPath = join(parentDir, 'scene_templates')
   registerTemplateHandlers(ipcMain, templatesPath)
 
-  const extractionsPath = join(projectsPath, '..', 'extractions')
-  registerExtractionHandlers(ipcMain, extractionsPath)
+  registerExtractionHandlers(ipcMain)
 
   const win = createWindow()
 
   // Set up file watcher for bidirectional sync (normalize paths for Windows)
-  let watcher: ReturnType<typeof setupFileWatcher> | null = null
   if (win) {
     watcher = setupFileWatcher(projectsPath, (channel, data) => {
       // Normalize path slashes for Windows compatibility
@@ -99,8 +103,15 @@ app.whenReady().then(() => {
     })
   }
 }).catch(err => {
-  console.error('App failed to start:', err)
+  logError('应用启动失败', err)
   app.quit()
+})
+
+app.on('before-quit', () => {
+  if (watcher) {
+    watcher.close()
+    watcher = null
+  }
 })
 
 app.on('window-all-closed', () => {
@@ -108,5 +119,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-
-export { mainWindow }

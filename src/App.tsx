@@ -1,10 +1,11 @@
 import { useEffect, useCallback, Component } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { appService, projectService, settingsService, aiService } from '@/services/fileService'
 import { useStore, useSettingsStore } from '@/store'
 import type { Project } from '@/types/project'
 import type { ModelConfig } from '@/types/settings'
+import { DEFAULT_PROMPTS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -23,7 +24,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
 }
 import AppLayout from '@/components/layout/AppLayout'
 import HomePage from '@/components/pages/HomePage'
-import CharactersPage from '@/components/pages/CharactersPage'
 import OutlinePage from '@/components/pages/OutlinePage'
 import DetailedOutlinePage from '@/components/pages/DetailedOutlinePage'
 import ChapterWritingPage from '@/components/pages/ChapterWritingPage'
@@ -31,8 +31,8 @@ import KnowledgeBasePage from '@/components/pages/KnowledgeBasePage'
 import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
 import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
+import TemplateLibraryPage from '@/components/pages/TemplateLibraryPage'
 import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
-import ExtractionPage from '@/components/pages/ExtractionPage'
 import ImitationPage from '@/components/pages/ImitationPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
@@ -62,16 +62,16 @@ function AnimatedRoutes() {
       >
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/characters" element={<CharactersPage />} />
+          <Route path="/characters" element={<Navigate to="/outline?tab=characters" replace />} />
           <Route path="/outline" element={<OutlinePage />} />
           <Route path="/detailed-outline" element={<DetailedOutlinePage />} />
           <Route path="/chapter/:chapterId" element={<ChapterWritingPage />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
+          <Route path="/style-templates" element={<TemplateLibraryPage />} />
           <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
           <Route path="/imitation" element={<ImitationPage />} />
-          <Route path="/extraction" element={<ExtractionPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -81,6 +81,7 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
+  const location = useLocation()
   const setProjectsBasePath = useStore(s => s.setProjectsBasePath)
   const setConnectionStatus = useStore(s => s.setConnectionStatus)
   const setProjects = useStore(s => s.setProjects)
@@ -94,14 +95,29 @@ export default function App() {
     appService.getProjectsBasePath().then(setProjectsBasePath)
   }, [setProjectsBasePath])
 
-  // Load configs from electron-store into Zustand on startup (two-way sync)
+  // Load configs from electron-store into Zustand on startup.
+  // electron-store is authoritative (stores encrypted API keys); localStorage is a mirror.
   useEffect(() => {
     settingsService.loadConfigs().then(storedConfigs => {
-      const existingConfigs = useSettingsStore.getState().configs
-      if (existingConfigs.length === 0 && Array.isArray(storedConfigs) && storedConfigs.length > 0) {
-        useSettingsStore.getState().setConfigs(storedConfigs as ModelConfig[])
+      if (Array.isArray(storedConfigs) && storedConfigs.length > 0) {
+        const existing = useSettingsStore.getState().configs
+        const existingMap = new Map(existing.map(c => [c.id, c]))
+        for (const sc of (storedConfigs as ModelConfig[])) {
+          existingMap.set(sc.id, { ...existingMap.get(sc.id), ...sc } as ModelConfig)
+        }
+        useSettingsStore.getState().setConfigs([...existingMap.values()])
       }
     }).catch((e) => { logError('从 electron-store 加载配置失败', e) })
+  }, [])
+
+  // Merge DEFAULT_PROMPTS into user's prompts (adds new defaults without overwriting custom ones)
+  useEffect(() => {
+    const prompts = useSettingsStore.getState().prompts
+    const existingIds = new Set(prompts.map(p => p.id))
+    const missing = DEFAULT_PROMPTS.filter(p => !existingIds.has(p.id))
+    if (missing.length > 0) {
+      useSettingsStore.getState().setPrompts([...prompts, ...missing])
+    }
   }, [])
 
   // Load projects on startup so sidebar is never empty
@@ -112,7 +128,7 @@ export default function App() {
       const projList: Project[] = []
       for (const name of names) {
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-        projList.push({ id: name, ...meta })
+        projList.push({ id: name, ...meta, type: (meta.type as string) === 'imitation' ? 'imitation' : 'writing' })
       }
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }

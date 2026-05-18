@@ -2,12 +2,74 @@ import type {
   ChapterExtraction, ExtractedCharacterRaw, ExtractedWorldElement,
   ExtractedItem, ExtractedPowerMention, ExtractedForeshadow,
   AggregatedResult, AggregatedCharacter,
-  NovelExtraction, PacingTemplate, GeneratedNovel,
-  ChapterAnalysis, StyleProfile, StyleChapter,
+  NovelExtraction, PacingTemplate,
+  ChapterAnalysis, StyleProfile, StyleChapter, DimAnalysis,
   EroticExtractionData, EventPattern, ProgressionRhythm,
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
+import { splitChaptersByHeadings } from '@/utils/textUtils'
+
+// JSON extraction helpers for AI replies
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI-generated JSON has unpredictable shape
+function extractJSON(reply: string): Record<string, any> {
+  // Strategy 1: Direct regex + clean parse
+  const m = reply.match(/\{[\s\S]*\}/)
+  const candidates: string[] = []
+  if (m) candidates.push(m[0])
+  candidates.push(reply) // fallback to raw reply
+
+  for (const raw of candidates) {
+    try { return JSON.parse(raw) } catch { /* try fixes */ }
+    // Fix 1: Remove trailing commas
+    try { return JSON.parse(raw.replace(/,(\s*[}\]])/g, '$1')) } catch { /* */ }
+    // Fix 2: Remove all commas before } or ] (aggressive)
+    try { return JSON.parse(raw.replace(/,(\s*\n?\s*[}\]])/g, '$1')) } catch { /* */ }
+    // Fix 3: Truncate to last complete object
+    try {
+      const lastBrace = raw.lastIndexOf('}')
+      if (lastBrace > 0) {
+        let truncated = raw.slice(0, lastBrace + 1)
+        truncated = truncated.replace(/,(\s*[}\]])/g, '$1')
+        return JSON.parse(truncated)
+      }
+    } catch { /* */ }
+    // Fix 4: Find the outermost balanced braces
+    try {
+      let depth = 0, start = -1
+      for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === '{') { if (depth === 0) start = i; depth++ }
+        else if (raw[i] === '}') { depth--; if (depth === 0 && start >= 0) break }
+      }
+      if (start >= 0 && depth === 0) {
+        const balanced = raw.slice(start, raw.lastIndexOf('}') + 1)
+        return JSON.parse(balanced.replace(/,(\s*[}\]])/g, '$1'))
+      }
+    } catch { /* */ }
+  }
+
+  // All fixes failed — throw with preview for debugging
+  const preview = reply.slice(0, 200) + '...' + reply.slice(-100)
+  throw new Error(`无法解析AI返回的JSON: ${preview}`)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI-generated JSON has unpredictable shape
+function extractJSONArray(reply: string): any[] {
+  const m = reply.match(/\[[\s\S]*\]/)
+  if (!m) throw new Error('未找到JSON数组')
+  try { return JSON.parse(m[0]) } catch { /* try fix */ }
+  try { return JSON.parse(m[0].replace(/,(\s*[\]])/g, '$1')) } catch { /* */ }
+  // Fallback: find balanced brackets
+  let depth = 0, start = -1
+  for (let i = 0; i < reply.length; i++) {
+    if (reply[i] === '[') { if (depth === 0) start = i; depth++ }
+    else if (reply[i] === ']') { depth--; if (depth === 0 && start >= 0) break }
+  }
+  if (start >= 0 && depth === 0) {
+    return JSON.parse(reply.slice(start, reply.lastIndexOf(']') + 1).replace(/,(\s*[\]])/g, '$1'))
+  }
+  throw new Error('无法解析AI返回的JSON数组')
+}
 
 // ---- Cross-chapter aggregation (pure frontend, no AI calls) ----
 
@@ -149,7 +211,7 @@ export function aggregateExtractions(chapters: ChapterExtraction[]): AggregatedR
         })
         foreshadowing.push({
           description: f.description,
-          plantChapter: match?.chapter || ch.chapterNumber - 1,
+          plantChapter: match?.chapter ?? ch.chapterNumber,
           payoffChapter: ch.chapterNumber,
           status: 'resolved',
         })
@@ -161,6 +223,18 @@ export function aggregateExtractions(chapters: ChapterExtraction[]): AggregatedR
   for (const p of planted) {
     foreshadowing.push({ description: p.description, plantChapter: p.chapter, payoffChapter: null, status: 'planted' })
   }
+
+  // Aggregate erotic statistics
+  const eroticChapters = chapters.filter(c => c.erotic)
+  const eroticStats = eroticChapters.length > 0 ? {
+    eroticChapterCount: eroticChapters.length,
+    totalChapters: chapters.length,
+    mainEroticChars: [...new Set(eroticChapters.flatMap(c => c.erotic!.characterRoles?.map(cr => cr.name) || []))],
+    commonKinks: [...new Set(eroticChapters.flatMap(c => c.erotic!.characterRoles?.flatMap(cr => cr.kinks || []) || []))],
+    commonFluids: [...new Set(eroticChapters.flatMap(c => c.erotic!.techniques?.bodyFluids || []))],
+    commonTouchFocus: [...new Set(eroticChapters.flatMap(c => c.erotic!.techniques?.touchFocus || []))],
+    degradationPatterns: [...new Set(eroticChapters.flatMap(c => c.erotic!.degradationPatterns || []))],
+  } : undefined
 
   return {
     characters,
@@ -177,6 +251,7 @@ export function aggregateExtractions(chapters: ChapterExtraction[]): AggregatedR
       description: sortedPower.map(p => p.context).join('\n'),
     },
     foreshadowing,
+    eroticStats,
   }
 }
 
@@ -218,7 +293,7 @@ const DIM_SCHEMAS: Record<string, string> = {
       "inferredLevel": 数字(从低到高推测排序,练气=1,筑基=2...)
     }
   ]`,
-  chapterSummary: `"chapterSummary": "本章150-300字详细剧情摘要（包含起因经过结果和情感转折）"`,
+  chapterSummary: `"chapterSummary": "本章150-300字详细剧情摘要（包含起因经过结果和情感转折，如有情色内容需描述情色场景和情绪变化）"`,
   events: `"events": ["本章关键事件1", "本章关键事件2", "本章关键事件3"]`,
   foreshadowing: `"foreshadowing": [
     {
@@ -265,13 +340,16 @@ ${fields}
 }
 
 // Parse AI reply into ChapterExtraction
-export function parseExtractionReply(reply: string, chapterId: string, chapterNumber: number, chapterTitle: string, chapterContent: string): ChapterExtraction {
-  let jsonStr = reply
-  const m = reply.match(/\{[\s\S]*\}/)
-  if (m) jsonStr = m[0]
-  const parsed = JSON.parse(jsonStr)
+export function parseExtractionReply(reply: string, chapterId: string, chapterNumber: number, chapterTitle: string, chapterContent: string, chapterType: StyleChapter['chapterType'] = 'chapter'): ChapterExtraction {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI-generated JSON
+  let parsed: Record<string, any>
+  try {
+    parsed = extractJSON(reply)
+  } catch {
+    throw new Error(`AI返回内容无法解析为JSON: ${reply.slice(0, 200)}...`)
+  }
   return {
-    chapterId, chapterNumber, chapterTitle, chapterContent,
+    chapterId, chapterNumber, chapterTitle, chapterContent, chapterType,
     characters: parsed.characters || [],
     worldbuilding: parsed.worldbuilding || [],
     items: (parsed.items || []).map((i: ExtractedItem & { firstChapter?: number }) => ({ ...i, firstChapter: i.firstChapter || chapterNumber })),
@@ -284,65 +362,78 @@ export function parseExtractionReply(reply: string, chapterId: string, chapterNu
   }
 }
 
-// Split novel into chapters (copied from StyleWorkshopPage patterns)
-const CHAPTER_PATTERNS: { regex: RegExp; type: string }[] = [
-  { regex: /^楔子\s*$/, type: 'prologue' }, { regex: /^序章\s*$/, type: 'prologue' },
-  { regex: /^引子\s*$/, type: 'prologue' }, { regex: /^前言\s*$/, type: 'prologue' },
-  { regex: /^终章\s*$/, type: 'epilogue' }, { regex: /^尾声\s*$/, type: 'epilogue' },
-  { regex: /^后记\s*$/, type: 'afterword' }, { regex: /^番外[一二三四五六七八九十百千零\d]+\s*$/, type: 'sideStory' },
-  { regex: /^第[一二三四五六七八九十百千零\d]+[章卷节回](\s+.{1,40})?$/, type: 'chapter' },
-]
-
-export function splitChapters(content: string): { title: string; content: string; chapterNumber: number }[] {
-  const lines = content.split('\n')
-  const headings: { title: string; startLine: number }[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    // Real chapter headings are short (≤40 chars). Body text lines matching
-    // the pattern by accident (e.g. "第一回见到他...") are long sentences.
-    if (line.length > 40) continue
-    for (const pat of CHAPTER_PATTERNS) {
-      if (pat.regex.test(line)) { headings.push({ title: line, startLine: i }); break }
-    }
-  }
-  const result: { title: string; content: string; chapterNumber: number }[] = []
-  let chapterNum = 0
-  for (let c = 0; c < headings.length; c++) {
-    const start = headings[c].startLine
-    const end = c < headings.length - 1 ? headings[c + 1].startLine : lines.length
-    const body = lines.slice(start, end).join('\n').trim()
-    if (body.length < 50) continue
-    chapterNum++
-    result.push({ title: headings[c].title, content: body, chapterNumber: chapterNum })
-  }
-  if (result.length === 0 && content.trim().length > 0) {
-    result.push({ title: '全文', content: content.trim(), chapterNumber: 1 })
-  }
-  return result
+export function splitChapters(content: string): { title: string; content: string; chapterNumber: number; chapterType: string }[] {
+  return splitChaptersByHeadings(content).map(({ title, content: c, chapterNumber, chapterType }) => ({
+    title, content: c, chapterNumber, chapterType,
+  }))
 }
 
 // ---- Style analysis (shared with StyleWorkshopPage) ----
 
 export function buildStyleAnalyzePrompt(dims: string[]): string {
-  const fields = dims.map(k => `  ${DIMENSION_META[k]?.prompt || `"${k}": "..."`}`).join(',\n')
-  return `分析以下小说章节的写作风格特征。输出JSON（不要markdown，不分析的维度不要输出）：\n{\n${fields},\n  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}]\n}`
+  const schema = dims.map(k => `  ${DIMENSION_META[k]?.prompt || `"${k}": "..."`}`).join(',\n')
+
+  return `你是专业的文学风格分析师。请对以下章节进行深度的写作风格分析。
+
+【分析要求】
+对每个维度，不要写抽象概括，必须给出：
+1. 具体描述: 从原文中提取的具体模式
+2. 原文例证: 摘录5-10个最能体现该特征的原文句子/短语
+3. 写作规则: 从分析中归纳的可操作的写作指令
+4. 词汇清单: 完整的相关词汇/短语列表（必须是原文中实际出现的词汇）
+
+同时，为每个维度保留一个简短的摘要字符串（填充在旧格式字段中，用于向后兼容）。
+
+输出JSON（不要markdown，只输出已启用的维度）：
+{
+${schema},
+  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}, ...共5个]
+}
+
+注意:
+- 如果某个维度的分析在原文中不适用，将其值设为空字符串 ""
+- 所有 examples 和 vocabularyList 必须是原文中实际出现的词汇/句子，禁止编造
+- writingRules 必须是具体的、"拿来就能用"的写作指令，不要写笼统建议
+- 身体描写(bodyLanguageStyle)、感官(sensoryStyle)是核心维度，必须最详尽`
 }
 
 export function parseStyleAnalysisReply(reply: string): ChapterAnalysis {
-  let jsonStr = reply
-  const m = reply.match(/\{[\s\S]*\}/)
-  if (m) jsonStr = m[0]
-  const parsed = JSON.parse(jsonStr)
+  const parsed = extractJSON(reply)
   const excerpts = parsed.excerpts || []
   const first = excerpts[0] || {}
+
+  // Helper: extract a value that might be a string (old format) or DimAnalysis object (new format)
+  const strVal = (key: string): string => {
+    const v = parsed[key]
+    if (!v) return ''
+    if (typeof v === 'string') return v
+    if (typeof v === 'object' && (v as DimAnalysis).description) return (v as DimAnalysis).description
+    return JSON.stringify(v)
+  }
+
+  // Parse dimAnalyses from new-format output
+  const dimKeys = Object.keys(DIMENSION_META)
+  const dimAnalyses: Record<string, DimAnalysis> = {}
+  for (const key of dimKeys) {
+    const v = parsed[key]
+    if (v && typeof v === 'object' && (v as DimAnalysis).description) {
+      const da = v as DimAnalysis
+      dimAnalyses[key] = {
+        description: da.description || '',
+        examples: Array.isArray(da.examples) ? da.examples : [],
+        writingRules: Array.isArray(da.writingRules) ? da.writingRules : [],
+        vocabularyList: Array.isArray(da.vocabularyList) ? da.vocabularyList : [],
+      }
+    }
+  }
+
   return {
-    sentenceStyle: parsed.sentenceStyle || '', vocabularyStyle: parsed.vocabularyStyle || '',
-    rhetoricStyle: parsed.rhetoricStyle || '', rhythmStyle: parsed.rhythmStyle || '',
-    dialogueStyle: parsed.dialogueStyle || '', moodStyle: parsed.moodStyle || '',
-    perspectiveStyle: parsed.perspectiveStyle || '', bodyLanguageStyle: parsed.bodyLanguageStyle || '',
-    sensoryStyle: parsed.sensoryStyle || '', tensionStyle: parsed.tensionStyle || '',
-    subtextStyle: parsed.subtextStyle || '',
+    sentenceStyle: strVal('sentenceStyle'), vocabularyStyle: strVal('vocabularyStyle'),
+    rhetoricStyle: strVal('rhetoricStyle'), rhythmStyle: strVal('rhythmStyle'),
+    dialogueStyle: strVal('dialogueStyle'), moodStyle: strVal('moodStyle'),
+    perspectiveStyle: strVal('perspectiveStyle'), bodyLanguageStyle: strVal('bodyLanguageStyle'),
+    sensoryStyle: strVal('sensoryStyle'), tensionStyle: strVal('tensionStyle'),
+    subtextStyle: strVal('subtextStyle'),
     descriptionPattern: parsed.descriptionPattern || null,
     corruptionArc: parsed.corruptionArc || null, degradationRitual: parsed.degradationRitual || null,
     narrativeVoice: parsed.narrativeVoice || null, sceneMechanics: parsed.sceneMechanics || null,
@@ -350,7 +441,273 @@ export function parseStyleAnalysisReply(reply: string): ChapterAnalysis {
     shameVoyeurLoop: parsed.shameVoyeurLoop || null,
     excerpt: first.text || '', excerptNote: first.note || '',
     analyzedAt: new Date().toISOString(),
+    dimAnalyses: Object.keys(dimAnalyses).length > 0 ? dimAnalyses : undefined,
   }
+}
+
+// ============================================================
+// V3 Style Analysis: marked blocks + flat arrays (resilient to JSON errors)
+// ============================================================
+
+export function buildStyleAnalyzePromptV3(dims: string[]): string {
+  const dimensionInstructions = dims.map(k => {
+    const meta = DIMENSION_META[k]
+    return meta ? `  ${k}: ${meta.label}（${meta.category}）` : `  ${k}`
+  }).join('\n')
+
+  return `你是专业的文学风格分析师。请对以下章节进行深度写作风格分析。
+
+【启用的分析维度】
+${dimensionInstructions}
+
+【输出格式】
+请严格按照以下格式输出（不要用 markdown 代码块）：
+
+=== [维度key]: [中文标签] ===
+（200-400字深度分析。必须包含：具体描述 + 引用3个以上原文词句作为证据）
+...分析内容...
+
+=== [下一个维度key]: [中文标签] ===
+...分析内容...
+
+（重复以上格式，为上面列出的每个维度写一段分析）
+
+---VOCABULARY---
+["原文词1","原文词2","原文词3",...]
+
+---RULES---
+["写作规则1","写作规则2","写作规则3",...]
+
+---TONE---
+{"word":"基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严）"}
+
+【硬性要求】
+1. 每个维度分析必须 200-400 字，引用原文具体词汇/句子
+2. VOCABULARY 数组必须是原文中实际出现的词，禁止编造
+3. RULES 数组必须是可直接执行的写作指令（每条 15-50 字），不要写笼统建议
+4. TONE 中的基调词限 2-8 字
+5. 标记块（---XXX---）必须从行首开始，单独一行
+6. 数组和对象必须是合法 JSON（注意：字符串用双引号，不要尾部逗号）
+7. 不要用 \`\`\`json 代码块包裹任何内容`
+}
+
+// Parses V3 marked-block format into ChapterAnalysis
+export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): ChapterAnalysis {
+  // ── Step 1: Split into sections by markers ──
+  const vocabMarker = '---VOCABULARY---'
+  const rulesMarker = '---RULES---'
+  const toneMarker = '---TONE---'
+
+  const vocabIdx = reply.indexOf(vocabMarker)
+  const rulesIdx = reply.indexOf(rulesMarker)
+  const toneIdx = reply.indexOf(toneMarker)
+
+  // Free text is everything before the first marker
+  const firstMarker = Math.min(
+    vocabIdx >= 0 ? vocabIdx : Infinity,
+    rulesIdx >= 0 ? rulesIdx : Infinity,
+    toneIdx >= 0 ? toneIdx : Infinity,
+  )
+  const freeText = firstMarker < Infinity ? reply.slice(0, firstMarker).trim() : reply.trim()
+
+  // ── Step 2: Extract per-dimension descriptions from free text ──
+  const dimMap = new Map<string, { label: string; description: string }>()
+  for (const dk of dims) {
+    // Match: === sentenceStyle: 句式 === (content) === next dimension
+    const label = DIMENSION_META[dk]?.label || dk
+    const escapedKey = dk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const patterns = [
+      new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|$)`, 'im'),
+      new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|$)`, 'im'),
+      new RegExp(`\\[${escapedKey}\\][:：]([\\s\\S]*?)(?=\\n\\[|\\n===|$)`, 'im'),
+    ]
+    for (const pat of patterns) {
+      const m = freeText.match(pat)
+      if (m && m[1]?.trim().length > 20) {
+        dimMap.set(dk, { label, description: m[1].trim() })
+        break
+      }
+    }
+    // If no explicit section, try to find dimension name mentioned anywhere
+    if (!dimMap.has(dk)) {
+      const dimLabel = DIMENSION_META[dk]?.label || dk
+      const mentionPat = new RegExp(`${dk}|${dimLabel}\\s*[:：]\\s*`, 'i')
+      if (mentionPat.test(freeText) && freeText.length > 100) {
+        // Store a fallback note — the full text may contain relevant analysis
+        dimMap.set(dk, { label: dimLabel, description: '' })
+      }
+    }
+  }
+
+  // ── Step 3: Parse marked blocks independently ──
+  const parseBlock = (raw: string, marker: string): string[] => {
+    const idx = raw.indexOf(marker)
+    if (idx < 0) return []
+    const after = raw.slice(idx + marker.length)
+    // Find the next marker or end of string
+    const nextMarker = Math.min(
+      ...[vocabMarker, rulesMarker, toneMarker].map(m => {
+        const i = after.indexOf(m)
+        return i >= 0 ? i : Infinity
+      }),
+    )
+    const block = (nextMarker < Infinity ? after.slice(0, nextMarker) : after).trim()
+
+    // Try JSON.parse with fixes
+    const candidates = [block, block.replace(/,(\s*[\]])/g, '$1'), block.replace(/，/g, ',').replace(/,(\s*[\]])/g, '$1')]
+    for (const c of candidates) {
+      try {
+        const arrMatch = c.match(/\[[\s\S]*\]/)
+        if (arrMatch) {
+          const parsed = JSON.parse(arrMatch[0])
+          if (Array.isArray(parsed)) return parsed.filter((x: unknown): x is string => typeof x === 'string')
+        }
+      } catch { /* try next */ }
+    }
+
+    // Fallback: regex extract all quoted strings
+    const quoted = after.match(/"([^"]{2,50})"/g)
+    if (quoted) return [...new Set(quoted.map(q => q.slice(1, -1)))].slice(0, 50)
+
+    return []
+  }
+
+  const vocabularyList = parseBlock(reply, vocabMarker)
+  const writingRules = parseBlock(reply, rulesMarker)
+
+  // Parse tone block
+  let toneWord = ''
+  let toneDesc = ''
+  let toneAttitude = ''
+  if (toneIdx >= 0) {
+    const afterTone = reply.slice(toneIdx + toneMarker.length)
+    const nextMarker = Math.min(
+      ...[vocabMarker, rulesMarker].map(m => {
+        const i = afterTone.indexOf(m)
+        return i >= 0 ? i : Infinity
+      }),
+    )
+    const toneBlock = (nextMarker < Infinity ? afterTone.slice(0, nextMarker) : afterTone).trim()
+    try {
+      const objMatch = toneBlock.match(/\{[\s\S]*?\}/)
+      if (objMatch) {
+        const parsed = JSON.parse(objMatch[0].replace(/,(\s*[}\]])/g, '$1'))
+        toneWord = typeof parsed.word === 'string' ? parsed.word : ''
+        toneDesc = typeof parsed.description === 'string' ? parsed.description : ''
+        toneAttitude = typeof parsed.attitude === 'string' ? parsed.attitude : ''
+      }
+    } catch { /* keep defaults */ }
+  }
+
+  // ── Step 4: Build fullDescription from all dimension descriptions ──
+  const descParts: string[] = []
+  for (const dk of dims) {
+    const info = dimMap.get(dk)
+    if (info?.description) descParts.push(`【${info.label}】${info.description.slice(0, 200)}`)
+  }
+
+  // ── Step 5: Assemble ChapterAnalysis ──
+  const dimAnalyses: Record<string, DimAnalysis> = {}
+  for (const dk of dims) {
+    const info = dimMap.get(dk)
+    const desc = info?.description || ''
+    // Distribute vocabulary to relevant dimensions based on keyword matching
+    const dimVocab: string[] = []
+    if (vocabularyList.length > 0) {
+      const keywords = [dk, DIMENSION_META[dk]?.label || '']
+      for (const v of vocabularyList) {
+        // Assign first 20 generic entries to body/sensory, rest by keyword
+        if (dk === 'bodyLanguageStyle' || dk === 'sensoryStyle' || dk === 'vocabularyStyle') {
+          dimVocab.push(v)
+        }
+      }
+    }
+    const dimRules = dk === 'narrativeTone' && toneDesc
+      ? [`基调: ${toneWord} - ${toneDesc}`]
+      : writingRules.length > 0 ? writingRules.slice(0, 8) : []
+
+    dimAnalyses[dk] = {
+      description: desc || `（见完整分析文本，共 ${freeText.length} 字）`,
+      examples: [],
+      writingRules: dimRules,
+      vocabularyList: dimVocab.slice(0, 30),
+    }
+  }
+
+  // If tone data exists, ensure narrativeTone always has content
+  if (toneWord && dimAnalyses['narrativeTone']) {
+    dimAnalyses['narrativeTone'] = {
+      description: toneDesc || `基调: ${toneWord}`,
+      examples: [],
+      writingRules: [`维持"${toneWord}"的叙事基调`, `叙事态度: ${toneAttitude}`],
+      vocabularyList: [],
+    }
+  }
+
+  // Build string fields (backward compat)
+  const strVal = (dk: string) => dimAnalyses[dk]?.description || ''
+  const excerpt = '' // V3 doesn't output excerpts
+
+  return {
+    sentenceStyle: strVal('sentenceStyle'), vocabularyStyle: strVal('vocabularyStyle'),
+    rhetoricStyle: strVal('rhetoricStyle'), rhythmStyle: strVal('rhythmStyle'),
+    dialogueStyle: strVal('dialogueStyle'), moodStyle: strVal('moodStyle'),
+    perspectiveStyle: strVal('perspectiveStyle'), bodyLanguageStyle: strVal('bodyLanguageStyle'),
+    sensoryStyle: strVal('sensoryStyle'), tensionStyle: strVal('tensionStyle'),
+    subtextStyle: strVal('subtextStyle'),
+    descriptionPattern: null, corruptionArc: null, degradationRitual: null,
+    narrativeVoice: null, sceneMechanics: null, somaticTension: null,
+    identityDissolution: null, shameVoyeurLoop: null,
+    excerpt, excerptNote: '',
+    analyzedAt: new Date().toISOString(),
+    dimAnalyses: Object.keys(dimAnalyses).length > 0 ? dimAnalyses : undefined,
+  }
+}
+
+// ---- Extract representative excerpts for few-shot prompting ----
+// Picks the most distinctive paragraphs from analyzed chapters based on style features
+export function buildFewShotExcerpts(
+  chapters: { title: string; content: string; chapterNumber: number }[],
+  maxChapters: number = 5,
+  maxPerChapter: number = 2,
+  excerptLength: number = 200,
+): string[] {
+  const excerpts: string[] = []
+  const selected = chapters.slice(0, Math.min(chapters.length, maxChapters))
+
+  for (const ch of selected) {
+    // Split into natural paragraphs (double newlines)
+    const paras = ch.content.split(/\n\n+/).filter(p => p.trim().length > 40)
+    if (paras.length === 0) continue
+
+    // Score each paragraph by "style signal density": presence of onomatopoeia, sensory words, dialogue markers
+    const scored = paras.map((p, i) => {
+      let score = 0
+      // Onomatopoeia density
+      const onoCount = (p.match(/哦|噫|齁|呜|叽|噗|咕|啪|唧|嘎/g) || []).length
+      score += Math.min(onoCount, 20) * 2
+      // Sensory words
+      const sensoryCount = (p.match(/热|烫|紧|软|湿|黏|滑|硬|粗|嫩/g) || []).length
+      score += sensoryCount
+      // Body part words
+      const bodyCount = (p.match(/屁眼|鸡巴|卵蛋|龟头|肉穴|阴唇|子宫|乳房|臀部|肚/g) || []).length
+      score += bodyCount * 2
+      // Exclamation density (emotional intensity)
+      const exclCount = (p.match(/[！!]/g) || []).length
+      score += exclCount
+      return { para: p, score, idx: i }
+    })
+
+    scored.sort((a, b) => b.score - a.score)
+    for (let i = 0; i < Math.min(maxPerChapter, scored.length); i++) {
+      const excerpt = scored[i].para.slice(0, excerptLength)
+      if (excerpt.length > 40) {
+        excerpts.push(excerpt)
+      }
+    }
+  }
+
+  return excerpts
 }
 
 // ---- Pacing template ----
@@ -461,58 +818,7 @@ export function computeEmotionCurve(chapters: ChapterExtraction[]): EmotionCurve
   return { segments, cycleLength: Math.round(tones.length / Math.max(1, segments.length)) }
 }
 
-// Enhanced outline prompt with pattern constraints
-export function buildGenerateOutlinePromptWithPatterns(extraction: NovelExtraction): string {
-  let p = buildGenerateOutlinePrompt(extraction)
-  if (extraction.pacingTemplate) {
-    const pt = extraction.pacingTemplate
-    p += `\n节奏约束: 新大纲应保持战斗${pt.battleRatio}%、过渡${pt.transitionRatio}%、修炼${pt.trainingRatio}%、高潮${pt.climaxRatio}%、日常${pt.socialRatio}%的章比例`
-  }
-  return p
-}
-
 // ---- Generation prompts ----
-
-export function buildGenerateOutlinePrompt(extraction: NovelExtraction): string {
-  const ag = extraction.aggregated
-  const pacing = extraction.pacingTemplate
-  const summaries = extraction.chapters.filter(c => c.extractedAt).map(c => `第${c.chapterNumber}章: ${c.chapterSummary}`).join('\n')
-  let p = '你是一位小说创作专家。以下是分析一本小说得到的数据，请基于此生成一部全新小说的完整大纲。\n\n'
-  if (pacing) p += `节奏分布: 战斗${pacing.battleRatio}% 过渡${pacing.transitionRatio}% 高潮${pacing.climaxRatio}% 修炼${pacing.trainingRatio}% 社交${pacing.socialRatio}% 平均每章${pacing.avgChapterWords}字\n`
-  if (ag) {
-    if (ag.characters.length > 0) p += `角色阵容: ${ag.characters.map(c => c.role).join('、')} 共${ag.characters.length}个\n`
-    if (ag.powerSystem.levels.length > 0) p += `等级体系: ${ag.powerSystem.levels.join(' → ')}\n`
-  }
-  if (extraction.plotStructure?.acts) p += `原作幕结构: ${extraction.plotStructure.acts.map(a => a.name).join(' → ')}\n`
-  p += `\n原作章节摘要:\n${summaries.slice(0, 3000)}\n\n`
-  p += '请输出一部全新小说的完整大纲（Markdown格式）。要求:\n'
-  p += '1. 保持相似的幕结构、节奏分布、角色类型数量\n'
-  p += '2. 所有角色名、地名、物品名完全原创，不要使用原名\n'
-  p += '3. 每章写一句剧情摘要，格式: "第X章: 标题 - 摘要"'
-  return p
-}
-
-export function buildGenerateDetailedOutlinesPrompt(outline: string, extraction: NovelExtraction): string {
-  return `你是一位小说创作专家。以下是新小说的大纲，请为每一章生成详细的细纲信息。
-
-新大纲:
-${outline}
-
-原作章节摘要参考（保持相似的节奏和密度）:
-${extraction.chapters.filter(c => c.extractedAt).map(c => `第${c.chapterNumber}章: ${c.chapterSummary}`).join('\n').slice(0, 2000)}
-
-请输出JSON数组，每章包含：
-{
-  "chapterNumber": 1,
-  "title": "章节标题",
-  "summary": "150-300字详细剧情摘要",
-  "charactersAppearing": ["出场角色1", "出场角色2"],
-  "keyEvents": ["关键事件1", "关键事件2"],
-  "emotionalTone": "情绪基调(紧张/温馨/悲伤/热血/悬疑...)"
-}
-
-只输出JSON数组，不要额外说明。`
-}
 
 export function buildGenerateCharactersPrompt(extraction: NovelExtraction): string {
   const ag = extraction.aggregated
@@ -531,7 +837,7 @@ ${charDesc}
 5. 每个角色保留原作对应角色的性格特征模式，但具体内容不同
 
 请输出JSON数组:
-[{"name": "新角色名", "role": "主角|女主|导师|反派|配角", "traits": ["特征1", "特征2"], "background": "背景简介"}]
+[{"name": "新角色名", "role": "男主|女主|男配|女配|反派|其他", "traits": ["特征1", "特征2"], "background": "背景简介"}]
 只输出JSON，不要额外说明。`
 }
 
@@ -547,46 +853,6 @@ export function buildGenerateWorldbuildingPrompt(extraction: NovelExtraction): s
   p += '请输出JSON:\n{"locations": [{"name":"","description":""}], "factions": [{"name":"","description":""}], "rules": [{"name":"","description":""}], "powerSystem": {"name":"新体系名","levels":["级1","级2",...],"description":"体系描述"}}\n只输出JSON，不要额外说明。'
   p += '\n注意: locations数组中每个地点是一个独立对象,不是一段文字。factions同理。'
   return p
-}
-
-// ---- Parsers ----
-
-export function parseGeneratedOutline(reply: string): string {
-  return reply.replace(/```markdown\n?|```\n?/g, '').trim()
-}
-
-export function parseGeneratedDetailedOutlines(reply: string): { chapterNumber: number; title: string; summary: string }[] {
-  const m = reply.match(/\[[\s\S]*\]/)
-  if (m) return JSON.parse(m[0])
-  return []
-}
-
-export function parseGeneratedCharacters(reply: string): { name: string; role: string; traits: string[]; background: string }[] {
-  const m = reply.match(/\[[\s\S]*\]/)
-  if (m) return JSON.parse(m[0])
-  return []
-}
-
-export function parseGeneratedWorldbuilding(reply: string): { worldbuilding: string; powerSystem: { name: string; levels: string[]; description: string } } {
-  const m = reply.match(/\{[\s\S]*\}/)
-  if (m) {
-    const parsed = JSON.parse(m[0])
-    const ps = parsed.powerSystem || { name: '', levels: [], description: '' }
-    // New structured format
-    if (parsed.locations || parsed.factions || parsed.rules) {
-      let wb = ''
-      if (parsed.locations?.length > 0) wb += '## 地点\n\n' + parsed.locations.map((l: any) => `- ${l.name}: ${l.description}`).join('\n') + '\n\n'
-      if (parsed.factions?.length > 0) wb += '## 势力\n\n' + parsed.factions.map((f: any) => `- ${f.name}: ${f.description}`).join('\n') + '\n\n'
-      if (parsed.rules?.length > 0) wb += '## 规则\n\n' + parsed.rules.map((r: any) => `- ${r.name}: ${r.description}`).join('\n') + '\n\n'
-      if (ps.levels.length > 0) wb += '## 等级体系\n\n' + ps.levels.join(' → ') + '\n\n' + (ps.description || '')
-      return { worldbuilding: wb.trim(), powerSystem: ps }
-    }
-    // Old format fallback
-    let wb = (parsed.worldbuilding || '').replace(/^#+ .*\n?/gm, '').trim()
-    if (ps.name) wb = `等级体系: ${ps.levels.join(' → ')}\n\n${ps.description}\n\n${wb}`
-    return { worldbuilding: wb, powerSystem: ps }
-  }
-  return { worldbuilding: reply.replace(/^#+ .*\n?/gm, '').trim(), powerSystem: { name: '', levels: [], description: '' } }
 }
 
 // ---- Erotic extraction ----
@@ -615,42 +881,13 @@ export function buildEroticExtractionPrompt(chapterTitle: string, chapterContent
 }
 
 // Parse erotic extraction reply (extends parseExtractionReply)
-export function parseExtractionReplyWithErotic(reply: string, chapterId: string, chapterNumber: number, chapterTitle: string, chapterContent: string): ChapterExtraction {
-  const base = parseExtractionReply(reply, chapterId, chapterNumber, chapterTitle, chapterContent)
+export function parseExtractionReplyWithErotic(reply: string, chapterId: string, chapterNumber: number, chapterTitle: string, chapterContent: string, chapterType: StyleChapter['chapterType'] = 'chapter'): ChapterExtraction {
+  const base = parseExtractionReply(reply, chapterId, chapterNumber, chapterTitle, chapterContent, chapterType)
   try {
-    let jsonStr = reply
-    const m = reply.match(/\{[\s\S]*\}/)
-    if (m) jsonStr = m[0]
-    const parsed = JSON.parse(jsonStr)
+    const parsed = extractJSON(reply)
     if (parsed.erotic) base.erotic = parsed.erotic as EroticExtractionData
   } catch { /* erotic parsing failed, continue without */ }
   return base
-}
-
-// ---- Erotic generation prompts ----
-
-export function buildEroticGenerateOutlinePrompt(extraction: NovelExtraction): string {
-  let p = buildGenerateOutlinePrompt(extraction)
-  p += '\n额外要求: 为每章标注情色节奏等级(1-5)，1=纯剧情，5=高尺度。在大纲中使用格式: "第X章: 标题 - 摘要 [情色Lv.Y]"'
-  return p
-}
-
-export function buildEroticGenerateCharactersPrompt(extraction: NovelExtraction): string {
-  let p = buildGenerateCharactersPrompt(extraction)
-  p += '\n额外字段: 每个角色增加 "domSub": "dom|sub|switch", "bodyState": "身体状态", "kinks": ["性癖1","性癖2"], "shameLevel": "羞耻度"'
-  return p
-}
-
-export function buildEroticGenerateDetailedOutlinesPrompt(outline: string, extraction: NovelExtraction): string {
-  let p = buildGenerateDetailedOutlinesPrompt(outline, extraction)
-  p += '\n额外字段: 每章增加 "eroticFlow": "前戏→主戏→高潮→收尾", "intensity": 1-5, "characterStates": {"角色名": "身体状态"}'
-  return p
-}
-
-export function buildEroticGenerateWorldbuildingPrompt(extraction: NovelExtraction): string {
-  let p = buildGenerateWorldbuildingPrompt(extraction)
-  p += '\n额外: 世界观测中增加身体改造规则、羞耻体系(等级层级+服从机制)、权力仪式、性爱相关的社会组织结构'
-  return p
 }
 
 // ---- Convert extraction chapters to StyleChapter format ----
@@ -659,7 +896,7 @@ export function chaptersToStyleChapters(chapters: ChapterExtraction[]): StyleCha
     id: `ch_${i + 1}`,
     title: ch.chapterTitle,
     chapterNumber: ch.chapterNumber,
-    chapterType: 'chapter' as StyleChapter['chapterType'],
+    chapterType: ch.chapterType || 'chapter',
     content: ch.chapterContent,
     charCount: ch.chapterContent.length,
     analyzed: false,

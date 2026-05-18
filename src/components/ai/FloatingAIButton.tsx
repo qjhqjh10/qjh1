@@ -10,8 +10,8 @@ export default function FloatingAIButton() {
 
   const [pos, setPos] = useState(DEFAULT_POS)
   const dragging = useRef(false)
+  const didDrag = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 })
-  const moved = useRef(false)
   const cleanupDragRef = useRef<(() => void) | null>(null)
 
   // Cleanup drag listeners on unmount
@@ -19,13 +19,13 @@ export default function FloatingAIButton() {
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     dragging.current = true
-    moved.current = false
+    didDrag.current = false
     dragStart.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y }
     const handleMove = (ev: MouseEvent) => {
       if (!dragging.current) return
       const dx = dragStart.current.x - ev.clientX
       const dy = dragStart.current.y - ev.clientY
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved.current = true
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true
       setPos({
         x: Math.max(0, Math.min(window.innerWidth - 60, dragStart.current.px + dx)),
         y: Math.max(0, Math.min(window.innerHeight - 60, dragStart.current.py + dy)),
@@ -46,7 +46,7 @@ export default function FloatingAIButton() {
   }, [pos])
 
   const handleClick = useCallback(() => {
-    if (!moved.current) toggleAIChat()
+    if (!didDrag.current) toggleAIChat()
   }, [toggleAIChat])
 
   return (

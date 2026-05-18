@@ -1,65 +1,30 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useStore, useSettingsStore } from '@/store'
-import { aiService, templateService } from '@/services/fileService'
-import { sceneService } from '@/services/sceneService'
-import { getStyleInjection } from '@/utils/styleInjector'
+import { useState } from 'react'
+import { useStore } from '@/store'
+import { templateService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
-import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
+import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
-import type { Character } from '@/types/character'
-import type { DetailedChapter } from '@/types/chapter'
-import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, ChapterSceneConfig, SceneTemplate } from '@/types/story'
-import { SparklesIcon, TrashIcon, DocumentTextIcon, UserIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate } from '@/types/story'
+import { SparklesIcon, TrashIcon, PencilIcon, PlusIcon, DocumentTextIcon, FireIcon, BookOpenIcon } from '@heroicons/react/24/outline'
+import {
+  LOCATIONS as EROTIC_LOCATIONS, TIMES as EROTIC_TIMES, ATMOSPHERES, PUBLICITIES,
+  ROLES as EROTIC_ROLES, ROLE_LABELS, BODY_STATES, KINKS_GROUPS,
+  OPENINGS, POSES, RHYTHMS, CHANGES, CLIMAXES, AFTERMATHS,
+  SOUND_DENSITIES, MOAN_STYLES, DEGRADE_LANGS, POVS,
+} from '@/components/common/eroticSceneConstants'
 
-// ====================== Constants ======================
-
-const EROTIC_LOCATIONS = ['卧室','客厅','玄关','浴室','公园','天台','教室','地牢','办公室','野外','车内','厨房','阳台']
-const EROTIC_TIMES = ['清晨','午间','傍晚','深夜','不限']
-const ATMOSPHERES = ['温馨','羞辱','仪式感','日常平淡','紧迫','偷情','禁忌','悬疑','温情']
-const PUBLICITIES = ['私密','半公开(有旁观者)','完全公开','偷窥视角']
-const EROTIC_ROLES = ['dom','sub','switch','observer'] as const
-const ROLE_LABELS: Record<string,string> = { dom:'主导', sub:'服从', switch:'Switch', observer:'旁观' }
-const BODY_STATES = ['正常','发情','改造','退行','包茎','微型化','怀孕','哺乳期']
-const KINKS_GROUPS = [
-  ['捆绑约束','鞭打体罚','滴蜡','项圈牵引'],
-  ['露出户外','公开羞辱','NTR绿帽','群交多人'],
-  ['催眠洗脑','指令遥控','强制高潮','控制高潮'],
-  ['道具玩具','角色扮演','宠物玩法','皮物'],
-  ['排泄圣水','浣肠','乳汁','足侍奉'],
-  ['口交深喉','肛交','乳交','手交'],
-]
-const OPENINGS = ['口交','舔阴','胸推','手交','亲吻','足侍奉','直接插入']
-const POSES = ['正面','后入','骑乘','侧入','悬空','无偏好']
-const RHYTHMS = ['九浅一深','连续深桩','缓抽猛插','磨碾','无偏好']
-const CHANGES = ['单姿势到底','2-3次转换','每段切换']
-const CLIMAXES = ['体内射精','体外','潮吹','多次高潮','控制延迟']
-const AFTERMATHS = ['清理侍奉','温存','继续羞辱','丢弃入睡']
-const SOUND_DENSITIES = ['稀疏','适量','密集','极密集']
-const MOAN_STYLES = ['持续高亢','间歇婉转','哭喊破音','窒息失声','沉默忍耐']
-const DEGRADE_LANGS = ['辱骂(骚货/母狗)','乞求(求主人/给我)','感谢(谢谢主人)','宣告(我是母狗/肉便器)','称赞(主人好棒/鸡巴好大)']
-const BODY_FLUIDS = ['精液','爱液','汗液','乳汁','尿液','血液']
-const BODY_FOCUS = ['胸','腿','脚','臀','腰','颈','手','眼','唇','发']
-const TOUCH_TYPES = ['温度','湿度','压力','摩擦','振动']
-const NARRATIVE_STYLES = ['沉浸式长镜','旁观式扫射','蒙太奇快切','慢镜头特写']
-const TIME_STYLES = ['实时','压缩','拉长','倒叙']
-const INTROSPECTION_LEVELS = ['无','低','中','高']
-const EMOTION_TYPES = ['羞辱','快感','恐惧','温柔','支配','臣服','渴求','羞耻','爱慕','仇恨']
-const INTENSITY_LEVELS = ['','暧昧','温存','标准','激烈','极限']
-const POVS = ['第一人称男主','第一人称女主','第三人称']
-
+// ===== Constants =====
 const NOVEL_SCENE_TYPES = ['日常','战斗','对话','内心独白','过渡','高潮','无偏好']
 const NOVEL_PURPOSES = ['推进剧情','展示角色','埋伏笔','回收伏笔','制造悬念','情感转折']
 const NOVEL_CONFLICTS = ['人vs人','人vs社会','人vs自我','无冲突']
-const NOVEL_WEATHERS = ['晴','雨','雪','风','阴','不限']
-const NOVEL_SENSES = ['视觉','听觉','嗅觉','触觉','味觉']
 const NOVEL_DIALOGUES = ['稀疏(10%)','适量(30%)','密集(60%)','纯对话']
-const NOVEL_SUBTEXTS = ['直白','一般','话中有话','多层嵌套']
 const NOVEL_SENTENCES = ['短句','中长句','长句','混合']
 const NOVEL_DENSITIES = ['稀疏','适中','密集']
-const NOVEL_GENRES: Record<string, string[]> = {
+const NOVEL_WEATHERS = ['晴','阴','雨','雪','风','雾','雷暴','不限']
+const NOVEL_SUBTEXTS = ['直白','浅层暗示','深层暗线','多层嵌套']
+const NOVEL_GENRE_ELEMENTS: Record<string, string[]> = {
   '修仙': ['战斗描写','境界突破','法宝展示','丹药炼制'],
   '都市': ['职场场景','商圈社交','现代科技','消费细节'],
   '恋爱': ['暧昧互动','甜蜜日常','虐心转折','告白分手'],
@@ -67,720 +32,851 @@ const NOVEL_GENRES: Record<string, string[]> = {
   '悬疑': ['线索铺设','红鲱鱼','信息揭露','反转设置'],
 }
 
+const WORLD_RULES = ['高潮会发光','精液呈金色','倒刺结构','口交可传功','心灵感应','处子之力','精液修炼资源','高潮定等级']
+const PROP_LIST = ['束缚套装(手铐+口球+绳索)','调教套装(皮鞭+蜡烛+项圈)','玩具套装(跳蛋+振动棒+肛塞)','感官剥夺(眼罩+降噪耳机)','公开露出(遥控跳蛋+分腿器)','悬挂束缚(吊环+安全绳)','温度玩法(低温蜡烛+温感润滑)','电击刺激(低压棒+凝胶)']
+const COSTUME_LIST = ['旗袍+吊带袜','校服+过膝袜','护士服+白丝','女仆装+猫耳','泳装+薄纱','紧身皮衣+高跟靴','透明睡衣+蕾丝内衣','兔女郎装+网袜']
+const STRENGTH_LABELS = ['1 轻度:暗示为主','2 适中:有动作不详细','3 标准:完整适度','4 深入:大量细节','5 极限:极尽细致']
+
+const SENSORY_ANCHORS = ['檀香与汗水','皮革与铁锈','消毒水气味','青草与泥土','海水咸腥','烟草与酒精','体香与荷尔蒙']
+
+// Novel-specific new constants
+const NOVEL_NARRATIVE_STYLES = ['沉浸式长镜','旁观式扫射','蒙太奇快切','慢镜头特写','意识流']
+const NOVEL_TIME_COMPRESSION = ['实时','压缩','拉长','倒叙']
+const NOVEL_INTROSPECTION = ['无','低','中','高']
+const NOVEL_DOMINANT_EMOTIONS = ['紧张','悲伤','愤怒','喜悦','恐惧','厌恶','惊讶','平静']
+const NOVEL_PACINGS = ['慢热','渐进','紧凑','爆发','喘息']
+const NOVEL_FORESHADOW_USE = ['埋设','回收','暗示','无']
+const NOVEL_BODY_LANGUAGES = ['微表情','手势','姿态','眼神','距离感']
+const NOVEL_PROPS_PRESETS = ['信件/密函','武器/暗器','食物/酒水','照片/画像','钥匙/锁','毒药/解药','书籍/日记','首饰/信物']
+const NOVEL_APPEARANCE_PRESETS = ['日常装束','正装','伤痕/血迹','疲惫状态','伪装/变装','湿透/泥泞']
+
+// Erotic new constants
+const EROTIC_PACINGS = ['慢挑逗','渐进升温','急风骤雨','间歇起伏','持续高潮']
+const EROTIC_BODY_LANGUAGES = ['眼神交流','手指缠绕','呼吸同步','身体依偎','嘴唇微张','颈侧暴露']
+const EROTIC_CONSENT_DYNAMICS = ['明确同意','半推半就','角色扮演抗拒','TPE全权委托']
+const EROTIC_AFTERCARE = ['无','简单清理','温存安抚','深度护理']
+
+function safeCSV(v: unknown): string {
+  if (Array.isArray(v)) return (v as string[]).join(',')
+  return (v as string) || ''
+}
+
+
 const DEFAULT_EROTIC: EroticSceneConfig = {
   characters: [], location: '卧室', time: '深夜', atmosphere: '羞辱', publicity: '私密',
-  selectedKinks: [], kinkNote: '',
-  opening: ['口交'], mainPose: '无偏好', mainRhythm: '无偏好', poseChanges: '2-3次转换',
-  climax: ['体内射精'], aftermath: ['清理侍奉'],
-  soundDensity: '密集', moanStyle: '哭喊破音',
-  degradeLangs: ['辱骂(骚货/母狗)','乞求(求主人/给我)'],
+  selectedKinks: [], kinkNote: '', opening: ['口交'], mainPose: '无偏好', mainRhythm: '无偏好',
+  poseChanges: '2-3次转换', climax: ['体内射精'], aftermath: ['清理侍奉'],
+  soundDensity: '密集', moanStyle: '哭喊破音', degradeLangs: ['母狗','精壶'],
   intensity: 4, wordTarget: 3000, streamMode: true, replaceMode: true,
   useStyleProfile: true, useChapterOutline: true, extraNote: '',
-  kinkIntensities: {}, customKink: '',
-  customCharacters: [],
+  kinkIntensities: {}, customKink: '', customCharacters: [],
   customLocation: '', customTime: '', customAtmosphere: '', customPublicity: '',
-  extraPhases: [],
-  customInsults: '', bannedWords: '',
-  narrativePOV: '第三人称',
+  extraPhases: [], customInsults: '', bannedWords: '', narrativePOV: '第三人称',
+  customPoses: [], customRhythms: [], customPOVs: '',
+  customOpening: [], customClimax: [], customAftermath: [],
+  customDegradeLangs: [],
+  bodyFluidFocus: [], bodyPartFocus: [], tactileFocus: [],
+  narrativeStyle: '沉浸式长镜', timeCompression: '实时', introspection: '中', sensoryAnchors: '',
+  dominantEmotion: '', emotionCurveInput: '', triggerWords: '',
+  worldRules: '', propList: '', costumeList: '',
+  customExtraNotes: '', customEmotions: '', customCurves: '', customTriggers: '',
+  customWorldRules: '', customPropLists: '', customCostumeLists: '',
+  customPoseChanges: '', customSoundDensity: '', customMoanStyle: '',
+  pacing: '渐进升温', bodyLanguage: '', consentDynamic: '明确同意', aftercareDetail: '温存安抚',
+  autoFields: {},
 }
 
 const DEFAULT_NOVEL: NovelSceneConfig = {
   sceneType: '日常', scenePurpose: ['推进剧情'], conflictType: '无冲突',
-  povCharacterId: '', povCharacterName: '',
-  characters: [],
+  povCharacterId: '', povCharacterName: '', characters: [],
   location: '客厅', customLocation: '', weather: '不限', time: '不限', atmosphere: '不限',
-  senses: ['视觉'],
-  genreElements: [],
-  dialogueRatio: '适量(30%)', subtextLevel: '一般', sentenceStyle: '混合', paragraphDensity: '适中',
-  emotionStart: '', emotionEnd: '',
-  wordTarget: 3000, narrativePOV: '第三人称',
+  senses: ['视觉'], genreElements: [], dialogueRatio: '适量(30%)', subtextLevel: '一般',
+  sentenceStyle: '混合', paragraphDensity: '适中',
+  emotionStart: '', emotionEnd: '', wordTarget: 3000, narrativePOV: '第三人称',
   useStyleProfile: true, useChapterOutline: true, extraNote: '',
+  narrativeStyle: '沉浸式长镜', timeCompression: '实时', introspection: '中',
+  sensoryAnchors: '', dominantEmotion: '', emotionCurveInput: '', pacing: '渐进',
+  props: '', appearance: '', bodyLanguage: '',
+  foreshadowUse: '无', sceneTurningPoint: '',
+  autoFields: {},
 }
 
-// ====================== Shared styles ======================
+type EditorType = 'erotic' | 'novel' | null
 
-const mini: React.CSSProperties = { padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', background: '#fff' }
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', padding: 0, fontFamily: 'inherit' }
-const sectionStyle: React.CSSProperties = { padding: 10, borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.03)' }
-const sectionTitle: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#2d2520', marginBottom: 6 }
+const SECTIONS = [
+  { id: 1, label: '1. 角色' }, { id: 2, label: '2. 地点' }, { id: 3, label: '3. 时间' },
+  { id: 4, label: '4. 氛围' }, { id: 5, label: '5. 公开度' }, { id: 6, label: '6. 性癖' },
+  { id: 7, label: '7. 流程' }, { id: 8, label: '8. 性爱流程' },
+  { id: 9, label: '9. 声音' }, { id: 10, label: '10. 强度&字数' }, { id: 11, label: '11. 额外说明' },
+  { id: 12, label: '12. 叙事视角' }, { id: 13, label: '13. 身体焦点' }, { id: 14, label: '14. 叙事风格' }, { id: 15, label: '15. 时间' }, { id: 16, label: '16. 内省' }, { id: 17, label: '17. 感官锚点' },
+  { id: 18, label: '18. 情绪心理' }, { id: 19, label: '19. 世界规则' }, { id: 20, label: '20. 道具清单' }, { id: 21, label: '21. 服装清单' }, { id: 22, label: '22. 场景字数' },
+  { id: 23, label: '23. 节奏' }, { id: 24, label: '24. 肢体语言' }, { id: 25, label: '25. 同意动态' }, { id: 26, label: '26. 事后关怀' },
+]
 
-function toggleArr(arr: string[], item: string): string[] {
-  return arr.includes(item) ? arr.filter(x => x !== item) : [...arr, item]
+function getSectionSummary(section: number, config: EroticSceneConfig): string {
+  switch (section) {
+    case 1: return `${config.characters.length}个角色: ${config.characters.map((c) => c.characterName || '?').slice(0,3).join(', ') || '无'}${config.characters.length > 3 ? '...' : ''}`
+    case 2: return config.location + (config.customLocation ? ', ' + config.customLocation : '')
+    case 3: return config.time + (config.customTime ? ', ' + config.customTime : '')
+    case 4: return config.atmosphere + (config.customAtmosphere ? ', ' + config.customAtmosphere : '')
+    case 5: return config.publicity + (config.customPublicity ? ', ' + config.customPublicity : '')
+    case 6: return config.selectedKinks.length + '个: ' + config.selectedKinks.slice(0,4).join(',') + (config.selectedKinks.length > 4 ? '...' : '') || '未选择'
+    case 7: return `姿势:${config.mainPose} | 节奏:${config.mainRhythm}`
+    case 8: return `起始:${(config.opening||[]).join(',')||'无'} | 高潮:${(config.climax||[]).join(',')||'无'} | 余韵:${(config.aftermath||[]).join(',')||'无'}`
+    case 9: return `密度:${config.soundDensity} | 呻吟:${config.moanStyle} | 侮辱${(config.degradeLangs || []).length}个`
+    case 10: return `强度:${config.intensity}/5`
+    case 11: return config.extraNote?.slice(0, 30) || '无'
+    case 12: return config.narrativePOV + (safeCSV(config.customPOVs).split(',').filter(Boolean).length ? ` +${safeCSV(config.customPOVs).split(',').filter(Boolean).length}自定义` : '')
+    case 13: return [config.bodyFluidFocus?.length && `体液${config.bodyFluidFocus.length}`, config.bodyPartFocus?.length && `部位${config.bodyPartFocus.length}`, config.tactileFocus?.length && `触感${config.tactileFocus.length}`].filter(Boolean).join(' ') || '未设置'
+    case 14: return config.narrativeStyle || '沉浸式长镜'
+    case 15: return config.timeCompression || '实时'
+    case 16: return '内省: ' + (config.introspection || '中')
+    case 17: return config.sensoryAnchors?.slice(0, 30) || '未设置'
+    case 18: return config.dominantEmotion || '未设置'
+    case 19: return config.worldRules?.slice(0, 30) || '无'
+    case 20: return config.propList?.slice(0, 30) || '无'
+    case 21: return config.costumeList?.slice(0, 30) || '无'
+    case 22: return config.wordTarget + '字 (场景字数)'
+    case 23: return config.pacing || '渐进升温'
+    case 24: return config.bodyLanguage || '未设置'
+    case 25: return config.consentDynamic || '明确同意'
+    case 26: return config.aftercareDetail || '温存安抚'
+    default: return ''
+  }
 }
 
-// ====================== Page Component ======================
+function SectionCard({ id, label, summary, onClick }: { id: number; label: string; summary: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(0,0,0,0.06)', background: '#fff',
+      cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.15s',
+    }} onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.06)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.15)' }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: '#6b5e54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</div>
+    </button>
+  )
+}
+
+const NOVEL_SECTIONS = [
+  { id: 1, label: '1. 场景类型与目的' }, { id: 2, label: '2. 角色与视角' }, { id: 3, label: '3. 环境描写' },
+  { id: 4, label: '4. 类型专属' }, { id: 5, label: '5. 对话与节奏' }, { id: 6, label: '6. 篇幅与注入' },
+  { id: 7, label: '7. 叙事技法' }, { id: 8, label: '8. 情绪设计' }, { id: 9, label: '9. 感官与细节' },
+  { id: 10, label: '10. 伏笔与转折' },
+]
+
+function getNovelSectionSummary(section: number, config: NovelSceneConfig): string {
+  switch (section) {
+    case 1: return `${config.sceneType} | ${config.conflictType} | 目的${config.scenePurpose.length}个`
+    case 2: return config.povCharacterName || '无主视角' + ` | ${config.characters.length}个角色`
+    case 3: return `${config.location}${config.customLocation ? '/' + config.customLocation : ''} | ${config.weather} | ${config.time}`
+    case 4: return `${config.genreElements.length}个元素`
+    case 5: return `对话${config.dialogueRatio} | 潜台词${config.subtextLevel}`
+    case 6: return `${config.wordTarget}字 | ${config.narrativePOV}`
+    case 7: return `${config.narrativeStyle || '沉浸式长镜'} | ${config.timeCompression || '实时'} | 内省${config.introspection || '中'}`
+    case 8: return `${config.dominantEmotion || '未设置'} | ${config.pacing || '渐进'}`
+    case 9: return [config.sensoryAnchors && '锚点', config.props && '道具', config.appearance && '外观', config.bodyLanguage && '肢体'].filter(Boolean).join(' ') || '未设置'
+    case 10: return `${config.foreshadowUse || '无'}${config.sceneTurningPoint ? ' | ' + config.sceneTurningPoint : ''}`
+    default: return ''
+  }
+}
+
+function NovelSectionCard({ id, label, summary, onClick }: { id: number; label: string; summary: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(0,0,0,0.06)', background: '#fff',
+      cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.15s',
+    }} onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.06)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.15)' }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: '#6b5e54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</div>
+    </button>
+  )
+}
+
+
+function AutoField({ field, autoFields, onToggle, children }: { field: string; autoFields: Record<string, boolean>; onToggle: (field: string, v: boolean) => void; children: React.ReactNode }) {
+  const isAuto = !!autoFields[field]
+  return (
+    <div style={{ position: 'relative' }}>
+      {isAuto && <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.7)', borderRadius: 8, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#8b5cf6', fontWeight: 600, pointerEvents: 'none' }}>AI 自动</div>}
+      <div style={{ opacity: isAuto ? 0.35 : 1, pointerEvents: isAuto ? 'none' : 'auto' }}>{children}</div>
+      <button onClick={() => onToggle(field, !isAuto)} title={isAuto ? '切换为手动' : '切换为AI自动'} style={{ position: 'absolute', top: 0, right: 0, background: isAuto ? 'rgba(139,92,246,0.12)' : 'rgba(0,0,0,0.03)', border: isAuto ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(0,0,0,0.06)', borderRadius: 6, cursor: 'pointer', padding: '2px 5px', fontSize: 10, color: isAuto ? '#7c3aed' : '#9b8e84', zIndex: 2, lineHeight: 1 }}>{isAuto ? '🤖✓' : '🤖'}</button>
+    </div>
+  )
+}
+
+function CustomTagButton({ label, selected, onToggle, onRemove, editMode }: { label: string; selected: boolean; onToggle: () => void; onRemove: () => void; editMode?: boolean }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+      <button onClick={onToggle} style={{
+        padding: '3px 8px', borderRadius: 6,
+        border: selected ? '1px solid #dc2626' : '1px solid rgba(124,58,237,0.15)',
+        background: selected ? 'rgba(220,38,38,0.08)' : 'rgba(124,58,237,0.04)',
+        cursor: 'pointer', fontSize: 10,
+        color: selected ? '#dc2626' : '#7c3aed', fontWeight: selected ? 600 : 400,
+      }}>{label}</button>
+      {editMode && <button onClick={onRemove} title="删除" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#dc2626', fontSize: 12, lineHeight: 1 }}>×</button>}
+    </span>
+  )
+}
+
+function CustomInput({ label, values, onAdd, onRemove, hideDisplay }: { label?: string; values: string[]; onAdd: (v: string) => void; onRemove: (v: string) => void; hideDisplay?: boolean }) {
+  const [input, setInput] = useState('')
+  const [justAdded, setJustAdded] = useState(false)
+  const handleAdd = () => { if (input.trim()) { onAdd(input.trim()); setInput(''); setJustAdded(true); setTimeout(() => setJustAdded(false), 1500) } }
+  return (
+    <div style={{ marginTop: 6 }}>
+      {label && <span style={{ fontSize: 10, color: '#9b8e84', marginRight: 4 }}>{label}</span>}
+      <div style={{ display: 'flex', gap: 4, marginTop: 2, alignItems: 'center' }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAdd() }} placeholder="添加自定义..." style={{ ...inputStyle, flex: 1, fontSize: 10, padding: '4px 8px' }} />
+        <button onClick={handleAdd} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #7c3aed', background: 'rgba(124,58,237,0.06)', color: '#7c3aed', cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}>+</button>
+        {justAdded && <span style={{ fontSize: 10, color: '#16a34a', whiteSpace: 'nowrap' }}>已添加 ✓</span>}
+      </div>
+      {!hideDisplay && values.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
+          {values.map(v => (
+            <span key={v} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', fontSize: 10, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {v}
+              <button onClick={() => onRemove(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#d4ccc4', fontSize: 12, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function SceneWorkshopPage() {
-  const navigate = useNavigate()
-  const activeProjectId = useStore(s => s.activeProjectId)
-  const projectsBasePath = useStore(s => s.projectsBasePath)
-  const detailedChapters = useStore(s => s.detailedChapters)
   const characters = useStore(s => s.characters)
-  const activeConfigId = useSettingsStore(s => s.activeConfigId)
-  const styleAssignments = useSettingsStore(s => s.aiSettings.styleAssignments || {})
-
-  const [projectPath, setProjectPath] = useState('')
-  const [activeTab, setActiveTab] = useState<'erotic' | 'novel'>('erotic')
-  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
+  const [editorType, setEditorType] = useState<EditorType>(null)
+  const [templates, setTemplates] = useState<SceneTemplate[]>([])
+  const [editingTemplate, setEditingTemplate] = useState<SceneTemplate | null>(null)
+  const [showEditor, setShowEditor] = useState(false)
+  const [templateName, setTemplateName] = useState('')
   const [eroticConfig, setEroticConfig] = useState<EroticSceneConfig>(DEFAULT_EROTIC)
   const [novelConfig, setNovelConfig] = useState<NovelSceneConfig>(DEFAULT_NOVEL)
-  const [savedConfigs, setSavedConfigs] = useState<Record<string, ChapterSceneConfig>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [previewText, setPreviewText] = useState('')
-  const [templates, setTemplates] = useState<SceneTemplate[]>([])
-  const [showSaveTpl, setShowSaveTpl] = useState(false)
-  const [tplName, setTplName] = useState('')
-  const [genreType, setGenreType] = useState('都市')
+  const [novelGenreType, setNovelGenreType] = useState('都市')
+  const [showSectionModal, setShowSectionModal] = useState(false)
+  const [editingSection, setEditingSection] = useState<number | null>(null)
+  const [showNovelSectionModal, setShowNovelSectionModal] = useState(false)
+  const [editingNovelSection, setEditingNovelSection] = useState<number | null>(null)
+  const [editTagMode, setEditTagMode] = useState(false)
 
-  // Route guard + load data
-  useEffect(() => {
-    if (!activeProjectId) { navigate('/'); return }
-    const pp = `${projectsBasePath}/${activeProjectId}`
-    setProjectPath(pp)
-    // Load all saved scene configs
-    setLoading(true)
-    sceneService.listSceneConfigs(pp).then(configs => {
-      const map: Record<string, ChapterSceneConfig> = {}
-      configs.forEach(c => { map[c.chapterId] = c })
-      setSavedConfigs(map)
-    }).finally(() => setLoading(false))
-  }, [activeProjectId, projectsBasePath])
+  const toggleEroticAuto = (field: string, v: boolean) => setEroticConfig({ ...eroticConfig, autoFields: { ...eroticConfig.autoFields, [field]: v } })
+  const toggleNovelAuto = (field: string, v: boolean) => setNovelConfig({ ...novelConfig, autoFields: { ...novelConfig.autoFields, [field]: v } })
 
-  // Load templates
-  useEffect(() => {
-    templateService.list().then((t: unknown) => setTemplates(t as SceneTemplate[])).catch(() => {})
-  }, [])
-
-  // Load scene config when chapter changes
-  useEffect(() => {
-    if (!projectPath || !selectedChapterId) return
-    sceneService.loadChapterSceneConfig(projectPath, selectedChapterId).then(config => {
-      if (config) {
-        if (config.eroticScene) setEroticConfig(config.eroticScene)
-        else setEroticConfig(DEFAULT_EROTIC)
-        if (config.novelScene) setNovelConfig(config.novelScene)
-        else setNovelConfig(DEFAULT_NOVEL)
-      } else {
-        setEroticConfig(DEFAULT_EROTIC)
-        setNovelConfig(DEFAULT_NOVEL)
-      }
-    })
-  }, [projectPath, selectedChapterId])
-
-  const selectedChapter = detailedChapters.find(c => c.id === selectedChapterId)
-  const hasEroticSaved = selectedChapterId ? !!savedConfigs[selectedChapterId]?.eroticScene : false
-  const hasNovelSaved = selectedChapterId ? !!savedConfigs[selectedChapterId]?.novelScene : false
-
-  const handleSaveConfig = async () => {
-    if (!projectPath || !selectedChapterId) return
-    setSaving(true)
-    const config: ChapterSceneConfig = {
-      chapterId: selectedChapterId,
-      chapterTitle: selectedChapter?.title || '',
-      eroticScene: activeTab === 'erotic' ? eroticConfig : (savedConfigs[selectedChapterId]?.eroticScene || null),
-      novelScene: activeTab === 'novel' ? novelConfig : (savedConfigs[selectedChapterId]?.novelScene || null),
-      updatedAt: new Date().toISOString(),
-    }
-    // Merge: save current tab's config and preserve the other tab's config
-    const existing = await sceneService.loadChapterSceneConfig(projectPath, selectedChapterId)
-    const merged: ChapterSceneConfig = {
-      chapterId: selectedChapterId,
-      chapterTitle: selectedChapter?.title || '',
-      eroticScene: activeTab === 'erotic' ? eroticConfig : (existing?.eroticScene || null),
-      novelScene: activeTab === 'novel' ? novelConfig : (existing?.novelScene || null),
-      updatedAt: new Date().toISOString(),
-    }
-    await sceneService.saveChapterSceneConfig(projectPath, merged)
-    setSavedConfigs(prev => ({ ...prev, [selectedChapterId]: merged }))
-    setSaving(false)
+  const loadTemplates = async () => {
+    try { const list = await templateService.list() as SceneTemplate[]; setTemplates(Array.isArray(list) ? list : []) }
+    catch { setTemplates([]) }
   }
 
-  const buildEroticPrompt = async (): Promise<string> => {
-    let p = ''
-    const config = eroticConfig
-    if (config.useStyleProfile && activeProjectId) {
-      const inj = await getStyleInjection(activeProjectId, styleAssignments)
-      if (inj) p += inj + '\n\n---\n\n'
-    }
-    if (config.useChapterOutline && selectedChapter?.description) {
-      p += `【本章细纲】\n${selectedChapter.description}\n\n`
-    }
-    p += '【角色状态】\n'
-    config.characters.forEach(c => { p += `- ${c.characterName}: ${ROLE_LABELS[c.role]}, ${c.bodyState}${c.customNote ? ', ' + c.customNote : ''}\n` })
-    config.customCharacters.forEach(c => { p += `- ${c.name}: ${c.role}, ${c.bodyState}${c.note ? ', ' + c.note : ''}\n` })
-    p += '\n'
-    const loc = config.customLocation || config.location
-    const tim = config.customTime || config.time
-    const atm = config.customAtmosphere || config.atmosphere
-    const pub = config.customPublicity || config.publicity
-    p += `【场景】\n地点: ${loc} | 时间: ${tim} | 氛围: ${atm} | 公开度: ${pub}\n\n`
-    if (config.selectedKinks.length > 0 || config.customKink) {
-      p += '【玩法要求】\n'
-      const kinks = config.selectedKinks.map(k => config.kinkIntensities[k] ? `${k}(${config.kinkIntensities[k]})` : k)
-      if (config.customKink) kinks.push(config.customKink)
-      p += kinks.join('、') + (config.kinkNote ? '。备注: ' + config.kinkNote : '') + '\n\n'
-    }
-    p += `【流程结构】\n`
-    p += `开端前戏: ${config.opening.join('、')}\n`
-    config.extraPhases.forEach(ph => { p += `${ph.name}: ${ph.desc}\n` })
-    p += `主戏: ${config.mainPose}, ${config.mainRhythm}, ${config.poseChanges}\n`
-    p += `高潮结束: ${config.climax.join('、')}\n`
-    p += `事后收尾: ${config.aftermath.join('、')}\n\n`
-    p += `【声音与语言】\n效果音密度: ${config.soundDensity} | 叫床风格: ${config.moanStyle} | 视角: ${config.narrativePOV}\n`
-    if (config.degradeLangs.length > 0) p += `羞辱语言: ${config.degradeLangs.join('、')}\n`
-    if (config.customInsults) p += `额外侮辱词: ${config.customInsults}\n`
-    if (config.bannedWords) p += `禁用词(不得出现): ${config.bannedWords}\n`
-    p += `\n【强度】${config.intensity}/5 | 字数目标: ${config.wordTarget}字\n`
-    if (config.extraNote) p += `\n【额外要求】\n${config.extraNote}\n`
-    const extract = (pat: string) => config.customKink.match(new RegExp(`${pat}:([^,]+)`))?.[1]
-    const bodyStuff = [extract('焦点'), extract('体液'), extract('触感')].filter(Boolean)
-    if (bodyStuff.some(Boolean)) p += `\n【身体焦点】${bodyStuff.join('')}\n`
-    const narrativeStuff = [extract('风格'), extract('时间'), extract('内省'), extract('锚点')].filter(Boolean)
-    if (narrativeStuff.some(Boolean)) p += `\n【叙事技法】${narrativeStuff.join('')}\n`
-    const emotionStuff = [extract('情绪'), extract('曲线'), extract('触发')].filter(Boolean)
-    if (emotionStuff.some(Boolean)) p += `\n【情绪心理】${emotionStuff.join('')}\n`
-    const specialStuff = [extract('世界规则'), extract('道具'), extract('服装'), extract('物品')].filter(Boolean)
-    if (specialStuff.some(Boolean)) p += `\n【特殊设定】${specialStuff.join('')}\n`
-    p += `\n根据以上设定写一章完整的${config.narrativePOV}情色小说场景。聚焦触感细节、体液描写、效果音、身体信号。`
-    return p
+  const handleEnterType = (type: 'erotic' | 'novel') => {
+    setEditorType(type); setEditingTemplate(null); setTemplateName('')
+    setEroticConfig(DEFAULT_EROTIC); setNovelConfig(DEFAULT_NOVEL); loadTemplates()
   }
 
-  const buildNovelPrompt = async (): Promise<string> => {
-    let p = ''
-    const config = novelConfig
-    if (config.useStyleProfile && activeProjectId) {
-      const inj = await getStyleInjection(activeProjectId, styleAssignments)
-      if (inj) p += inj + '\n\n---\n\n'
-    }
-    if (config.useChapterOutline && selectedChapter?.description) p += `【本章细纲】\n${selectedChapter.description}\n\n`
-    p += `【场景类型】${config.sceneType} | ${config.scenePurpose.join('、')} | ${config.conflictType}\n\n`
-    if (config.povCharacterName) p += `【主视角】${config.povCharacterName}\n`
-    if (config.characters.length > 0) {
-      p += '【登场角色】\n'
-      config.characters.forEach(c => p += `- ${c.characterName}(${c.emotion || '无特定情绪'})\n`)
-      p += '\n'
-    }
-    const loc = config.customLocation || config.location
-    p += `【环境】${loc} / ${config.weather} / ${config.time} / ${config.atmosphere} / 感官: ${config.senses.join('、')}\n\n`
-    if (config.genreElements.length > 0) p += `【类型要素】${config.genreElements.join('、')}\n\n`
-    p += `【对话节奏】对话${config.dialogueRatio} | 潜台词${config.subtextLevel} | ${config.sentenceStyle} | 段落${config.paragraphDensity}\n\n`
-    p += `【篇幅】${config.wordTarget}字 | ${config.narrativePOV}`
-    if (config.emotionStart && config.emotionEnd) p += ` | 情绪: ${config.emotionStart}→${config.emotionEnd}`
-    p += '\n'
-    if (config.extraNote) p += `\n【额外要求】\n${config.extraNote}\n`
-    p += `\n根据以上设定写一章${config.narrativePOV}小说场景。`
-    return p
+  const handleNewTemplate = () => {
+    setEditingTemplate(null); setTemplateName('')
+    setEroticConfig(DEFAULT_EROTIC); setNovelConfig(DEFAULT_NOVEL); setNovelGenreType('都市'); setShowEditor(true)
   }
 
-  const handlePreview = async () => {
-    if (!activeConfigId || !selectedChapterId) return
-    setGenerating(true)
-    setPreviewText('')
-    try {
-      const prompt = activeTab === 'erotic' ? await buildEroticPrompt() : await buildNovelPrompt()
-      aiService.chatStream(
-        [{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined,
-        (data) => { setPreviewText(data.accumulated) },
-        () => { setGenerating(false) },
-        (err) => { setPreviewText('生成失败: ' + err.message); setGenerating(false) },
-        (data) => { setPreviewText('生成取消: ' + data.message); setGenerating(false) },
-      )
-    } catch (err) { setGenerating(false); setPreviewText('生成失败: ' + (err as Error).message) }
-  }
-
-  const handleGenerateAndInsert = async () => {
-    if (!activeConfigId || !selectedChapterId) return
-    setGenerating(true)
-    try {
-      const prompt = activeTab === 'erotic' ? await buildEroticPrompt() : await buildNovelPrompt()
-      const { text } = await aiService.chatWithUsage(
-        [{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined,
-      )
-      setPreviewText(text)
-      // Navigate to chapter writing with content ready to insert
-      navigate(`/chapter/${selectedChapterId}`)
-    } catch (err) { setGenerating(false); setPreviewText('生成失败: ' + (err as Error).message) }
+  const handleEditTemplate = (tpl: SceneTemplate) => {
+    setEditingTemplate(tpl); setTemplateName(tpl.name)
+    if (tpl.type === 'erotic') {
+      const cfg = { ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig
+      if (Array.isArray(cfg.customPOVs)) cfg.customPOVs = (cfg.customPOVs as unknown as string[]).join(',')
+      setEroticConfig(cfg)
+    }
+    else {
+      const cfg = { ...DEFAULT_NOVEL, ...tpl.config } as NovelSceneConfig
+      setNovelConfig(cfg); setNovelGenreType('都市')
+    }
+    setShowEditor(true)
   }
 
   const handleSaveTemplate = async () => {
-    if (!tplName.trim()) return
-    const config = activeTab === 'erotic' ? eroticConfig : novelConfig
-    const tpl: SceneTemplate = { id: `tpl_${nanoid(6)}`, name: tplName, config: config as EroticSceneConfig, createdAt: new Date().toISOString() }
+    if (!templateName.trim()) { alert('请输入模板名称'); return }
+    const tpl: SceneTemplate = {
+      id: editingTemplate?.id || nanoid(8), name: templateName.trim(), type: editorType!,
+      config: editorType === 'erotic' ? eroticConfig : novelConfig,
+      createdAt: editingTemplate?.createdAt || new Date().toISOString(),
+    } as SceneTemplate
     await templateService.save(tpl)
-    setTemplates(prev => [...prev, tpl])
-    setShowSaveTpl(false); setTplName('')
-  }
-
-  const handleLoadTemplate = (tpl: SceneTemplate) => {
-    if (activeTab === 'erotic') setEroticConfig(tpl.config)
-    else setNovelConfig(tpl.config as unknown as NovelSceneConfig)
+    setShowEditor(false); loadTemplates()
   }
 
   const handleDeleteTemplate = async (id: string) => {
-    await templateService.delete(id)
-    setTemplates(prev => prev.filter(t => t.id !== id))
+    if (!confirm('确定删除此模板？')) return
+    await templateService.delete(id); loadTemplates()
   }
 
-  // ====================== Render helpers ======================
+  const handleDuplicateTemplate = (tpl: SceneTemplate) => {
+    setEditingTemplate(null); setTemplateName(tpl.name + ' (副本)')
+    if (tpl.type === 'erotic') setEroticConfig({ ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig)
+    else setNovelConfig({ ...DEFAULT_NOVEL, ...tpl.config } as NovelSceneConfig)
+    setShowEditor(true)
+  }
 
-  const renderEroticEditor = () => {
-    const config = eroticConfig
-    const set = setEroticConfig
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {/* 1. Characters */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>1. 角色配置</div>
-          {config.characters.map(ch => (
-            <div key={ch.characterId} style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, minWidth: 50 }}>{ch.characterName}</span>
-              <select value={ch.role} onChange={e => set({ ...config, characters: config.characters.map(c => c.characterId === ch.characterId ? { ...c, role: e.target.value as EroticSceneCharacter['role'] } : c) })} style={mini}>
-                {EROTIC_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-              </select>
-              <select value={ch.bodyState} onChange={e => set({ ...config, characters: config.characters.map(c => c.characterId === ch.characterId ? { ...c, bodyState: e.target.value } : c) })} style={mini}>
-                {BODY_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <input value={ch.customNote} onChange={e => set({ ...config, characters: config.characters.map(c => c.characterId === ch.characterId ? { ...c, customNote: e.target.value } : c) })} placeholder="备注" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 80 }} />
-              <button onClick={() => set({ ...config, characters: config.characters.filter(c => c.characterId !== ch.characterId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4' }}><TrashIcon style={{ width: 12, height: 12 }} /></button>
+
+  const renderSectionEditor = (section: number) => {
+    switch (section) {
+      case 1: return (<AutoField field="characters" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 6, lineHeight: 1.5 }}>参与本章情色场景的角色。每个角色设置其定位/身体状态/备注。</div>
+          {eroticConfig.characters.map((ch, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input value={ch.characterName} onChange={e => { const nc = [...eroticConfig.characters]; nc[i] = { ...nc[i], characterName: e.target.value }; setEroticConfig({ ...eroticConfig, characters: nc }) }} style={{ ...inputStyle, flex: 2 }} placeholder='角色名' />
+              <select value={ch.role} onChange={e => { const nc = [...eroticConfig.characters]; nc[i] = { ...nc[i], role: e.target.value as EroticSceneCharacter['role'] }; setEroticConfig({ ...eroticConfig, characters: nc }) }} style={{ ...inputStyle, flex: 1 }}>{EROTIC_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
+              <select value={ch.bodyState} onChange={e => { const nc = [...eroticConfig.characters]; nc[i] = { ...nc[i], bodyState: e.target.value }; setEroticConfig({ ...eroticConfig, characters: nc }) }} style={{ ...inputStyle, flex: 1 }}>{BODY_STATES.map(s => <option key={s} value={s}>{s}</option>)}</select>
+              <input value={ch.customNote} onChange={e => { const nc = [...eroticConfig.characters]; nc[i] = { ...nc[i], customNote: e.target.value }; setEroticConfig({ ...eroticConfig, characters: nc }) }} style={{ ...inputStyle, flex: 2 }} placeholder='备注' />
+              <button onClick={() => setEroticConfig({ ...eroticConfig, characters: eroticConfig.characters.filter((_, j) => j !== i) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4' }}><TrashIcon style={{ width: 14, height: 14 }} /></button>
             </div>
           ))}
-          {characters.filter(c => !config.characters.find(x => x.characterId === c.id)).length > 0 && (
-            <details><summary style={{ fontSize: 10, color: '#7c3aed', cursor: 'pointer' }}>+ 添加角色</summary>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
-                {characters.filter(c => !config.characters.find(x => x.characterId === c.id)).map(c => (
-                  <button key={c.id} onClick={() => set({ ...config, characters: [...config.characters, { characterId: c.id, characterName: c.name, role: 'sub' as const, bodyState: '发情', customNote: '' }] })} style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: 10, cursor: 'pointer' }}>{c.name}</button>
-                ))}
-              </div>
-            </details>
-          )}
-          <button onClick={() => set({ ...config, customCharacters: [...config.customCharacters, { name: '', role: 'sub', bodyState: '正常', note: '' }] })} style={{ ...linkBtn, fontSize: 10, marginTop: 4 }}>+ 自由角色</button>
+          <Button size='sm' variant='ghost' onClick={() => setEroticConfig({ ...eroticConfig, characters: [...eroticConfig.characters, { characterId: '', characterName: '', role: 'sub', bodyState: '正常', customNote: '' }] })} icon={<PlusIcon style={{ width: 11, height: 11 }} />}>添加角色</Button>
         </div>
+          </AutoField>)
+      case 2: return (<AutoField field="location" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {EROTIC_LOCATIONS.map(p => { const sel = eroticConfig.location === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, location: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customLocation || '').split(',').filter((v: string) => v && !EROTIC_LOCATIONS.includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.location === v} onToggle={() => setEroticConfig({ ...eroticConfig, location: eroticConfig.location === v ? '卧室' : v })} onRemove={() => { setEroticConfig({ ...eroticConfig, customLocation: (eroticConfig.customLocation||'').split(',').filter((x:string)=>x!==v).join(','), location: eroticConfig.location === v ? '卧室' : eroticConfig.location }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.customLocation || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customLocation: eroticConfig.customLocation ? eroticConfig.customLocation+','+v : v, location: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customLocation: (eroticConfig.customLocation||'').split(',').filter((x:string)=>x!==v).join(','), location: eroticConfig.location === v ? '卧室' : eroticConfig.location }) } />
+        </div>
+          </AutoField>)
+      case 3: return (<AutoField field="time" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {EROTIC_TIMES.map(p => { const sel = eroticConfig.time === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, time: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customTime || '').split(',').filter((v: string) => v && !EROTIC_TIMES.includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.time === v} onToggle={() => setEroticConfig({ ...eroticConfig, time: eroticConfig.time === v ? '深夜' : v })} onRemove={() => { setEroticConfig({ ...eroticConfig, customTime: (eroticConfig.customTime||'').split(',').filter((x:string)=>x!==v).join(','), time: eroticConfig.time === v ? '深夜' : eroticConfig.time }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.customTime || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customTime: eroticConfig.customTime ? eroticConfig.customTime+','+v : v, time: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customTime: (eroticConfig.customTime||'').split(',').filter((x:string)=>x!==v).join(','), time: eroticConfig.time === v ? '深夜' : eroticConfig.time }) } />
+        </div>
+          </AutoField>)
+      case 4: return (<AutoField field="atmosphere" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {ATMOSPHERES.map(p => { const sel = eroticConfig.atmosphere === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, atmosphere: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customAtmosphere || '').split(',').filter((v: string) => v && !ATMOSPHERES.includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.atmosphere === v} onToggle={() => setEroticConfig({ ...eroticConfig, atmosphere: eroticConfig.atmosphere === v ? '羞辱' : v })} onRemove={() => { setEroticConfig({ ...eroticConfig, customAtmosphere: (eroticConfig.customAtmosphere||'').split(',').filter((x:string)=>x!==v).join(','), atmosphere: eroticConfig.atmosphere === v ? '羞辱' : eroticConfig.atmosphere }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.customAtmosphere || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customAtmosphere: eroticConfig.customAtmosphere ? eroticConfig.customAtmosphere+','+v : v, atmosphere: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customAtmosphere: (eroticConfig.customAtmosphere||'').split(',').filter((x:string)=>x!==v).join(','), atmosphere: eroticConfig.atmosphere === v ? '羞辱' : eroticConfig.atmosphere }) } />
+        </div>
+          </AutoField>)
+      case 5: return (<AutoField field="publicity" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {PUBLICITIES.map(p => { const sel = eroticConfig.publicity === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, publicity: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customPublicity || '').split(',').filter((v: string) => v && !PUBLICITIES.includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.publicity === v} onToggle={() => setEroticConfig({ ...eroticConfig, publicity: eroticConfig.publicity === v ? '私密' : v })} onRemove={() => { setEroticConfig({ ...eroticConfig, customPublicity: (eroticConfig.customPublicity||'').split(',').filter((x:string)=>x!==v).join(','), publicity: eroticConfig.publicity === v ? '私密' : eroticConfig.publicity }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.customPublicity || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customPublicity: eroticConfig.customPublicity ? eroticConfig.customPublicity+','+v : v, publicity: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customPublicity: (eroticConfig.customPublicity||'').split(',').filter((x:string)=>x!==v).join(','), publicity: eroticConfig.publicity === v ? '私密' : eroticConfig.publicity }) } />
+        </div>
+          </AutoField>)
+      case 6: return (<AutoField field="selectedKinks" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
 
-        {/* 2. Scene */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>2. 场景设置</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 11 }}>
-            <div>地点: <select value={config.location} onChange={e => set({ ...config, location: e.target.value })} style={mini}>{EROTIC_LOCATIONS.map(l => <option key={l}>{l}</option>)}</select></div>
-            <input value={config.customLocation} onChange={e => set({ ...config, customLocation: e.target.value })} placeholder="自定义地点" style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: '100%' }} />
-            <div>时间: <select value={config.time} onChange={e => set({ ...config, time: e.target.value })} style={mini}>{EROTIC_TIMES.map(t => <option key={t}>{t}</option>)}</select></div>
-            <input value={config.customTime} onChange={e => set({ ...config, customTime: e.target.value })} placeholder="自定义时间" style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} />
-            <div>氛围: <select value={config.atmosphere} onChange={e => set({ ...config, atmosphere: e.target.value })} style={mini}>{ATMOSPHERES.map(a => <option key={a}>{a}</option>)}</select></div>
-            <input value={config.customAtmosphere} onChange={e => set({ ...config, customAtmosphere: e.target.value })} placeholder="自定义氛围" style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} />
-            <div>公开度: <select value={config.publicity} onChange={e => set({ ...config, publicity: e.target.value })} style={mini}>{PUBLICITIES.map(p => <option key={p}>{p}</option>)}</select></div>
-            <input value={config.customPublicity} onChange={e => set({ ...config, customPublicity: e.target.value })} placeholder="自定义公开度" style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {KINKS_GROUPS.flat().map(p => { const sel = (eroticConfig.selectedKinks || []).includes(p); return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, selectedKinks: sel ? (eroticConfig.selectedKinks||[]).filter((x:string)=>x!==p) : [...(eroticConfig.selectedKinks||[]), p] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.selectedKinks || []).filter((v: string) => !KINKS_GROUPS.flat().includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, selectedKinks: (eroticConfig.selectedKinks||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, selectedKinks: (eroticConfig.selectedKinks||[]).filter((x:string)=>x!==v), customKink: (eroticConfig.customKink||'').split(',').filter((x:string)=>x!==v).join(',') }) }  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.customKink || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customKink: eroticConfig.customKink ? eroticConfig.customKink+','+v : v, selectedKinks: [...(eroticConfig.selectedKinks||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, customKink: (eroticConfig.customKink||'').split(',').filter((x:string)=>x!==v).join(','), selectedKinks: (eroticConfig.selectedKinks||[]).filter((x:string)=>x!==v) }) } />
+        </div>
+          </AutoField>)
+      case 7: return (<AutoField field="mainPose" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 6, lineHeight: 1.5 }}>性爱流程中的姿势、节奏和转换方式。姿势为主体位，节奏为抽插频率，转换为体位变化频率。</div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>姿势:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{POSES.map(p => { const sel = eroticConfig.mainPose === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, mainPose: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}{(eroticConfig.customPoses||[]).filter((v:string)=>!POSES.includes(v)).map((v:string) => <CustomTagButton key={'cp'+v} label={v} selected={eroticConfig.mainPose===v} onToggle={() => setEroticConfig({ ...eroticConfig, mainPose: eroticConfig.mainPose===v?'无偏好':v })} onRemove={() => setEroticConfig({ ...eroticConfig, customPoses: (eroticConfig.customPoses||[]).filter((x:string)=>x!==v), mainPose: eroticConfig.mainPose===v?'无偏好':eroticConfig.mainPose })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay values={eroticConfig.customPoses || []} onAdd={v => setEroticConfig({ ...eroticConfig, customPoses: [...(eroticConfig.customPoses||[]), v], mainPose: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customPoses: (eroticConfig.customPoses||[]).filter((x:string)=>x!==v), mainPose: eroticConfig.mainPose===v?'无偏好':eroticConfig.mainPose })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>节奏:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{RHYTHMS.map(r => { const sel = eroticConfig.mainRhythm === r; return <button key={r} onClick={() => setEroticConfig({ ...eroticConfig, mainRhythm: r })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{r}</button> })}{(eroticConfig.customRhythms||[]).filter((v:string)=>!RHYTHMS.includes(v)).map((v:string) => <CustomTagButton key={'cr'+v} label={v} selected={eroticConfig.mainRhythm===v} onToggle={() => setEroticConfig({ ...eroticConfig, mainRhythm: eroticConfig.mainRhythm===v?'无偏好':v })} onRemove={() => setEroticConfig({ ...eroticConfig, customRhythms: (eroticConfig.customRhythms||[]).filter((x:string)=>x!==v), mainRhythm: eroticConfig.mainRhythm===v?'无偏好':eroticConfig.mainRhythm })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义节奏' values={eroticConfig.customRhythms || []} onAdd={v => setEroticConfig({ ...eroticConfig, customRhythms: [...(eroticConfig.customRhythms||[]), v], mainRhythm: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customRhythms: (eroticConfig.customRhythms||[]).filter((x:string)=>x!==v), mainRhythm: eroticConfig.mainRhythm===v?'无偏好':eroticConfig.mainRhythm })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>转换:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{CHANGES.map(ch => { const sel = eroticConfig.poseChanges === ch; return <button key={ch} onClick={() => setEroticConfig({ ...eroticConfig, poseChanges: ch })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{ch}</button> })}{(eroticConfig.customPoseChanges||'').split(',').filter((v:string)=>v&&!CHANGES.includes(v)).map((v:string)=><CustomTagButton key={'pch'+v} label={v} selected={eroticConfig.poseChanges===v} onToggle={()=>setEroticConfig({...eroticConfig,poseChanges:eroticConfig.poseChanges===v?'2-3次转换':v})} onRemove={()=>setEroticConfig({...eroticConfig,customPoseChanges:(eroticConfig.customPoseChanges||'').split(',').filter((x:string)=>x!==v).join(','),poseChanges:eroticConfig.poseChanges===v?'2-3次转换':eroticConfig.poseChanges})}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义转换' values={(eroticConfig.customPoseChanges||'').split(',').filter(Boolean)} onAdd={v=>setEroticConfig({...eroticConfig,customPoseChanges:eroticConfig.customPoseChanges?eroticConfig.customPoseChanges+','+v:v,poseChanges:v})} onRemove={v=>setEroticConfig({...eroticConfig,customPoseChanges:(eroticConfig.customPoseChanges||'').split(',').filter((x:string)=>x!==v).join(','),poseChanges:eroticConfig.poseChanges===v?'2-3次转换':eroticConfig.poseChanges})} />
+        </div>
+          </AutoField>)
+      case 8: return (<AutoField field="opening" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 6, lineHeight: 1.5 }}>完整的性爱流程: 起始→主戏→高潮→余韵。AI将按此顺序组织情色描写。</div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>起始:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{OPENINGS.map(o => { const sel = (eroticConfig.opening||[]).includes(o); return <button key={o} onClick={() => setEroticConfig({ ...eroticConfig, opening: sel ? eroticConfig.opening.filter((x:string)=>x!==o) : [...(eroticConfig.opening||[]), o] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{o}</button> })}{(eroticConfig.opening||[]).filter((v:string)=>!OPENINGS.includes(v)).map((v:string) => <CustomTagButton key={'op'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, opening: (eroticConfig.opening||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, opening: (eroticConfig.opening||[]).filter((x:string)=>x!==v), customOpening: (eroticConfig.customOpening||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义起始' values={eroticConfig.customOpening || []} onAdd={v => setEroticConfig({ ...eroticConfig, customOpening: [...(eroticConfig.customOpening||[]), v], opening: [...(eroticConfig.opening||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, customOpening: (eroticConfig.customOpening||[]).filter((x:string)=>x!==v), opening: (eroticConfig.opening||[]).filter((x:string)=>x!==v) })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>高潮:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{CLIMAXES.map(c => { const sel = (eroticConfig.climax||[]).includes(c); return <button key={c} onClick={() => setEroticConfig({ ...eroticConfig, climax: sel ? eroticConfig.climax.filter((x:string)=>x!==c) : [...(eroticConfig.climax||[]), c] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{c}</button> })}{(eroticConfig.climax||[]).filter((v:string)=>!CLIMAXES.includes(v)).map((v:string) => <CustomTagButton key={'cl'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, climax: (eroticConfig.climax||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, climax: (eroticConfig.climax||[]).filter((x:string)=>x!==v), customClimax: (eroticConfig.customClimax||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义高潮' values={eroticConfig.customClimax || []} onAdd={v => setEroticConfig({ ...eroticConfig, customClimax: [...(eroticConfig.customClimax||[]), v], climax: [...(eroticConfig.climax||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, customClimax: (eroticConfig.customClimax||[]).filter((x:string)=>x!==v), climax: (eroticConfig.climax||[]).filter((x:string)=>x!==v) })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>余韵:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{AFTERMATHS.map(a => { const sel = (eroticConfig.aftermath||[]).includes(a); return <button key={a} onClick={() => setEroticConfig({ ...eroticConfig, aftermath: sel ? (eroticConfig.aftermath||[]).filter((x:string)=>x!==a) : [...(eroticConfig.aftermath||[]), a] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{a}</button> })}{(eroticConfig.aftermath||[]).filter((v:string)=>!AFTERMATHS.includes(v)).map((v:string) => <CustomTagButton key={'af'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, aftermath: (eroticConfig.aftermath||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, aftermath: (eroticConfig.aftermath||[]).filter((x:string)=>x!==v), customAftermath: (eroticConfig.customAftermath||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义余韵' values={eroticConfig.customAftermath || []} onAdd={v => setEroticConfig({ ...eroticConfig, customAftermath: [...(eroticConfig.customAftermath||[]), v], aftermath: [...(eroticConfig.aftermath||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, customAftermath: (eroticConfig.customAftermath||[]).filter((x:string)=>x!==v), aftermath: (eroticConfig.aftermath||[]).filter((x:string)=>x!==v) })} />
+        </div>
+          </AutoField>)
+      case 9: return (<AutoField field="soundDensity" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>密度:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{SOUND_DENSITIES.map(s => { const sel = eroticConfig.soundDensity === s; return <button key={s} onClick={() => setEroticConfig({ ...eroticConfig, soundDensity: s })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{s}</button> })}{(eroticConfig.customSoundDensity||'').split(',').filter((v:string)=>v&&!SOUND_DENSITIES.includes(v)).map((v:string)=><CustomTagButton key={'sd'+v} label={v} selected={eroticConfig.soundDensity===v} onToggle={()=>setEroticConfig({...eroticConfig,soundDensity:eroticConfig.soundDensity===v?'密集':v})} onRemove={()=>setEroticConfig({...eroticConfig,customSoundDensity:(eroticConfig.customSoundDensity||'').split(',').filter((x:string)=>x!==v).join(','),soundDensity:eroticConfig.soundDensity===v?'密集':eroticConfig.soundDensity})}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义密度' values={(eroticConfig.customSoundDensity||'').split(',').filter(Boolean)} onAdd={v=>setEroticConfig({...eroticConfig,customSoundDensity:eroticConfig.customSoundDensity?eroticConfig.customSoundDensity+','+v:v,soundDensity:v})} onRemove={v=>setEroticConfig({...eroticConfig,customSoundDensity:(eroticConfig.customSoundDensity||'').split(',').filter((x:string)=>x!==v).join(','),soundDensity:eroticConfig.soundDensity===v?'密集':eroticConfig.soundDensity})} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>呻吟:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{MOAN_STYLES.map(m => { const sel = eroticConfig.moanStyle === m; return <button key={m} onClick={() => setEroticConfig({ ...eroticConfig, moanStyle: m })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{m}</button> })}{(eroticConfig.customMoanStyle||'').split(',').filter((v:string)=>v&&!MOAN_STYLES.includes(v)).map((v:string)=><CustomTagButton key={'ms'+v} label={v} selected={eroticConfig.moanStyle===v} onToggle={()=>setEroticConfig({...eroticConfig,moanStyle:eroticConfig.moanStyle===v?'哭喊破音':v})} onRemove={()=>setEroticConfig({...eroticConfig,customMoanStyle:(eroticConfig.customMoanStyle||'').split(',').filter((x:string)=>x!==v).join(','),moanStyle:eroticConfig.moanStyle===v?'哭喊破音':eroticConfig.moanStyle})}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义呻吟' values={(eroticConfig.customMoanStyle||'').split(',').filter(Boolean)} onAdd={v=>setEroticConfig({...eroticConfig,customMoanStyle:eroticConfig.customMoanStyle?eroticConfig.customMoanStyle+','+v:v,moanStyle:v})} onRemove={v=>setEroticConfig({...eroticConfig,customMoanStyle:(eroticConfig.customMoanStyle||'').split(',').filter((x:string)=>x!==v).join(','),moanStyle:eroticConfig.moanStyle===v?'哭喊破音':eroticConfig.moanStyle})} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>侮辱词:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{DEGRADE_LANGS.map(d => { const sel = (eroticConfig.degradeLangs||[]).includes(d); return <button key={d} onClick={() => setEroticConfig({ ...eroticConfig, degradeLangs: sel ? (eroticConfig.degradeLangs||[]).filter((x:string)=>x!==d) : [...(eroticConfig.degradeLangs||[]), d] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{d}</button> })}{(eroticConfig.degradeLangs||[]).filter((v:string)=>!DEGRADE_LANGS.includes(v)).map((v:string) => <CustomTagButton key={'dl'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, degradeLangs: (eroticConfig.degradeLangs||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, degradeLangs: (eroticConfig.degradeLangs||[]).filter((x:string)=>x!==v), customDegradeLangs: (eroticConfig.customDegradeLangs||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput hideDisplay label='自定义侮辱词' values={eroticConfig.customDegradeLangs || []} onAdd={v => setEroticConfig({ ...eroticConfig, customDegradeLangs: [...(eroticConfig.customDegradeLangs||[]), v], degradeLangs: [...(eroticConfig.degradeLangs||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, customDegradeLangs: (eroticConfig.customDegradeLangs||[]).filter((x:string)=>x!==v), degradeLangs: (eroticConfig.degradeLangs||[]).filter((x:string)=>x!==v) })} />
+        </div>
+          </AutoField>)
+      case 10: return (<AutoField field="intensity" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            <span style={{ fontSize: 10, color: '#9b8e84', marginRight: 4 }}>强度:</span>
+            {[1,2,3,4,5].map(i => { const sel = eroticConfig.intensity === i; return <button key={i} onClick={() => setEroticConfig({ ...eroticConfig, intensity: i })} title={STRENGTH_LABELS[i]} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400, minWidth: 32, textAlign: 'center' }}>{i}</button> })}
+          </div>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.02)' }}>强度说明: 1=暗示为主 2=有动作不详细 3=标准完整 4=大量细节 5=极尽细致</div>
+        </div>
+          </AutoField>)
+      case 11: return (<AutoField field="extraNote" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.04)', lineHeight: 1.6 }}>这里是给 AI 的额外创作指令，会注入到模板 prompt 末尾。点击预设标签填入上方文本框。</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{(eroticConfig.customExtraNotes || '').split(',').filter(Boolean).map((v: string) => <CustomTagButton key={'ex'+v} label={v.slice(0,20)} selected={eroticConfig.extraNote === v} onToggle={() => setEroticConfig({ ...eroticConfig, extraNote: eroticConfig.extraNote === v ? '' : v })} onRemove={() => setEroticConfig({ ...eroticConfig, customExtraNotes: (eroticConfig.customExtraNotes||'').split(',').filter((x:string)=>x!==v).join(','), extraNote: eroticConfig.extraNote === v ? '' : eroticConfig.extraNote })}  editMode={editTagMode} />)}</div>
+          <textarea value={eroticConfig.extraNote} onChange={e => setEroticConfig({ ...eroticConfig, extraNote: e.target.value })} rows={6} style={{ ...inputStyle, width: '100%', resize: 'vertical' }} placeholder='额外说明...' />
+          <CustomInput hideDisplay label='添加常用说明' values={(eroticConfig.customExtraNotes || '').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customExtraNotes: eroticConfig.customExtraNotes ? eroticConfig.customExtraNotes+','+v : v, extraNote: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customExtraNotes: (eroticConfig.customExtraNotes||'').split(',').filter((x:string)=>x!==v).join(','), extraNote: eroticConfig.extraNote === v ? '' : eroticConfig.extraNote })} />
+        </div>
+          </AutoField>)
+      case 12: return (<AutoField field="narrativePOV" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {POVS.map(p => { const sel = eroticConfig.narrativePOV === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, narrativePOV: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {safeCSV(eroticConfig.customPOVs).split(',').filter((v: string) => v && !POVS.includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.narrativePOV === v} onToggle={() => setEroticConfig({ ...eroticConfig, narrativePOV: eroticConfig.narrativePOV === v ? '第三人称' : v })} onRemove={() => { setEroticConfig({ ...eroticConfig, customPOVs: safeCSV(eroticConfig.customPOVs).split(',').filter((x:string)=>x!==v).join(','), narrativePOV: eroticConfig.narrativePOV === v ? '第三人称' : eroticConfig.narrativePOV }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={safeCSV(eroticConfig.customPOVs).split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customPOVs: safeCSV(eroticConfig.customPOVs) ? safeCSV(eroticConfig.customPOVs)+','+v : v, narrativePOV: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customPOVs: safeCSV(eroticConfig.customPOVs).split(',').filter((x:string)=>x!==v).join(','), narrativePOV: eroticConfig.narrativePOV === v ? '第三人称' : eroticConfig.narrativePOV }) } />
+        </div>
+          </AutoField>)
+      case 13: return (<AutoField field="bodyFluidFocus" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>体液优先级:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{['精液','爱液','汗液','乳汁','尿液','血液'].map(f => { const sel = (eroticConfig.bodyFluidFocus||[]).includes(f); return <button key={f} onClick={() => setEroticConfig({ ...eroticConfig, bodyFluidFocus: sel ? (eroticConfig.bodyFluidFocus||[]).filter((x:string)=>x!==f) : [...(eroticConfig.bodyFluidFocus||[]), f] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{f}</button> })}{(eroticConfig.bodyFluidFocus||[]).filter((v:string)=>!['精液','爱液','汗液','乳汁','尿液','血液'].includes(v)).map((v:string) => <CustomTagButton key={'bf'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, bodyFluidFocus: (eroticConfig.bodyFluidFocus||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, bodyFluidFocus: (eroticConfig.bodyFluidFocus||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput values={[]} onAdd={v => setEroticConfig({ ...eroticConfig, bodyFluidFocus: [...(eroticConfig.bodyFluidFocus||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, bodyFluidFocus: (eroticConfig.bodyFluidFocus||[]).filter((x:string)=>x!==v) })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>身体焦点:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{['胸','腿','脚','臀','腰','颈','手','眼','唇','发'].map(p => { const sel = (eroticConfig.bodyPartFocus||[]).includes(p); return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, bodyPartFocus: sel ? (eroticConfig.bodyPartFocus||[]).filter((x:string)=>x!==p) : [...(eroticConfig.bodyPartFocus||[]), p] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{p}</button> })}{(eroticConfig.bodyPartFocus||[]).filter((v:string)=>!['胸','腿','脚','臀','腰','颈','手','眼','唇','发'].includes(v)).map((v:string) => <CustomTagButton key={'bp'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, bodyPartFocus: (eroticConfig.bodyPartFocus||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, bodyPartFocus: (eroticConfig.bodyPartFocus||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput values={[]} onAdd={v => setEroticConfig({ ...eroticConfig, bodyPartFocus: [...(eroticConfig.bodyPartFocus||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, bodyPartFocus: (eroticConfig.bodyPartFocus||[]).filter((x:string)=>x!==v) })} />
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4, marginTop: 10 }}>触感优先:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{['温度','湿度','压力','摩擦','振动'].map(t => { const sel = (eroticConfig.tactileFocus||[]).includes(t); return <button key={t} onClick={() => setEroticConfig({ ...eroticConfig, tactileFocus: sel ? (eroticConfig.tactileFocus||[]).filter((x:string)=>x!==t) : [...(eroticConfig.tactileFocus||[]), t] })} style={{ padding: '3px 8px', borderRadius: 6, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54' }}>{t}</button> })}{(eroticConfig.tactileFocus||[]).filter((v:string)=>!['温度','湿度','压力','摩擦','振动'].includes(v)).map((v:string) => <CustomTagButton key={'tf'+v} label={v} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, tactileFocus: (eroticConfig.tactileFocus||[]).filter((x:string)=>x!==v) })} onRemove={() => setEroticConfig({ ...eroticConfig, tactileFocus: (eroticConfig.tactileFocus||[]).filter((x:string)=>x!==v) })}  editMode={editTagMode} />)}</div>
+          <CustomInput values={[]} onAdd={v => setEroticConfig({ ...eroticConfig, tactileFocus: [...(eroticConfig.tactileFocus||[]), v] })} onRemove={v => setEroticConfig({ ...eroticConfig, tactileFocus: (eroticConfig.tactileFocus||[]).filter((x:string)=>x!==v) })} />
+        </div>
+          </AutoField>)
+      case 14: return (<AutoField field="narrativeStyle" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {['沉浸式长镜','旁观式扫射','蒙太奇快切','慢镜头特写','意识流'].map(p => { const sel = eroticConfig.narrativeStyle === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, narrativeStyle: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.narrativeStyle || '').split(',').filter((v: string) => v && !['沉浸式长镜','旁观式扫射','蒙太奇快切','慢镜头特写','意识流'].includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.narrativeStyle === v} onToggle={() => setEroticConfig({ ...eroticConfig, narrativeStyle: eroticConfig.narrativeStyle === v ? '沉浸式长镜' : v })} onRemove={() => { const filtered = (eroticConfig.narrativeStyle||'').split(',').filter((x:string)=>x!==v).join(','); setEroticConfig({ ...eroticConfig, narrativeStyle: filtered || '沉浸式长镜' }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.narrativeStyle || '').split(',').filter((v:string)=>v&&!['沉浸式长镜','旁观式扫射','蒙太奇快切','慢镜头特写','意识流'].includes(v))} onAdd={v => setEroticConfig({ ...eroticConfig, narrativeStyle: eroticConfig.narrativeStyle ? eroticConfig.narrativeStyle+','+v : v })} onRemove={v => { const filtered = (eroticConfig.narrativeStyle||'').split(',').filter((x:string)=>x!==v).join(','); setEroticConfig({ ...eroticConfig, narrativeStyle: filtered || '沉浸式长镜' }) }} />
+        </div>
+          </AutoField>)
+      case 15: return (<AutoField field="timeCompression" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {['实时','压缩','拉长','倒叙'].map(p => { const sel = eroticConfig.timeCompression === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, timeCompression: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.timeCompression || '').split(',').filter((v: string) => v && !['实时','压缩','拉长','倒叙'].includes(v)).map((v: string) => <CustomTagButton key={'c'+v} label={v} selected={eroticConfig.timeCompression === v} onToggle={() => setEroticConfig({ ...eroticConfig, timeCompression: eroticConfig.timeCompression === v ? '实时' : v })} onRemove={() => { const filtered = (eroticConfig.timeCompression||'').split(',').filter((x:string)=>x!==v).join(','); setEroticConfig({ ...eroticConfig, timeCompression: filtered || '实时' }) }}  editMode={editTagMode} />)}
+          </div>
+          <CustomInput hideDisplay values={(eroticConfig.timeCompression || '').split(',').filter((v:string)=>v&&!['实时','压缩','拉长','倒叙'].includes(v))} onAdd={v => setEroticConfig({ ...eroticConfig, timeCompression: eroticConfig.timeCompression ? eroticConfig.timeCompression+','+v : v })} onRemove={v => { const filtered = (eroticConfig.timeCompression||'').split(',').filter((x:string)=>x!==v).join(','); setEroticConfig({ ...eroticConfig, timeCompression: filtered || '实时' }) }} />
+        </div>
+          </AutoField>)
+      case 16: return (<AutoField field="introspection" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>内省 <span style={{ fontWeight: 400 }}>(心理描写深度)</span>:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {[['无','不写心理描写'],['低','偶尔一笔带过角色想法'],['中','适度穿插心理活动'],['高','大量内心独白和心理分析']].map(([i,desc]) => { const sel = eroticConfig.introspection === i; return (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <button onClick={() => setEroticConfig({ ...eroticConfig, introspection: i })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{i}</button>
+                <span style={{ fontSize: 9, color: '#b0a69e', textAlign: 'center', maxWidth: 80 }}>{desc}</span>
+              </div>
+            ) })}
           </div>
         </div>
+          </AutoField>)
+      case 17: return (<AutoField field="sensoryAnchors" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>{SENSORY_ANCHORS.map(a => { const sel = eroticConfig.sensoryAnchors === a; return <button key={a} onClick={() => setEroticConfig({ ...eroticConfig, sensoryAnchors: a })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{a}</button> })}{eroticConfig.sensoryAnchors && !SENSORY_ANCHORS.includes(eroticConfig.sensoryAnchors) ? <CustomTagButton key={'sa'+eroticConfig.sensoryAnchors} label={eroticConfig.sensoryAnchors} selected={true} onToggle={() => setEroticConfig({ ...eroticConfig, sensoryAnchors: '' })} onRemove={() => setEroticConfig({ ...eroticConfig, sensoryAnchors: '' })} editMode={editTagMode} /> : null}</div>
+          <CustomInput hideDisplay values={eroticConfig.sensoryAnchors && !SENSORY_ANCHORS.includes(eroticConfig.sensoryAnchors) ? [eroticConfig.sensoryAnchors] : []} onAdd={v => setEroticConfig({ ...eroticConfig, sensoryAnchors: v })} onRemove={() => setEroticConfig({ ...eroticConfig, sensoryAnchors: '' })} />
+        </div>
+          </AutoField>)
+      case 18: return (<AutoField field="dominantEmotion" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>主导情绪</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{['羞辱','快感','恐惧','温柔','支配','臣服','渴求','羞耻','爱慕','仇恨'].map(e => { const sel = eroticConfig.dominantEmotion === e; return <button key={e} onClick={() => setEroticConfig({ ...eroticConfig, dominantEmotion: e })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{e}</button> })}</div>
+            <CustomInput hideDisplay label='添加自定义情绪' values={(eroticConfig.customEmotions||'').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customEmotions: eroticConfig.customEmotions ? eroticConfig.customEmotions+','+v : v, dominantEmotion: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customEmotions: (eroticConfig.customEmotions||'').split(',').filter((x:string)=>x!==v).join(','), dominantEmotion: eroticConfig.dominantEmotion===v?'':eroticConfig.dominantEmotion })} />
+            {(eroticConfig.customEmotions||'').split(',').filter(Boolean).map((v:string) => <CustomTagButton key={'em'+v} label={v} selected={eroticConfig.dominantEmotion===v} onToggle={() => setEroticConfig({ ...eroticConfig, dominantEmotion: eroticConfig.dominantEmotion===v?'':v })} onRemove={() => setEroticConfig({ ...eroticConfig, customEmotions: (eroticConfig.customEmotions||'').split(',').filter((x:string)=>x!==v).join(','), dominantEmotion: eroticConfig.dominantEmotion===v?'':eroticConfig.dominantEmotion })}  editMode={editTagMode} />)}
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>情绪曲线</div>
+            <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>示例: 羞耻(开头)→兴奋(渐进)→失控(高潮)→羞耻(余韵)</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{(eroticConfig.customCurves||'').split(',').filter(Boolean).map((v:string) => <CustomTagButton key={'cv'+v} label={v.slice(0,25)} selected={eroticConfig.emotionCurveInput===v} onToggle={() => setEroticConfig({ ...eroticConfig, emotionCurveInput: eroticConfig.emotionCurveInput===v?'':v })} onRemove={() => setEroticConfig({ ...eroticConfig, customCurves: (eroticConfig.customCurves||'').split(',').filter((x:string)=>x!==v).join(','), emotionCurveInput: eroticConfig.emotionCurveInput===v?'':eroticConfig.emotionCurveInput })}  editMode={editTagMode} />)}</div>
+            <input value={eroticConfig.emotionCurveInput} onChange={e => setEroticConfig({ ...eroticConfig, emotionCurveInput: e.target.value })} style={{ ...inputStyle, width: '100%' }} placeholder='情绪(阶段)→情绪(阶段)→...' />
+            <CustomInput hideDisplay label='保存曲线为预设' values={(eroticConfig.customCurves||'').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customCurves: eroticConfig.customCurves ? eroticConfig.customCurves+','+v : v, emotionCurveInput: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customCurves: (eroticConfig.customCurves||'').split(',').filter((x:string)=>x!==v).join(','), emotionCurveInput: eroticConfig.emotionCurveInput===v?'':eroticConfig.emotionCurveInput })} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>触发词</div>
+            <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>角色听到/说出此词时情绪失控或转变</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>{(eroticConfig.customTriggers||'').split(',').filter(Boolean).map((v:string) => <CustomTagButton key={'tg'+v} label={v.slice(0,20)} selected={eroticConfig.triggerWords===v} onToggle={() => setEroticConfig({ ...eroticConfig, triggerWords: eroticConfig.triggerWords===v?'':v })} onRemove={() => setEroticConfig({ ...eroticConfig, customTriggers: (eroticConfig.customTriggers||'').split(',').filter((x:string)=>x!==v).join(','), triggerWords: eroticConfig.triggerWords===v?'':eroticConfig.triggerWords })}  editMode={editTagMode} />)}</div>
+            <input value={eroticConfig.triggerWords} onChange={e => setEroticConfig({ ...eroticConfig, triggerWords: e.target.value })} style={{ ...inputStyle, width: '100%' }} placeholder='如"求你了主人"' />
+            <CustomInput hideDisplay label='保存触发词为预设' values={(eroticConfig.customTriggers||'').split(',').filter(Boolean)} onAdd={v => setEroticConfig({ ...eroticConfig, customTriggers: eroticConfig.customTriggers ? eroticConfig.customTriggers+','+v : v, triggerWords: v })} onRemove={v => setEroticConfig({ ...eroticConfig, customTriggers: (eroticConfig.customTriggers||'').split(',').filter((x:string)=>x!==v).join(','), triggerWords: eroticConfig.triggerWords===v?'':eroticConfig.triggerWords })} />
+          </div>
+        </div>
+          </AutoField>)
+      case 19: return (<AutoField field="worldRules" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>世界规则 — 本章特殊的设定/规则</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {WORLD_RULES.map(p => { const items = (eroticConfig.worldRules||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(p); return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, worldRules: sel ? items.filter((x:string)=>x!==p).join(',') : [...items, p].join(',') })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customWorldRules||'').split(',').filter((v:string) => v && !WORLD_RULES.includes(v)).map((v:string) => { const items = (eroticConfig.worldRules||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(v); return <CustomTagButton key={'c'+v} label={v} selected={sel} onToggle={() => setEroticConfig({ ...eroticConfig, worldRules: sel ? items.filter((x:string)=>x!==v).join(',') : [...items, v].join(',') })} onRemove={() => setEroticConfig({ ...eroticConfig, customWorldRules: (eroticConfig.customWorldRules||'').split(',').filter((x:string)=>x!==v).join(','), worldRules: items.filter((x:string)=>x!==v).join(',') })}  editMode={editTagMode} /> })}
+          </div>
+          <CustomInput hideDisplay label='添加自定义' values={(eroticConfig.customWorldRules||'').split(',').filter(Boolean)} onAdd={v => { const items = (eroticConfig.worldRules||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customWorldRules: eroticConfig.customWorldRules ? eroticConfig.customWorldRules+','+v : v, worldRules: [...items, v].join(',') }) }} onRemove={v => { const items = (eroticConfig.worldRules||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customWorldRules: (eroticConfig.customWorldRules||'').split(',').filter((x:string)=>x!==v).join(','), worldRules: items.filter((x:string)=>x!==v).join(',') }) }} />
+        </div>
+          </AutoField>)
+      case 20: return (<AutoField field="propList" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>道具清单 — 本章场景中出现的道具组合</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {PROP_LIST.map(p => { const items = (eroticConfig.propList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(p); return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, propList: sel ? items.filter((x:string)=>x!==p).join(',') : [...items, p].join(',') })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customPropLists||'').split(',').filter((v:string) => v && !PROP_LIST.includes(v)).map((v:string) => { const items = (eroticConfig.propList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(v); return <CustomTagButton key={'c'+v} label={v} selected={sel} onToggle={() => setEroticConfig({ ...eroticConfig, propList: sel ? items.filter((x:string)=>x!==v).join(',') : [...items, v].join(',') })} onRemove={() => setEroticConfig({ ...eroticConfig, customPropLists: (eroticConfig.customPropLists||'').split(',').filter((x:string)=>x!==v).join(','), propList: items.filter((x:string)=>x!==v).join(',') })}  editMode={editTagMode} /> })}
+          </div>
+          <CustomInput hideDisplay label='添加自定义' values={(eroticConfig.customPropLists||'').split(',').filter(Boolean)} onAdd={v => { const items = (eroticConfig.propList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customPropLists: eroticConfig.customPropLists ? eroticConfig.customPropLists+','+v : v, propList: [...items, v].join(',') }) }} onRemove={v => { const items = (eroticConfig.propList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customPropLists: (eroticConfig.customPropLists||'').split(',').filter((x:string)=>x!==v).join(','), propList: items.filter((x:string)=>x!==v).join(',') }) }} />
+        </div>
+          </AutoField>)
+      case 21: return (<AutoField field="costumeList" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>服装清单 — 本章角色穿着组合</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {COSTUME_LIST.map(p => { const items = (eroticConfig.costumeList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(p); return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, costumeList: sel ? items.filter((x:string)=>x!==p).join(',') : [...items, p].join(',') })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}
+            {(eroticConfig.customCostumeLists||'').split(',').filter((v:string) => v && !COSTUME_LIST.includes(v)).map((v:string) => { const items = (eroticConfig.costumeList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); const sel = items.includes(v); return <CustomTagButton key={'c'+v} label={v} selected={sel} onToggle={() => setEroticConfig({ ...eroticConfig, costumeList: sel ? items.filter((x:string)=>x!==v).join(',') : [...items, v].join(',') })} onRemove={() => setEroticConfig({ ...eroticConfig, customCostumeLists: (eroticConfig.customCostumeLists||'').split(',').filter((x:string)=>x!==v).join(','), costumeList: items.filter((x:string)=>x!==v).join(',') })}  editMode={editTagMode} /> })}
+          </div>
+          <CustomInput hideDisplay label='添加自定义' values={(eroticConfig.customCostumeLists||'').split(',').filter(Boolean)} onAdd={v => { const items = (eroticConfig.costumeList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customCostumeLists: eroticConfig.customCostumeLists ? eroticConfig.customCostumeLists+','+v : v, costumeList: [...items, v].join(',') }) }} onRemove={v => { const items = (eroticConfig.costumeList||'').split(',').map((s:string)=>s.trim()).filter(Boolean); setEroticConfig({ ...eroticConfig, customCostumeLists: (eroticConfig.customCostumeLists||'').split(',').filter((x:string)=>x!==v).join(','), costumeList: items.filter((x:string)=>x!==v).join(',') }) }} />
+        </div>
+          </AutoField>)
+      case 22: return (<AutoField field="wordTarget" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#6b5e54', marginBottom: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.04)', lineHeight: 1.6 }}>本模板覆盖的亲密/性交场景的建议字数。区别于 AI 生成弹窗的整章字数。</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type='number' value={eroticConfig.wordTarget} onChange={e => setEroticConfig({ ...eroticConfig, wordTarget: parseInt(e.target.value) || 2000 })} style={{ ...inputStyle, width: 120 }} /><span style={{ fontSize: 12, color: '#6b5e54' }}>字</span></div>
+        </div>
+          </AutoField>)
+      case 23: return (<AutoField field="pacing" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>情色节奏 — 控制场景的节奏感</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EROTIC_PACINGS.map(p => { const sel = eroticConfig.pacing === p; return <button key={p} onClick={() => setEroticConfig({ ...eroticConfig, pacing: p })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}</div>
+          <CustomInput hideDisplay label='自定义节奏' values={eroticConfig.pacing && !EROTIC_PACINGS.includes(eroticConfig.pacing) ? [eroticConfig.pacing] : []} onAdd={v => setEroticConfig({ ...eroticConfig, pacing: v })} onRemove={() => setEroticConfig({ ...eroticConfig, pacing: '渐进升温' })} />
+        </div>
+          </AutoField>)
+      case 24: return (<AutoField field="bodyLanguage" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>非言语表达 — 角色的肢体语言与微表情</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EROTIC_BODY_LANGUAGES.map(b => { const sel = eroticConfig.bodyLanguage === b; return <button key={b} onClick={() => setEroticConfig({ ...eroticConfig, bodyLanguage: b })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{b}</button> })}</div>
+          <CustomInput hideDisplay label='自定义' values={eroticConfig.bodyLanguage && !EROTIC_BODY_LANGUAGES.includes(eroticConfig.bodyLanguage) ? [eroticConfig.bodyLanguage] : []} onAdd={v => setEroticConfig({ ...eroticConfig, bodyLanguage: v })} onRemove={() => setEroticConfig({ ...eroticConfig, bodyLanguage: '' })} />
+        </div>
+          </AutoField>)
+      case 25: return (<AutoField field="consentDynamic" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>同意动态 — 角色间的同意模式</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EROTIC_CONSENT_DYNAMICS.map(c => { const sel = eroticConfig.consentDynamic === c; return <button key={c} onClick={() => setEroticConfig({ ...eroticConfig, consentDynamic: c })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{c}</button> })}</div>
+        </div>
+          </AutoField>)
+      case 26: return (<AutoField field="aftercareDetail" autoFields={eroticConfig.autoFields} onToggle={toggleEroticAuto}>
+            <div>
+          <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>事后关怀 — 场景结束后的处理方式</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{EROTIC_AFTERCARE.map(a => { const sel = eroticConfig.aftercareDetail === a; return <button key={a} onClick={() => setEroticConfig({ ...eroticConfig, aftercareDetail: a })} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #dc2626' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(220,38,38,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#dc2626' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{a}</button> })}</div>
+        </div>
+          </AutoField>)
+      default: return <div style={{ fontSize: 12, color: '#9b8e84', padding: 20, textAlign: 'center' }}>未知区块</div>
+    }
+  }
 
-        {/* 3. Kinks */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>3. 玩法选择</div>
-          {KINKS_GROUPS.map((g, i) => (
-            <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginBottom: 2 }}>
-              {g.map(k => (
-                <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '1px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 10, background: config.selectedKinks.includes(k) ? 'rgba(124,58,237,0.08)' : 'transparent', border: config.selectedKinks.includes(k) ? '1px solid rgba(124,58,237,0.2)' : '1px solid transparent' }}>
-                  <input type="checkbox" checked={config.selectedKinks.includes(k)} onChange={() => set({ ...config, selectedKinks: config.selectedKinks.includes(k) ? config.selectedKinks.filter(x => x !== k) : [...config.selectedKinks, k] })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />{k}
-                </label>
+  function renderNovelSectionEditor(section: number) {
+    const nc = novelConfig
+    const setNC = setNovelConfig
+    switch (section) {
+      case 1: return (<AutoField field="sceneType" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, alignItems: 'center' }}>
+            类型: <select value={nc.sceneType} onChange={e => setNC({...nc, sceneType: e.target.value})} style={inputStyle}>{NOVEL_SCENE_TYPES.map(s => <option key={s} value={s}>{s}</option>)}</select>
+            冲突: <select value={nc.conflictType} onChange={e => setNC({...nc, conflictType: e.target.value})} style={inputStyle}>{NOVEL_CONFLICTS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+          </div>
+          <div style={{ fontSize: 11 }}>目的: {NOVEL_PURPOSES.map(p => (
+            <label key={p} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={nc.scenePurpose.includes(p)} onChange={() => setNC({...nc, scenePurpose: nc.scenePurpose.includes(p) ? nc.scenePurpose.filter(x => x !== p) : [...nc.scenePurpose, p]})} style={{ width:12,height:12,accentColor:'#3b82f6' }} />{p}</label>
+          ))}</div>
+        </div>
+          </AutoField>)
+      case 2: return (<AutoField field="povCharacterId" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11 }}>主视角: <select value={nc.povCharacterId} onChange={e => { const ch = characters.find(c => c.id === e.target.value); setNC({...nc, povCharacterId: e.target.value, povCharacterName: ch?.name || ''}) }} style={inputStyle}><option value="">无</option>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          {nc.characters.map((ch, i) => (
+            <div key={ch.characterId} style={{ display:'flex',gap:4,alignItems:'center',flexWrap:'wrap' }}>
+              <span style={{ fontSize:11,fontWeight:600,minWidth:50 }}>{ch.characterName}</span>
+              <input value={ch.emotion || ''} onChange={e => { const n = [...nc.characters]; n[i] = {...n[i], emotion: e.target.value}; setNC({...nc, characters: n}) }} placeholder="情绪" style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11,width:100 }} />
+              <button onClick={() => setNC({...nc, characters: nc.characters.filter((_, j) => j !== i)})} style={{ background:'none',border:'none',cursor:'pointer',color:'#d4ccc4' }}><TrashIcon style={{ width:12,height:12 }} /></button>
+            </div>
+          ))}
+          <details><summary style={{ fontSize:11,color:'#3b82f6',cursor:'pointer' }}>+ 添加角色</summary>
+            <div style={{ display:'flex',flexWrap:'wrap',gap:4,marginTop:4 }}>
+              {characters.filter(c => !nc.characters.find(x => x.characterId === c.id)).map(c => (
+                <button key={c.id} onClick={() => setNC({...nc, characters: [...nc.characters, { characterId: c.id, characterName: c.name, emotion: '' }]})} style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',background:'#fff',fontSize:11,cursor:'pointer' }}>{c.name}</button>
               ))}
+              {characters.length === 0 && <span style={{ fontSize:10,color:'#9b8e84' }}>项目暂无角色</span>}
             </div>
-          ))}
-          <input value={config.kinkNote} onChange={e => set({ ...config, kinkNote: e.target.value })} placeholder="玩法备注" style={{ ...inputStyle, marginTop: 3, fontSize: 10, padding: '3px 8px' }} />
-          <input value={config.customKink} onChange={e => set({ ...config, customKink: e.target.value })} placeholder="自定义玩法..." style={{ ...inputStyle, marginTop: 3, fontSize: 10, padding: '3px 8px' }} />
+          </details>
         </div>
-
-        {/* 4. Flow */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>4. 流程编排</div>
-          <div style={{ fontSize: 10, marginBottom: 4 }}>
-            开端前戏: {OPENINGS.map(o => (
-              <label key={o} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.opening.includes(o)} onChange={() => set({ ...config, opening: toggleArr(config.opening, o) })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />{o}</label>
-            ))}
+          </AutoField>)
+      case 3: return (<AutoField field="location" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display:'flex',gap:8,flexWrap:'wrap',fontSize:11,alignItems:'center' }}>
+            地点: <select value={nc.location} onChange={e => setNC({...nc, location: e.target.value})} style={inputStyle}>{EROTIC_LOCATIONS.map(l => <option key={l}>{l}</option>)}</select>
+            <input value={nc.customLocation} onChange={e => setNC({...nc, customLocation: e.target.value})} placeholder="或自定义" style={{ padding:'2px 6px',borderRadius:4,border:'1px solid rgba(0,0,0,0.1)',fontSize:10,width:80 }} />
+            天气: <select value={nc.weather} onChange={e => setNC({...nc, weather: e.target.value})} style={inputStyle}>{NOVEL_WEATHERS.map(w => <option key={w}>{w}</option>)}</select>
+            时间: <select value={nc.time} onChange={e => setNC({...nc, time: e.target.value})} style={inputStyle}>{EROTIC_TIMES.map(t => <option key={t}>{t}</option>)}</select>
+            氛围: <select value={nc.atmosphere} onChange={e => setNC({...nc, atmosphere: e.target.value})} style={inputStyle}>{ATMOSPHERES.map(a => <option key={a}>{a}</option>)}</select>
           </div>
-          <div style={{ display: 'flex', gap: 6, fontSize: 10, flexWrap: 'wrap' }}>
-            姿势: <select value={config.mainPose} onChange={e => set({ ...config, mainPose: e.target.value })} style={mini}>{POSES.map(p => <option key={p}>{p}</option>)}</select>
-            节奏: <select value={config.mainRhythm} onChange={e => set({ ...config, mainRhythm: e.target.value })} style={mini}>{RHYTHMS.map(r => <option key={r}>{r}</option>)}</select>
-            转换: <select value={config.poseChanges} onChange={e => set({ ...config, poseChanges: e.target.value })} style={mini}>{CHANGES.map(c => <option key={c}>{c}</option>)}</select>
-          </div>
-          <div style={{ fontSize: 10, marginTop: 4 }}>高潮: {CLIMAXES.map(c => (
-            <label key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.climax.includes(c)} onChange={() => set({ ...config, climax: toggleArr(config.climax, c) })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />{c}</label>
-          ))}</div>
-          <div style={{ fontSize: 10, marginTop: 2 }}>事后: {AFTERMATHS.map(a => (
-            <label key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.aftermath.includes(a)} onChange={() => set({ ...config, aftermath: toggleArr(config.aftermath, a) })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />{a}</label>
+          <div style={{ fontSize:11 }}>感官: {['视觉','听觉','嗅觉','触觉','味觉'].map(s => (
+            <label key={s} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={nc.senses.includes(s)} onChange={() => setNC({...nc, senses: nc.senses.includes(s) ? nc.senses.filter(x => x !== s) : [...nc.senses, s]})} style={{ width:12,height:12,accentColor:'#3b82f6' }} />{s}</label>
           ))}</div>
         </div>
-
-        {/* 5. Body focus */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>5. 身体焦点与技法</div>
-          <div style={{ fontSize: 10, marginBottom: 2 }}>体液: {BODY_FLUIDS.map(f => (
-            <label key={f} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.customKink.includes(`体液:${f}`)} onChange={() => set({ ...config, customKink: config.customKink.includes(`体液:${f}`) ? config.customKink.replace(`体液:${f},`, '').replace(`体液:${f}`, '') : config.customKink + `体液:${f},` })} style={{ width: 10, height: 10, accentColor: '#ec4899' }} />{f}</label>
-          ))}</div>
-          <div style={{ fontSize: 10, marginBottom: 2 }}>身体: {BODY_FOCUS.map(p => (
-            <label key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.customKink.includes(`焦点:${p}`)} onChange={() => set({ ...config, customKink: config.customKink.includes(`焦点:${p}`) ? config.customKink.replace(`焦点:${p},`, '').replace(`焦点:${p}`, '') : config.customKink + `焦点:${p},` })} style={{ width: 10, height: 10, accentColor: '#ec4899' }} />{p}</label>
-          ))}</div>
-          <div style={{ fontSize: 10 }}>触感: {TOUCH_TYPES.map(t => (
-            <label key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.customKink.includes(`触感:${t}`)} onChange={() => set({ ...config, customKink: config.customKink.includes(`触感:${t}`) ? config.customKink.replace(`触感:${t},`, '').replace(`触感:${t}`, '') : config.customKink + `触感:${t},` })} style={{ width: 10, height: 10, accentColor: '#ec4899' }} />{t}</label>
-          ))}</div>
-        </div>
-
-        {/* 6. Narrative */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>6. 叙事技法</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 10 }}>
-            风格: <select value={config.customKink.match(/风格:(\w+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/风格:\w+/, '') + `风格:${e.target.value}` })} style={mini}><option value="">--</option>{NARRATIVE_STYLES.map(s => <option key={s}>{s}</option>)}</select>
-            时间: <select value={config.customKink.match(/时间:(\w+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/时间:\w+/, '') + `时间:${e.target.value}` })} style={mini}><option value="">--</option>{TIME_STYLES.map(t => <option key={t}>{t}</option>)}</select>
-            内省: <select value={config.customKink.match(/内省:(\w+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/内省:\w+/, '') + `内省:${e.target.value}` })} style={mini}><option value="">--</option>{INTROSPECTION_LEVELS.map(l => <option key={l}>{l}</option>)}</select>
+          </AutoField>)
+      case 4: return (<AutoField field="genreElements" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div>
+          <div style={{ marginBottom: 6, fontSize: 11 }}>
+            小说类型: <select value={novelGenreType} onChange={e => { setNovelGenreType(e.target.value); setNC({...nc, genreElements: []}) }} style={inputStyle}>{Object.keys(NOVEL_GENRE_ELEMENTS).map(g => <option key={g}>{g}</option>)}</select>
           </div>
-          <input value={config.customKink.match(/锚点:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/锚点:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `锚点:${e.target.value}` : '') })} placeholder="感官锚点" style={{ ...inputStyle, marginTop: 3, fontSize: 10, padding: '3px 8px' }} />
-        </div>
-
-        {/* 7. Sound */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>7. 声音与语言</div>
-          <div style={{ display: 'flex', gap: 6, fontSize: 10, flexWrap: 'wrap' }}>
-            效果音: <select value={config.soundDensity} onChange={e => set({ ...config, soundDensity: e.target.value })} style={mini}>{SOUND_DENSITIES.map(s => <option key={s}>{s}</option>)}</select>
-            叫床: <select value={config.moanStyle} onChange={e => set({ ...config, moanStyle: e.target.value })} style={mini}>{MOAN_STYLES.map(m => <option key={m}>{m}</option>)}</select>
-          </div>
-          <div style={{ fontSize: 10, marginTop: 4 }}>语言: {DEGRADE_LANGS.map(d => (
-            <label key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.degradeLangs.includes(d)} onChange={() => set({ ...config, degradeLangs: toggleArr(config.degradeLangs, d) })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />{d}</label>
-          ))}</div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
-            <input value={config.customInsults} onChange={e => set({ ...config, customInsults: e.target.value })} placeholder="额外侮辱词" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, flex: 1 }} />
-            <input value={config.bannedWords} onChange={e => set({ ...config, bannedWords: e.target.value })} placeholder="禁用词" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, flex: 1 }} />
-          </div>
-        </div>
-
-        {/* 8. Emotion */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>8. 情绪与心理</div>
-          <div style={{ display: 'flex', gap: 6, fontSize: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            主导: <select value={config.customKink.match(/情绪:(\w+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/情绪:\w+/, '') + `情绪:${e.target.value}` })} style={mini}><option value="">--</option>{EMOTION_TYPES.map(e => <option key={e}>{e}</option>)}</select>
-            曲线: <input value={config.customKink.match(/曲线:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/曲线:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `曲线:${e.target.value}` : '') })} placeholder="起始→最高→结束" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 110 }} />
-            触发词: <input value={config.customKink.match(/触发:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/触发:[^,]+/, '').replace(/,+/g,',') + (e.target.value ? `触发:${e.target.value}` : '') })} placeholder="一说就崩溃的词" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 110 }} />
-          </div>
-        </div>
-
-        {/* 9. Special */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>9. 特殊设定</div>
-          <input value={config.customKink.match(/世界规则:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/世界规则:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `世界规则:${e.target.value}` : '') })} placeholder="世界规则" style={{ ...inputStyle, marginBottom: 3, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
-          <input value={config.customKink.match(/道具:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/道具:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `道具:${e.target.value}` : '') })} placeholder="道具清单" style={{ ...inputStyle, marginBottom: 3, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
-          <input value={config.customKink.match(/服装:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/服装:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `服装:${e.target.value}` : '') })} placeholder="服装清单" style={{ ...inputStyle, marginBottom: 3, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
-          <input value={config.customKink.match(/物品:([^,]+)/)?.[1] || ''} onChange={e => set({ ...config, customKink: config.customKink.replace(/物品:[^,]+/, '').replace(/,+/g, ',') + (e.target.value ? `物品:${e.target.value}` : '') })} placeholder="地点物品" style={{ ...inputStyle, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
-        </div>
-
-        {/* 10. Intensity */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>10. 强度与篇幅</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 10 }}>
-            <div>强度: {[1, 2, 3, 4, 5].map(i => (
-              <label key={i} style={{ cursor: 'pointer', marginLeft: 2, fontWeight: config.intensity === i ? 700 : 400, color: config.intensity === i ? '#7c3aed' : '#6b5e54' }}>
-                <input type="radio" name="intensity" checked={config.intensity === i} onChange={() => set({ ...config, intensity: i })} style={{ width: 10, height: 10, accentColor: '#7c3aed', marginRight: 1 }} />{INTENSITY_LEVELS[i]}
-              </label>
-            ))}</div>
-            <div>字数: <input type="number" min={500} max={50000} step={100} value={config.wordTarget} onChange={e => set({ ...config, wordTarget: Math.max(500, parseInt(e.target.value) || 500) })} style={{ width: 60, padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} /></div>
-            <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}><input type="checkbox" checked={config.streamMode} onChange={e => set({ ...config, streamMode: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />流式</label>
-            <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}><input type="checkbox" checked={config.replaceMode} onChange={e => set({ ...config, replaceMode: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />替换</label>
-            <div>视角: <select value={config.narrativePOV} onChange={e => set({ ...config, narrativePOV: e.target.value })} style={mini}>{POVS.map(p => <option key={p}>{p}</option>)}</select></div>
-          </div>
-        </div>
-
-        {/* 11. Extra */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>11. 额外注入 & 模板</div>
-          <input value={config.extraNote} onChange={e => set({ ...config, extraNote: e.target.value })} placeholder="额外备注" style={{ ...inputStyle, marginBottom: 4, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 10 }}>
-            <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}><input type="checkbox" checked={config.useStyleProfile} onChange={e => set({ ...config, useStyleProfile: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />风格档案</label>
-            {selectedChapter?.description && (
-              <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}><input type="checkbox" checked={config.useChapterOutline} onChange={e => set({ ...config, useChapterOutline: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#7c3aed' }} />细纲</label>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const renderNovelEditor = () => {
-    const config = novelConfig
-    const set = setNovelConfig
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {/* 1. Scene type */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>1. 场景类型与目的</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 10, alignItems: 'center' }}>
-            类型: <select value={config.sceneType} onChange={e => set({ ...config, sceneType: e.target.value })} style={mini}>{NOVEL_SCENE_TYPES.map(s => <option key={s}>{s}</option>)}</select>
-            冲突: <select value={config.conflictType} onChange={e => set({ ...config, conflictType: e.target.value })} style={mini}>{NOVEL_CONFLICTS.map(c => <option key={c}>{c}</option>)}</select>
-          </div>
-          <div style={{ fontSize: 10, marginTop: 4 }}>
-            目的: {NOVEL_PURPOSES.map(p => (
-              <label key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.scenePurpose.includes(p)} onChange={() => set({ ...config, scenePurpose: toggleArr(config.scenePurpose, p) })} style={{ width: 10, height: 10, accentColor: '#3b82f6' }} />{p}</label>
-            ))}
-          </div>
-        </div>
-
-        {/* 2. Characters */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>2. 角色与视角</div>
-          <div style={{ fontSize: 10, marginBottom: 4 }}>主视角: <select value={config.povCharacterId} onChange={e => { const ch = characters.find(c => c.id === e.target.value); set({ ...config, povCharacterId: e.target.value, povCharacterName: ch?.name || '' }) }} style={mini}><option value="">无</option>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-          {config.characters.map((ch, i) => (
-            <div key={ch.characterId} style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 3 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, minWidth: 45 }}>{ch.characterName}</span>
-              <input value={ch.emotion} onChange={e => { const n = [...config.characters]; n[i] = { ...n[i], emotion: e.target.value }; set({ ...config, characters: n }) }} placeholder="情绪" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 70 }} />
-              <button onClick={() => set({ ...config, characters: config.characters.filter(c => c.characterId !== ch.characterId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4' }}><TrashIcon style={{ width: 10, height: 10 }} /></button>
-            </div>
-          ))}
-          {characters.filter(c => !config.characters.find(x => x.characterId === c.id)).length > 0 && (
-            <details><summary style={{ fontSize: 10, color: '#3b82f6', cursor: 'pointer' }}>+ 添加角色</summary>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
-                {characters.filter(c => !config.characters.find(x => x.characterId === c.id)).map(c => (
-                  <button key={c.id} onClick={() => set({ ...config, characters: [...config.characters, { characterId: c.id, characterName: c.name, emotion: '' }] })} style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: 10, cursor: 'pointer' }}>{c.name}</button>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-
-        {/* 3. Environment */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>3. 环境描写</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
-            <div>地点: <select value={config.location} onChange={e => set({ ...config, location: e.target.value })} style={mini}>{['卧室','客厅','书房','玄关','浴室','厨房','阳台','办公室','会议室','咖啡厅','餐厅','公园','街道','校园','医院','法院','野外','山顶','海边','自定义'].map(l => <option key={l}>{l}</option>)}</select></div>
-            <input value={config.customLocation} onChange={e => set({ ...config, customLocation: e.target.value })} placeholder="自定义" style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} />
-            <div>天气: <select value={config.weather} onChange={e => set({ ...config, weather: e.target.value })} style={mini}>{NOVEL_WEATHERS.map(w => <option key={w}>{w}</option>)}</select></div>
-            <div>时间: <select value={config.time} onChange={e => set({ ...config, time: e.target.value })} style={mini}>{['清晨','午间','傍晚','深夜','不限'].map(t => <option key={t}>{t}</option>)}</select></div>
-            <div>氛围: <select value={config.atmosphere} onChange={e => set({ ...config, atmosphere: e.target.value })} style={mini}>{['温馨','紧张','悲伤','欢乐','恐惧','冷漠','愤怒','悬疑','不限'].map(a => <option key={a}>{a}</option>)}</select></div>
-          </div>
-          <div style={{ fontSize: 10, marginTop: 4 }}>感官: {NOVEL_SENSES.map(s => (
-            <label key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 6, cursor: 'pointer' }}><input type="checkbox" checked={config.senses.includes(s)} onChange={() => set({ ...config, senses: toggleArr(config.senses, s) })} style={{ width: 10, height: 10, accentColor: '#3b82f6' }} />{s}</label>
-          ))}</div>
-        </div>
-
-        {/* 4. Genre */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>4. 类型专属</div>
-          <div style={{ marginBottom: 4 }}>小说类型: <select value={genreType} onChange={e => { setGenreType(e.target.value); set({ ...config, genreElements: [] }) }} style={mini}>{Object.keys(NOVEL_GENRES).map(g => <option key={g}>{g}</option>)}</select></div>
-          {NOVEL_GENRES[genreType]?.map(el => (
-            <label key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginRight: 8, cursor: 'pointer', fontSize: 10 }}>
-              <input type="checkbox" checked={config.genreElements.includes(el)} onChange={() => set({ ...config, genreElements: toggleArr(config.genreElements, el) })} style={{ width: 10, height: 10, accentColor: '#3b82f6' }} />{el}
+          {NOVEL_GENRE_ELEMENTS[novelGenreType]?.map(el => (
+            <label key={el} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:10,cursor:'pointer',fontSize:11 }}>
+              <input type="checkbox" checked={nc.genreElements.includes(el)} onChange={() => setNC({...nc, genreElements: nc.genreElements.includes(el) ? nc.genreElements.filter(x => x !== el) : [...nc.genreElements, el]})} style={{ width:12,height:12,accentColor:'#3b82f6' }} />{el}
             </label>
           ))}
         </div>
-
-        {/* 5. Dialogue */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>5. 对话与节奏</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 10 }}>
-            <div>对话: <select value={config.dialogueRatio} onChange={e => set({ ...config, dialogueRatio: e.target.value })} style={mini}>{NOVEL_DIALOGUES.map(d => <option key={d}>{d}</option>)}</select></div>
-            <div>潜台词: <select value={config.subtextLevel} onChange={e => set({ ...config, subtextLevel: e.target.value })} style={mini}>{NOVEL_SUBTEXTS.map(s => <option key={s}>{s}</option>)}</select></div>
-            <div>句式: <select value={config.sentenceStyle} onChange={e => set({ ...config, sentenceStyle: e.target.value })} style={mini}>{NOVEL_SENTENCES.map(s => <option key={s}>{s}</option>)}</select></div>
-            <div>段落: <select value={config.paragraphDensity} onChange={e => set({ ...config, paragraphDensity: e.target.value })} style={mini}>{NOVEL_DENSITIES.map(d => <option key={d}>{d}</option>)}</select></div>
+          </AutoField>)
+      case 5: return (<AutoField field="dialogueRatio" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display:'flex',gap:8,flexWrap:'wrap',fontSize:11 }}>
+          对话: <select value={nc.dialogueRatio} onChange={e => setNC({...nc, dialogueRatio: e.target.value})} style={inputStyle}>{NOVEL_DIALOGUES.map(d => <option key={d}>{d}</option>)}</select>
+          潜台词: <select value={nc.subtextLevel} onChange={e => setNC({...nc, subtextLevel: e.target.value})} style={inputStyle}>{NOVEL_SUBTEXTS.map(s => <option key={s}>{s}</option>)}</select>
+          句式: <select value={nc.sentenceStyle} onChange={e => setNC({...nc, sentenceStyle: e.target.value})} style={inputStyle}>{NOVEL_SENTENCES.map(s => <option key={s}>{s}</option>)}</select>
+          段落: <select value={nc.paragraphDensity} onChange={e => setNC({...nc, paragraphDensity: e.target.value})} style={inputStyle}>{NOVEL_DENSITIES.map(d => <option key={d}>{d}</option>)}</select>
+        </div>
+          </AutoField>)
+      case 6: return (<AutoField field="wordTarget" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',fontSize:11 }}>
+            字数: <input type="number" min={500} max={50000} step={100} value={nc.wordTarget} onChange={e => setNC({...nc, wordTarget: Math.max(500, parseInt(e.target.value)||500)})} style={{ width:70,padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11 }} />
+            视角: <select value={nc.narrativePOV} onChange={e => setNC({...nc, narrativePOV: e.target.value})} style={inputStyle}>{POVS.map(p => <option key={p}>{p}</option>)}</select>
+          </div>
+          <div style={{ display:'flex',gap:10,fontSize:11,alignItems:'center' }}>
+            情绪起始: <input value={nc.emotionStart} onChange={e => setNC({...nc, emotionStart: e.target.value})} placeholder="如: 平静" style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11,width:80 }} />
+            → 结尾: <input value={nc.emotionEnd} onChange={e => setNC({...nc, emotionEnd: e.target.value})} placeholder="如: 暴怒" style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11,width:80 }} />
+          </div>
+          <div style={{ display:'flex',gap:10,fontSize:11,alignItems:'center' }}>
+            <label style={{ cursor:'pointer',display:'flex',alignItems:'center',gap:3 }}><input type="checkbox" checked={nc.useStyleProfile} onChange={e => setNC({...nc, useStyleProfile: e.target.checked})} style={{ width:12,height:12,accentColor:'#3b82f6' }} />注入风格档案</label>
+            <label style={{ cursor:'pointer',display:'flex',alignItems:'center',gap:3 }}><input type="checkbox" checked={nc.useChapterOutline} onChange={e => setNC({...nc, useChapterOutline: e.target.checked})} style={{ width:12,height:12,accentColor:'#3b82f6' }} />注入章节大纲</label>
+          </div>
+          <textarea value={nc.extraNote} onChange={e => setNC({...nc, extraNote: e.target.value})} rows={3} placeholder="额外说明..." style={{ ...inputStyle, width: '100%', resize: 'vertical' }} />
+        </div>
+          </AutoField>)
+      case 7: return (<AutoField field="narrativeStyle" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>叙事风格</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_NARRATIVE_STYLES.map(s => { const sel = nc.narrativeStyle === s; return <button key={s} onClick={() => setNC({...nc, narrativeStyle: s})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{s}</button> })}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>时间处理</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_TIME_COMPRESSION.map(t => { const sel = nc.timeCompression === t; return <button key={t} onClick={() => setNC({...nc, timeCompression: t})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{t}</button> })}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>内省深度</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_INTROSPECTION.map(i => { const sel = nc.introspection === i; return <button key={i} onClick={() => setNC({...nc, introspection: i})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{i}</button> })}</div>
           </div>
         </div>
-
-        {/* 6. Length */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>6. 篇幅与情绪</div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 10 }}>
-            字数: <input type="number" min={500} max={50000} step={100} value={config.wordTarget} onChange={e => set({ ...config, wordTarget: Math.max(500, parseInt(e.target.value) || 500) })} style={{ width: 55, padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10 }} />
-            视角: <select value={config.narrativePOV} onChange={e => set({ ...config, narrativePOV: e.target.value })} style={mini}>{['第一人称男主','第一人称女主','第三人称'].map(p => <option key={p}>{p}</option>)}</select>
+          </AutoField>)
+      case 8: return (<AutoField field="dominantEmotion" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>主导情绪</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_DOMINANT_EMOTIONS.map(e => { const sel = nc.dominantEmotion === e; return <button key={e} onClick={() => setNC({...nc, dominantEmotion: e})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{e}</button> })}</div>
           </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: 10, alignItems: 'center' }}>
-            起始: <input value={config.emotionStart} onChange={e => set({ ...config, emotionStart: e.target.value })} placeholder="平静" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 60 }} />
-            → 结尾: <input value={config.emotionEnd} onChange={e => set({ ...config, emotionEnd: e.target.value })} placeholder="暴怒" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, width: 60 }} />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>情绪曲线</div>
+            <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>示例: 平静→震惊→愤怒→释然</div>
+            <input value={nc.emotionCurveInput} onChange={e => setNC({...nc, emotionCurveInput: e.target.value})} style={{ ...inputStyle, width: '100%' }} placeholder='情绪(阶段)→情绪(阶段)→...' />
           </div>
-          <div style={{ marginTop: 4 }}>
-            <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10, marginRight: 8 }}><input type="checkbox" checked={config.useStyleProfile} onChange={e => set({ ...config, useStyleProfile: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#3b82f6' }} />风格</label>
-            {selectedChapter?.description && <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10 }}><input type="checkbox" checked={config.useChapterOutline} onChange={e => set({ ...config, useChapterOutline: e.target.checked })} style={{ width: 10, height: 10, accentColor: '#3b82f6' }} />细纲</label>}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>节奏</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_PACINGS.map(p => { const sel = nc.pacing === p; return <button key={p} onClick={() => setNC({...nc, pacing: p})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}</div>
           </div>
-          <input value={config.extraNote} onChange={e => set({ ...config, extraNote: e.target.value })} placeholder="额外备注" style={{ ...inputStyle, marginTop: 4, fontSize: 10, padding: '3px 8px', display: 'block', width: '100%' }} />
         </div>
-      </div>
-    )
+          </AutoField>)
+      case 9: return (<AutoField field="sensoryAnchors" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>感官锚点</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>{SENSORY_ANCHORS.map(a => { const sel = nc.sensoryAnchors === a; return <button key={a} onClick={() => setNC({...nc, sensoryAnchors: a})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{a}</button> })}</div>
+            <CustomInput hideDisplay values={nc.sensoryAnchors && !SENSORY_ANCHORS.includes(nc.sensoryAnchors) ? [nc.sensoryAnchors] : []} onAdd={v => setNC({...nc, sensoryAnchors: v})} onRemove={() => setNC({...nc, sensoryAnchors: ''})} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>关键道具</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>{NOVEL_PROPS_PRESETS.map(p => { const sel = nc.props === p; return <button key={p} onClick={() => setNC({...nc, props: p})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{p}</button> })}</div>
+            <CustomInput hideDisplay values={nc.props && !NOVEL_PROPS_PRESETS.includes(nc.props) ? [nc.props] : []} onAdd={v => setNC({...nc, props: v})} onRemove={() => setNC({...nc, props: ''})} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>角色外观</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>{NOVEL_APPEARANCE_PRESETS.map(a => { const sel = nc.appearance === a; return <button key={a} onClick={() => setNC({...nc, appearance: a})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{a}</button> })}</div>
+            <CustomInput hideDisplay values={nc.appearance && !NOVEL_APPEARANCE_PRESETS.includes(nc.appearance) ? [nc.appearance] : []} onAdd={v => setNC({...nc, appearance: v})} onRemove={() => setNC({...nc, appearance: ''})} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>肢体语言</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_BODY_LANGUAGES.map(b => { const sel = nc.bodyLanguage === b; return <button key={b} onClick={() => setNC({...nc, bodyLanguage: b})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{b}</button> })}</div>
+          </div>
+        </div>
+          </AutoField>)
+      case 10: return (<AutoField field="foreshadowUse" autoFields={novelConfig.autoFields} onToggle={toggleNovelAuto}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>伏笔操作</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{NOVEL_FORESHADOW_USE.map(f => { const sel = nc.foreshadowUse === f; return <button key={f} onClick={() => setNC({...nc, foreshadowUse: f})} style={{ padding: '4px 10px', borderRadius: 8, border: sel ? '1px solid #3b82f6' : '1px solid rgba(0,0,0,0.08)', background: sel ? 'rgba(59,130,246,0.08)' : '#fff', cursor: 'pointer', fontSize: 10, color: sel ? '#3b82f6' : '#6b5e54', fontWeight: sel ? 600 : 400 }}>{f}</button> })}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>场景转折点</div>
+            <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 4 }}>本场景的核心转折事件</div>
+            <input value={nc.sceneTurningPoint} onChange={e => setNC({...nc, sceneTurningPoint: e.target.value})} style={{ ...inputStyle, width: '100%' }} placeholder='如"发现真相"/"背叛时刻"' />
+          </div>
+        </div>
+          </AutoField>)
+      default: return <div style={{ fontSize: 12, color: '#9b8e84', padding: 20, textAlign: 'center' }}>未知区块</div>
+    }
   }
 
-  // ====================== Main render ======================
-
-  if (!activeProjectId) return null
-
-  if (loading) {
+  if (!editorType) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p>
+      <div className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 32 }}>
+        <div style={{ maxWidth: 700, margin: '0 auto', width: '100%' }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>场景工坊</h2>
+          <p style={{ fontSize: 13, color: '#9b8e84', marginBottom: 28 }}>创建可复用的场景模板，在AI生成章节时加载使用</p>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <button onClick={() => handleEnterType('erotic')} style={{
+              flex: 1, padding: '28px 24px', borderRadius: 16, border: '2px solid rgba(220,38,38,0.15)', cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(220,38,38,0.04), rgba(236,72,153,0.04))', textAlign: 'center',
+            }}>
+              <FireIcon style={{ width: 36, height: 36, color: '#dc2626', marginBottom: 12 }} />
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>情色场景</h3>
+              <p style={{ fontSize: 12, color: '#9b8e84' }}>角色定位 · 性癖 · 流程 · 技法 · 羞辱模式</p>
+            </button>
+            <button onClick={() => handleEnterType('novel')} style={{
+              flex: 1, padding: '28px 24px', borderRadius: 16, border: '2px solid rgba(59,130,246,0.15)', cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.04), rgba(124,58,237,0.04))', textAlign: 'center',
+            }}>
+              <BookOpenIcon style={{ width: 36, height: 36, color: '#3b82f6', marginBottom: 12 }} />
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>普通场景</h3>
+              <p style={{ fontSize: 12, color: '#9b8e84' }}>场景类型 · 角色情绪 · 环境 · 对话 · POV</p>
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', height: '100%' }}>
-      {/* Left: Chapter list */}
-      <div style={{ width: '18%', minWidth: 160, borderRight: '1px solid rgba(0,0,0,0.05)', background: 'rgba(255,255,255,0.35)', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>章节列表</h3>
-          <span style={{ fontSize: 10, color: '#9b8e84' }}>{detailedChapters.length}章</span>
-        </div>
-        <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
-          <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {detailedChapters.map((ch, idx) => {
-              const hasConfig = !!savedConfigs[ch.id]
-              return (
-                <button
-                  key={ch.id}
-                  onClick={() => setSelectedChapterId(ch.id)}
-                  style={{
-                    width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.04)',
-                    background: selectedChapterId === ch.id ? 'rgba(124,58,237,0.06)' : '#fff',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                    transition: 'background 0.1s',
-                  }}
-                >
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', minWidth: 28 }}>第{idx + 1}章</span>
-                  <span style={{ fontSize: 11, color: '#2d2520', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title || '未命名'}</span>
-                  {hasConfig && <CheckCircleIcon style={{ width: 12, height: 12, color: '#16a34a', flexShrink: 0 }} />}
-                </button>
-              )
-            })}
-            {detailedChapters.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 16, fontSize: 11, color: '#9b8e84' }}>暂无章节<br/>请先在细纲页创建章节</div>
-            )}
-          </div>
-        </ScrollArea>
+    <div className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <Button variant="ghost" size="sm" onClick={() => setEditorType(null)}>← 返回</Button>
+        <h2 style={{ fontSize: 17, fontWeight: 700, color: editorType === 'erotic' ? '#dc2626' : '#3b82f6' }}>
+          {editorType === 'erotic' ? '🔥 情色场景模板' : '📖 普通场景模板'}
+        </h2>
+        <div style={{ flex: 1 }} />
+        <Button size="sm" onClick={handleNewTemplate} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建模板</Button>
       </div>
 
-      {/* Center: Editor */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Top bar */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>场景工坊</h2>
-            {selectedChapter && (
-              <span style={{ fontSize: 11, color: '#6b5e54' }}>
-                当前: {selectedChapter.title || `第${(detailedChapters.findIndex(c => c.id === selectedChapterId) ?? 0) + 1}章`}
-              </span>
-            )}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <div style={{ width: 300, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.3)' }}>
+          <div style={{ padding: '10px 14px', fontSize: 12, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+            已保存模板 ({templates.length})
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button onClick={() => setActiveTab('erotic')} style={{
-              padding: '6px 16px', borderRadius: '8px 0 0 8px', border: '1px solid rgba(0,0,0,0.08)',
-              background: activeTab === 'erotic' ? '#7c3aed' : '#fff',
-              color: activeTab === 'erotic' ? '#fff' : '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}>情色场景</button>
-            <button onClick={() => setActiveTab('novel')} style={{
-              padding: '6px 16px', borderRadius: '0 8px 8px 0', border: '1px solid rgba(0,0,0,0.08)',
-              background: activeTab === 'novel' ? '#3b82f6' : '#fff',
-              color: activeTab === 'novel' ? '#fff' : '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}>通用场景</button>
-          </div>
-        </div>
-
-        {/* Editor body */}
-        {!selectedChapterId ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-            <DocumentTextIcon style={{ width: 40, height: 40, color: '#d4ccc4' }} />
-            <p style={{ fontSize: 14, color: '#9b8e84' }}>请从左侧选择一个章节</p>
-          </div>
-        ) : (
           <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
-            <div style={{ padding: 14 }}>
-              {activeTab === 'erotic' ? renderEroticEditor() : renderNovelEditor()}
-            </div>
-          </ScrollArea>
-        )}
-
-        {/* Bottom action bar */}
-        {selectedChapterId && (
-          <div style={{ padding: '10px 20px', borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', background: 'rgba(255,255,255,0.5)' }}>
-            <Button size="sm" onClick={handleSaveConfig} disabled={saving}>{saving ? '保存中...' : '保存配置'}</Button>
-
-            {templates.length > 0 && (
-              <select onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) handleLoadTemplate(t) }} defaultValue="" style={{ ...mini, fontSize: 11 }}>
-                <option value="" disabled>加载模板</option>
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
-
-            {!showSaveTpl ? (
-              <button onClick={() => setShowSaveTpl(true)} style={linkBtn}>保存为模板</button>
-            ) : (
-              <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <input value={tplName} onChange={e => setTplName(e.target.value)} placeholder="模板名" style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, width: 100 }} />
-                <Button size="sm" onClick={handleSaveTemplate}>保存</Button>
-                <button onClick={() => { setShowSaveTpl(false); setTplName('') }} style={{ ...linkBtn, color: '#9b8e84' }}>取消</button>
-              </span>
-            )}
-
-            <div style={{ flex: 1 }} />
-
-            <Button size="sm" variant="secondary" onClick={handlePreview} disabled={generating || !activeConfigId} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
-              {generating ? '生成中...' : '预览生成'}
-            </Button>
-            <Button size="sm" onClick={handleGenerateAndInsert} disabled={generating || !activeConfigId}>
-              生成并插入章节
-            </Button>
-          </div>
-        )}
-
-        {/* Template list */}
-        {templates.length > 0 && (
-          <div style={{ padding: '4px 20px 8px', borderTop: '1px solid rgba(0,0,0,0.02)', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: '#9b8e84', marginRight: 4 }}>模板:</span>
-            {templates.map(t => (
-              <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 6, background: 'rgba(124,58,237,0.06)', fontSize: 10 }}>
-                {t.name}
-                <button onClick={() => handleDeleteTemplate(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0 }}><TrashIcon style={{ width: 10, height: 10 }} /></button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Right: Reference panel */}
-      <div style={{ width: '18%', minWidth: 180, borderLeft: '1px solid rgba(0,0,0,0.05)', background: 'rgba(255,255,255,0.35)', display: 'flex', flexDirection: 'column' }}>
-        {/* Chapter outline reference */}
-        <div style={{ height: '50%', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px 14px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <DocumentTextIcon style={{ width: 14, height: 14, color: '#7c3aed' }} />
-            <h4 style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>本章细纲</h4>
-          </div>
-          <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '0 14px 10px' }}>
-            <div style={{ fontSize: 11, lineHeight: 1.7, color: '#4a3f38', whiteSpace: 'pre-wrap' }}>
-              {selectedChapter?.description || (selectedChapterId ? '该章节暂无细纲描述' : '请选择章节')}
+            <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6  }}>
+              {templates.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>暂无模板</div>
+              ) : (
+                templates.map(tpl => (
+                  <div key={tpl.id} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.05)', fontSize: 13 }}>
+                    <div style={{ fontWeight: 600, color: '#2d2520', marginBottom: 4 }}>{tpl.name}</div>
+                    <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>{new Date(tpl.createdAt).toLocaleDateString()}</div>
+                    <div style={{ display: 'flex', gap: 4  }}>
+                      <Button size="sm" variant="ghost" onClick={() => handleEditTemplate(tpl)} icon={<PencilIcon style={{ width: 11, height: 11 }} />}>编辑</Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleDuplicateTemplate(tpl)}>复制</Button>
+                      <button onClick={() => handleDeleteTemplate(tpl.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#d4ccc4', marginLeft: 'auto' }}><TrashIcon style={{ width: 13, height: 13 }} /></button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </ScrollArea>
         </div>
 
-        {/* Character list */}
-        <div style={{ height: '35%', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '12px 14px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <UserIcon style={{ width: 14, height: 14, color: '#7c3aed' }} />
-            <h4 style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>角色列表</h4>
-            <span style={{ fontSize: 10, color: '#9b8e84' }}>{characters.length}个</span>
-          </div>
-          <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '0 8px 8px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {characters.map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', fontSize: 10, borderRadius: 4 }}>
-                  <span style={{ fontWeight: 600, color: '#2d2520' }}>{c.name || '未命名'}</span>
-                  {c.role && <span style={{ color: '#9b8e84', fontSize: 9 }}>{c.role}</span>}
+        <div style={{ flex: 1, overflow: 'hidden'  }}>
+          {!showEditor ? (
+            <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}>
+              <DocumentTextIcon style={{ width: 48, height: 48, margin: '0 auto 12px', opacity: 0.2 }} />
+              <p style={{ fontSize: 14 }}>选择左侧模板编辑，或点击「新建模板」</p>
+            </div>
+          ) : editorType === 'erotic' ? (
+            <>
+              <div style={{ padding: '12px 16px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                    <input value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
+                  </div>
+              <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+                <div style={{ padding: '12px 16px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  {SECTIONS.map(s => (
+                    <SectionCard key={s.id} id={s.id} label={s.label} summary={getSectionSummary(s.id, eroticConfig)} onClick={() => { setEditingSection(s.id); setShowSectionModal(true) }} />
+                  ))}
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12 }}>
+                    <Button variant="secondary" onClick={() => setShowEditor(false)}>取消</Button>
+                    <Button onClick={handleSaveTemplate}>💾 保存模板</Button>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* Preview area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 100 }}>
-          <div style={{ padding: '10px 14px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <SparklesIcon style={{ width: 14, height: 14, color: '#7c3aed' }} />
-            <h4 style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>预览</h4>
-            {generating && <span style={{ fontSize: 10, color: '#f59e0b' }}>生成中...</span>}
-          </div>
-          <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '0 10px 8px' }}>
-            <div style={{ fontSize: 11, lineHeight: 1.7, color: '#4a3f38', whiteSpace: 'pre-wrap' }}>
-              {previewText || (selectedChapterId ? '点击「预览生成」查看效果' : '请选择章节')}
-            </div>
-          </ScrollArea>
+              </ScrollArea>
+              <Modal isOpen={showSectionModal} onClose={() => { setShowSectionModal(false); setEditTagMode(false) }} title={editingSection ? (SECTIONS.find(s => s.id === editingSection)?.label || '') : ''} width={700}>
+                {editingSection && (
+                  <div style={{ maxHeight: '65vh', overflowY: 'auto' }} className="custom-scrollbar">
+                    {renderSectionEditor(editingSection)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 12 }}>
+                  <Button variant={editTagMode ? 'primary' : 'secondary'} size="sm" onClick={() => setEditTagMode(!editTagMode)}>{editTagMode ? '✓ 完成编辑' : '✎ 编辑标签'}</Button>
+                  <Button variant="secondary" size="sm" onClick={() => { setShowSectionModal(false); setEditTagMode(false) }}>关闭</Button>
+                </div>
+              </Modal>
+            </>
+          ) : (
+            <>
+              <div style={{ padding: '12px 16px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                <input value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
+              </div>
+              <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
+                <div style={{ padding: '12px 16px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  {NOVEL_SECTIONS.map(s => (
+                    <NovelSectionCard key={s.id} id={s.id} label={s.label} summary={getNovelSectionSummary(s.id, novelConfig)} onClick={() => { setEditingNovelSection(s.id); setShowNovelSectionModal(true) }} />
+                  ))}
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12 }}>
+                    <Button variant="secondary" onClick={() => setShowEditor(false)}>取消</Button>
+                    <Button onClick={handleSaveTemplate}>💾 保存模板</Button>
+                  </div>
+                </div>
+              </ScrollArea>
+              <Modal isOpen={showNovelSectionModal} onClose={() => { setShowNovelSectionModal(false); setEditTagMode(false) }} title={editingNovelSection ? (NOVEL_SECTIONS.find(s => s.id === editingNovelSection)?.label || '') : ''} width={700}>
+                {editingNovelSection && (
+                  <div style={{ maxHeight: '65vh', overflowY: 'auto' }} className="custom-scrollbar">
+                    {renderNovelSectionEditor(editingNovelSection)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 12 }}>
+                  <Button variant={editTagMode ? 'primary' : 'secondary'} size="sm" onClick={() => setEditTagMode(!editTagMode)}>{editTagMode ? '✓ 完成编辑' : '✎ 编辑标签'}</Button>
+                  <Button variant="secondary" size="sm" onClick={() => { setShowNovelSectionModal(false); setEditTagMode(false) }}>关闭</Button>
+                </div>
+              </Modal>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { styleProjectService, aiService } from '@/services/fileService'
+import { styleProjectService, aiService, styleTemplateService } from '@/services/fileService'
+import type { StyleTemplate } from '@/types/styleTemplate'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
-import { buildStyleAnalyzePrompt, parseStyleAnalysisReply } from '@/services/extractionService'
+import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3 } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
+import { splitChaptersByHeadings } from '@/utils/textUtils'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import {
@@ -20,47 +22,26 @@ import {
 type ViewMode = 'library' | 'detail'
 type ResultTab = 'chapters' | 'overall'
 
-const CHAPTER_PATTERNS: { regex: RegExp; type: StyleChapter['chapterType'] }[] = [
-  { regex: /^楔子\s*$/, type: 'prologue' }, { regex: /^序章\s*$/, type: 'prologue' },
-  { regex: /^引子\s*$/, type: 'prologue' }, { regex: /^前言\s*$/, type: 'prologue' },
-  { regex: /^终章\s*$/, type: 'epilogue' }, { regex: /^尾声\s*$/, type: 'epilogue' },
-  { regex: /^后记\s*$/, type: 'afterword' }, { regex: /^番外[一二三四五六七八九十百千零\d]+\s*$/, type: 'sideStory' },
-  { regex: /^第[一二三四五六七八九十百千零\d]+[章卷节回](\s+.{1,40})?$/, type: 'chapter' },
-]
-
 function splitChapters(content: string): StyleChapter[] {
-  const lines = content.split('\n')
-  const chapters: { title: string; type: StyleChapter['chapterType']; startLine: number }[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    if (line.length > 40) continue
-    for (const pat of CHAPTER_PATTERNS) {
-      if (pat.regex.test(line)) { chapters.push({ title: line, type: pat.type, startLine: i }) }
-    }
-  }
-  const result: StyleChapter[] = []
   let chapterNum = 0
-  for (let c = 0; c < chapters.length; c++) {
-    const start = chapters[c].startLine
-    const end = c < chapters.length - 1 ? chapters[c + 1].startLine : lines.length
-    const body = lines.slice(start, end).join('\n').trim()
-    if (body.length < 50) continue
+  return splitChaptersByHeadings(content).map(r => {
     chapterNum++
-    result.push({ id: `ch_${chapterNum}`, title: chapters[c].title, chapterNumber: chapterNum, chapterType: chapters[c].type, content: body, charCount: body.length, analyzed: false, analysis: null })
-  }
-  if (result.length === 0 && content.trim().length > 0) {
-    result.push({ id: 'ch_1', title: '全文', chapterNumber: 1, chapterType: 'chapter', content: content.trim(), charCount: content.length, analyzed: false, analysis: null })
-  }
-  return result
+    return {
+      id: `ch_${chapterNum}`, title: r.title, chapterNumber: chapterNum,
+      chapterType: r.chapterType as StyleChapter['chapterType'],
+      content: r.content, charCount: r.content.length, analyzed: false, analysis: null,
+    }
+  })
 }
 const FEATURE_LABELS: Record<string, string> = {
-  sentenceStyle: '句式', vocabularyStyle: '词汇', rhetoricStyle: '修辞',
+  narrativeTone: '叙事基调', sentenceStyle: '句式', vocabularyStyle: '词汇', rhetoricStyle: '修辞',
   rhythmStyle: '节奏', dialogueStyle: '对话', moodStyle: '氛围',
   perspectiveStyle: '视角', bodyLanguageStyle: '身体', sensoryStyle: '感官',
   tensionStyle: '张力', subtextStyle: '暗示', descriptionPattern: '描写结构',
   corruptionArc: '人物演变', degradationRitual: '场景机制', narrativeVoice: '叙事声音', shameVoyeurLoop: '心理循环',
   socialRealism: '社会现实', cultivationCombat: '修炼战斗', romanceArc: '感情发展', archaicStyle: '古风文言', suspensePacing: '悬疑节奏',
+  compoundWordPattern: '造词模式', onomatopoeiaSystem: '拟声词系统', sensoryPackFormula: '感官打包',
+  bodyMindBetrayal: '身心背离', humiliationTemplate: '羞辱公式',
 }
 
 export default function StyleWorkshopPage() {
@@ -166,8 +147,8 @@ export default function StyleWorkshopPage() {
         setAnalyzeProgress(`快速模式: ${sample.length} 章...`)
         // Analyze all at once, then split result per chapter (simple approach: assign same analysis to each)
         for (const ch of sample) {
-          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-          updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply))
+          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+          updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
           setAnalyzeProgress(`快速模式: ${sample.indexOf(ch) + 1}/${sample.length}`)
         }
       } else {
@@ -176,8 +157,8 @@ export default function StyleWorkshopPage() {
         for (let i = 0; i < batches.length; i++) {
           setAnalyzeProgress(`精确模式: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-            updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply))
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
           }
         }
       }
@@ -214,6 +195,31 @@ export default function StyleWorkshopPage() {
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
       const result = parseStyleAnalysisReply(reply)
+      // Aggregate dimAnalyses from all analyzed chapters
+      const aggregatedDimAnalyses: Record<string, import('@/types/story').DimAnalysis> = {}
+      for (const ch of analyzedChapters) {
+        if (ch.analysis?.dimAnalyses) {
+          for (const [dk, da] of Object.entries(ch.analysis.dimAnalyses)) {
+            const existing = aggregatedDimAnalyses[dk]
+            if (!existing) {
+              aggregatedDimAnalyses[dk] = { ...da }
+            } else {
+              // Deduplicate examples and vocabulary
+              const mergedExamples = [...existing.examples]
+              for (const ex of da.examples || []) { if (!mergedExamples.includes(ex)) mergedExamples.push(ex) }
+              const mergedVocab = [...existing.vocabularyList]
+              for (const v of da.vocabularyList || []) { if (!mergedVocab.includes(v)) mergedVocab.push(v) }
+              aggregatedDimAnalyses[dk] = {
+                description: existing.description || da.description,
+                examples: mergedExamples.slice(0, 30),
+                writingRules: [...new Set([...(existing.writingRules || []), ...(da.writingRules || [])])],
+                vocabularyList: mergedVocab.slice(0, 80),
+              }
+            }
+          }
+        }
+      }
+
       const profile: StyleProfile = {
         features: {
           sentenceStyle: result.sentenceStyle, vocabularyStyle: result.vocabularyStyle,
@@ -235,6 +241,7 @@ export default function StyleWorkshopPage() {
         excerpts: result.excerpt ? [{ text: result.excerpt, note: result.excerptNote }] : [],
         analyzedAt: new Date().toISOString(),
         analyzedChapterCount: analyzedChapters.length,
+        dimAnalyses: Object.keys(aggregatedDimAnalyses).length > 0 ? aggregatedDimAnalyses : undefined,
       }
       const updated = { ...selectedProject, profile }
       setSelectedProject(updated)
@@ -257,6 +264,37 @@ export default function StyleWorkshopPage() {
     const updated = { ...styleAssignments, [targetProjectId]: styleProjectId ? styleProjectId : '' }
     if (!styleProjectId) delete updated[targetProjectId]
     setStyleAssignments({ styleAssignments: updated })
+  }
+
+  const handleSaveAsTemplate = async () => {
+    if (!selectedProject?.profile) return
+    const profile = selectedProject.profile
+    // Build a StyleTemplate from the StyleProject's profile
+    const dims = profile.dimAnalyses || {}
+    const vocabList: string[] = []
+    const rulesList: string[] = []
+    for (const da of Object.values(dims)) {
+      if ((da as any).vocabularyList) vocabList.push(...(da as any).vocabularyList)
+      if ((da as any).writingRules) rulesList.push(...(da as any).writingRules)
+    }
+    const template: StyleTemplate = {
+      id: '', name: selectedProject.name || 'AI分析模板',
+      type: selectedProject.novelType === '情色' ? '情色小说' : '普通小说',
+      worldType: '', description: profile.fullDescription?.slice(0, 100) || '',
+      fullDescription: profile.fullDescription || '',
+      dimensions: dims as any,
+      vocabularyList: [...new Set(vocabList)].slice(0, 100),
+      writingRules: [...new Set(rulesList)].slice(0, 50),
+      tone: { word: '', description: '', attitude: '' },
+      source: 'ai-generated',
+      sourceProjectId: selectedProject.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    try {
+      await styleTemplateService.save(template)
+      alert('已保存为风格模板！')
+    } catch { alert('保存失败') }
   }
 
   const selectedChapter = selectedProject?.chapters.find(c => c.id === selectedChapterId)
@@ -461,6 +499,7 @@ export default function StyleWorkshopPage() {
                 <Button size="sm" onClick={handleSummarize} disabled={summarizeLoading || analyzedChapters.length === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
                   {summarizeLoading ? '总结中...' : 'AI总结'}
                 </Button>
+                {selectedProject.profile && <Button size="sm" variant="secondary" onClick={handleSaveAsTemplate}>保存为模板</Button>}
                 {selectedProject.profile && <Button size="sm" variant="danger" onClick={handleClearProfile}>清空总结</Button>}
               </div>
               {selectedProject.profile ? (
@@ -607,7 +646,7 @@ export default function StyleWorkshopPage() {
             const inactiveInCat = dimsInCat.filter(([k]) => !activeIds.includes(k))
             return (
               <div key={cat}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : '#7c3aed', marginBottom: 8 }}>{cat} ({activeInCat.length}维)</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : cat === '泛用技法' ? '#16a34a' : '#7c3aed', marginBottom: 8 }}>{cat} ({activeInCat.length}维)</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {activeInCat.map(([k, m]) => (
                     <div key={k} style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.1)', fontSize: 12, lineHeight: 1.7 }}>
@@ -641,7 +680,7 @@ export default function StyleWorkshopPage() {
           {/* Presets */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>预设:</span>
-            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
+            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法','泛用技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
             <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={presetBtn}>🔞 情色全维</button>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginLeft: 8 }}>类型:</span>
             {['通用','都市','修仙','恋爱','古风','悬疑'].map(genre => (
@@ -661,7 +700,7 @@ export default function StyleWorkshopPage() {
           {/* Grouped checkboxes */}
           {[...new Set(Object.values(DIMENSION_META).map(m => m.category))].map(cat => (
             <div key={cat}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : '#7c3aed', marginBottom: 6 }}>{cat}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: cat === '情色专属' ? '#ec4899' : cat === '类型专属' ? '#f59e0b' : cat === '泛用技法' ? '#16a34a' : '#7c3aed', marginBottom: 6 }}>{cat}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
                 {Object.entries(DIMENSION_META).filter(([, m]) => m.category === cat).map(([k, m]) => (
                   <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>

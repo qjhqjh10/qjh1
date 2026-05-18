@@ -1,0 +1,5 @@
+export type ViewMode = 'typeSelect' | 'library' | 'detail'
+export type NovelType = 'general' | 'urban' | 'cultivation' | 'martial' | 'romance' | 'ancient' | 'mystery' | 'historical' | 'transmigration' | 'scifi' | 'erotic'
+export type Step = 'import' | 'extracting' | 'style' | 'generating' | 'completed'
+export type PreviewTab = 'chapter' | 'srcOutline' | 'srcDetails' | 'outline' | 'details' | 'timeline' | 'write' | 'generate'
+export type DimKey = 'characters' | 'worldbuilding' | 'items' | 'powerSystem' | 'foreshadowing' | 'emotionCurve' | 'erotic'

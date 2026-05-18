@@ -1,4 +1,7 @@
 import { logError } from '@/utils/logger'
+import type { ModelConfig } from '@/types/settings'
+import type { StyleProject, SceneTemplate } from '@/types/story'
+import type { ModelPrice } from '@/types/electron'
 
 function e() {
   if (!window.electron) throw new Error('Electron bridge not available - run in Electron environment')
@@ -17,7 +20,7 @@ export const fileService = {
 }
 
 export const projectService = {
-  create: (name: string, basePath: string) => e().project.create(name, basePath),
+  create: (name: string, basePath: string, type?: string) => e().project.create(name, basePath, type),
   delete: (projectPath: string) => e().project.delete(projectPath),
   getMeta: (projectPath: string) => e().project.getMeta(projectPath),
   listProjects: (basePath: string) => e().project.listProjects(basePath),
@@ -47,7 +50,12 @@ export const aiService = {
     const raw = await e().ai.chat(messages, configId, projectId)
     try {
       const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed.text === 'string') return { text: parsed.text as string, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
+      if (parsed && typeof parsed.text === 'string') {
+        return { text: parsed.text as string, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
+      }
+      if (parsed && parsed.usage) {
+        return { text: raw, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
+      }
     } catch (e) { logError('解析 AI 回复 JSON 失败 (chatWithUsage)', e) }
     return { text: raw, usage: undefined }
   },
@@ -81,27 +89,25 @@ export const aiService = {
 export const kbService = {
   list: () => e().kb.list(),
   read: (fileId: string) => e().kb.read(fileId),
-  upload: (activeProjectId: string) => e().kb.upload(activeProjectId),
   selectFiles: () => e().kb.selectFiles(),
   uploadFiles: (filePaths: string[], activeProjectId: string) => e().kb.uploadFiles(filePaths, activeProjectId),
   delete: (fileId: string) => e().kb.delete(fileId),
   write: (fileId: string, content: string) => e().kb.write(fileId, content),
-  index: (fileId: string, apiUrl: string, apiKey: string, embeddingModel: string) =>
-    e().kb.index(fileId, apiUrl, apiKey, embeddingModel),
-  search: (query: string, projectId: string, apiUrl: string, apiKey: string, embeddingModel: string, topK?: number, fileIds?: string[]) =>
-    e().kb.search(query, projectId, apiUrl, apiKey, embeddingModel, topK, fileIds),
+  index: (fileId: string, configId: string) =>
+    e().kb.index(fileId, configId),
+  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) =>
+    e().kb.search(query, projectId, configId, topK, fileIds),
   assignProject: (fileId: string, projectId: string, assigned: boolean) =>
     e().kb.assignProject(fileId, projectId, assigned),
-  getEmbedding: (text: string, apiUrl: string, apiKey: string, embeddingModel: string) =>
-    e().kb.getEmbedding(text, apiUrl, apiKey, embeddingModel),
+  getEmbedding: (text: string, configId: string) =>
+    e().kb.getEmbedding(text, configId),
   estimate: (filePath: string) => e().kb.estimate(filePath),
   rename: (fileId: string, newName: string) => e().kb.rename(fileId, newName),
   download: (fileId: string) => e().kb.download(fileId),
-  webSearch: (query: string, maxResults?: number) => e().kb.webSearch(query, maxResults),
+  webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => e().kb.webSearch(query, maxResults, safeSearch, prioritySites),
 }
 
 export const dialogService = {
-  selectDirectory: () => e().dialog.selectDirectory(),
   saveFile: (defaultName: string) => e().dialog.saveFile(defaultName),
 }
 
@@ -110,7 +116,7 @@ export const appService = {
 }
 
 export const settingsService = {
-  saveConfigs: (configs: unknown[]) => e().settings.saveConfigs(configs),
+  saveConfigs: (configs: ModelConfig[]) => e().settings.saveConfigs(configs),
   loadConfigs: () => e().settings.loadConfigs(),
 }
 
@@ -118,28 +124,32 @@ export const statsService = {
   getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) =>
     e().stats.getUsage(opts || {}),
   getPrices: () => e().stats.getPrices(),
-  savePrices: (prices: unknown[]) => e().stats.savePrices(prices),
+  savePrices: (prices: ModelPrice[]) => e().stats.savePrices(prices),
   deleteByLine: (lineNumber: number) => e().stats.deleteByLine(lineNumber),
+  getMonthCost: () => e().stats.getMonthCost(),
 }
 
 export const styleProjectService = {
   importFile: () => e().styleProjects.importFile(),
   listProjects: () => e().styleProjects.listProjects(),
   loadProject: (id: string) => e().styleProjects.loadProject(id),
-  saveProject: (project: unknown) => e().styleProjects.saveProject(project),
+  saveProject: (project: StyleProject) => e().styleProjects.saveProject(project),
   deleteProject: (id: string) => e().styleProjects.deleteProject(id),
+}
+
+export const styleTemplateService = {
+  list: () => e().styleTemplates.list(),
+  read: (id: string) => e().styleTemplates.read(id),
+  save: (template: any) => e().styleTemplates.save(template),
+  delete: (id: string) => e().styleTemplates.delete(id),
 }
 
 export const templateService = {
   list: () => e().templates.list(),
-  save: (template: unknown) => e().templates.save(template),
+  save: (template: SceneTemplate) => e().templates.save(template),
   delete: (id: string) => e().templates.delete(id),
 }
 
 export const extractionService = {
   importFile: () => e().extractions.importFile(),
-  listProjects: () => e().extractions.listProjects(),
-  loadProject: (id: string) => e().extractions.loadProject(id),
-  saveProject: (project: unknown) => e().extractions.saveProject(project),
-  deleteProject: (id: string) => e().extractions.deleteProject(id),
 }

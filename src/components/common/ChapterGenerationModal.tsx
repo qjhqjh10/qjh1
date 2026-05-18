@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, fileService } from '@/services/fileService'
+import { aiService, kbService, fileService, templateService, styleTemplateService } from '@/services/fileService'
+import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
 import Modal from './Modal'
 import Button from './Button'
-import ScrollArea from './ScrollArea'
-import { SparklesIcon, XMarkIcon, BookOpenIcon } from '@heroicons/react/24/outline'
+import { SparklesIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
-import type { Character } from '@/types/character'
+import type { SceneTemplate, EroticSceneConfig, NovelSceneConfig } from '@/types/story'
 import { logError } from '@/utils/logger'
-import { getStyleInjection } from '@/utils/styleInjector'
 
 interface Props {
   isOpen: boolean
@@ -22,6 +21,8 @@ interface Props {
   onGenChunk?: (data: { accumulated: string; charCount: number }) => void
   onGenDone?: () => void
   onGenError?: (msg: string) => void
+  // Expose abort function to parent for cancel button in overlay
+  externalAbortRef?: React.MutableRefObject<(() => void) | null>
 }
 
 export interface VersionRecord {
@@ -52,7 +53,7 @@ export async function saveVersionRecord(projectPath: string, chapterId: string, 
   return id
 }
 
-export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
+export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError, externalAbortRef }: Props) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
@@ -91,14 +92,117 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [streamDone, setStreamDone] = useState(false)
   const [streamUsage, setStreamUsage] = useState<{ prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined>()
 
-  // Reset state when modal opens
+  // Scene template injection
+  const [sceneTemplates, setSceneTemplates] = useState<SceneTemplate[]>([])
+  const [selectedSceneId, setSelectedSceneId] = useState('')
+  const [sceneFilterType, setSceneFilterType] = useState<'all' | 'erotic' | 'novel'>('all')
+  const [styleTemplates, setStyleTemplates] = useState<any[]>([])
+  const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState('')
+  const selectedStyleTemplate = selectedStyleTemplateId ? styleTemplates.find((t: any) => t.id === selectedStyleTemplateId) : null
+
   useEffect(() => {
-    if (isOpen) { setError(''); setStreamContent(''); setStreamChars(0); setStreamDone(false); setStreamUsage(undefined) }
+    if (isOpen) {
+      setError(''); setStreamContent(''); setStreamChars(0); setStreamDone(false); setStreamUsage(undefined)
+      templateService.list().then(list => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => setSceneTemplates([]))
+      styleTemplateService.list().then(list => setStyleTemplates(Array.isArray(list) ? list : [])).catch(() => setStyleTemplates([]))
+    }
   }, [isOpen])
+
+  const selectedScene = selectedSceneId ? sceneTemplates.find(t => t.id === selectedSceneId) : null
+
+  const ROLE_LABELS: Record<string, string> = { dom: '主导', sub: '服从', switch: 'Switch', observer: '旁观' }
+
+  const buildScenePrompt = (tpl: SceneTemplate): string => {
+    const auto = tpl.config.autoFields || {}
+    const a = (field: string) => !!auto[field]
+    const autoLabel = (field: string, label: string) => a(field) ? `【${label}：AI根据上下文自主决定】` : null
+
+    if (tpl.type === 'erotic') {
+      const ec = tpl.config as EroticSceneConfig
+      const parts: string[] = []
+      if (a('characters')) parts.push('【角色状态：AI根据上下文自主决定】')
+      else {
+        const charLines: string[] = []
+        if (ec.characters?.length > 0) charLines.push(ec.characters.map(c => `${c.characterName}: ${ROLE_LABELS[c.role] || c.role}, ${c.bodyState}${c.customNote ? ', ' + c.customNote : ''}`).join('\n'))
+        if (ec.customCharacters?.length > 0) charLines.push(ec.customCharacters.map(c => `${c.name}: ${c.role}, ${c.bodyState}${c.note ? ', ' + c.note : ''}`).join('\n'))
+        if (charLines.length > 0) parts.push('【角色状态】\n' + charLines.join('\n'))
+      }
+      const sceneLine = autoLabel('location', '场景') || `【场景】${ec.location || ''} | ${ec.time || ''} | ${ec.atmosphere || ''} | ${ec.publicity || ''}`
+      parts.push(sceneLine)
+      if (a('selectedKinks')) parts.push('【玩法：AI根据上下文自主决定】')
+      else if (ec.selectedKinks?.length > 0) {
+        let kinkLine = `【玩法】${ec.selectedKinks.join('、')}${ec.kinkNote ? ' | ' + ec.kinkNote : ''}`
+        const intensities = ec.kinkIntensities || {}
+        const intensityParts = Object.entries(intensities).filter(([, v]) => v && v !== '标准').map(([k, v]) => `${k}:${v}`)
+        if (intensityParts.length > 0) kinkLine += ` | 强度: ${intensityParts.join('、')}`
+        parts.push(kinkLine)
+      }
+      if (a('opening')) parts.push('【起始：AI根据上下文自主决定】')
+      else if (ec.opening?.length > 0) parts.push(`【起始】${ec.opening.join('、')}`)
+      parts.push(a('mainPose') ? '【主戏：AI根据上下文自主决定】' : `【主戏】姿势: ${ec.mainPose || ''} | 节奏: ${ec.mainRhythm || ''} | 转换: ${ec.poseChanges || ''}`)
+      if (a('climax')) parts.push('【高潮：AI根据上下文自主决定】')
+      else if (ec.climax?.length > 0) parts.push(`【高潮】${ec.climax.join('、')}`)
+      if (a('aftermath')) parts.push('【余韵：AI根据上下文自主决定】')
+      else if (ec.aftermath?.length > 0) parts.push(`【余韵】${ec.aftermath.join('、')}`)
+      if (!a('extraPhases') && ec.extraPhases?.length > 0) parts.push(`【自定义阶段】${ec.extraPhases.map(p => `${p.name}: ${p.desc}`).join(' | ')}`)
+      if (!a('bodyFluidFocus') && ec.bodyFluidFocus?.length) parts.push(`【体液】${ec.bodyFluidFocus.join('、')}`)
+      if (!a('bodyPartFocus') && ec.bodyPartFocus?.length) parts.push(`【身体焦点】${ec.bodyPartFocus.join('、')}`)
+      if (!a('tactileFocus') && ec.tactileFocus?.length) parts.push(`【触感焦点】${ec.tactileFocus.join('、')}`)
+      if (!a('sensoryAnchors') && ec.sensoryAnchors) parts.push(`【感官锚点】${ec.sensoryAnchors}`)
+      if (!a('bodyLanguage') && ec.bodyLanguage) parts.push(`【非言语表达】${ec.bodyLanguage}`)
+      if (!a('degradeLangs') && ec.degradeLangs?.length) {
+        let degradeLine = `【侮辱词】${ec.degradeLangs.join('、')}`
+        if (ec.customDegradeLangs?.length) degradeLine += ' | 自定义:' + ec.customDegradeLangs.join(',')
+        if (ec.customInsults) degradeLine += ' | 补充:' + ec.customInsults
+        parts.push(degradeLine)
+      }
+      if (!a('bannedWords') && ec.bannedWords) parts.push(`【禁用词】${ec.bannedWords}`)
+      parts.push(a('soundDensity') ? '【声音：AI根据上下文自主决定】' : `【声音】密度: ${ec.soundDensity || ''} | 呻吟: ${ec.moanStyle || ''}`)
+      if (a('dominantEmotion')) parts.push('【情绪：AI根据上下文自主决定】')
+      else if (ec.dominantEmotion) parts.push(`【情绪】${ec.dominantEmotion}${ec.emotionCurveInput ? ' | 曲线: ' + ec.emotionCurveInput : ''}${ec.triggerWords ? ' | 触发: ' + ec.triggerWords : ''}`)
+      if (a('narrativeStyle')) parts.push('【叙事：AI根据上下文自主决定】')
+      else if (ec.narrativeStyle) parts.push(`【叙事】${ec.narrativeStyle} | 时间: ${ec.timeCompression || ''} | 内省: ${ec.introspection || ''}`)
+      if (!a('worldRules') && (ec.worldRules || ec.propList || ec.costumeList)) parts.push(`【特殊设定】${[ec.worldRules, ec.propList, ec.costumeList].filter(Boolean).join(' | ')}`)
+      parts.push(a('intensity') ? '【强度：AI根据上下文自主决定】' : `【强度】${ec.intensity}/5 | ${ec.narrativePOV || ''}`)
+      if (a('pacing')) parts.push('【节奏：AI根据上下文自主决定】')
+      else if (ec.pacing) parts.push(`【节奏】${ec.pacing}`)
+      if (a('consentDynamic')) parts.push('【同意动态：AI根据上下文自主决定】')
+      else if (ec.consentDynamic) parts.push(`【同意动态】${ec.consentDynamic}`)
+      if (a('aftercareDetail')) parts.push('【事后关怀：AI根据上下文自主决定】')
+      else if (ec.aftercareDetail) parts.push(`【事后关怀】${ec.aftercareDetail}`)
+      if (!a('extraNote') && ec.extraNote) parts.push('【额外要求】' + ec.extraNote)
+      return parts.join('\n')
+    } else {
+      const nc = tpl.config as NovelSceneConfig
+      const parts: string[] = []
+      parts.push(a('sceneType') ? '【场景类型：AI根据上下文自主决定】' : `【场景类型】${nc.sceneType} | ${(nc.scenePurpose || []).join('、')} | ${nc.conflictType}`)
+      if (a('povCharacterId')) parts.push('【主视角：AI根据上下文自主决定】')
+      else if (nc.povCharacterName) parts.push(`【主视角】${nc.povCharacterName}`)
+      if (a('characters')) parts.push('【角色情绪：AI根据上下文自主决定】')
+      else if (nc.characters?.length > 0) parts.push('【角色情绪】\n' + nc.characters.map(c => `${c.characterName}: ${c.emotion || ''}`).join('\n'))
+      parts.push(a('location') ? '【环境：AI根据上下文自主决定】' : `【环境】${nc.location} / ${nc.weather || ''} / ${nc.time || ''} / ${nc.atmosphere || ''} / 感官: ${(nc.senses || []).join('、')}`)
+      if (a('genreElements')) parts.push('【类型要素：AI根据上下文自主决定】')
+      else if (nc.genreElements?.length) parts.push(`【类型要素】${nc.genreElements.join('、')}`)
+      parts.push(a('dialogueRatio') ? '【对话：AI根据上下文自主决定】' : `【对话】${nc.dialogueRatio || ''} | 潜台词: ${nc.subtextLevel || ''} | ${nc.sentenceStyle || ''} | 段落: ${nc.paragraphDensity || ''}`)
+      parts.push(a('wordTarget') ? '【篇幅：AI根据上下文自主决定】' : `【篇幅】${nc.wordTarget}字 | ${nc.narrativePOV || ''}`)
+      if (a('emotionStart')) parts.push('【情绪：AI根据上下文自主决定】')
+      else if (nc.emotionStart) parts.push(`【情绪】${nc.emotionStart}→${nc.emotionEnd || ''}`)
+      if (a('narrativeStyle')) parts.push('【叙事技法：AI根据上下文自主决定】')
+      else if (nc.narrativeStyle) parts.push(`【叙事技法】${nc.narrativeStyle} | 时间: ${nc.timeCompression || ''} | 内省: ${nc.introspection || ''}`)
+      if (a('dominantEmotion')) parts.push('【情绪设计：AI根据上下文自主决定】')
+      else if (nc.dominantEmotion || nc.pacing) parts.push(`【情绪设计】${nc.dominantEmotion || ''} | 节奏: ${nc.pacing || ''}${nc.emotionCurveInput ? ' | 曲线: ' + nc.emotionCurveInput : ''}`)
+      if (a('sensoryAnchors')) parts.push('【感官细节：AI根据上下文自主决定】')
+      else if (nc.sensoryAnchors || nc.props || nc.appearance || nc.bodyLanguage) parts.push(`【感官细节】${[nc.sensoryAnchors && '锚点:' + nc.sensoryAnchors, nc.props && '道具:' + nc.props, nc.appearance && '外观:' + nc.appearance, nc.bodyLanguage && '肢体:' + nc.bodyLanguage].filter(Boolean).join(' | ')}`)
+      if (a('foreshadowUse')) parts.push('【伏笔转折：AI根据上下文自主决定】')
+      else if (nc.foreshadowUse && nc.foreshadowUse !== '无') parts.push(`【伏笔转折】${nc.foreshadowUse}${nc.sceneTurningPoint ? ' | 转折: ' + nc.sceneTurningPoint : ''}`)
+      if (!a('extraNote') && nc.extraNote) parts.push('【额外要求】' + nc.extraNote)
+      return parts.join('\n')
+    }
+  }
 
   // Abort stream on unmount
   useEffect(() => {
-    return () => { abortRef.current?.() }
+    return () => { abortRef.current?.(); if (externalAbortRef) externalAbortRef.current = null }
   }, [])
 
   const chapterPrompt = prompts.find(p => p.type === '章节' && p.enabled)
@@ -112,23 +216,25 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     setter(new Set(ids))
   }
 
-  const loadKBFiles = async () => {
-    if (kbLoaded) return
+  const loadKBFiles = async (): Promise<{ id: string; originalName: string }[]> => {
+    if (kbLoaded) return kbFiles
     try {
       const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
-      setKbFiles(meta.files.filter(f => f.projects.includes(activeProjectId || '')))
+      const files = meta.files.filter(f => f.projects.includes(activeProjectId || ''))
+      setKbFiles(files)
       setKbLoaded(true)
-    } catch (e) { logError('加载知识库文件列表失败 (章节生成)', e) }
+      return files
+    } catch (e) { logError('加载知识库文件列表失败 (章节生成)', e); return [] }
   }
 
   const buildPrompt = () => {
     const parts: string[] = []
 
     if (useWorldbuilding && worldbuildingContent) {
-      parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 3000)}\n`)
+      parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}\n`)
     }
     if (useOutline && outlineContent) {
-      parts.push(`【小说大纲】\n${outlineContent.slice(0, 2000)}\n`)
+      parts.push(`【小说大纲】\n${outlineContent.slice(0, 15000)}\n`)
     }
     if (useDetailedOutline && currentChapter?.description) {
       parts.push(`【本章细纲】\n${currentChapter.description}\n`)
@@ -148,6 +254,20 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     }
     if (selectedKbFileIds.size > 0) {
       parts.push(`【知识库参考】\n以下知识库内容可供参考：\n`)
+    }
+
+    // Inject scene template
+    if (selectedScene) {
+      const scenePrompt = buildScenePrompt(selectedScene)
+      parts.push('【场景模板注入】\n' + scenePrompt)
+    }
+
+    // Inject style template
+    if (selectedStyleTemplateId && selectedStyleTemplate) {
+      try {
+        const stylePrompt = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
+        if (stylePrompt) parts.unshift('---\n' + stylePrompt + '\n---')
+      } catch { /* skip */ }
     }
 
     const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。'
@@ -194,13 +314,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       let prompt = buildPrompt()
       prompt = await injectKBContents(prompt)
 
-      // Inject style if assigned
-      const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
-      const styleInjection = await getStyleInjection(activeProjectId || '', assignments)
-      if (styleInjection) {
-        prompt = styleInjection + '\n\n---\n\n' + prompt
-      }
-
       const messages = [{ role: 'user' as const, content: prompt }]
 
       if (streamMode) {
@@ -221,20 +334,22 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           },
           (data) => {
             abortRef.current = null
+            if (externalAbortRef) externalAbortRef.current = null
             setStreamDone(true)
             setStreamUsage(data.usage)
             saveVersion({
               config, reply: data.text,
               usage: data.usage ? { input: data.usage.prompt_tokens, output: data.usage.completion_tokens, total: data.usage.total_tokens } : { input: 0, output: 0, total: 0 },
               cost: data.usage?.cost || 0,
-            })
+            }).catch(err => logError('保存版本记录失败', err))
             setLoading(false)
             onGenDone?.()
           },
-          (err) => { abortRef.current = null; setError(err.message); setLoading(false); onGenError?.(err.message) },
-          (data) => { abortRef.current = null; setError(data.message); setLoading(false); onGenError?.(data.message) },
+          (err) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setError(err.message); setLoading(false); onGenError?.(err.message) },
+          (data) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setError(data.message); setLoading(false); onGenError?.(data.message) },
         )
         abortRef.current = streamHandle.abort
+        if (externalAbortRef) externalAbortRef.current = streamHandle.abort
       } else {
         // Abort any previous stream, switch to traditional mode
         abortRef.current?.()
@@ -245,7 +360,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           config, reply,
           usage: { input: genUsage?.prompt_tokens || 0, output: genUsage?.completion_tokens || 0, total: genUsage?.total_tokens || 0 },
           cost: genUsage?.cost || 0,
-        })
+        }).catch(err => logError('保存版本记录失败', err))
         setLoading(false)
         onClose()
       }
@@ -283,6 +398,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const handleCancelStream = () => {
     abortRef.current?.()
     abortRef.current = null
+    if (externalAbortRef) externalAbortRef.current = null
     setLoading(false)
     setStreamContent('')
     setStreamDone(false)
@@ -367,7 +483,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>D. 知识库注入 ({selectedKbFileIds.size})</span>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => { loadKBFiles(); if (kbFiles.length > 0) selectIds(setSelectedKbFileIds, kbFiles.map(f => f.id)) }} style={actionLink}>全选</button>
+              <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={actionLink}>全选</button>
               <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={actionLink}>清空</button>
             </div>
           </div>
@@ -399,16 +515,58 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           )}
         </div>
 
-        {/* F: Word target */}
+        {/* F: Scene template injection */}
         <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>F. 字数目标</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>F. 场景注入</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            {(['all', 'erotic', 'novel'] as const).map(t => (
+              <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
+                padding: '3px 8px', borderRadius: 6, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.08)',
+                background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#fff', cursor: 'pointer', fontSize: 10,
+                color: sceneFilterType === t ? '#7c3aed' : '#6b5e54',
+              }}>{t === 'all' ? '全部' : t === 'erotic' ? '情色' : '普通'}</button>
+            ))}
+          </div>
+          <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
+            <option value="">-- 不注入场景模板 --</option>
+            {sceneTemplates.filter(t => sceneFilterType === 'all' || t.type === sceneFilterType).map(t => (
+              <option key={t.id} value={t.id}>{t.name} ({t.type === 'erotic' ? '情色' : '普通'})</option>
+            ))}
+          </select>
+          {selectedScene && (
+            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 10, maxHeight: 200, overflow: 'auto', color: '#4a3f38', whiteSpace: 'pre-wrap' }}>
+              {buildScenePrompt(selectedScene)}
+            </div>
+          )}
+        </div>
+
+        {/* G: Style template injection */}
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>G. 风格模板</div>
+          <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
+            <option value="">-- 不注入风格模板 --</option>
+            {styleTemplates.map((t: any) => (
+              <option key={t.id} value={t.id}>{t.name || '未命名'} ({t.type === '情色小说' ? '情色' : '普通'} · {Object.keys(t.dimensions || {}).length}维)</option>
+            ))}
+          </select>
+          {selectedStyleTemplate && (
+            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.08)', fontSize: 10, maxHeight: 120, overflow: 'auto', color: '#4a3f38' }}>
+              <span style={{ fontWeight: 600 }}>{selectedStyleTemplate.tone?.word && `基调: ${selectedStyleTemplate.tone.word} | `}</span>
+              {selectedStyleTemplate.description || selectedStyleTemplate.fullDescription?.slice(0, 120) || '已加载风格模板'}
+            </div>
+          )}
+        </div>
+
+        {/* H: Word target */}
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>H. 字数目标</div>
           <input type="number" min={500} max={50000} step={100} value={wordTarget} onChange={e => setWordTarget(Math.max(500, Math.min(50000, parseInt(e.target.value) || 500)))} style={{ width: 120, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, fontFamily: 'inherit' }} />
           <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 8 }}>字 (500-50000)</span>
         </div>
 
-        {/* G: Output mode + config */}
+        {/* I: Output mode + config */}
         <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>G. 输出模式与配置</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>I. 输出模式与配置</div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={checkLabel}><input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={checkInput} /> 流式输出</label>
             <label style={checkLabel}><input type="checkbox" checked={replaceMode} onChange={() => setReplaceMode(!replaceMode)} style={checkInput} /> 替换正文（关闭=追加）</label>

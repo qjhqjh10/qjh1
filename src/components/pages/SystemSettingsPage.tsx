@@ -6,9 +6,11 @@ import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
+import type { UsageResult } from '@/types/electron'
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
 import versionData from '@/data/version_history.json'
+import { logError } from '@/utils/logger'
 
 type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats' | 'version'
 
@@ -86,7 +88,7 @@ function ModelSettingsTab() {
   useEffect(() => {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
     syncTimerRef.current = setTimeout(() => {
-      settingsService.saveConfigs(configs).then(() => setSavedAt(Date.now())).catch(console.error)
+      settingsService.saveConfigs(configs).then(() => setSavedAt(Date.now())).catch((e) => logError('Config sync failed', e))
     }, 600)
     return () => {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
@@ -124,7 +126,7 @@ function ModelSettingsTab() {
       setModelList(models)
       setShowModelDropdown(true)
     } catch (err) {
-      console.error('Failed to fetch models:', err)
+      logError('Failed to fetch models', err)
     }
     setLoadingModels(false)
   }, [activeConfig, configs])
@@ -763,13 +765,7 @@ function TokenStatsTab() {
   const aiSettings = useSettingsStore(s => s.aiSettings)
   const currency = configs.find(c => c.id === activeConfigId)?.currency || 'USD'
   const cSym = currency === 'CNY' ? '¥' : '$'
-  const [usage, setUsage] = useState<{
-    entries: { timestamp: string; configName: string; model: string; inputTokens: number; outputTokens: number; cacheHitTokens: number; cost: number }[]
-    totalCount: number
-    totals: { input: number; output: number; cacheHit: number; cost: number; count: number }
-    byDay: { date: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
-    byConfig: { configId: string; configName: string; model: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
-  } | null>(null)
+  const [usage, setUsage] = useState<UsageResult | null>(null)
 
   const [filterConfigId, setFilterConfigId] = useState('')
   const [filterModel, setFilterModel] = useState('')
@@ -787,7 +783,7 @@ function TokenStatsTab() {
     if (filterYear !== undefined) opts.year = filterYear
     if (filterMonth !== undefined) opts.month = filterMonth
     if (filterDay !== undefined) opts.day = filterDay
-    statsService.getUsage(opts).then((data: unknown) => setUsage(data as typeof usage)).catch(() => {})
+    statsService.getUsage(opts).then(data => setUsage(data)).catch(() => {})
   }, [activeProjectId, filterConfigId, filterModel, filterYear, filterMonth, filterDay])
 
   const totals = usage?.totals
@@ -922,7 +918,7 @@ function TokenStatsTab() {
                     <button
                       onClick={() => {
                         if (!confirm('删除此条记录？')) return
-                        statsService.deleteByLine((e as unknown as { _line: number })._line).then(() => {
+                        statsService.deleteByLine(e._line).then(() => {
                           const filter = activeProjectId ? { projectId: activeProjectId } : {}
                           if (filterConfigId) Object.assign(filter, { configId: filterConfigId })
                           if (filterModel) Object.assign(filter, { model: filterModel })
@@ -1055,7 +1051,7 @@ function VersionTab() {
               {v.fixes && v.fixes.length > 0 && (
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>修复问题</div>
-                  {v.fixes.map((f: any, i: number) => (
+                  {v.fixes.map((f: string, i: number) => (
                     <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(59,130,246,0.2)', marginLeft: 4, marginBottom: 2 }}>
                       {f}
                     </div>

@@ -11,9 +11,10 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
+import { VersionHistoryModal } from '@/components/common/VersionHistoryModal'
+import { ChapterExportModal } from '@/components/common/ChapterExportModal'
+import { DiffView } from '@/components/common/DiffView'
 import BatchGenerationModal from '@/components/common/BatchGenerationModal'
-import EroticSceneModal from '@/components/common/EroticSceneModal'
-import NovelSceneModal from '@/components/common/NovelSceneModal'
 import ReviewModal from '@/components/common/ReviewModal'
 import ReviewResultsModal from '@/components/common/ReviewResultsModal'
 import {
@@ -28,6 +29,7 @@ import {
 } from '@heroicons/react/24/outline'
 import type { DetailedChapter } from '@/types/chapter'
 import { countChineseWords, formatWordCount } from '@/utils/textUtils'
+import { logError } from '@/utils/logger'
 
 export default function ChapterWritingPage() {
   const { chapterId } = useParams<{ chapterId: string }>()
@@ -55,6 +57,8 @@ export default function ChapterWritingPage() {
   const promptTemplates = useSettingsStore(s => s.prompts)
 
   const [content, setContent] = useState('')
+  const contentRef = useRef(content)
+  contentRef.current = content
   const [projectPath, setProjectPath] = useState('')
   const [showSummaryTemplate, setShowSummaryTemplate] = useState(false)
   const [showExport, setShowExport] = useState(false)
@@ -62,8 +66,6 @@ export default function ChapterWritingPage() {
   const [showReview, setShowReview] = useState(false)
   const [showReviewResults, setShowReviewResults] = useState(false)
   const [showBatchGen, setShowBatchGen] = useState(false)
-  const [showErotic, setShowErotic] = useState(false)
-  const [showNovelScene, setShowNovelScene] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [versionHistory, setVersionHistory] = useState<VersionRecord[]>([])
   const [chapterSceneConfig, setChapterSceneConfig] = useState<ChapterSceneConfig | null>(null)
@@ -76,6 +78,10 @@ export default function ChapterWritingPage() {
   const [genDragPos, setGenDragPos] = useState({ x: 0, y: 0 })
   const genAbortRef = useRef<(() => void) | null>(null)
 
+  // Use ref to avoid detailedChapters triggering chapter content reload
+  const detailedChaptersRef = useRef(detailedChapters)
+  useEffect(() => { detailedChaptersRef.current = detailedChapters }, [detailedChapters])
+
   const detailedChapter = detailedChapters.find(c => c.id === chapterId)
 
   // Load chapter content
@@ -86,25 +92,28 @@ export default function ChapterWritingPage() {
     setActivePage('chapter')
     setCurrentChapterId(chapterId)
     fileService.read(`${pp}/chapters/${chapterId}.txt`).then(c => {
-      const dc = detailedChapters.find(c => c.id === chapterId)
+      const dc = detailedChaptersRef.current.find(c => c.id === chapterId)
       setContent(c)
       setWritingChapter(chapterId, {
         id: chapterId, detailedChapterId: chapterId,
         title: dc?.title || '', content: c,
         summary: dc?.summary || '',
       })
+    }).catch(() => {
+      // File doesn't exist yet (first-time chapter) - initialize empty
+      setContent('')
     })
     // Load characters if not already in store
     if (characters.length === 0) {
       loadCharacters(pp).then(chars => {
         useStore.getState().setCharacters(chars)
-      })
+      }).catch(() => { /* characters file doesn't exist yet */ })
     }
     // Load existing version history from disk
     loadVersionHistory(pp, chapterId).then(setVersionHistory)
     // Load saved scene config
     sceneService.loadChapterSceneConfig(pp, chapterId).then(setChapterSceneConfig)
-  }, [activeProjectId, chapterId, projectsBasePath, detailedChapters])
+  }, [activeProjectId, chapterId, projectsBasePath])
 
   // Handle insertion action from AI
   useEffect(() => {
@@ -125,7 +134,7 @@ export default function ChapterWritingPage() {
   // Save (file + store for export). Accept optional content to avoid stale closure.
   const handleSave = async (overrideContent?: string) => {
     if (!projectPath || !chapterId) return
-    const c = overrideContent ?? content
+    const c = overrideContent ?? contentRef.current
     await fileService.write(`${projectPath}/chapters/${chapterId}.txt`, c)
     setWritingChapter(chapterId, {
       id: chapterId,
@@ -138,15 +147,7 @@ export default function ChapterWritingPage() {
 
   // Save then navigate
   const saveAndNavigate = async (targetChapterId: string) => {
-    // Save current chapter first
-    if (projectPath && chapterId) {
-      await fileService.write(`${projectPath}/chapters/${chapterId}.txt`, content)
-      setWritingChapter(chapterId, {
-        id: chapterId, detailedChapterId: chapterId,
-        title: detailedChapter?.title || '', content,
-        summary: detailedChapter?.summary || '',
-      })
-    }
+    await handleSave()
     setActivePage('chapter')
     setCurrentChapterId(targetChapterId)
     navigate(`/chapter/${targetChapterId}`)
@@ -162,7 +163,7 @@ export default function ChapterWritingPage() {
       ]
       const summary = await aiService.chat(messages, activeConfigId)
       updateDetailedChapter(detailedChapter.id, { ...detailedChapter, summary })
-    } catch (err) { console.error('AI extract failed:', err) }
+    } catch (err) { logError('AI extract failed', err) }
     setAiLoading(false)
   }
 
@@ -382,12 +383,6 @@ export default function ChapterWritingPage() {
               <button onClick={() => setShowAIGen(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <SparklesIcon style={{ width: 14, height: 14 }} /> AI生成
               </button>
-              <button onClick={() => setShowErotic(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#ec4899', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <SparklesIcon style={{ width: 14, height: 14 }} /> 情色场景
-              </button>
-              <button onClick={() => setShowNovelScene(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <SparklesIcon style={{ width: 14, height: 14 }} /> 场景编排
-              </button>
               <button onClick={() => setShowReview(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                 <ClipboardDocumentCheckIcon style={{ width: 14, height: 14 }} /> AI审稿
               </button>
@@ -485,6 +480,7 @@ export default function ChapterWritingPage() {
         onGenChunk={(data) => { setGenWordCount(data.charCount) }}
         onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
         onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
+        externalAbortRef={genAbortRef}
       />
 
       <ReviewModal
@@ -510,34 +506,6 @@ export default function ChapterWritingPage() {
         onRestore={(v) => { setContent(v.generatedContent); handleSave(v.generatedContent); setShowVersions(false) }}
       />
 
-      <NovelSceneModal
-        isOpen={showNovelScene}
-        onClose={() => setShowNovelScene(false)}
-        chapterId={chapterId}
-        currentContent={content}
-        chapterDescription={detailedChapter?.description}
-        initialConfig={chapterSceneConfig?.novelScene || undefined}
-        onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
-        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
-        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
-        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
-        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
-      />
-
-      <EroticSceneModal
-        isOpen={showErotic}
-        onClose={() => setShowErotic(false)}
-        chapterId={chapterId}
-        currentContent={content}
-        chapterDescription={detailedChapter?.description}
-        initialConfig={chapterSceneConfig?.eroticScene || undefined}
-        onApply={(newContent) => { setContent(newContent); handleSave(newContent) }}
-        onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
-        onGenChunk={(data) => { setGenWordCount(data.charCount) }}
-        onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
-        onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
-      />
-
       <BatchGenerationModal
         isOpen={showBatchGen}
         onClose={() => setShowBatchGen(false)}
@@ -552,6 +520,7 @@ export default function ChapterWritingPage() {
         onGenChunk={(data) => { setGenWordCount(data.charCount) }}
         onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
         onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
+        externalAbortRef={genAbortRef}
       />
 
       <ChapterExportModal
@@ -614,61 +583,7 @@ export default function ChapterWritingPage() {
   )
 }
 
-function VersionHistoryModal({ isOpen, onClose, versions, onRestore }: {
-  isOpen: boolean; onClose: () => void; versions: VersionRecord[]; onRestore: (v: VersionRecord) => void
-}) {
-  const [compareA, setCompareA] = useState<number | null>(null)
-  const [compareB, setCompareB] = useState<number | null>(null)
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="版本历史" width={compareA !== null && compareB !== null ? 900 : 700}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 500, overflowY: 'auto' }} className="custom-scrollbar">
-        {versions.length > 0 ? versions.map((v, i) => (
-          <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.06)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={compareA === i} onChange={() => setCompareA(compareA === i ? null : i)} disabled={compareB === i} style={{ width: 13, height: 13, accentColor: '#7c3aed', cursor: compareB === i ? 'not-allowed' : 'pointer' }} title="选择对比A" />
-                <input type="checkbox" checked={compareB === i} onChange={() => setCompareB(compareB === i ? null : i)} disabled={compareA === i} style={{ width: 13, height: 13, accentColor: '#e67e00', cursor: compareA === i ? 'not-allowed' : 'pointer' }} title="选择对比B" />
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#2d2520' }}>版本 {versions.length - i} — {v.modelName}</span>
-              </div>
-              <span style={{ fontSize: 10, color: '#9b8e84', flexShrink: 0 }}>{new Date(v.generatedAt).toLocaleString()}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 12, fontSize: 10, color: '#6b5e54', marginBottom: 6, flexWrap: 'wrap' }}>
-              <span>温度: {v.temperature}</span>
-              <span>提示词: {v.promptTitle}</span>
-              <span>Token: 入{v.tokens.input} 出{v.tokens.output} 总{v.tokens.total}</span>
-              <span style={{ color: '#7c3aed' }}>{useSettingsStore.getState().configs.find(c => c.id === v.modelConfigId)?.currency === 'CNY' ? '¥' : '$'}{v.cost.toFixed(4)}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <details style={{ flex: 1, fontSize: 12, color: '#4a3f38' }}>
-                <summary style={{ cursor: 'pointer', color: '#7c3aed', fontWeight: 600 }}>查看内容 ({v.generatedContent.length}字)</summary>
-                <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, background: '#fff', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }} className="custom-scrollbar">{v.generatedContent}</div>
-              </details>
-              <button onClick={() => { if (confirm('确定用此版本替换当前正文？')) onRestore(v) }} style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap' }}>恢复</button>
-            </div>
-          </div>
-        )) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 13 }}>暂无版本记录，使用"AI生成"创建第一个版本。</div>
-        )}
-      </div>
-
-      {/* Comparison view with diff */}
-      {compareA !== null && compareB !== null && versions[compareA] && versions[compareB] && (
-        <div style={{ marginTop: 12, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', marginBottom: 8 }}>
-            版本对比 — 旧(v{versions.length - compareA}) vs 新(v{versions.length - compareB})
-          </div>
-          <DiffView
-            oldText={versions[compareA].generatedContent}
-            newText={versions[compareB].generatedContent}
-            oldLabel={`${versions[compareA].modelName} ${new Date(versions[compareA].generatedAt).toLocaleString()}`}
-            newLabel={`${versions[compareB].modelName} ${new Date(versions[compareB].generatedAt).toLocaleString()}`}
-          />
-        </div>
-      )}
-    </Modal>
-  )
-}
+// ---- Utility functions ----
 
 async function loadVersionHistory(projectPath: string, chapterId: string): Promise<VersionRecord[]> {
   try {
@@ -693,211 +608,4 @@ function templateStyle(selected: boolean, enabled?: boolean) {
     border: selected ? '2px solid rgba(124,58,237,0.25)' : enabled ? '1px solid rgba(124,58,237,0.12)' : '1px solid rgba(0,0,0,0.04)',
     transition: 'all 0.15s ease',
   }
-}
-
-function ChapterExportModal({ isOpen, onClose, projectPath }: {
-  isOpen: boolean; onClose: () => void; projectPath: string
-}) {
-  const detailedChapters = useStore(s => s.detailedChapters)
-  const writingChapters = useStore(s => s.writingChapters)
-
-  const [exportMode, setExportMode] = useState<'single' | 'merge'>('single')
-  const [exportType, setExportType] = useState<'summary' | 'body'>('body')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (isOpen) setSelectedIds(new Set(detailedChapters.map(c => c.id)))
-  }, [isOpen])
-
-  const toggleChapter = (id: string) => setSelectedIds(prev => {
-    const next = new Set(prev)
-    next.has(id) ? next.delete(id) : next.add(id)
-    return next
-  })
-
-  const handleExport = async () => {
-    if (exportMode === 'single') {
-      const ch = detailedChapters.find(c => selectedIds.has(c.id) || detailedChapters.length === 1 ? true : false)
-      if (!ch) return
-      const first = detailedChapters.find(c => c.id === [...selectedIds][0])
-      if (!first) return
-      const content = exportType === 'body' ? writingChapters[first.id]?.content || '' : first.summary || ''
-      const outputPath = await dialogService.saveFile(`${first.title}.txt`)
-      if (!outputPath) return
-      await exportService.exportSingleChapter({ title: first.title, content, outputPath })
-    } else {
-      const outputPath = await dialogService.saveFile('小说合并导出.txt')
-      if (!outputPath) return
-      const chapters = detailedChapters
-        .filter(c => selectedIds.has(c.id))
-        .sort((a, b) => a.order - b.order)
-        .map((ch, idx) => ({
-          title: `第${idx + 1}章 ${ch.title}`,
-          content: exportType === 'body'
-            ? writingChapters[ch.id]?.content || ''
-            : ch.summary || '暂无摘要',
-        }))
-      await exportService.exportChapters({ chapters, outputPath, type: exportType })
-    }
-    onClose()
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="导出章节" width={560}>
-      {/* Export mode tabs */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.08)' }}>
-        {(['single', 'merge'] as const).map(mode => (
-          <button key={mode} onClick={() => setExportMode(mode)} style={{
-            flex: 1, padding: '8px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
-            background: exportMode === mode ? '#7c3aed' : '#fff',
-            color: exportMode === mode ? '#fff' : '#6b5e54',
-            fontWeight: exportMode === mode ? 600 : 400,
-          }}>
-            {mode === 'single' ? '单章导出' : '合并导出'}
-          </button>
-        ))}
-      </div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {(['body', 'summary'] as const).map(type => (
-            <button key={type} onClick={() => setExportType(type)} style={{
-              flex: 1, padding: '12px 16px', borderRadius: 14,
-              border: exportType === type ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
-              background: exportType === type ? 'rgba(124,58,237,0.06)' : '#fff',
-              cursor: 'pointer', textAlign: 'center',
-            }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: exportType === type ? '#7c3aed' : '#4a3f38' }}>
-                {type === 'body' ? '章节正文' : '章节摘要'}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: '#6b5e54', fontWeight: 600 }}>
-          已选择章节 {selectedIds.size}/{detailedChapters.length}
-        </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set(detailedChapters.map(c => c.id)))}>全选</Button>
-          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>取消全选</Button>
-        </div>
-      </div>
-      <div className="custom-scrollbar" style={{ maxHeight: 300, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {detailedChapters.map((ch, idx) => (
-            <button key={ch.id} onClick={() => toggleChapter(ch.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-              borderRadius: 12, border: '1px solid rgba(0,0,0,0.06)',
-              background: selectedIds.has(ch.id) ? 'rgba(124,58,237,0.04)' : '#fff',
-              cursor: 'pointer', textAlign: 'left', width: '100%',
-            }}>
-              <div style={{
-                width: 20, height: 20, borderRadius: 6,
-                border: selectedIds.has(ch.id) ? '2px solid #7c3aed' : '2px solid #d9d2cc',
-                background: selectedIds.has(ch.id) ? '#7c3aed' : '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
-                {selectedIds.has(ch.id) && <CheckCircleIcon style={{ width: 14, height: 14, color: '#fff' }} />}
-              </div>
-              <span style={{ fontSize: 13, color: '#4a3f38', fontWeight: selectedIds.has(ch.id) ? 600 : 400 }}>
-                章节{idx + 1}: {ch.title || '未命名'}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0ece8' }}>
-        <Button variant="secondary" onClick={onClose}>取消</Button>
-        <Button onClick={handleExport} disabled={selectedIds.size === 0}>确定导出</Button>
-      </div>
-    </Modal>
-  )
-}
-
-// ---- Diff algorithm + component ----
-
-function lineDiff(oldText: string, newText: string): { type: 'same' | 'removed' | 'added'; text: string }[] {
-  const oldLines = oldText.split('\n')
-  const newLines = newText.split('\n')
-  const result: { type: 'same' | 'removed' | 'added'; text: string }[] = []
-
-  const m = oldLines.length; const n = newLines.length
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
-    }
-  }
-
-  let i = m, j = n
-  const temp: { type: 'same' | 'removed' | 'added'; text: string }[] = []
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      temp.unshift({ type: 'same', text: oldLines[i - 1] })
-      i--; j--
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      temp.unshift({ type: 'added', text: newLines[j - 1] })
-      j--
-    } else {
-      temp.unshift({ type: 'removed', text: oldLines[i - 1] })
-      i--
-    }
-  }
-
-  for (const line of temp) {
-    const last = result[result.length - 1]
-    if (last && last.type === line.type) {
-      last.text += '\n' + line.text
-    } else {
-      result.push(line)
-    }
-  }
-  return result
-}
-
-function DiffView({ oldText, newText, oldLabel, newLabel }: {
-  oldText: string; newText: string; oldLabel: string; newLabel: string
-}) {
-  const diff = lineDiff(oldText, newText)
-  const removedCount = diff.filter(d => d.type === 'removed').reduce((s, d) => s + d.text.split('\n').length, 0)
-  const addedCount = diff.filter(d => d.type === 'added').reduce((s, d) => s + d.text.split('\n').length, 0)
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 11 }}>
-        <span style={{ color: '#6b5e54' }}>{oldLabel}</span>
-        <span style={{ color: '#9b8e84' }}>→</span>
-        <span style={{ color: '#6b5e54' }}>{newLabel}</span>
-        <span style={{ color: '#dc2626', marginLeft: 8 }}>−{removedCount}行</span>
-        <span style={{ color: '#16a34a' }}>+{addedCount}行</span>
-      </div>
-      <div style={{
-        maxHeight: 400, overflowY: 'auto', borderRadius: 10,
-        border: '1px solid rgba(0,0,0,0.06)', fontSize: 12, lineHeight: 1.6,
-        fontFamily: 'monospace',
-      }} className="custom-scrollbar">
-        {diff.map((d, i) => (
-          <div key={i} style={{
-            padding: '1px 12px',
-            background: d.type === 'removed' ? 'rgba(220,38,38,0.08)' :
-                        d.type === 'added' ? 'rgba(22,163,74,0.08)' :
-                        'transparent',
-            color: d.type === 'removed' ? '#991b1b' :
-                   d.type === 'added' ? '#166534' :
-                   '#6b5e54',
-            whiteSpace: 'pre-wrap',
-            borderLeft: d.type === 'removed' ? '3px solid #dc2626' :
-                        d.type === 'added' ? '3px solid #16a34a' :
-                        '3px solid transparent',
-          }}>
-            <span style={{ marginRight: 8, fontSize: 10, opacity: 0.5 }}>
-              {d.type === 'removed' ? '−' : d.type === 'added' ? '+' : ' '}
-            </span>
-            {d.text}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 }

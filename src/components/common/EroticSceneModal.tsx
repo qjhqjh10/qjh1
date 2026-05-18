@@ -20,30 +20,12 @@ interface Props {
   onGenDone?: () => void; onGenError?: (msg: string) => void
 }
 
-const LOCATIONS = ['卧室','客厅','玄关','浴室','公园','天台','教室','地牢','办公室','野外','车内','厨房','阳台']
-const TIMES = ['清晨','午间','傍晚','深夜','不限']
-const ATMOSPHERES = ['温馨','羞辱','仪式感','日常平淡','紧迫','偷情','禁忌','悬疑','温情']
-const PUBLICITIES = ['私密','半公开(有旁观者)','完全公开','偷窥视角']
-const ROLES = ['dom','sub','switch','observer'] as const
-const ROLE_LABELS: Record<string,string> = { dom:'主导', sub:'服从', switch:'Switch', observer:'旁观' }
-const BODY_STATES = ['正常','发情','改造','退行','包茎','微型化','怀孕','哺乳期']
-const KINKS_GROUPS = [
-  ['捆绑约束','鞭打体罚','滴蜡','项圈牵引'],
-  ['露出户外','公开羞辱','NTR绿帽','群交多人'],
-  ['催眠洗脑','指令遥控','强制高潮','控制高潮'],
-  ['道具玩具','角色扮演','宠物玩法','皮物'],
-  ['排泄圣水','浣肠','乳汁','足侍奉'],
-  ['口交深喉','肛交','乳交','手交'],
-]
-const OPENINGS = ['口交','舔阴','胸推','手交','亲吻','足侍奉','直接插入']
-const POSES = ['正面','后入','骑乘','侧入','悬空','无偏好']
-const RHYTHMS = ['九浅一深','连续深桩','缓抽猛插','磨碾','无偏好']
-const CHANGES = ['单姿势到底','2-3次转换','每段切换']
-const CLIMAXES = ['体内射精','体外','潮吹','多次高潮','控制延迟']
-const AFTERMATHS = ['清理侍奉','温存','继续羞辱','丢弃入睡']
-const SOUND_DENSITIES = ['稀疏','适量','密集','极密集']
-const MOAN_STYLES = ['持续高亢','间歇婉转','哭喊破音','窒息失声','沉默忍耐']
-const DEGRADE_LANGS = ['辱骂(骚货/母狗)','乞求(求主人/给我)','感谢(谢谢主人)','宣告(我是母狗/肉便器)','称赞(主人好棒/鸡巴好大)']
+import {
+  LOCATIONS, TIMES, ATMOSPHERES, PUBLICITIES,
+  ROLES, ROLE_LABELS, BODY_STATES, KINKS_GROUPS,
+  OPENINGS, POSES, RHYTHMS, CHANGES, CLIMAXES, AFTERMATHS,
+  SOUND_DENSITIES, MOAN_STYLES, DEGRADE_LANGS,
+} from './eroticSceneConstants'
 
 const DEFAULT_CONFIG: EroticSceneConfig = {
   characters: [], location: '卧室', time: '深夜', atmosphere: '羞辱', publicity: '私密',
@@ -60,6 +42,18 @@ const DEFAULT_CONFIG: EroticSceneConfig = {
   extraPhases: [],
   customInsults: '', bannedWords: '',
   narrativePOV: '第三人称',
+  customPoses: [], customRhythms: [], customPOVs: '',
+  customOpening: [], customClimax: [], customAftermath: [],
+  customDegradeLangs: [],
+  bodyFluidFocus: [], bodyPartFocus: [], tactileFocus: [],
+  narrativeStyle: '沉浸式长镜', timeCompression: '实时', introspection: '中', sensoryAnchors: '',
+  dominantEmotion: '', emotionCurveInput: '', triggerWords: '',
+  worldRules: '', propList: '', costumeList: '',
+  customExtraNotes: '', customEmotions: '', customCurves: '', customTriggers: '',
+  customWorldRules: '', customPropLists: '', customCostumeLists: '',
+  customPoseChanges: '', customSoundDensity: '', customMoanStyle: '',
+  pacing: '渐进升温', bodyLanguage: '', consentDynamic: '明确同意', aftercareDetail: '温存安抚',
+  autoFields: {},
 }
 
 export default function EroticSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, initialConfig, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {
@@ -74,7 +68,7 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
   const [showSaveTpl, setShowSaveTpl] = useState(false)
   const [tplName, setTplName] = useState('')
 
-  useEffect(() => { if (isOpen) { setConfig(initialConfig || DEFAULT_CONFIG); templateService.list().then((t: unknown) => setTemplates(t as SceneTemplate[])).catch(()=>{}) } }, [isOpen])
+  useEffect(() => { if (isOpen) { setConfig(initialConfig || DEFAULT_CONFIG); templateService.list().then(t => setTemplates(t || [])).catch(()=>{}) } }, [isOpen])
 
   const addCharacter = (char: Character) => {
     if (config.characters.find(c => c.characterId === char.id)) return
@@ -167,13 +161,13 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
 
   const handleSaveTemplate = async () => {
     if (!tplName.trim()) return
-    const tpl: SceneTemplate = { id: `tpl_${nanoid(6)}`, name: tplName, config, createdAt: new Date().toISOString() }
+    const tpl = { id: `tpl_${nanoid(6)}`, name: tplName, type: 'erotic' as const, config, createdAt: new Date().toISOString() }
     await templateService.save(tpl)
     setTemplates(prev => [...prev, tpl])
     setShowSaveTpl(false); setTplName('')
   }
 
-  const handleLoadTemplate = (tpl: SceneTemplate) => { setConfig(tpl.config) }
+  const handleLoadTemplate = (tpl: SceneTemplate) => { setConfig(tpl.config as EroticSceneConfig) }
 
   const handleDeleteTemplate = async (id: string) => {
     await templateService.delete(id)

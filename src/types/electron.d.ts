@@ -1,3 +1,7 @@
+import type { ModelConfig } from './settings'
+import type { StyleProject, SceneTemplate } from './story'
+import type { KnowledgeFile, KnowledgeMetadata } from './knowledge'
+
 export interface FileAPI {
   read: (path: string) => Promise<string>
   write: (path: string, content: string) => Promise<void>
@@ -9,10 +13,10 @@ export interface FileAPI {
 }
 
 export interface ProjectAPI {
-  create: (name: string, basePath: string) => Promise<void>
+  create: (name: string, basePath: string, type?: string) => Promise<void>
   delete: (projectPath: string) => Promise<void>
   getMeta: (projectPath: string) => Promise<{
-    name: string; chapterCount: number; wordCount: number; path: string
+    name: string; chapterCount: number; wordCount: number; path: string; type: string
   }>
   listProjects: (basePath: string) => Promise<string[]>
 }
@@ -42,32 +46,48 @@ export interface AIAPI {
 }
 
 export interface DialogAPI {
-  selectDirectory: () => Promise<string | null>
   saveFile: (defaultName: string) => Promise<string | null>
 }
 
 export interface AppAPI {
-  getAppPath: () => Promise<string>
   getProjectsBasePath: () => Promise<string>
 }
 
 export interface SettingsAPI {
-  saveConfigs: (configs: unknown[]) => Promise<void>
-  loadConfigs: () => Promise<unknown[]>
+  saveConfigs: (configs: ModelConfig[]) => Promise<void>
+  loadConfigs: () => Promise<ModelConfig[]>
+}
+
+export interface ModelPrice {
+  modelId: string
+  modelName: string
+  inputPricePerM: number
+  cacheHitPricePerM: number
+  outputPricePerM: number
+}
+
+export interface UsageResult {
+  entries: { timestamp: string; projectId: string; configId: string; configName: string; model: string; inputTokens: number; outputTokens: number; cacheHitTokens: number; cost: number; _line: number }[]
+  totalCount: number
+  totals: { input: number; output: number; cacheHit: number; cost: number; count: number }
+  byDay: { date: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
+  byConfig: { configId: string; configName: string; model: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
+  byModel: { model: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
 }
 
 export interface StatsAPI {
-  getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) => Promise<unknown>
-  getPrices: () => Promise<unknown>
-  savePrices: (prices: unknown[]) => Promise<void>
+  getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) => Promise<UsageResult>
+  getPrices: () => Promise<ModelPrice[]>
+  savePrices: (prices: ModelPrice[]) => Promise<void>
   deleteByLine: (lineNumber: number) => Promise<void>
+  getMonthCost: () => Promise<number>
 }
 
 export interface StyleProjectsAPI {
   importFile: () => Promise<{ name: string; content: string } | null>
   listProjects: () => Promise<{ id: string; name: string; sourceFileName: string; chapterCount: number; totalCharCount: number; hasProfile: boolean; createdAt: string }[]>
-  loadProject: (id: string) => Promise<unknown>
-  saveProject: (project: unknown) => Promise<void>
+  loadProject: (id: string) => Promise<StyleProject>
+  saveProject: (project: StyleProject) => Promise<void>
   deleteProject: (id: string) => Promise<void>
 }
 
@@ -91,29 +111,24 @@ export interface KBFileEstimate {
 }
 
 export interface KBAPI {
-  list: () => Promise<{ files: { id: string; originalName: string }[] }>
-  read: (fileId: string) => Promise<{ file: { id: string; originalName: string; content: string }; content: string }>
-  upload: (activeProjectId: string) => Promise<{ id: string; originalName: string }[] | null>
+  list: () => Promise<KnowledgeMetadata>
+  read: (fileId: string) => Promise<{ file: KnowledgeFile; content: string }>
   selectFiles: () => Promise<string[]>
-  uploadFiles: (filePaths: string[], activeProjectId: string) => Promise<{ id: string; originalName: string }[]>
+  uploadFiles: (filePaths: string[], activeProjectId: string) => Promise<KnowledgeFile[]>
   delete: (fileId: string) => Promise<void>
   write: (fileId: string, content: string) => Promise<void>
-  index: (fileId: string, apiUrl: string, apiKey: string, embeddingModel: string) => Promise<{ chunkCount: number }>
-  search: (query: string, projectId: string, apiUrl: string, apiKey: string, embeddingModel: string, topK?: number, fileIds?: string[]) => Promise<KBSearchResult[]>
+  index: (fileId: string, configId: string) => Promise<{ chunkCount: number }>
+  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>
   download: (fileId: string) => Promise<boolean>
-  getEmbedding: (text: string, apiUrl: string, apiKey: string, embeddingModel: string) => Promise<number[]>
+  getEmbedding: (text: string, configId: string) => Promise<number[]>
   estimate: (filePath: string) => Promise<KBFileEstimate>
-  webSearch: (query: string, maxResults?: number) => Promise<KBWebSearchResult[]>
+  webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => Promise<KBWebSearchResult[]>
 }
 
 export interface ExtractionAPI {
   importFile: () => Promise<{ name: string; content: string } | null>
-  listProjects: () => Promise<{ id: string; name: string; chapterCount: number; status: string; createdAt: string }[]>
-  loadProject: (id: string) => Promise<unknown>
-  saveProject: (project: unknown) => Promise<void>
-  deleteProject: (id: string) => Promise<void>
 }
 
 export interface ElectronAPI {
@@ -127,7 +142,8 @@ export interface ElectronAPI {
   kb: KBAPI
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
-  templates: { list: () => Promise<unknown[]>; save: (t: unknown) => Promise<void>; delete: (id: string) => Promise<void> }
+  styleTemplates: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (template: any) => Promise<any>; delete: (id: string) => Promise<void> }
+  templates: { list: () => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
 }
 

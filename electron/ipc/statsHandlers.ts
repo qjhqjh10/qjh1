@@ -43,6 +43,34 @@ export async function logTokenUsage(entry: TokenUsageEntry) {
   } catch { /* non-critical */ }
 }
 
+// Get current month's total cost for budget check
+export async function getCurrentMonthCost(): Promise<number> {
+  try {
+    const logPath = path.join(getStatsPath(), 'usage.jsonl')
+    let content = ''
+    try { content = await fs.readFile(logPath, 'utf-8') } catch { return 0 }
+
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1
+
+    let total = 0
+    for (const line of content.split('\n')) {
+      if (!line) continue
+      try {
+        const entry: TokenUsageEntry = JSON.parse(line)
+        const d = new Date(entry.timestamp)
+        if (d.getFullYear() === year && d.getMonth() + 1 === month) {
+          total += entry.cost || 0
+        }
+      } catch { /* skip malformed */ }
+    }
+    return total
+  } catch {
+    return 0
+  }
+}
+
 interface GetUsageOptions {
   projectId?: string
   year?: number
@@ -166,6 +194,10 @@ export function registerStatsHandlers(ipcMain: IpcMain) {
     if (lineNumber < 1 || lineNumber > lines.length) return
     lines.splice(lineNumber - 1, 1)
     await fs.writeFile(logPath, lines.join('\n'), 'utf-8')
+  })
+
+  ipcMain.handle('stats:getMonthCost', async () => {
+    return await getCurrentMonthCost()
   })
 }
 

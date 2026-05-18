@@ -8,6 +8,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { formatWordCount } from '@/utils/textUtils'
+import { logError } from '@/utils/logger'
 import {
   PlusIcon,
   TrashIcon,
@@ -29,6 +30,7 @@ export default function HomePage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectType, setNewProjectType] = useState<'writing' | 'imitation'>('writing')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
@@ -40,11 +42,11 @@ export default function HomePage() {
       const projList: Project[] = []
       for (const name of names) {
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-        projList.push({ id: name, ...meta })
+        projList.push({ id: name, ...meta, type: (meta.type as string) === 'imitation' ? 'imitation' : 'writing' })
       }
       setProjects(projList)
     } catch (err) {
-      console.error('Failed to load projects:', err)
+      logError('Failed to load projects', err)
     }
     setLoading(false)
   }, [projectsBasePath, setProjects])
@@ -58,13 +60,20 @@ export default function HomePage() {
     if (!newProjectName.trim() || !projectsBasePath) return
     const name = newProjectName.trim()
     try {
-      await projectService.create(name, projectsBasePath)
+      await projectService.create(name, projectsBasePath, newProjectType)
       const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-      addProject({ id: name, ...meta })
+      addProject({ id: name, ...meta, type: newProjectType })
       setNewProjectName('')
       setShowCreate(false)
+      // Navigate to imitation page if imitation project
+      if (newProjectType === 'imitation') {
+        setActiveProject(name)
+        navigate('/imitation')
+      } else {
+        navigate('/outline')
+      }
     } catch (err) {
-      console.error('Failed to create project:', err)
+      logError('Failed to create project', err)
       alert('创建项目失败，请检查权限')
     }
   }
@@ -74,14 +83,14 @@ export default function HomePage() {
       await projectService.delete(project.path)
       removeProject(project.id)
     } catch (err) {
-      console.error('Failed to delete project:', err)
+      logError('Failed to delete project', err)
       alert('删除项目失败，请检查权限')
     }
   }
 
   const handleEnterProject = (project: Project) => {
     setActiveProject(project.id)
-    navigate('/outline')
+    navigate(project.type === 'imitation' ? '/imitation' : '/outline')
   }
 
   const activeProject = projects.find(p => p.id === activeProjectId)
@@ -225,6 +234,29 @@ export default function HomePage() {
                 background: '#faf9f8',
               }}
             />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>
+              项目类型
+            </label>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setNewProjectType('writing')} style={{
+                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
+                border: newProjectType === 'writing' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
+                background: newProjectType === 'writing' ? 'rgba(124,58,237,0.04)' : '#fff',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'writing' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📝 普通写作</div>
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>常规小说创作，从零开始写作</div>
+              </button>
+              <button onClick={() => setNewProjectType('imitation')} style={{
+                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
+                border: newProjectType === 'imitation' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
+                background: newProjectType === 'imitation' ? 'rgba(124,58,237,0.04)' : '#fff',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'imitation' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📋 小说仿写</div>
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>导入小说 → AI分析结构 → 模仿生成新作</div>
+              </button>
+            </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button variant="secondary" onClick={() => setShowCreate(false)}>取消</Button>

@@ -4,11 +4,5 @@ export interface Project {
   path: string
   chapterCount: number
   wordCount: number
-}
-
-export interface ProjectMeta {
-  name: string
-  chapterCount: number
-  wordCount: number
-  path: string
+  type: 'writing' | 'imitation'
 }

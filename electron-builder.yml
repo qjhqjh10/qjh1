@@ -1,7 +1,6 @@
 appId: com.novel-writing.app
 productName: AI小说写作助手
 directories:
-  buildResources: build
   output: release
 files:
   - dist

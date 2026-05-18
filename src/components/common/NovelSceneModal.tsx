@@ -52,6 +52,11 @@ const DEFAULT_CONFIG: NovelSceneConfig = {
   emotionStart: '', emotionEnd: '',
   wordTarget: 3000, narrativePOV: '第三人称',
   useStyleProfile: true, useChapterOutline: true, extraNote: '',
+  narrativeStyle: '沉浸式长镜', timeCompression: '实时', introspection: '中',
+  sensoryAnchors: '', dominantEmotion: '', emotionCurveInput: '', pacing: '渐进',
+  props: '', appearance: '', bodyLanguage: '',
+  foreshadowUse: '无', sceneTurningPoint: '',
+  autoFields: {},
 }
 
 export default function NovelSceneModal({ isOpen, onClose, chapterId, currentContent, chapterDescription, initialConfig, onApply, onGenStart, onGenChunk, onGenDone, onGenError }: Props) {

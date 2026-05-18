@@ -1,6 +1,9 @@
-import { IpcMain, dialog, BrowserWindow } from 'electron'
+import { IpcMain, BrowserWindow, SafeStorage } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog, isSafePath } from './utils'
+import type { StoredConfig } from './utils'
+import { logError } from './logger'
 import type { KnowledgeFile, KnowledgeChunk, KnowledgeIndex, KnowledgeMetadata } from '../../src/types/knowledge'
 
 let projectsBasePath = ''
@@ -64,7 +67,7 @@ async function parseFile(filePath: string, type: string): Promise<string> {
         const data = await pdfParse(buffer)
         return data.text
       } catch (err) {
-        console.error('PDF parse error:', err)
+        logError('PDF 解析失败', err)
         return ''
       }
     case 'docx':
@@ -74,7 +77,7 @@ async function parseFile(filePath: string, type: string): Promise<string> {
         const result = await mammoth.extractRawText({ buffer: buffer as unknown as Buffer })
         return result.value
       } catch (err) {
-        console.error('DOCX parse error:', err)
+        logError('DOCX 解析失败', err)
         return ''
       }
     default:
@@ -85,7 +88,16 @@ async function parseFile(filePath: string, type: string): Promise<string> {
 // ====================== Index Management ======================
 
 function getKBPath(): string {
-  return path.join(projectsBasePath, '..', 'knowledge_base')
+  return path.join(path.dirname(projectsBasePath), 'knowledge_base')
+}
+
+function safeKBFilePath(file: { name: string }): string {
+  const filesDir = path.join(getKBPath(), 'files')
+  const filePath = path.join(filesDir, path.basename(file.name))
+  if (!filePath.startsWith(filesDir + path.sep) && filePath !== filesDir) {
+    throw new Error('非法文件路径')
+  }
+  return filePath
 }
 
 async function loadIndex(): Promise<KnowledgeIndex> {
@@ -118,16 +130,8 @@ async function saveMetadata(meta: KnowledgeMetadata): Promise<void> {
 
 // ====================== Embedding ======================
 
-let cachedOpenAI: typeof import('openai').default | null = null
-async function getOpenAIForKB(): Promise<typeof import('openai').default> {
-  if (!cachedOpenAI) {
-    cachedOpenAI = (await import('openai')).default
-  }
-  return cachedOpenAI
-}
-
 async function getEmbedding(text: string, apiUrl: string, apiKey: string, model: string): Promise<number[]> {
-  const OpenAI = await getOpenAIForKB()
+  const OpenAI = await getOpenAI()
   const client = new OpenAI({ apiKey, baseURL: apiUrl || undefined })
   const response = await client.embeddings.create({
     model,
@@ -137,6 +141,7 @@ async function getEmbedding(text: string, apiUrl: string, apiKey: string, model:
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0
   let dot = 0, normA = 0, normB = 0
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i]
@@ -151,7 +156,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 const autoIndexTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-export async function autoIndexProjectFile(filePath: string, content: string, basePath: string) {
+
+export async function autoIndexProjectFile(filePath: string, content: string, basePath: string, safeStorage: SafeStorage) {
   // Only index files within project directories
   const rel = path.relative(basePath, filePath)
   if (rel.startsWith('..')) return // Not in a project
@@ -194,18 +200,12 @@ export async function autoIndexProjectFile(filePath: string, content: string, ba
 
       // Try to embed using first available config
       try {
-        const { default: Store } = await import('electron-store')
-        const store = new Store<{ configs: { id: string; apiUrl: string; apiKey: string; encrypted: boolean; embeddingModel: string }[] }>({ defaults: { configs: [] } })
-        const configs = store.get('configs', [])
-        const config = configs.find(c => c.embeddingModel && c.apiKey)
+        const store = await getConfigStore()
+        const configs = store.get('configs', [] as StoredConfig[])
+        const config = configs.find((c: StoredConfig) => c.embeddingModel && c.apiKey)
         let apiKey = config?.apiKey || ''
         if (config?.encrypted) {
-          try {
-            const { safeStorage } = await import('electron')
-            if (safeStorage.isEncryptionAvailable()) {
-              apiKey = safeStorage.decryptString(Buffer.from(apiKey, 'base64'))
-            }
-          } catch { /* keep raw */ }
+          apiKey = decryptKey(apiKey, config.encrypted, safeStorage)
         }
 
         if (config && apiKey) {
@@ -230,14 +230,39 @@ export async function autoIndexProjectFile(filePath: string, content: string, ba
       await saveIndex(index)
       await saveMetadata(meta)
     } catch (err) {
-      console.error('Auto-index failed:', err)
+      logError('自动索引失败', err)
     }
   }, 2000))
 }
 
+// ====================== Upload Helper ======================
+
+async function saveKBFile(filePath: string, activeProjectId: string): Promise<KnowledgeFile> {
+  const stat = await fs.stat(filePath)
+  if (stat.size > 50 * 1024 * 1024) {
+    throw new Error(`文件 ${path.basename(filePath)} 超过50MB限制`)
+  }
+  const ext = path.extname(filePath).toLowerCase().replace('.', '')
+  const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
+  const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const safeName = `${id}.${ext}`
+  await fs.mkdir(path.join(getKBPath(), 'files'), { recursive: true })
+  await fs.copyFile(filePath, path.join(getKBPath(), 'files', safeName))
+  const file: KnowledgeFile = {
+    id, name: safeName, originalName: path.basename(filePath),
+    type, size: stat.size, chunkCount: 0,
+    projects: activeProjectId ? [activeProjectId] : [],
+    source: 'upload', uploadedAt: new Date().toISOString(),
+  }
+  const meta = await loadMetadata()
+  meta.files.push(file)
+  await saveMetadata(meta)
+  return file
+}
+
 // ====================== IPC Registration ======================
 
-export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindow: () => BrowserWindow | null) {
+export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindow: () => BrowserWindow | null, safeStorage: SafeStorage) {
   projectsBasePath = pBasePath
 
   // List all files
@@ -250,7 +275,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
-    const filePath = path.join(getKBPath(), 'files', file.name)
+    const filePath = safeKBFilePath(file)
     const content = await parseFile(filePath, file.type)
     return { file, content }
   })
@@ -258,17 +283,11 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   // Open file dialog for KB upload
   ipcMain.handle('kb:selectFiles', async () => {
     const win = getWindow()
-    const result = win
-      ? await dialog.showOpenDialog(win, {
-          title: '选择知识库文件',
-          filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
-          properties: ['openFile', 'multiSelections'],
-        })
-      : await dialog.showOpenDialog({
-          title: '选择知识库文件',
-          filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
-          properties: ['openFile', 'multiSelections'],
-        })
+    const result = await showOpenDialog(win, {
+      title: '选择知识库文件',
+      filters: [{ name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] }],
+      properties: ['openFile', 'multiSelections'],
+    })
     if (result.canceled) return []
     return result.filePaths
   })
@@ -277,81 +296,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   ipcMain.handle('kb:uploadFiles', async (_event, filePaths: string[], activeProjectId: string) => {
     const uploaded: KnowledgeFile[] = []
     for (const filePath of filePaths) {
-      const stat = await fs.stat(filePath)
-      if (stat.size > 50 * 1024 * 1024) {
-        throw new Error(`文件 ${path.basename(filePath)} 超过50MB限制`)
-      }
-      const ext = path.extname(filePath).toLowerCase().replace('.', '')
-      const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
-      const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const safeName = `${id}.${ext}`
-      await fs.mkdir(path.join(getKBPath(), 'files'), { recursive: true })
-      await fs.copyFile(filePath, path.join(getKBPath(), 'files', safeName))
-      const file: KnowledgeFile = {
-        id, name: safeName, originalName: path.basename(filePath),
-        type, size: stat.size, chunkCount: 0,
-        projects: activeProjectId ? [activeProjectId] : [],
-        source: 'upload', uploadedAt: new Date().toISOString(),
-      }
-      const meta = await loadMetadata()
-      meta.files.push(file)
-      await saveMetadata(meta)
-      uploaded.push(file)
-    }
-    return uploaded
-  })
-
-  // Upload a file (kept for backward compat)
-  ipcMain.handle('kb:upload', async (_event, activeProjectId: string) => {
-    const win = getWindow()
-    const result = win
-      ? await dialog.showOpenDialog(win, {
-          title: '选择知识库文件',
-          filters: [
-            { name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] },
-          ],
-          properties: ['openFile', 'multiSelections'],
-        })
-      : await dialog.showOpenDialog({
-          title: '选择知识库文件',
-          filters: [
-            { name: '文档文件', extensions: ['txt', 'md', 'pdf', 'docx'] },
-          ],
-          properties: ['openFile', 'multiSelections'],
-        })
-    if (result.canceled || result.filePaths.length === 0) return null
-
-    const uploaded: KnowledgeFile[] = []
-    for (const filePath of result.filePaths) {
-      const stat = await fs.stat(filePath)
-      if (stat.size > 50 * 1024 * 1024) {
-        throw new Error(`文件 ${path.basename(filePath)} 超过50MB限制，请压缩或拆分后再上传`)
-      }
-
-      const ext = path.extname(filePath).toLowerCase().replace('.', '')
-      const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
-      const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const safeName = `${id}.${ext}`
-
-      await fs.mkdir(path.join(getKBPath(), 'files'), { recursive: true })
-      await fs.copyFile(filePath, path.join(getKBPath(), 'files', safeName))
-
-      const file: KnowledgeFile = {
-        id,
-        name: safeName,
-        originalName: path.basename(filePath),
-        type,
-        size: stat.size,
-        chunkCount: 0,
-        projects: activeProjectId ? [activeProjectId] : [],
-        source: 'upload',
-        uploadedAt: new Date().toISOString(),
-      }
-
-      const meta = await loadMetadata()
-      meta.files.push(file)
-      await saveMetadata(meta)
-      uploaded.push(file)
+      uploaded.push(await saveKBFile(filePath, activeProjectId))
     }
     return uploaded
   })
@@ -365,7 +310,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const file = meta.files[fileIdx]
     // Remove original file
     try {
-      await fs.unlink(path.join(getKBPath(), 'files', file.name))
+      await fs.unlink(safeKBFilePath(file))
     } catch { /* ignore */ }
 
     // Remove chunks from index
@@ -384,7 +329,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
 
-    const filePath = path.join(getKBPath(), 'files', file.name)
+    const filePath = safeKBFilePath(file)
     await fs.writeFile(filePath, content, 'utf-8')
 
     // Remove old chunks
@@ -411,12 +356,22 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Index a file (chunk + embed)
-  ipcMain.handle('kb:index', async (_event, fileId: string, apiUrl: string, apiKey: string, embeddingModel: string) => {
+  ipcMain.handle('kb:index', async (_event, fileId: string, configId: string) => {
+    // Look up config from electron-store (like ai:chat does)
+    const store = await getConfigStore()
+    const configs = store.get('configs', []) as StoredConfig[]
+    const config = configs.find(c => c.id === configId)
+    if (!config || !config.apiKey) throw new Error('配置未找到或API密钥为空')
+
+    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiUrl = config.apiUrl
+    const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
+
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
 
-    const filePath = path.join(getKBPath(), 'files', file.name)
+    const filePath = safeKBFilePath(file)
     const content = await parseFile(filePath, file.type)
     const chunks = chunkText(content)
 
@@ -431,7 +386,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       try {
         embedding = await getEmbedding(c.content, apiUrl, apiKey, embeddingModel)
       } catch (err) {
-        console.error(`Embedding failed for chunk ${i}:`, err)
+        logError(`Embedding 失败 (chunk ${i})`, err)
       }
       index.chunks.push({
         id: `${fileId}_chunk_${c.charStart}`,
@@ -451,7 +406,17 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Semantic search
-  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, apiUrl: string, apiKey: string, embeddingModel: string, topK: number = 3, fileIds?: string[]) => {
+  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, configId: string, topK: number = 3, fileIds?: string[]) => {
+    // Look up config from electron-store (like ai:chat does)
+    const store = await getConfigStore()
+    const configs = store.get('configs', []) as StoredConfig[]
+    const config = configs.find(c => c.id === configId)
+    if (!config || !config.apiKey) return []
+
+    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiUrl = config.apiUrl
+    const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
+
     // Get query embedding
     let queryEmbedding: number[]
     try {
@@ -503,19 +468,24 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
-    const content = await fs.readFile(path.join(getKBPath(), 'files', `${file.id}.${file.type}`), 'utf-8')
+    const filePath = safeKBFilePath(file)
     const win = BrowserWindow.fromWebContents(event.sender)
-    const result = win
-      ? await dialog.showSaveDialog(win, {
-          defaultPath: file.originalName,
-          filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
-        })
-      : await dialog.showSaveDialog({
-          defaultPath: file.originalName,
-          filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
-        })
+    const ext = path.extname(file.name).toLowerCase()
+    const isBinary = ext === '.pdf' || ext === '.docx'
+    const result = await showSaveDialog(win, {
+      defaultPath: file.originalName,
+      filters: isBinary
+        ? [{ name: 'Document', extensions: [ext.replace('.', '')] }]
+        : [{ name: 'Text Files', extensions: ['txt', 'md'] }],
+    })
     if (!result.canceled && result.filePath) {
-      await fs.writeFile(result.filePath, content, 'utf-8')
+      if (isBinary) {
+        const buffer = await fs.readFile(filePath)
+        await fs.writeFile(result.filePath, buffer)
+      } else {
+        const content = await fs.readFile(filePath, 'utf-8')
+        await fs.writeFile(result.filePath, content, 'utf-8')
+      }
       return true
     }
     return false
@@ -536,12 +506,24 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Get embedding for a text (used by AI chat for automatic retrieval)
-  ipcMain.handle('kb:getEmbedding', async (_event, text: string, apiUrl: string, apiKey: string, embeddingModel: string) => {
+  ipcMain.handle('kb:getEmbedding', async (_event, text: string, configId: string) => {
+    const store = await getConfigStore()
+    const configs = store.get('configs', []) as StoredConfig[]
+    const config = configs.find(c => c.id === configId)
+    if (!config || !config.apiKey) return []
+
+    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiUrl = config.apiUrl
+    const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
     return await getEmbedding(text, apiUrl, apiKey, embeddingModel)
   })
 
   // Estimate chunks (for upload confirmation)
   ipcMain.handle('kb:estimate', async (_event, filePath: string) => {
+    const kbPath = getKBPath()
+    if (!isSafePath(filePath, kbPath) && !isSafePath(filePath, projectsBasePath)) {
+      throw new Error('不允许访问该路径')
+    }
     const stat = await fs.stat(filePath)
     const ext = path.extname(filePath).toLowerCase().replace('.', '')
     const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
@@ -556,11 +538,29 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Web search via DuckDuckGo
-  ipcMain.handle('kb:webSearch', async (_event, query: string, maxResults: number = 5) => {
+  ipcMain.handle('kb:webSearch', async (_event, query: string, maxResults: number = 5, safeSearch: string = 'moderate', prioritySites: { url: string }[] = []) => {
+    const sanitized = query.slice(0, 500).trim()
+    if (!sanitized) return []
+
+    // Build site filter from priority sites
+    let siteFilter = ''
+    const validSites = prioritySites
+      .map(s => { try { return new URL(s.url).hostname.replace(/^www\./, '') } catch { return '' } })
+      .filter(Boolean)
+    if (validSites.length > 0) {
+      siteFilter = validSites.map(d => `site:${d}`).join(' OR ') + ' '
+    }
+
+    const searchQuery = siteFilter + sanitized
+
     try {
       const { search } = await import('duckduckgo-search')
       const results: { title: string; snippet: string; url: string }[] = []
-      for await (const result of search(query, { maxResults })) {
+      const searchOptions: { maxResults: number; safeSearch?: 'strict' | 'moderate' | 'off' } = { maxResults }
+      if (safeSearch === 'strict' || safeSearch === 'off') {
+        searchOptions.safeSearch = safeSearch
+      }
+      for await (const result of search(searchQuery, searchOptions)) {
         results.push({
           title: result.title || '',
           snippet: result.description || result.snippet || '',
@@ -569,7 +569,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       }
       return results
     } catch (err) {
-      console.error('Web search failed:', err)
+      logError('网页搜索失败', err)
       return []
     }
   })

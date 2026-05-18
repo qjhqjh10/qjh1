@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { kbService } from '@/services/fileService'
 import { countChineseWords } from '@/utils/textUtils'
@@ -20,7 +19,6 @@ import type { KnowledgeFile } from '@/types/knowledge'
 import { logError } from '@/utils/logger'
 
 export default function KnowledgeBasePage() {
-  const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const projects = useStore(s => s.projects)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -49,14 +47,14 @@ export default function KnowledgeBasePage() {
   }, [])
 
   const loadFiles = async () => {
-    const meta = await kbService.list() as { files: KnowledgeFile[] }
+    const meta = await kbService.list()
     setFiles(meta.files || [])
   }
 
   const handleSelectFile = async (file: KnowledgeFile) => {
     setSelectedFile(file)
     try {
-      const result = await kbService.read(file.id) as unknown as { file: KnowledgeFile; content: string }
+      const result = await kbService.read(file.id)
       setFileContent(result.content)
     } catch (e) {
       logError('读取知识库文件内容失败', e)
@@ -93,7 +91,7 @@ export default function KnowledgeBasePage() {
       await kbService.uploadFiles(paths, activeProjectId || '__unassigned__')
       await loadFiles()
     } catch (err) {
-      console.error('Upload failed:', err)
+      logError('Upload failed', err)
       alert(err instanceof Error ? err.message : '上传失败')
     }
     setLoading(false)
@@ -152,16 +150,11 @@ export default function KnowledgeBasePage() {
     if (!activeConfig) return
     setIndexing(file.id)
     try {
-      const result = await kbService.index(
-        file.id,
-        activeConfig.apiUrl,
-        activeConfig.apiKey,
-        activeConfig.embeddingModel || 'text-embedding-3-small',
-      ) as { chunkCount: number }
+      const result = await kbService.index(file.id, activeConfig.id) as { chunkCount: number }
       alert(`索引完成，共 ${result.chunkCount} 个片段`)
       await loadFiles()
     } catch (err) {
-      console.error('Indexing failed:', err)
+      logError('Indexing failed', err)
       alert('索引失败，请检查 Embedding 模型配置')
     }
     setIndexing(null)

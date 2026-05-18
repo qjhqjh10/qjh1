@@ -1,4 +1,5 @@
 import { fileService } from '@/services/fileService'
+import { logError } from '@/utils/logger'
 import type { Character, CharacterRole } from '@/types/character'
 import { EMPTY_CHARACTER } from '@/types/character'
 
@@ -25,12 +26,13 @@ function jsonPath(projectPath: string, id: string) {
   return `${projectPath}/characters/${id}.json`
 }
 
-function txtPath(projectPath: string, id: string) {
-  return `${projectPath}/characters/${id}.txt`
-}
-
 export async function saveCharacter(projectPath: string, character: Character) {
-  await fileService.write(jsonPath(projectPath, character.id), JSON.stringify(character, null, 2))
+  try {
+    await fileService.write(jsonPath(projectPath, character.id), JSON.stringify(character, null, 2))
+  } catch (e) {
+    logError(`保存角色失败: ${character.name}`, e)
+    throw e
+  }
 }
 
 export async function loadCharacters(projectPath: string): Promise<Character[]> {
@@ -48,7 +50,7 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
         const char = JSON.parse(content) as Character
         chars.push(char)
         seenIds.add(file.replace('.json', ''))
-      } catch { /* skip invalid */ }
+      } catch (err) { logError(`跳过无效角色文件: ${file}`, err) }
     }
 
     // Fallback: legacy .txt files not yet migrated
@@ -72,15 +74,15 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
                 char.relationshipTags = match[2].split('、').filter(Boolean) as Character['relationshipTags']
               } else if (field.isNumber) {
                 const n = parseInt(match[2], 10)
-                if (!isNaN(n)) (char as unknown as Record<string, number>)[field.key] = n
+                if (!isNaN(n)) Object.assign(char, { [field.key]: n })
               } else {
-                (char as unknown as Record<string, string>)[field.key] = match[2]
+                Object.assign(char, { [field.key]: match[2] })
               }
             }
           }
         }
         chars.push(char)
-      } catch { /* skip invalid */ }
+      } catch (err) { logError(`跳过无效TXT角色文件: ${file}`, err) }
     }
 
     return chars
@@ -105,8 +107,10 @@ export function parseCharacterFromAI(text: string): Partial<Character> {
           const matchRole = ROLES.find(r => r === rawValue)
           if (matchRole) char.role = matchRole
           else char.role = '其他'
+        } else if (field.isNumber) {
+          Object.assign(char, { [field.key]: parseInt(rawValue, 10) || 0 })
         } else {
-          (char as unknown as Record<string, string>)[field.key] = rawValue
+          Object.assign(char, { [field.key]: rawValue })
         }
       }
     }

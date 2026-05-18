@@ -9,12 +9,12 @@ describe('useStore', () => {
   })
 
   it('adds a project', () => {
-    useStore.getState().addProject({ id: '1', name: '测试', path: '/test', chapterCount: 0, wordCount: 0 })
+    useStore.getState().addProject({ id: '1', name: '测试', path: '/test', chapterCount: 0, wordCount: 0, type: 'writing' })
     expect(useStore.getState().projects).toHaveLength(1)
   })
 
   it('removes a project', () => {
-    useStore.getState().addProject({ id: '1', name: '测试', path: '/test', chapterCount: 0, wordCount: 0 })
+    useStore.getState().addProject({ id: '1', name: '测试', path: '/test', chapterCount: 0, wordCount: 0, type: 'writing' })
     useStore.getState().removeProject('1')
     expect(useStore.getState().projects).toHaveLength(0)
   })
