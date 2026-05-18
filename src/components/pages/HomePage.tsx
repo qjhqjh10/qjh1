@@ -84,7 +84,8 @@ projList.push({ id: name, ...meta, type: pt })
       }
     } catch (err) {
       logError('Failed to create project', err)
-      alert('创建项目失败，请检查权限')
+      const msg = err instanceof Error ? err.message : '创建项目失败'
+      alert(msg.includes('已存在') ? msg : '创建项目失败：' + msg)
     }
   }
 
