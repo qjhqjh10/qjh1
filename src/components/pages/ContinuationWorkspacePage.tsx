@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { continuationService, aiService, extractionService } from '@/services/fileService'
@@ -24,6 +24,8 @@ export default function ContinuationWorkspacePage() {
   const [chapters, setChapters] = useState<ContinuationChapter[]>([])
   const [step, setStep] = useState<Step>(1)
   const [selectedChapterIdx, setSelectedChapterIdx] = useState(0)
+  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<number>>(new Set())
+  const chaptersRef = useRef(chapters)
 
   const [importing, setImporting] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -35,6 +37,8 @@ export default function ContinuationWorkspacePage() {
   const [writingChapter, setWritingChapter] = useState<ContinuationWrittenChapter | null>(null)
   const [writingContent, setWritingContent] = useState('')
   const [writingLoading, setWritingLoading] = useState(false)
+
+  useEffect(() => { chaptersRef.current = chapters }, [chapters])
 
   useEffect(() => {
     if (!activeProjectId) { navigate('/continuation'); return }
@@ -118,11 +122,38 @@ export default function ContinuationWorkspacePage() {
     setAnalyzingChapter(null)
   }
 
-  const handleAnalyzeAll = async () => {
+  const handleAnalyzeRemaining = async () => {
     if (!activeConfigId) return
     setAnalyzing(true)
-    for (let i = 0; i < chapters.length; i++) { if (!chapters[i].analysis) await handleAnalyzeChapter(i) }
+    const currentChapters = chaptersRef.current
+    for (let i = 0; i < currentChapters.length; i++) { if (!currentChapters[i].analysis) await handleAnalyzeChapter(i) }
     setAnalyzing(false)
+  }
+
+  const handleAnalyzeSelected = async () => {
+    if (!activeConfigId || selectedChapterIds.size === 0) return
+    setAnalyzing(true)
+    const currentChapters = chaptersRef.current
+    const toAnalyze = [...selectedChapterIds].sort((a, b) => a - b)
+    for (const idx of toAnalyze) {
+      if (idx < currentChapters.length && !currentChapters[idx].analysis) {
+        await handleAnalyzeChapter(idx)
+      }
+    }
+    setSelectedChapterIds(new Set())
+    setAnalyzing(false)
+  }
+
+  const handleReanalyzeChapter = async (idx: number) => {
+    if (!activeConfigId || !project) return
+    const ch = chapters[idx]
+    if (!ch.analysis) return
+    const { analysis: _removed, ...rest } = ch
+    const updated = [...chapters]
+    updated[idx] = rest as ContinuationChapter
+    setChapters(updated)
+    await save({ sourceChapters: updated, status: 'analyzed' })
+    await handleAnalyzeChapter(idx)
   }
 
   const handleAggregate = async () => {
@@ -217,17 +248,31 @@ export default function ContinuationWorkspacePage() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ width: 200, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
-          <div style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>章节 ({analyzedCount}/{chapters.length})</div>
+        <div style={{ width: 210, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
+          <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>章节 ({analyzedCount}/{chapters.length})</span>
+            <button onClick={() => {
+              if (selectedChapterIds.size === chapters.length) setSelectedChapterIds(new Set())
+              else setSelectedChapterIds(new Set(chapters.map((_, i) => i)))
+            }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed' }}>{selectedChapterIds.size === chapters.length ? '取消全选' : '全选'}</button>
+          </div>
           <ScrollArea style={{ flex: 1 }}>
             {chapters.map((ch, i) => (
-              <div key={i} onClick={() => setSelectedChapterIdx(i)} style={{ padding: '6px 12px', fontSize: 11, cursor: 'pointer', background: selectedChapterIdx === i ? 'rgba(124,58,237,0.06)' : 'transparent', borderLeft: selectedChapterIdx === i ? '2px solid #7c3aed' : '2px solid transparent', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ color: ch.analysis ? '#16a34a' : '#d9d2cc', fontSize: 10 }}>{ch.analysis ? '✓' : '○'}</span>
-                <span style={{ color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>第{ch.chapterNumber}章 {ch.title}</span>
+              <div key={i} style={{ padding: '5px 8px', fontSize: 11, cursor: 'pointer', background: selectedChapterIdx === i ? 'rgba(124,58,237,0.06)' : 'transparent', borderLeft: selectedChapterIdx === i ? '2px solid #7c3aed' : '2px solid transparent', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <input type="checkbox" checked={selectedChapterIds.has(i)} onChange={() => {
+                  setSelectedChapterIds(prev => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next })
+                }} onClick={e => e.stopPropagation()} style={{ width: 12, height: 12, cursor: 'pointer', accentColor: '#7c3aed', flexShrink: 0 }} />
+                <span onClick={() => setSelectedChapterIdx(i)} style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0 }}>
+                  <span style={{ color: ch.analysis ? '#16a34a' : '#d9d2cc', fontSize: 10, flexShrink: 0 }}>{ch.analysis ? '✓' : '○'}</span>
+                  <span style={{ color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>第{ch.chapterNumber}章 {ch.title}</span>
+                </span>
               </div>
             ))}
           </ScrollArea>
-          <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(0,0,0,0.04)' }}><Button size="sm" onClick={handleAnalyzeAll} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>{analyzing ? '分析中...' : '全部分析'}</Button></div>
+          <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Button size="sm" onClick={handleAnalyzeRemaining} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>{analyzing ? '分析中...' : '分析剩余章节'}</Button>
+            {selectedChapterIds.size > 0 && <Button size="sm" variant="secondary" onClick={handleAnalyzeSelected} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>分析选中({selectedChapterIds.size})</Button>}
+          </div>
         </div>
 
         <ScrollArea style={{ flex: 1, padding: '16px 20px' }}>
@@ -256,7 +301,17 @@ export default function ContinuationWorkspacePage() {
                 <div style={{ flex: 1, padding: '18px 22px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', overflow: 'auto', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }} className="custom-scrollbar">{chapters[selectedChapterIdx]?.content}</div>
               </div>
               <div style={{ flex: 4, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 320, maxWidth: 520 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><span>分析结果</span>{chapters[selectedChapterIdx]?.analysis ? <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}><CheckCircleIcon style={{ width: 12, height: 12, marginRight: 2, display: 'inline' }} />已分析</span> : <span style={{ fontSize: 10, color: '#9b8e84' }}>待分析</span>}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>分析结果</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {chapters[selectedChapterIdx]?.analysis ? (
+                      <>
+                        <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}><CheckCircleIcon style={{ width: 12, height: 12, marginRight: 2, display: 'inline' }} />已分析</span>
+                        <Button size="sm" variant="secondary" onClick={() => handleReanalyzeChapter(selectedChapterIdx)} disabled={analyzingChapter !== null} style={{ fontSize: 10, padding: '2px 8px' }} icon={<SparklesIcon style={{ width: 10, height: 10 }} />}>重新分析</Button>
+                      </>
+                    ) : <span style={{ fontSize: 10, color: '#9b8e84' }}>待分析</span>}
+                  </div>
+                </div>
                 {chapters[selectedChapterIdx]?.analysis ? (
                   <div className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={resultCard}><div style={resultCardHeader('#7c3aed')}>角色与事件</div><div style={resultCardBody}>
