@@ -42,6 +42,10 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
 
   ipcMain.handle('project:delete', async (_event, projectPath: string) => {
     if (!isSafePath(projectPath, projectsBasePath)) throw new Error('Access denied: path outside projects directory')
+    // If continuation project, also clean up the continuation_projects/ JSON
+    const projectName = path.basename(projectPath)
+    const contPath = path.join(path.dirname(projectsBasePath), 'continuation_projects', `${projectName}.json`)
+    try { await fs.unlink(contPath) } catch { /* may not exist */ }
     await fs.rm(projectPath, { recursive: true, force: true })
   })
 
@@ -88,4 +92,97 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
   ipcMain.handle('app:getProjectsBasePath', async () => {
     return projectsBasePath
   })
+
+  // ====================== Project Import ======================
+
+  ipcMain.handle('project:import', async (_event, zipPath: string) => {
+    const fsSync = require('fs')
+    const unzipper = require('unzipper')
+    const os = require('os')
+
+    if (!fsSync.existsSync(zipPath)) throw new Error('文件不存在')
+
+    // Extract to temp directory
+    const tmpDir = path.join(os.tmpdir(), `novel_import_${Date.now()}`)
+    await new Promise<void>((resolve, reject) => {
+      fsSync.createReadStream(zipPath)
+        .pipe(unzipper.Extract({ path: tmpDir }))
+        .on('close', resolve)
+        .on('error', reject)
+    })
+
+    try {
+      // Find project root (first directory that contains project.json)
+      const entries = await fs.readdir(tmpDir, { withFileTypes: true })
+      let projDir = tmpDir
+      for (const e of entries) {
+        if (e.isDirectory()) {
+          try {
+            await fs.access(path.join(tmpDir, e.name, 'project.json'))
+            projDir = path.join(tmpDir, e.name)
+            break
+          } catch { /* not here */ }
+        }
+      }
+
+      // Read project type
+      let projType = 'writing'
+      try {
+        const meta = JSON.parse(await fs.readFile(path.join(projDir, 'project.json'), 'utf-8'))
+        projType = meta.type || 'writing'
+      } catch { /* legacy project without project.json */ }
+
+      // Read or derive project name
+      const projName = path.basename(projDir)
+
+      // Check for name conflict
+      const destPath = path.join(projectsBasePath, projName)
+      let finalName = projName
+      let suffix = 1
+      while (true) {
+        try { await fs.access(path.join(projectsBasePath, finalName)); finalName = `${projName}_${suffix++}` } catch { break }
+      }
+      const finalPath = path.join(projectsBasePath, finalName)
+
+      // Copy project directory
+      await copyDir(projDir, finalPath)
+
+      // Ensure project.json reflects correct type
+      await fs.writeFile(path.join(finalPath, 'project.json'), JSON.stringify({ type: projType }), 'utf-8')
+
+      // Handle continuation project
+      const contSrcDir = path.join(tmpDir, '_continuation')
+      try {
+        const contFiles = await fs.readdir(contSrcDir)
+        const contDir = path.join(path.dirname(projectsBasePath), 'continuation_projects')
+        await fs.mkdir(contDir, { recursive: true })
+        for (const cf of contFiles) {
+          const src = path.join(contSrcDir, cf)
+          const basename = path.basename(cf)
+          const newName = cf !== basename ? cf.replace(path.basename(cf, '.json'), finalName) + '.json' : cf
+          await fs.copyFile(src, path.join(contDir, newName))
+        }
+      } catch { /* no continuation data */ }
+
+      return { name: finalName, type: projType }
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+}
+
+async function copyDir(src: string, dest: string): Promise<void> {
+  const fs = await import('fs/promises')
+  const path = await import('path')
+  await fs.mkdir(dest, { recursive: true })
+  const entries = await fs.readdir(src, { withFileTypes: true })
+  for (const e of entries) {
+    const s = path.join(src, e.name)
+    const d = path.join(dest, e.name)
+    if (e.isDirectory()) {
+      await copyDir(s, d)
+    } else {
+      await fs.copyFile(s, d)
+    }
+  }
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
 import { continuationService, extractionService } from '@/services/fileService'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
+import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import { logError } from '@/utils/logger'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -16,6 +16,7 @@ export default function ContinuationPage() {
   const setActivePage = useStore(s => s.setActivePage)
   const setActiveProject = useStore(s => s.setActiveProject)
   const setActiveProjectName = useStore(s => s.setActiveProjectName)
+  const removeProject = useStore(s => s.removeProject)
   const [projects, setProjects] = useState<ContinuationProject[]>([])
   const [importing, setImporting] = useState(false)
   const [showDeleteId, setShowDeleteId] = useState<string | null>(null)
@@ -41,11 +42,15 @@ export default function ContinuationPage() {
       const result = await extractionService.importFile() as { name: string; content: string } | null
       if (!result) { setImporting(false); return }
       const split = splitChaptersByHeadings(result.content)
+      if (split.length === 1 && split[0].chapterType === 'chapter' && split[0].title === '全文') {
+        alert('未检测到章节标题，已导入为单章全文。\n请确认小说文件使用了标准的"第X章"格式。')
+      }
       const chs: ContinuationChapter[] = split.map((r, i) => ({
-        chapterNumber: i + 1, title: r.title, content: r.content, wordCount: r.content.length,
+        chapterNumber: i + 1, title: r.title, content: r.content, wordCount: countChineseWords(r.content),
       }))
+      const projName = result.name.replace(/\.txt$/i, '')
       const proj: ContinuationProject = {
-        id: '', name: result.name.replace(/\.txt$/i, ''),
+        id: projName, name: projName,
         sourceFileName: result.name, sourceChapters: chs, writtenChapters: [],
         status: 'imported', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
@@ -59,7 +64,7 @@ export default function ContinuationPage() {
   const handleCreateEmpty = async () => {
     if (!newProjectName.trim()) return
     const p: ContinuationProject = {
-      id: '', name: newProjectName.trim(), sourceFileName: '',
+      id: newProjectName.trim(), name: newProjectName.trim(), sourceFileName: '',
       sourceChapters: [], writtenChapters: [], status: 'imported',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
@@ -72,7 +77,7 @@ export default function ContinuationPage() {
 
   const handleDelete = async (id: string) => {
     await continuationService.delete(id)
-    await loadProjects()
+    removeProject(id)
     setShowDeleteId(null)
   }
 

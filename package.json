@@ -1,6 +1,6 @@
 {
   "name": "novel-writing-app",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -26,11 +26,14 @@
     "@tiptap/extension-underline": "^2.27.2",
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
+    "archiver": "^8.0.0",
     "chokidar": "^3.6.0",
     "duckduckgo-search": "^1.0.7",
     "electron-store": "^8.2.0",
     "framer-motion": "^11.18.2",
+    "iconv-lite": "^0.7.2",
     "immer": "^10.2.0",
+    "jschardet": "^3.1.4",
     "mammoth": "^1.12.0",
     "nanoid": "^5.1.11",
     "openai": "^4.104.0",
@@ -38,11 +41,13 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.3",
+    "unzipper": "^0.12.3",
     "zustand": "^4.5.7"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/archiver": "^7.0.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",

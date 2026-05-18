@@ -74,7 +74,7 @@ app.whenReady().then(() => {
 
   registerFileHandlers(ipcMain, undefined, projectsPath)
   registerProjectHandlers(ipcMain, projectsPath)
-  registerExportHandlers(ipcMain, () => mainWindow)
+  registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
   registerAiHandlers(ipcMain, safeStorage)
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
   registerStatsHandlers(ipcMain)

@@ -1,7 +1,6 @@
 import { IpcMain, BrowserWindow } from 'electron'
-import * as fs from 'fs/promises'
 import * as path from 'path'
-import { showOpenDialog } from './utils'
+import { showOpenDialog, readFileWithEncoding } from './utils'
 import { logError } from './logger'
 
 export function registerExtractionHandlers(ipcMain: IpcMain) {
@@ -15,7 +14,7 @@ export function registerExtractionHandlers(ipcMain: IpcMain) {
     if (result.canceled || result.filePaths.length === 0) return null
     const filePath = result.filePaths[0]
     try {
-      const content = await fs.readFile(filePath, 'utf-8')
+      const content = await readFileWithEncoding(filePath)
       if (!content || content.trim().length === 0) throw new Error('文件为空')
       return { name: path.basename(filePath), content }
     } catch (err) {

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { continuationService, aiService, extractionService } from '@/services/fileService'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
+import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
 import Button from '@/components/common/Button'
@@ -73,8 +73,11 @@ export default function ContinuationWorkspacePage() {
       const result = await extractionService.importFile() as { name: string; content: string } | null
       if (!result) { setImporting(false); return }
       const split = splitChaptersByHeadings(result.content)
+      if (split.length === 1 && split[0].chapterType === 'chapter' && split[0].title === '全文') {
+        alert('未检测到章节标题，已导入为单章全文。\n请确认小说文件使用了标准的"第X章"格式。')
+      }
       const chs: ContinuationChapter[] = split.map((r, i) => ({
-        chapterNumber: i + 1, title: r.title, content: r.content, wordCount: r.content.length,
+        chapterNumber: i + 1, title: r.title, content: r.content, wordCount: countChineseWords(r.content),
       }))
       setChapters(chs)
       const proj: ContinuationProject = {

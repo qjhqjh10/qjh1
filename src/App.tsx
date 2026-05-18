@@ -138,7 +138,8 @@ export default function App() {
       const projList: Project[] = []
       for (const name of names) {
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-        projList.push({ id: name, ...meta, type: (meta.type as string) === 'imitation' ? 'imitation' : 'writing' })
+        const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
+        projList.push({ id: name, ...meta, type: pt })
       }
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }

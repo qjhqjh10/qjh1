@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
-import { projectService, continuationService } from '@/services/fileService'
+import { projectService, continuationService, exportService, dialogService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
@@ -92,15 +92,40 @@ projList.push({ id: name, ...meta, type: pt })
   const handleDeleteProject = async (project: Project) => {
     try {
       if (project.type === 'continuation') {
-        // Continuation projects are stored in continuation_projects/, not projects/
         try { await continuationService.delete(project.id) } catch {}
-      } else {
-        await projectService.delete(project.path)
+      }
+      if (project.path) {
+        try { await projectService.delete(project.path) } catch {}
       }
       removeProject(project.id)
     } catch (err) {
       logError('Failed to delete project', err)
       alert('删除项目失败，请检查权限')
+    }
+  }
+
+  const handleExportProject = async (project: Project) => {
+    const outputPath = await dialogService.saveZip(`${project.name}.zip`)
+    if (!outputPath) return
+    try {
+      await exportService.exportProject(project.path, outputPath)
+      alert('项目导出成功')
+    } catch (err) {
+      logError('Failed to export project', err)
+      alert('导出失败：' + (err instanceof Error ? err.message : '未知错误'))
+    }
+  }
+
+  const handleImportProject = async () => {
+    const zipPath = await dialogService.openZip()
+    if (!zipPath) return
+    try {
+      const result = await projectService.importProject(zipPath)
+      await loadProjects()
+      alert(`项目"${result.name}"导入成功（类型: ${result.type === 'imitation' ? '仿写' : result.type === 'continuation' ? '续写' : '写作'}）`)
+    } catch (err) {
+      logError('Failed to import project', err)
+      alert('导入失败：' + (err instanceof Error ? err.message : '未知错误'))
     }
   }
 
@@ -122,9 +147,12 @@ projList.push({ id: name, ...meta, type: pt })
               {activeProject ? `当前项目: ${activeProject.name}` : '选择或创建一个项目开始写作'}
             </p>
           </div>
-          <Button onClick={() => setShowCreate(true)} icon={<PlusIcon style={{ width: 18, height: 18 }} />}>
-            新建项目
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" size="sm" onClick={handleImportProject}>导入项目</Button>
+            <Button onClick={() => setShowCreate(true)} icon={<PlusIcon style={{ width: 18, height: 18 }} />}>
+              新建项目
+            </Button>
+          </div>
         </div>
 
         {/* Active Project Detail */}
@@ -148,6 +176,7 @@ projList.push({ id: name, ...meta, type: pt })
                 <Button onClick={() => handleEnterProject(activeProject)} icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}>
                   进入项目
                 </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleExportProject(activeProject)}>导出</Button>
                 <Button variant="danger" onClick={() => handleDeleteProject(activeProject)} icon={<TrashIcon style={{ width: 16, height: 16 }} />}>
                   删除
                 </Button>

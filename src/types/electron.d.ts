@@ -21,6 +21,7 @@ export interface ProjectAPI {
     name: string; chapterCount: number; wordCount: number; path: string; type: string
   }>
   listProjects: (basePath: string) => Promise<string[]>
+  importProject: (zipPath: string) => Promise<{ name: string; type: string }>
 }
 
 export interface ExportAPI {
@@ -32,6 +33,7 @@ export interface ExportAPI {
   exportSingleChapter: (options: {
     title: string; content: string; outputPath: string
   }) => Promise<void>
+  exportProject: (projectPath: string, outputPath: string) => Promise<void>
 }
 
 export interface StreamUsage { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
@@ -49,6 +51,8 @@ export interface AIAPI {
 
 export interface DialogAPI {
   saveFile: (defaultName: string) => Promise<string | null>
+  saveZip: (defaultName: string) => Promise<string | null>
+  openZip: () => Promise<string | null>
 }
 
 export interface AppAPI {

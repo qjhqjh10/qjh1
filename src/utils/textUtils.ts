@@ -22,7 +22,7 @@ export function splitChaptersByHeadings(content: string): ChapterSplitResult[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    if (line.length > 40) continue
+    if (line.length > 60) continue
     for (const pat of CHAPTER_PATTERNS) {
       if (pat.regex.test(line)) { headings.push({ title: line, startLine: i, type: pat.type }); break }
     }

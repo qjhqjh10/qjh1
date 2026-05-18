@@ -1,10 +1,11 @@
 import { IpcMain, BrowserWindow, app } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { showSaveDialog, isSafePath } from './utils'
+import { showSaveDialog, showOpenDialog, isSafePath } from './utils'
 import { logError } from './logger'
+import type { ContinuationProject } from '../../src/types/continuation'
 
-export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => BrowserWindow | null) {
+export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => BrowserWindow | null, projectsBasePath: string) {
   ipcMain.handle('export:chapters', async (_event, options: {
     chapters: { title: string; content: string }[]
     outputPath: string
@@ -41,6 +42,36 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
     }
   })
 
+  // ====================== Project Export ======================
+
+  ipcMain.handle('export:project', async (_event, projectPath: string, outputPath: string) => {
+    if (!isSafePath(projectPath, projectsBasePath)) throw new Error('项目路径不在允许范围内')
+    return new Promise<void>((resolve, reject) => {
+      const archiver = require('archiver')
+      const archive = archiver('zip', { zlib: { level: 9 } })
+      const output = require('fs').createWriteStream(outputPath)
+      output.on('close', resolve)
+      archive.on('error', reject)
+      archive.pipe(output)
+
+      // Add project directory
+      archive.directory(projectPath, path.basename(projectPath))
+
+      // For continuation projects, include continuation_projects/ JSON
+      const projectName = path.basename(projectPath)
+      const contDir = path.join(path.dirname(projectsBasePath), 'continuation_projects')
+      const contFile = path.join(contDir, `${projectName}.json`);
+      try {
+        const stat = require('fs').statSync(contFile)
+        if (stat.isFile()) {
+          archive.file(contFile, { name: `_continuation/${projectName}.json` })
+        }
+      } catch { /* not a continuation project */ }
+
+      archive.finalize()
+    })
+  })
+
   ipcMain.handle('dialog:saveFile', async (_event, defaultName: string) => {
     const win = getWindow()
     const result = await showSaveDialog(win, {
@@ -48,5 +79,24 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
       filters: [{ name: 'Text Files', extensions: ['txt'] }],
     })
     return result.canceled ? null : result.filePath
+  })
+
+  ipcMain.handle('dialog:saveZip', async (_event, defaultName: string) => {
+    const win = getWindow()
+    const result = await showSaveDialog(win, {
+      defaultPath: defaultName,
+      filters: [{ name: '项目压缩包', extensions: ['zip'] }],
+    })
+    return result.canceled ? null : result.filePath
+  })
+
+  ipcMain.handle('dialog:openZip', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? null
+    const result = await showOpenDialog(win, {
+      title: '导入项目',
+      filters: [{ name: '项目压缩包', extensions: ['zip'] }],
+      properties: ['openFile'],
+    })
+    return result.canceled ? null : result.filePaths[0]
   })
 }

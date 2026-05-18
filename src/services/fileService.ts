@@ -24,6 +24,7 @@ export const projectService = {
   delete: (projectPath: string) => e().project.delete(projectPath),
   getMeta: (projectPath: string) => e().project.getMeta(projectPath),
   listProjects: (basePath: string) => e().project.listProjects(basePath),
+  importProject: (zipPath: string) => e().project.importProject(zipPath),
 }
 
 export const exportService = {
@@ -35,6 +36,8 @@ export const exportService = {
   exportSingleChapter: (opts: {
     title: string; content: string; outputPath: string
   }) => e().export.exportSingleChapter(opts),
+  exportProject: (projectPath: string, outputPath: string) =>
+    e().export.exportProject(projectPath, outputPath),
 }
 
 export const aiService = {
@@ -109,6 +112,8 @@ export const kbService = {
 
 export const dialogService = {
   saveFile: (defaultName: string) => e().dialog.saveFile(defaultName),
+  saveZip: (defaultName: string) => e().dialog.saveZip(defaultName),
+  openZip: () => e().dialog.openZip(),
 }
 
 export const appService = {

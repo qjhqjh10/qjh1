@@ -122,9 +122,14 @@ export const useStore = create<AppState>()(
 
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setProjects: (projects) => set(s => {
-      // Preserve non-writing projects (continuation/imitation) that are in the store but not on disk
-      const special = s.projects.filter(p => p.type !== 'writing' && !projects.find(np => np.id === p.id))
-      s.projects = [...projects, ...special]
+      // Preserve non-writing projects that are in the store but not on disk
+      const existingIds = new Set(projects.map(p => p.id))
+      const special = s.projects.filter(p => p.type !== 'writing' && !existingIds.has(p.id))
+      const merged = [...projects]
+      for (const sp of special) {
+        if (!merged.find(p => p.id === sp.id)) merged.push(sp)
+      }
+      s.projects = merged
     }),
     setActiveProject: (id, projectType) => set(s => {
       s.activeProjectId = id || null

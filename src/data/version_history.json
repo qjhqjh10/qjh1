@@ -1,7 +1,19 @@
 {
-  "currentVersion": "3.1.0",
+  "currentVersion": "3.2.0",
   "currentDate": "2026-05-19",
   "history": [
+    {
+      "version": "3.2.0",
+      "date": "2026-05-19",
+      "features": [
+        "续写导入修复: jschardet+iconv-lite自动检测GBK/UTF-8编码，解决中文小说乱码和章节检测失败",
+        "项目创建/删除一致性: 统一续写项目ID策略、App.tsx类型分类修复、双向清理(目录+JSON同步删除)、store去重",
+        "项目导出导入: archiver打包为.zip(含项目类型/续写数据/仿写数据)，unzipper解压导入并自动恢复类型",
+        "章节检测增强: 标题长度40→60放宽、单章fallback时提示用户",
+        "wordCount修正: 续写导入使用countChineseWords替代.length",
+        "导入/导出UI: HomePage添加导入项目按钮和项目导出按钮，保存/打开.zip对话框"
+      ]
+    },
     {
       "version": "3.1.0",
       "date": "2026-05-19",

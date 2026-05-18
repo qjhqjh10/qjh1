@@ -30,6 +30,8 @@ const api = {
     }> => ipcRenderer.invoke('project:getMeta', projectPath),
     listProjects: (basePath: string): Promise<string[]> =>
       ipcRenderer.invoke('project:listProjects', basePath),
+    importProject: (zipPath: string): Promise<{ name: string; type: string }> =>
+      ipcRenderer.invoke('project:import', zipPath),
   },
   export: {
     exportChapters: (options: {
@@ -40,6 +42,8 @@ const api = {
     exportSingleChapter: (options: {
       title: string; content: string; outputPath: string
     }): Promise<void> => ipcRenderer.invoke('export:singleChapter', options),
+    exportProject: (projectPath: string, outputPath: string): Promise<void> =>
+      ipcRenderer.invoke('export:project', projectPath, outputPath),
   },
   ai: {
     chat: (messages: { role: string; content: string }[], configId: string, projectId?: string): Promise<string> =>
@@ -79,6 +83,10 @@ const api = {
   dialog: {
     saveFile: (defaultName: string): Promise<string | null> =>
       ipcRenderer.invoke('dialog:saveFile', defaultName),
+    saveZip: (defaultName: string): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:saveZip', defaultName),
+    openZip: (): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:openZip'),
   },
   app: {
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),

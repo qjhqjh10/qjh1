@@ -83,6 +83,50 @@ export async function getConfigStore(): Promise<ConfigStore> {
   return sharedStore
 }
 
+// ====================== Encoding Detection ======================
+
+function detectEncoding(buf: Buffer): string {
+  try {
+    const jschardet = require('jschardet')
+    const result = jschardet.detect(buf)
+    if (result && result.encoding && result.confidence > 0.7) {
+      const enc = result.encoding.toLowerCase()
+      if (enc === 'gb2312' || enc === 'gbk' || enc === 'gb18030') return 'gbk'
+      if (enc === 'utf-8' || enc === 'ascii') return 'utf-8'
+      if (enc === 'big5') return 'big5'
+      return enc
+    }
+  } catch { /* jschardet unavailable */ }
+  return 'utf-8'
+}
+
+export async function readFileWithEncoding(filePath: string): Promise<string> {
+  const fs = await import('fs/promises')
+  const buf = await fs.readFile(filePath)
+  if (buf.length === 0) return ''
+
+  // Check for UTF-8 BOM
+  if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    return buf.toString('utf-8', 3)
+  }
+  // Check for UTF-16 LE BOM
+  if (buf[0] === 0xFF && buf[1] === 0xFE) {
+    return buf.toString('utf-16le', 2)
+  }
+
+  const encoding = detectEncoding(buf)
+  if (encoding === 'utf-8') {
+    return buf.toString('utf-8')
+  }
+
+  try {
+    const iconv = require('iconv-lite')
+    return iconv.decode(buf, encoding)
+  } catch {
+    return buf.toString('utf-8')
+  }
+}
+
 // ====================== Dialog Helpers ======================
 
 export async function showOpenDialog(win: BrowserWindow | null, opts: Electron.OpenDialogOptions) {
