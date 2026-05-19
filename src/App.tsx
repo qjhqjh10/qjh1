@@ -1,7 +1,7 @@
 import { useEffect, useCallback, Component } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { appService, projectService, settingsService, aiService } from '@/services/fileService'
+import { appService, projectService, settingsService, aiService, continuationService } from '@/services/fileService'
 import { useStore, useSettingsStore } from '@/store'
 import type { Project } from '@/types/project'
 import type { ModelConfig } from '@/types/settings'
@@ -141,6 +141,21 @@ export default function App() {
         const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
         projList.push({ id: name, ...meta, type: pt })
       }
+      // Also load continuation-only projects (no project directory)
+      try {
+        const contList = await continuationService.list() as any[]
+        const existingIds = new Set(projList.map(p => p.id))
+        for (const cp of contList) {
+          if (!existingIds.has(cp.id)) {
+            projList.push({
+              id: cp.id, name: cp.name, path: '',
+              chapterCount: cp.writtenChapters?.length || 0,
+              wordCount: cp.writtenChapters?.reduce((s: number, c: any) => s + (c.content?.length || 0), 0) || 0,
+              type: 'continuation',
+            })
+          }
+        }
+      } catch { /* continuation service unavailable */ }
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }
   }, [projectsBasePath, setProjects])

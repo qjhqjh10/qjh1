@@ -79,6 +79,9 @@ export default function Sidebar() {
       items.push({ path: '/continuation-workspace', label: '续写工作台', icon: DocumentTextIcon })
       items.push({ path: '/continuation-outline', label: '(续写)大纲', icon: ListBulletIcon })
       items.push({ path: '/continuation-detailed', label: '(续写)细纲', icon: BookOpenIcon })
+      if (detailedChapters.length > 0) {
+        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+      }
     }
 
     items.push(...COMMON_ITEMS)
