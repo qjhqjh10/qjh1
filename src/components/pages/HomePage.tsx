@@ -77,7 +77,7 @@ projList.push({ id: name, ...meta, type: pt })
       setShowCreate(false)
       // Navigate to imitation page if imitation project
       if (newProjectType === 'imitation') {
-        setActiveProject(name)
+        setActiveProject(name, newProjectType)
         navigate('/imitation')
       } else {
         navigate('/outline')
@@ -130,8 +130,8 @@ projList.push({ id: name, ...meta, type: pt })
   }
 
   const handleEnterProject = (project: Project) => {
-    setActiveProject(project.id)
-    navigate(project.type === 'imitation' ? '/imitation' : '/outline')
+    setActiveProject(project.id, project.type)
+    navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-workspace' : '/outline')
   }
 
   const activeProject = projects.find(p => p.id === activeProjectId)
@@ -201,7 +201,7 @@ projList.push({ id: name, ...meta, type: pt })
               {projects.map(project => (
                 <GlassCard
                   key={project.id}
-                  onClick={() => setActiveProject(project.id)}
+                  onClick={() => setActiveProject(project.id, project.type)}
                   style={{
                     border: activeProjectId === project.id ? '2px solid rgba(124, 58, 237, 0.3)' : undefined,
                   }}

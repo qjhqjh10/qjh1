@@ -218,7 +218,7 @@ export default function Sidebar() {
               onClick={() => {
                 if (activeProjectId !== project.id) {
                   resetProjectState()
-                  setActiveProject(project.id)
+                  setActiveProject(project.id, project.type)
                 }
                 setActivePage('home')
                 navigate(project.type === 'imitation' ? '/imitation' : '/')
