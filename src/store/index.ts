@@ -45,6 +45,7 @@ export interface AppState {
 
   // Insertion action (AI → editor)
   insertionAction: { keyword: string; content: string; position: 'before' | 'after' } | null
+  replaceAction: { chapterId: string; content: string } | null
 
   // Actions - Project
   setProjectsBasePath: (p: string) => void
@@ -87,6 +88,7 @@ export interface AppState {
   toggleSidebar: () => void
   setConnectionStatus: (status: 'connected' | 'disconnected' | 'checking', model?: string) => void
   setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after' } | null) => void
+  setReplaceAction: (action: { chapterId: string; content: string } | null) => void
 
   // Actions - Reset
   resetProjectState: () => void
@@ -117,6 +119,7 @@ export const useStore = create<AppState>()(
     connectionStatus: 'checking',
     connectedModel: '',
     insertionAction: null,
+  replaceAction: null,
 
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setProjects: (projects) => set(s => {
@@ -197,6 +200,7 @@ export const useStore = create<AppState>()(
     toggleSidebar: () => set(s => { s.sidebarCollapsed = !s.sidebarCollapsed }),
     setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
+    setReplaceAction: (action: { chapterId: string; content: string } | null) => set({ replaceAction: action }),
 
     resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),
   }))

@@ -63,6 +63,7 @@ export default function AIChatWindow() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const activePage = useStore(s => s.activePage)
   const setInsertionAction = useStore(s => s.setInsertionAction)
+  const setReplaceAction = useStore(s => s.setReplaceAction)
 
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const characters = useStore(s => s.characters)
@@ -417,8 +418,8 @@ export default function AIChatWindow() {
           if (f) updateDetailedChapter(f.id, { ...f, description: f.description ? f.description + '\n\n' + content : content })
         }; break
       case 'chapter':
-        if (currentChapterId && currentChapter) {
-          setWritingChapter(currentChapterId, { ...currentChapter, content: currentChapter.content ? currentChapter.content + '\n\n' + content : content })
+        if (currentChapterId) {
+          setReplaceAction({ chapterId: currentChapterId, content })
         }; break
     }
   }

@@ -50,6 +50,8 @@ export default function ChapterWritingPage() {
   const setCurrentChapterId = useStore(s => s.setCurrentChapterId)
   const insertionAction = useStore(s => s.insertionAction)
   const setInsertionAction = useStore(s => s.setInsertionAction)
+  const replaceAction = useStore(s => s.replaceAction)
+  const setReplaceAction = useStore(s => s.setReplaceAction)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const outlineContent = useStore(s => s.outlineContent)
 
@@ -131,10 +133,28 @@ export default function ChapterWritingPage() {
         const insertPos = position === 'after' ? idx + keyword.length : idx
         const newText = content.slice(0, insertPos) + '\n\n' + insContent + content.slice(insertPos)
         setContent(newText)
+        // Also save to disk and update store
+        if (projectPath && chapterId) {
+          fileService.write(`${projectPath}/chapters/${chapterId}.txt`, newText).then(() => {
+            setWritingChapter(chapterId!, {
+              id: chapterId, detailedChapterId: chapterId,
+              title: detailedChapter?.title || '', content: newText,
+              summary: detailedChapter?.summary || '',
+            })
+          })
+        }
       }
     }
     setInsertionAction(null)
-  }, [insertionAction, setInsertionAction, content])
+  }, [insertionAction, setInsertionAction, content, projectPath as string, chapterId, detailedChapter])
+
+  // Handle replace action from AI assistant (apply to editor + save)
+  useEffect(() => {
+    if (!replaceAction || replaceAction.chapterId !== chapterId) return
+    setContent(replaceAction.content)
+    handleSave(replaceAction.content)
+    setReplaceAction(null)
+  }, [replaceAction])
 
   // Save (file + store for export). Accept optional content to avoid stale closure.
   const handleSave = async (overrideContent?: string) => {
