@@ -10,8 +10,10 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import { loadCharacters } from '@/services/characterService'
-import { loadDetailedChapters } from '@/services/chapterService'
+import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
 import { loadOutlineContent } from '@/services/outlineService'
+import { splitChaptersByHeadings } from '@/utils/textUtils'
+import * as continuationService from '@/services/continuationService'
 import type { Character } from '@/types/character'
 import type { DetailedChapter } from '@/types/chapter'
 import type { StoryEvent, StoryLink, CharacterSnapshot, StoryGraph, ChapterEmotion, CharacterPresence, ChapterRhythm, ChapterPlotline, ChapterPOV, Plotline, GrowthTrack, GrowthEntry } from '@/types/story'
@@ -49,6 +51,12 @@ export default function StoryMapPage() {
   const [scanLoading, setScanLoading] = useState(false)
   const [scanError, setScanError] = useState('')
   const [scanProgress, setScanProgress] = useState('')
+  const [chapterAnalysisRunning, setChapterAnalysisRunning] = useState(false)
+  const [chapterAnalysisProgress, setChapterAnalysisProgress] = useState('')
+  const [chapterAnalyses, setChapterAnalyses] = useState<{ chapterOrder: number; chapterTitle: string; analysis: string }[]>([])
+  const [conflicts, setConflicts] = useState<{ type: string; severity: string; chapterA: number; chapterB: number; summary: string; evidence: string; suggestion: string }[]>([])
+  const [conflictSummary, setConflictSummary] = useState('')
+  const [conflictDetecting, setConflictDetecting] = useState(false)
 
   // Event edit
   const [editingEvent, setEditingEvent] = useState<StoryEvent | null>(null)
@@ -492,6 +500,80 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
     }
   }
 
+  // ---- TXT Import + Chapter Analysis + Conflict Detection ----
+
+  const handleImportTXT = async () => {
+    if (!projectPath) return
+    try {
+      const extractionService = (await import('@/services/fileService')).extractionService
+      const result = await extractionService.importFile() as { name: string; content: string } | null
+      if (!result) return
+      const split = splitChaptersByHeadings(result.content)
+      if (split.length === 1 && split[0].chapterType === 'chapter' && split[0].title === '全文') {
+        alert('未检测到章节标题，已导入为单章全文。\n请确认小说文件使用了标准的"第X章"格式。')
+      }
+      await fileService.ensureDir(`${projectPath}/chapters`)
+      await fileService.ensureDir(`${projectPath}/detailed_outline`)
+      for (let i = 0; i < split.length; i++) {
+        const ch = split[i]
+        const id = `ch_${i + 1}`
+        await fileService.write(`${projectPath}/chapters/${id}.txt`, ch.content)
+        await saveDetailedChapter(projectPath, {
+          id, title: ch.title, description: '', summary: '',
+          order: i, status: 'incomplete',
+        })
+      }
+      setScanError('')
+      alert(`导入完成: ${split.length} 章。请点击"逐章分析"开始 AI 分析。`)
+      // Refresh chapters
+      loadDetailedChapters(projectPath).then(setDetailedChapters)
+    } catch (err) { logError('导入失败', err); alert('导入失败') }
+  }
+
+  const handleAnalyzeAllChapters = async () => {
+    if (!activeConfigId || sortedChapters.length === 0) return
+    setChapterAnalysisRunning(true)
+    setChapterAnalyses([])
+    const results: { chapterOrder: number; chapterTitle: string; analysis: string }[] = []
+    try {
+      for (let i = 0; i < sortedChapters.length; i++) {
+        const ch = sortedChapters[i]
+        setChapterAnalysisProgress(`分析中 ${i + 1}/${sortedChapters.length}: ${ch.title}`)
+        const wc = writingChapters[ch.id]
+        const content = wc?.content || ch.description || ''
+        if (!content) { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }); continue }
+        const prompt = continuationService.buildChapterAnalysisPrompt(ch.title, content, ch.order + 1)
+        try {
+          const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+          results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: reply })
+        } catch { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }) }
+      }
+    } catch (err) { logError('逐章分析失败', err) }
+    setChapterAnalyses(results)
+    setChapterAnalysisProgress('')
+    setChapterAnalysisRunning(false)
+    alert(`分析完成: ${results.filter(r => r.analysis).length}/${results.length} 章`)
+  }
+
+  const handleDetectConflicts = async () => {
+    if (!activeConfigId || chapterAnalyses.length === 0) return
+    const valid = chapterAnalyses.filter(c => c.analysis)
+    if (valid.length === 0) return
+    setConflictDetecting(true)
+    try {
+      const summaries = valid.map(c => `第${c.chapterOrder}章 ${c.chapterTitle}:\n${c.analysis}`)
+      const prompt = continuationService.buildConflictDetectionPrompt(summaries, sortedChapters.length)
+      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const m = reply.match(/\{[\s\S]*\}/)
+      if (m) {
+        const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+        setConflicts(data.conflicts || [])
+        setConflictSummary(data.summary || '')
+      }
+    } catch (err) { logError('冲突检测失败', err) }
+    setConflictDetecting(false)
+  }
+
   // ---- Helpers ----
   const getEventsByChapter = (chapterId: string) =>
     graph.events.filter(e => e.chapterId === chapterId).sort((a, b) => a.type === 'foreshadowing' ? -1 : 1)
@@ -562,6 +644,19 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
           </div>
         )}
 
+        {/* Import + Analysis toolbar */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button size="sm" variant="secondary" onClick={handleImportTXT} disabled={!projectPath}>导入 TXT</Button>
+          <Button size="sm" onClick={handleAnalyzeAllChapters} disabled={chapterAnalysisRunning || sortedChapters.length === 0 || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>
+            {chapterAnalysisRunning ? chapterAnalysisProgress : '逐章分析'}
+          </Button>
+          <Button size="sm" onClick={handleDetectConflicts} disabled={conflictDetecting || chapterAnalyses.length === 0 || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>
+            {conflictDetecting ? '检测中...' : '冲突检测'}
+          </Button>
+          {chapterAnalyses.length > 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>已分析 {chapterAnalyses.filter(c => c.analysis).length}/{chapterAnalyses.length} 章</span>}
+          {conflicts.length > 0 && <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>{conflicts.length} 个冲突</span>}
+        </div>
+
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid rgba(0,0,0,0.04)' }}>
           {TABS.map(tab => (
@@ -606,14 +701,11 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
               />
             )}
             {activeTab === 'consistency' && (
-              <ConsistencyView
-                charIds={charIds}
-                consistencyCharId={consistencyCharId}
-                setConsistencyCharId={setConsistencyCharId}
-                charSnapshots={charSnapshots}
-                allTraitKeys={allTraitKeys}
-                characters={characters}
-                growthEntries={graph.growthEntries}
+              <ConflictDetectionView
+                conflicts={conflicts}
+                summary={conflictSummary}
+                chapterCount={sortedChapters.length}
+                analysisCount={chapterAnalyses.filter(c => c.analysis).length}
               />
             )}
             {activeTab === 'emotion' && (
@@ -2269,6 +2361,79 @@ function CultivationProgressView({ chapters }: { chapters: DetailedChapter[] }) 
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ====================== Conflict Detection View ======================
+
+function ConflictDetectionView({ conflicts, summary, chapterCount, analysisCount }: {
+  conflicts: { type: string; severity: string; chapterA: number; chapterB: number; summary: string; evidence: string; suggestion: string }[]
+  summary: string; chapterCount: number; analysisCount: number
+}) {
+  const TYPE_LABELS: Record<string, { label: string; icon: string }> = {
+    character_death: { label: '角色生死', icon: '💀' },
+    level_regression: { label: '等级倒退', icon: '📉' },
+    item_status: { label: '道具矛盾', icon: '🗡️' },
+    faction_status: { label: '势力存亡', icon: '🏛️' },
+    timeline: { label: '时间线', icon: '⏰' },
+    relationship: { label: '角色关系', icon: '💔' },
+    foreshadowing: { label: '伏笔遗漏', icon: '🔮' },
+    emotion: { label: '情绪断裂', icon: '🎭' },
+  }
+  const SEVERITY_STYLES: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+    critical: { bg: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)', text: '#dc2626', badge: '严重' },
+    warning: { bg: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.2)', text: '#e67e00', badge: '警告' },
+    info: { bg: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.2)', text: '#3b82f6', badge: '提示' },
+  }
+  const criticals = conflicts.filter(c => c.severity === 'critical')
+  const warnings = conflicts.filter(c => c.severity === 'warning')
+
+  return (
+    <div style={{ padding: 16 }}>
+      {conflicts.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
+          {analysisCount === 0 ? (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>尚未分析</div>
+              <div style={{ fontSize: 12 }}>请先导入 TXT 并点击"逐章分析"，然后点击"冲突检测"</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>暂未检测到冲突</div>
+              <div style={{ fontSize: 12 }}>已分析 {analysisCount}/{chapterCount} 章。如有冲突，点击"冲突检测"</div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            {criticals.length > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#dc2626', padding: '2px 10px', borderRadius: 6, background: 'rgba(239,68,68,0.08)' }}>💀 {criticals.length} 严重</span>}
+            {warnings.length > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#e67e00', padding: '2px 10px', borderRadius: 6, background: 'rgba(245,158,11,0.08)' }}>⚠ {warnings.length} 警告</span>}
+          </div>
+          {summary && <div style={{ fontSize: 12, color: '#6b5e54', padding: '10px 14px', borderRadius: 10, background: '#faf9f8', marginBottom: 12, lineHeight: 1.7 }}>{summary}</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {conflicts.map((c, i) => {
+              const info = TYPE_LABELS[c.type] || { label: c.type, icon: '📌' }
+              const sev = SEVERITY_STYLES[c.severity] || SEVERITY_STYLES.info
+              return (
+                <div key={i} style={{ padding: '14px 16px', borderRadius: 12, background: sev.bg, border: sev.border }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 16 }}>{info.icon}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: sev.text }}>{info.label}</span>
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: sev.bg, color: sev.text, fontWeight: 600 }}>{sev.badge}</span>
+                    <span style={{ fontSize: 11, color: '#9b8e84' }}>第{c.chapterA}章 ⟷ 第{c.chapterB}章</span>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#2d2520', marginBottom: 4 }}>{c.summary}</div>
+                  <div style={{ fontSize: 11, color: '#6b5e54', lineHeight: 1.6, marginBottom: 4 }}>📎 证据: {c.evidence}</div>
+                  <div style={{ fontSize: 11, color: '#16a34a', lineHeight: 1.6 }}>💡 建议: {c.suggestion}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
