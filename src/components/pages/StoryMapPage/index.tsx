@@ -21,6 +21,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { TabKey, TABS, EVENT_TYPE_LABELS, EVENT_TYPE_COLORS, EMOTION_LINES, PLOTLINE_COLORS, POV_TYPE_LABELS, CHANGE_LABELS, CHANGE_COLORS } from './constants'
 import { fieldLabel } from './styles'
+import { detectHardConflicts, SettingTimelineView } from './appendix'
 
 const EMPTY_GRAPH: StoryGraph = { events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], timeFlow: [], coOccurrence: null, romanceProgress: [], cultivationProgress: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {}, novelType: '' }
 
@@ -40,7 +41,7 @@ export default function StoryMapPage() {
   const [scanProgress, setScanProgress] = useState('')
   const [chapterAnalysisRunning, setChapterAnalysisRunning] = useState(false)
   const [chapterAnalysisProgress, setChapterAnalysisProgress] = useState('')
-  const [chapterAnalyses, setChapterAnalyses] = useState<{ chapterOrder: number; chapterTitle: string; analysis: string }[]>([])
+  const [chapterAnalyses, setChapterAnalyses] = useState<{ chapterOrder: number; chapterTitle: string; analysis: string; snapshots?: any }[]>([])
   const [conflicts, setConflicts] = useState<{ type: string; severity: string; chapterA: number; chapterB: number; summary: string; evidence: string; suggestion: string }[]>([])
   const [conflictSummary, setConflictSummary] = useState('')
   const [conflictDetecting, setConflictDetecting] = useState(false)
@@ -114,7 +115,7 @@ export default function StoryMapPage() {
     if (!activeConfigId || sortedChapters.length === 0) return
     setChapterAnalysisRunning(true)
     setChapterAnalyses([])
-    const results: { chapterOrder: number; chapterTitle: string; analysis: string }[] = []
+    const results: { chapterOrder: number; chapterTitle: string; analysis: string; snapshots?: any }[] = []
     try {
       for (let i = 0; i < sortedChapters.length; i++) {
         const ch = sortedChapters[i]
@@ -125,7 +126,9 @@ export default function StoryMapPage() {
         const prompt = continuationService.buildChapterAnalysisPrompt(ch.title, content, ch.order + 1)
         try {
           const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-          results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: reply })
+          let snaps: any = null
+          try { const m = reply.match(/\{[\s\S]*\}/); if (m) { const p = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')); snaps = { characterSnapshots: p.characterSnapshots || [], itemSnapshots: p.itemSnapshots || [], factionSnapshots: p.factionSnapshots || [], locationSnapshots: p.locationSnapshots || [] } } } catch {}
+          results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: reply, snapshots: snaps })
         } catch { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }) }
       }
     } catch (err) { logError('逐章分析失败', err) }
@@ -135,23 +138,32 @@ export default function StoryMapPage() {
     alert(`分析完成: ${results.filter(r => r.analysis).length}/${results.length} 章`)
   }
 
-  // ---- Conflict Detection ----
+  // ---- Conflict Detection (hard rules + AI soft rules) ----
   const handleDetectConflicts = async () => {
     if (!activeConfigId || chapterAnalyses.length === 0) return
     const valid = chapterAnalyses.filter(c => c.analysis)
     if (valid.length === 0) return
     setConflictDetecting(true)
+    // Phase 1: Hard rule engine (code-based, 100% accurate)
+    const hardConflicts = detectHardConflicts(valid)
+    // Phase 2: AI soft rule detection
+    let aiConflicts: any[] = []
+    let summary = ''
     try {
       const summaries = valid.map(c => `第${c.chapterOrder}章 ${c.chapterTitle}:\n${c.analysis}`)
-      const prompt = continuationService.buildConflictDetectionPrompt(summaries, sortedChapters.length)
+      const hardResult = hardConflicts.length > 0 ? `已由硬规则引擎检测到以下冲突:\n${hardConflicts.map(c => `- ${c.summary}`).join('\n')}\n\n请检测除此之外的软规则冲突:` : ''
+      const prompt = continuationService.buildConflictDetectionPrompt(summaries, sortedChapters.length) + '\n' + hardResult
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       const m = reply.match(/\{[\s\S]*\}/)
       if (m) {
         const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
-        setConflicts(data.conflicts || [])
-        setConflictSummary(data.summary || '')
+        aiConflicts = data.conflicts || []
+        summary = data.summary || ''
       }
     } catch (err) { logError('冲突检测失败', err) }
+    // Merge results
+    setConflicts([...hardConflicts, ...aiConflicts])
+    setConflictSummary(summary)
     setConflictDetecting(false)
   }
 
@@ -258,6 +270,9 @@ export default function StoryMapPage() {
           )}
           {activeTab === 'growth' && (
             <GrowthTimelineView tracks={graph.growthTracks} entries={graph.growthEntries} novelType={graph.novelType} characters={characters} chapters={sortedChapters} onUpdateTracks={async (tracks: any) => { const ng = { ...graph, growthTracks: tracks }; setGraph(ng); await saveGraph(ng) }} onUpdateNovelType={async (nt: any) => { const ng = { ...graph, novelType: nt }; setGraph(ng); await saveGraph(ng) }} onAddEntry={async (entry: any) => { const ng = { ...graph, growthEntries: [...graph.growthEntries, entry] }; setGraph(ng); await saveGraph(ng) }} onUpdateEntry={async (entry: any) => { const ng = { ...graph, growthEntries: graph.growthEntries.map((e: any) => e.id === entry.id ? entry : e) }; setGraph(ng); await saveGraph(ng) }} onDeleteEntry={async (id: any) => { const ng = { ...graph, growthEntries: graph.growthEntries.filter((e: any) => e.id !== id) }; setGraph(ng); await saveGraph(ng) }} />
+          )}
+          {activeTab === 'settingTimeline' && (
+            <SettingTimelineView analyses={chapterAnalyses} />
           )}
           {activeTab === 'timeFlow' && (
             <TimeFlowView chapters={sortedChapters} />

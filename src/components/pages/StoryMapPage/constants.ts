@@ -6,9 +6,10 @@ import {
 } from '@heroicons/react/24/outline'
 import type { StoryEvent } from '@/types/story'
 
-export type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth' | 'timeFlow' | 'coOccurrence' | 'romanceProgress' | 'cultivationProgress'
+export type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth' | 'timeFlow' | 'coOccurrence' | 'romanceProgress' | 'cultivationProgress' | 'settingTimeline'
 
 export const TABS: { key: TabKey; label: string; icon: typeof ClockIcon }[] = [
+  { key: 'settingTimeline', label: '设定状态', icon: ShieldCheckIcon },
   { key: 'growth', label: '成长', icon: ArrowTrendingUpIcon },
   { key: 'timeFlow', label: '时间流速', icon: ClockIcon },
   { key: 'timeline', label: '时间线', icon: SparklesIcon },

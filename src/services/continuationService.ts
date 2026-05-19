@@ -16,16 +16,21 @@ export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent:
   "emotionalTone": "本章情绪基调",
   "timelinePosition": "时间线定位",
   "chapterRole": "setup|development|climax|resolution|transition",
-  "unresolvedQuestions": ["本章提出但未解答的问题"]
+  "unresolvedQuestions": ["本章提出但未解答的问题"],
+  "characterSnapshots": [{"name":"角色名","alive":true,"powerLevel":"当前等级(无则'')","location":"所在位置"}],
+  "itemSnapshots": [{"name":"道具名","status":"完好|损坏|丢失|传承|毁灭","owner":"持有者"}],
+  "factionSnapshots": [{"name":"势力名","status":"活跃|削弱|覆灭|转型","leader":"首领(无则'')"}],
+  "locationSnapshots": [{"name":"地点名","status":"存在|毁灭|废弃","significance":"重要性"}]
 }
 
 要求:
 1. plotEvents 至少列出3-8个关键事件，按重要性排序
-2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50。评分依据:出场次数、对主线推动程度、与其他角色互动频率。首次标注后importance稳定不变
-3. powerSystemMentions/itemsMentioned/factionsMentioned/locationsMentioned 只要文中明确提到或强烈暗示就提取，本章未涉及则填[]
-4. 道具的type从提供的分类中选最匹配的，不确定填"其他"
-5. 势力的type从提供的分类中选最匹配的，不确定填"其他"
-6. 只提取文中明确写出或强烈暗示的信息
+2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50
+3. characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级。已死角色alive=false
+4. itemSnapshots: 本章出现或提及的所有道具,标注当前状态。已毁灭的道具status=毁灭
+5. factionSnapshots: 本章出现或提及的所有势力,标注当前状态。已覆灭标status=覆灭
+6. 后续章节出现前面的角色/道具/势力时必须继承前面的状态(已死的不能复活,除非有复活情节)
+7. 只提取文中明确写出或强烈暗示的信息
 
 【第${chapterNumber}章】${chapterTitle}
 ${chapterContent.slice(0, 15000)}`
