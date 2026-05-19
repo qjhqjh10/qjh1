@@ -77,6 +77,7 @@ export default function AIChatWindow() {
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const characters = useStore(s => s.characters)
   const outlineContent = useStore(s => s.outlineContent)
+  const rewriteContent = useStore(s => s.rewriteContent)
   const detailedChapters = useStore(s => s.detailedChapters)
   const currentChapterId = useStore(s => s.currentChapterId)
   const writingChapters = useStore(s => s.writingChapters)
@@ -239,6 +240,25 @@ export default function AIChatWindow() {
     if (activePage === 'worldbuilding' && worldbuildingContent) {
       parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 10000)}]`)
       parts.push('用户正在编辑世界观设定。你可以分析世界观逻辑一致性、设定漏洞，提出扩展建议。如果用户要求改写，直接输出内容。')
+    }
+
+    if (activePage === 'rewrite' && rewriteContent) {
+      parts.push(`[当前章节正文(剧情改写):\n${rewriteContent.slice(0, 20000)}]`)
+      parts.push(`
+如果用户要求改写润色，请用以下格式（原文将被标红，改写将被标蓝插入其后，由使用者手动替换）：
+【改写参考】
+原文: <需要改写的原文句子（尽量完整引用）>
+
+【改写内容】
+<改写后的文字>
+
+如果用户要求生成新内容，请用以下格式：
+【插入参考】
+原文关键词: <引述原文中要插入位置的上下文句子>
+建议位置: 该段之后
+
+【生成内容】
+<你的创作内容>`)
     }
 
     if (activePage === 'detailed-outline' && detailedChapters.length > 0) {

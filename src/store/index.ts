@@ -45,6 +45,7 @@ export interface AppState {
   // Insertion action (AI → editor)
   insertionAction: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null
   replaceAction: { chapterId: string; content: string } | null
+  rewriteContent: string
 
   // Actions - Project
   setProjectsBasePath: (p: string) => void
@@ -88,6 +89,7 @@ export interface AppState {
   setConnectionStatus: (status: 'connected' | 'disconnected' | 'checking', model?: string) => void
   setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after' } | null) => void
   setReplaceAction: (action: { chapterId: string; content: string } | null) => void
+  setRewriteContent: (content: string) => void
 
   // Actions - Reset
   resetProjectState: () => void
@@ -119,6 +121,7 @@ export const useStore = create<AppState>()(
     connectedModel: '',
     insertionAction: null,
   replaceAction: null,
+  rewriteContent: '',
 
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setProjects: (projects) => set(s => {
@@ -200,6 +203,7 @@ export const useStore = create<AppState>()(
     setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
     setReplaceAction: (action: { chapterId: string; content: string } | null) => set({ replaceAction: action }),
+    setRewriteContent: (content: string) => set({ rewriteContent: content }),
 
     resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),
   }))

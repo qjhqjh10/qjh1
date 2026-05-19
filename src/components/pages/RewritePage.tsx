@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useSettingsStore } from '@/store'
+import { useStore, useSettingsStore } from '@/store'
 import { aiService } from '@/services/fileService'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import { buildRewriteAnalysisPrompt } from '@/services/continuationService'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
-import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline'
+import RichTextEditor from '@/components/common/RichTextEditor'
+import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
 
 const rewriteApi = (window as any).electron?.rewrite
@@ -19,8 +19,11 @@ interface ChapterAnalysis { plotSummary: string; characters: { name: string; gen
 type Step = 1 | 2 | 3
 
 export default function RewritePage() {
-  const navigate = useNavigate()
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
+  const setActivePage = useStore(s => s.setActivePage)
+  const insertionAction = useStore(s => s.insertionAction)
+  const setInsertionAction = useStore(s => s.setInsertionAction)
+  const setRewriteContent = useStore(s => s.setRewriteContent)
 
   const [projects, setProjects] = useState<RewriteProject[]>([])
   const [projectId, setProjectId] = useState('')
@@ -32,7 +35,32 @@ export default function RewritePage() {
   const [analyses, setAnalyses] = useState<Record<string, ChapterAnalysis>>({})
   const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [contentEdited, setContentEdited] = useState(false)
+
+  // Set activePage for AI assistant
+  useEffect(() => { setActivePage('rewrite') }, [])
+
+  // Handle insertion action from AI assistant (rewrite: red/blue)
+  useEffect(() => {
+    if (!insertionAction || !chapterContent) return
+    const { keyword, content: insContent, mode } = insertionAction
+    if (!insContent || !keyword) { setInsertionAction(null); return }
+    const idx = chapterContent.indexOf(keyword)
+    if (idx !== -1) {
+      const isRewrite = mode === 'rewrite'
+      let newText: string
+      if (isRewrite) {
+        const before = chapterContent.slice(0, idx)
+        const original = chapterContent.slice(idx, idx + keyword.length)
+        const after = chapterContent.slice(idx + keyword.length)
+        newText = before + '<span style="color: #dc2626; background: rgba(220,38,38,0.06)">' + original + '</span>' + '\n\n' + '<span style="color: #3b82f6; background: rgba(59,130,246,0.06)">【改写建议】\n' + insContent + '</span>' + after
+      } else {
+        const insertPos = idx + keyword.length
+        newText = chapterContent.slice(0, insertPos) + '\n\n' + insContent + chapterContent.slice(insertPos)
+      }
+      setChapterContent(newText)
+    }
+    setInsertionAction(null)
+  }, [insertionAction])
 
   useEffect(() => { if (rewriteApi) loadProjects() }, [])
 
@@ -90,7 +118,6 @@ export default function RewritePage() {
   const handleSaveContent = async () => {
     if (!projectId || !chapters[selectedChIdx]) return
     await rewriteApi.writeChapter(projectId, chapters[selectedChIdx].id, chapterContent)
-    setContentEdited(false)
   }
 
   const handleAnalyzeAll = async () => {
@@ -117,10 +144,8 @@ export default function RewritePage() {
   }
 
   const selectChapter = (idx: number) => {
-    if (contentEdited && !confirm('内容已修改但未保存，切换章节将丢失修改。确定继续？')) return
     setSelectedChIdx(idx)
     setChapterContent(chapters[idx].content)
-    setContentEdited(false)
   }
 
   const ch = chapters[selectedChIdx]
@@ -280,10 +305,10 @@ export default function RewritePage() {
             <div style={{ flex: 1, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>第{ch?.chapterNumber}章</span>
-                <Button size="sm" variant="secondary" onClick={handleSaveContent} disabled={!contentEdited} style={{ fontSize: 10, padding: '2px 8px' }}>保存</Button>
+                <Button size="sm" variant="secondary" onClick={handleSaveContent} style={{ fontSize: 10, padding: '2px 8px' }}>保存</Button>
               </div>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <textarea value={chapterContent} onChange={e => { setChapterContent(e.target.value); setContentEdited(true) }} style={{ width: '100%', height: '100%', padding: 16, border: 'none', outline: 'none', resize: 'none', fontSize: 14, lineHeight: 2, fontFamily: 'inherit', color: '#2d2520' }} placeholder="章节内容..." />
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center' }}>
+                <RichTextEditor content={chapterContent} onContentChange={(c) => { setChapterContent(c); setRewriteContent(c) }} placeholder="章节内容..." />
               </div>
             </div>
             {/* Right: analysis cards */}
