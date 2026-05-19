@@ -139,7 +139,7 @@ export function buildPlotDirectionPrompt(storyUnderstanding: string, lastChapter
 请以叙事方式写出续写的整体剧情走向。这不是大纲，不要用分点或结构化的方式。就像作者在笔记本上勾勒后续剧情一样，用连贯的叙事文字描述故事将如何发展。
 
 要求：
-1. 从原作结尾处自然衔接，写出2000-5000字的剧情走向
+1. 从原作结尾处自然衔接，写出8000-12000字的剧情走向
 2. 追踪每个主要角色的发展：男主如何→女主如何→反派如何→结局，明确写出每个角色的最终归宿
 3. 回收所有未解决的伏笔，明确写出何时、如何回收
 4. 严格遵循世界观规则和等级体系：已毁道具不可再使用、已死角色不可复活、等级不可倒退
@@ -150,6 +150,34 @@ export function buildPlotDirectionPrompt(storyUnderstanding: string, lastChapter
 
 【故事理解】
 ${storyUnderstanding}
+
+【最后20章详细分析】
+${lastChaptersDetail}`
+}
+
+// Step 4b: Continue plot direction — extend from existing plot
+export function buildContinuationPlotPrompt(
+  storyUnderstanding: string,
+  existingPlot: string,
+  lastChaptersDetail: string,
+): string {
+  return `你是一位资深的小说续写策划。以下是原作的故事理解、最后章节的详细分析，以及已经写好的前半部分剧情走向。
+
+请基于已有的剧情走向**继续向后**写出后续剧情。自然衔接，不要重复已有内容。
+
+要求：
+1. 从已有剧情走向的结尾处自然衔接，继续写出8000-12000字的后续剧情
+2. 追踪尚未完成的角色弧线，继续向前推进直到各自结局
+3. 继续回收剩余的未解决伏笔
+4. 严格遵循世界观规则和等级体系
+5. 如果已有剧情走向已经接近结局，则写出结局后的收尾内容（如后日谈、角色归宿等）
+6. 新增内容与已有剧情走向保持一致的叙事语气和节奏
+
+【故事理解】
+${storyUnderstanding}
+
+【已有剧情走向（请从结尾处续写）】
+${existingPlot}
 
 【最后20章详细分析】
 ${lastChaptersDetail}`

@@ -179,7 +179,16 @@ export interface OutlineMergeData {
   newPlotThreads: OutlineMergeThread[]
 }
 
-// ====================== Step 4-7 types ======================
+// ====================== Plot Direction (Step 4) ======================
+
+export interface PlotDirectionSegment {
+  id: string
+  content: string
+  label: string
+  generatedAt: string
+}
+
+// ====================== Step 5-7 types ======================
 
 export interface ContinuationChapterPlan {
   relativeChapterNumber: number
@@ -214,7 +223,7 @@ export interface ContinuationProject {
   sourceFileName: string
   sourceChapters: ContinuationChapter[]
   storyUnderstanding?: StoryUnderstanding
-  plotDirection?: string
+  plotDirection?: PlotDirectionSegment[]
   outlineMerge?: OutlineMergeData
   continuationOutline?: ContinuationOutline
   continuationPlan?: ContinuationPlan

@@ -10,7 +10,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import {
   ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PencilIcon,
 } from '@heroicons/react/24/outline'
-import type { ContinuationProject, ContinuationChapter, StoryUnderstanding, ContinuationPlan, ContinuationChapterPlan, ContinuationWrittenChapter, ContinuationChapterAnalysis, OutlineMergeData, CharacterRole } from '@/types/continuation'
+import type { ContinuationProject, ContinuationChapter, StoryUnderstanding, ContinuationPlan, ContinuationChapterPlan, ContinuationWrittenChapter, ContinuationChapterAnalysis, OutlineMergeData, PlotDirectionSegment, CharacterRole } from '@/types/continuation'
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
 const stepLabels = ['导入分章', '逐章分析', '原作理解', '剧情走向', '大纲融合', '续写细纲', '续写章节']
@@ -33,7 +33,7 @@ export default function ContinuationWorkspacePage() {
   const [aggregating, setAggregating] = useState(false)
   const [aggregationProgress, setAggregationProgress] = useState('')
   const [storyUnderstand, setStoryUnderstand] = useState<StoryUnderstanding | null>(null)
-  const [plotDirection, setPlotDirection] = useState('')
+  const [plotDirection, setPlotDirection] = useState<PlotDirectionSegment[]>([])
   const [outlineMerge, setOutlineMerge] = useState<OutlineMergeData | null>(null)
   const [continuationPlan, setContinuationPlan] = useState<ContinuationPlan | null>(null)
   const [writingChapter, setWritingChapter] = useState<ContinuationWrittenChapter | null>(null)
@@ -57,7 +57,7 @@ export default function ContinuationWorkspacePage() {
         setProject(found)
         setChapters(found.sourceChapters)
         setStoryUnderstand(found.storyUnderstanding || null)
-        setPlotDirection(found.plotDirection || '')
+        setPlotDirection(found.plotDirection || [])
         setOutlineMerge(found.outlineMerge || null)
         setContinuationPlan(found.continuationPlan || null)
         const s = found.status
@@ -257,17 +257,19 @@ export default function ContinuationWorkspacePage() {
       ).join('\n\n')
       const prompt = cs.buildPlotDirectionPrompt(JSON.stringify(storyUnderstand), lastDetail)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      setPlotDirection(reply)
-      await save({ plotDirection: reply, status: 'outlining' })
+      const seg: PlotDirectionSegment = { id: 'pd_' + Date.now(), content: reply, label: '首次生成', generatedAt: new Date().toISOString() }
+      setPlotDirection([seg])
+      await save({ plotDirection: [seg], status: 'outlining' })
     } catch (err) { logError('剧情走向生成失败', err) }
     setAggregating(false)
   }
 
   const handleOutlineMerge = async () => {
-    if (!activeConfigId || !storyUnderstand || !plotDirection) return
+    if (!activeConfigId || !storyUnderstand || plotDirection.length === 0) return
     setAggregating(true)
+    const fullPlot = plotDirection.map(s => s.content).join('\n\n')
     try {
-      const prompt = cs.buildOutlineMergePrompt(plotDirection, JSON.stringify(storyUnderstand))
+      const prompt = cs.buildOutlineMergePrompt(fullPlot, JSON.stringify(storyUnderstand))
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       const m = reply.match(/\{[\s\S]*\}/)
       if (m) {
@@ -280,10 +282,11 @@ export default function ContinuationWorkspacePage() {
   }
 
   const handleGeneratePlan = async () => {
-    if (!activeConfigId || !storyUnderstand || !plotDirection) return
+    if (!activeConfigId || !storyUnderstand || plotDirection.length === 0) return
     setAggregating(true)
     // Estimate chapter count from plot direction (rough: ~3000 chars per chapter)
-    const estimatedChapters = Math.max(5, Math.round(plotDirection.length / 1000))
+    const totalChars = plotDirection.reduce((sum, s) => sum + s.content.length, 0)
+    const estimatedChapters = Math.max(5, Math.round(totalChars / 1000))
     try {
       const mergeJson = outlineMerge ? JSON.stringify(outlineMerge) : '{}'
       const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), mergeJson, estimatedChapters)
@@ -510,9 +513,10 @@ export default function ContinuationWorkspacePage() {
           {step === 4 && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>剧情走向</h3><Button size="sm" onClick={handlePlotDirection} disabled={aggregating || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '生成中...' : 'AI 生成剧情走向'}</Button></div>
-              {plotDirection ? (
+              {plotDirection.length > 0 ? (
                 <div>
-                  <div style={{ padding: '20px 24px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 14, lineHeight: 2, whiteSpace: 'pre-wrap', marginBottom: 16, maxHeight: '50vh', overflow: 'auto' }} className="custom-scrollbar">{plotDirection}</div>
+                  <div style={{ padding: '20px 24px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 14, lineHeight: 2, whiteSpace: 'pre-wrap', marginBottom: 16, maxHeight: '50vh', overflow: 'auto' }} className="custom-scrollbar">{plotDirection.map(s => s.content).join('\n\n')}</div>
+                  <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 16 }}>共 {plotDirection.length} 段，约 {plotDirection.reduce((s, seg) => s + seg.content.length, 0)} 字</div>
                   <Button onClick={() => setStep(5)}>进入大纲融合 →</Button>
                 </div>
               ) : (
