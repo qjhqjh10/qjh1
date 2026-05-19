@@ -30,7 +30,6 @@ const COMMON_ITEMS: NavItem[] = [
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/style-templates', label: '风格模板', icon: TagIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
-  { path: '/continuation', label: '小说续写', icon: BookOpenIcon },
 ]
 
 const WRITING_ITEMS: NavItem[] = [
