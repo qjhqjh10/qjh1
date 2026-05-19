@@ -104,6 +104,20 @@ export default function OutlinePage() {
     await saveOutlineContent(projectPath, outlineContent)
   }, [projectPath, outlineContent])
 
+  // Auto-save outline content on change (debounced 1s)
+  useEffect(() => {
+    if (!projectPath) return
+    const timer = setTimeout(() => { saveOutlineContent(projectPath, outlineContent) }, 1000)
+    return () => clearTimeout(timer)
+  }, [outlineContent, projectPath])
+
+  // Auto-save worldbuilding content on change (debounced 1s)
+  useEffect(() => {
+    if (!projectPath) return
+    const timer = setTimeout(() => { saveWorldbuildingContent(projectPath, worldbuildingContent) }, 1000)
+    return () => clearTimeout(timer)
+  }, [worldbuildingContent, projectPath])
+
   // Let AI assistant know which page we're on
   useEffect(() => { setActivePage(activeTab === 'worldbuilding' ? 'worldbuilding' : 'outline') }, [activeTab])
 
