@@ -31,6 +31,7 @@ export default function ContinuationWorkspacePage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzingChapter, setAnalyzingChapter] = useState<number | null>(null)
   const [aggregating, setAggregating] = useState(false)
+  const [aggregationProgress, setAggregationProgress] = useState('')
   const [storyUnderstand, setStoryUnderstand] = useState<StoryUnderstanding | null>(null)
   const [inferredOutline, setInferredOutline] = useState<InferredOutline | null>(null)
   const [continuationPlan, setContinuationPlan] = useState<ContinuationPlan | null>(null)
@@ -159,14 +160,68 @@ export default function ContinuationWorkspacePage() {
   const handleAggregate = async () => {
     if (!activeConfigId || !project) return
     setAggregating(true)
-    const analyzed = chapters.filter(c => c.analysis)
-    const summaries = analyzed.map(c => `第${c.chapterNumber}章: ${c.analysis!.plotEvents.join('; ')}`)
     try {
-      const prompt = cs.buildAggregationPrompt(summaries, chapters.length)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) { const su = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as StoryUnderstanding; setStoryUnderstand(su); await save({ storyUnderstanding: su }) }
+      const analyzed = chapters.filter(c => c.analysis)
+      if (analyzed.length === 0) { setAggregating(false); return }
+
+      // Helper to parse AI JSON reply
+      const parseReply = (reply: string) => {
+        const m = reply.match(/\{[\s\S]*\}/)
+        return m ? JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) : null
+      }
+
+      const BATCH_SIZE = 50
+      const totalChapters = chapters.length
+
+      if (analyzed.length <= BATCH_SIZE) {
+        // Direct aggregation (small novel)
+        setAggregationProgress('直接聚合中...')
+        const summaries = analyzed.map(c => `第${c.chapterNumber}章: ${c.analysis!.plotEvents.join('; ')}`)
+        const prompt = cs.buildAggregationPrompt(summaries, totalChapters)
+        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const su = parseReply(reply)
+        if (su) { setStoryUnderstand(su as StoryUnderstanding); await save({ storyUnderstanding: su as StoryUnderstanding }) }
+      } else {
+        // Multi-stage: batch → global
+        const totalBatches = Math.ceil(analyzed.length / BATCH_SIZE)
+        const batchResults: string[] = []
+        let prevEndingState = ''
+
+        // Stage 1: Batch aggregation
+        for (let b = 0; b < totalBatches; b++) {
+          const start = b * BATCH_SIZE
+          const end = Math.min(start + BATCH_SIZE, analyzed.length)
+          const batch = analyzed.slice(start, end)
+          const firstChapter = batch[0].chapterNumber
+          const lastChapter = batch[batch.length - 1].chapterNumber
+
+          setAggregationProgress(`阶段聚合 (${b + 1}/${totalBatches}) 第${firstChapter}-${lastChapter}章`)
+          const summaries = batch.map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('; ')}`)
+          const prompt = cs.buildBatchSummaryPrompt(summaries, b + 1, totalBatches, firstChapter, lastChapter, prevEndingState)
+          const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+          const parsed = parseReply(reply)
+          if (parsed) {
+            batchResults.push(JSON.stringify(parsed))
+            // Extract ending character states for next batch continuity
+            if (parsed.endingCharacterStates) {
+              prevEndingState = JSON.stringify(parsed.endingCharacterStates)
+            }
+          }
+        }
+
+        // Stage 2: Global aggregation with last-20 deep focus
+        setAggregationProgress('全局聚合中...')
+        const last20Start = Math.max(0, analyzed.length - 20)
+        const last20Summaries = analyzed.slice(last20Start).map(c =>
+          `第${c.chapterNumber}章 ${c.title}: 事件${c.analysis!.plotEvents.join('；')} | 角色${c.analysis!.charactersAppeared.map(a => a.name).join('、')} | 伏笔${c.analysis!.foreshadowingPlanted.concat(c.analysis!.foreshadowingResolved).join('、')}`
+        )
+        const prompt = cs.buildGlobalAggregationPrompt(batchResults, last20Summaries.join('\n\n'), totalChapters)
+        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const su = parseReply(reply)
+        if (su) { setStoryUnderstand(su as StoryUnderstanding); await save({ storyUnderstanding: su as StoryUnderstanding }) }
+      }
     } catch (err) { logError('聚合失败', err) }
+    setAggregationProgress('')
     setAggregating(false)
   }
 
@@ -348,7 +403,7 @@ export default function ContinuationWorkspacePage() {
 
           {step === 3 && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>分析结果汇总</h3><div style={{ display: 'flex', gap: 8 }}><Button size="sm" onClick={handleAggregate} disabled={aggregating || !activeConfigId || analyzedCount === 0} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '聚合中...' : 'AI 全局理解'}</Button><Button size="sm" variant="secondary" onClick={() => setStep(4)}>跳过 →</Button></div></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>分析结果汇总</h3><div style={{ display: 'flex', gap: 8 }}><Button size="sm" onClick={handleAggregate} disabled={aggregating || !activeConfigId || analyzedCount === 0} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? (aggregationProgress || '聚合中...') : `AI 全局理解${analyzedCount > 50 ? ` (${Math.ceil(analyzedCount / 50)}批)` : ''}`}</Button><Button size="sm" variant="secondary" onClick={() => setStep(4)}>跳过 →</Button></div></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                 {chapters.filter(c => c.analysis).map((ch, i) => (<div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: '#faf9f8', fontSize: 11 }}><div style={{ fontWeight: 600, marginBottom: 4 }}>第{ch.chapterNumber}章 [{ch.analysis!.chapterRole}]</div><div>角色: {ch.analysis!.charactersAppeared.map(a => a.name).join('、')}</div><div>事件: {ch.analysis!.plotEvents.slice(0, 3).join('; ')}</div></div>))}
               </div>

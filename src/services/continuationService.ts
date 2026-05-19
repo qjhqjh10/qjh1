@@ -45,6 +45,72 @@ export function buildAggregationPrompt(chapterAnalyses: string[], totalChapters:
 ${chapterAnalyses.join('\n\n')}`
 }
 
+// Batch aggregation: summarize a group of up to 50 chapters
+export function buildBatchSummaryPrompt(
+  chapterSummaries: string[],
+  batchIndex: number,
+  totalBatches: number,
+  firstChapter: number,
+  lastChapter: number,
+  prevEndingState: string,
+): string {
+  return `你是小说剧情分析专家。以下是一部小说第${firstChapter}-${lastChapter}章的逐章分析摘要（共${totalBatches}批中的第${batchIndex}批）。请对该阶段剧情进行概括。输出JSON：
+
+{
+  "stagePlot": "该阶段核心剧情（起因→发展→高潮→阶段结尾，500字内）",
+  "characterDevelopment": [{"name":"角色名","firstInStage":章号,"lastInStage":章号,"arcProgress":"该角色在此阶段的弧线推进","statusAtEnd":"阶段结束时角色状态","goalAtEnd":"阶段结束时角色目标"}],
+  "majorEvents": ["事件1","事件2",...],
+  "foreshadowingSummary": {"newlyPlanted": ["新伏笔"],"resolvedInStage": ["本阶段回收的前文伏笔"],"stillPending": ["仍未解决的伏笔"]},
+  "worldbuildingProgress": ["该阶段新增或展开的世界观设定"],
+  "emotionalArc": "该阶段整体情绪走向（如：压抑→爆发→平静）",
+  "endingCharacterStates": [{"name":"角色名","status":"状态","location":"位置","goal":"当前目标"}],
+  "stageTheme": "该阶段的核心主题"
+}
+
+${prevEndingState ? `【前一批次结束时的角色状态】\n${prevEndingState}\n` : ''}
+【第${firstChapter}-${lastChapter}章逐章摘要】
+${chapterSummaries.join('\n\n')}`
+}
+
+// Global aggregation: synthesize all batch summaries + deep-dive last 20 chapters
+export function buildGlobalAggregationPrompt(
+  batchSummaries: string[],
+  lastChaptersDetail: string,
+  totalChapters: number,
+): string {
+  return `你是顶级的小说故事分析师。以下是一部${totalChapters}章小说的完整分析资料：
+
+1. 【各阶段剧情摘要】- 覆盖全篇脉络
+2. 【最后20章详细分析】- 用于精准把握当前剧情态势
+
+请基于以上信息，进行全局故事理解，并给出续写建议。输出JSON：
+
+{
+  "characterArcs": [{"name":"角色名","firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","keyTurningPoints":[{"chapter":章号,"event":"转折事件"}],"currentState":"当前状态","unresolved":true/false,"predictedDirection":"预测走向"}],
+  "mainPlot": "主线一句话概括",
+  "subPlots": ["支线1",...],
+  "foreshadowingChain": [{"id":"f_001","description":"伏笔描述","plantedChapter":章号,"resolvedChapter":null或章号,"resolved":true/false,"predictedResolution":"预测回收方式"}],
+  "worldRules": ["世界规则1",...],
+  "timeline": [{"chapter":章号,"event":"事件","type":"main|sub|character|worldbuilding"}],
+  "unresolvedQuestions": ["未解答问题1",...],
+  "storyStructure": "threeAct|fiveAct|episodic|other",
+  "currentStage": "当前处于故事的哪个阶段",
+  "continuationSuggestions": ["基于最后20章态势+全局脉络的续写方向"]
+}
+
+要求:
+1. 续写建议必须基于最后20章的剧情态势，不能偏离原作走向
+2. 伏笔链优先关注仍未解决的，给出预测回收方式
+3. 角色弧线根据各阶段发展完整追踪，标记关键转折
+4. 世界观规则汇总去重
+
+【各阶段剧情摘要】
+${batchSummaries.join('\n\n---\n\n')}
+
+【最后20章详细分析】
+${lastChaptersDetail}`
+}
+
 export function buildContinuationOutlinePrompt(storyUnderstanding: string): string {
   return `你是小说续写结构专家。以下是原作的故事理解。请为续写设计整体结构。输出JSON：
 
