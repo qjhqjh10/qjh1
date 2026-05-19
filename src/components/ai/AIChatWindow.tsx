@@ -17,7 +17,7 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
-  insertion?: { keyword: string; position: 'before' | 'after'; content: string }
+  insertion?: { keyword: string; position: 'before' | 'after'; content: string; mode?: 'insert' | 'rewrite' }
   sources?: { kb: { fileName: string; score: number }[]; web: { title: string; url: string }[] }
 }
 
@@ -41,6 +41,16 @@ function parseInsertionSuggestion(text: string): {
   plainText: string
   insertion: Message['insertion']
 } {
+  // Rewrite pattern: 【改写参考】...【改写内容】...
+  const rewriteMatch = text.match(/【改写参考】\s*\n原文:\s*(.+?)\n\n【改写内容】\s*\n([\s\S]*?)$/)
+  if (rewriteMatch) {
+    const keyword = rewriteMatch[1].trim()
+    const content = rewriteMatch[2].trim()
+    const plainText = text.replace(/【改写参考】[\s\S]*?【改写内容】\s*\n?/, '').trim()
+    return { plainText, insertion: { keyword, position: 'after', content, mode: 'rewrite' } }
+  }
+
+  // Insert pattern: 【插入参考】...【生成内容】...
   const match = text.match(/【插入参考】\s*\n原文关键词:\s*(.+?)\n建议位置:\s*(.+?)\n\n【生成内容】\s*\n([\s\S]*?)$/)
   if (!match) return { plainText: text, insertion: undefined }
 
@@ -51,7 +61,7 @@ function parseInsertionSuggestion(text: string): {
 
   const plainText = text.replace(/【插入参考】[\s\S]*?【生成内容】\s*\n?/, '').trim()
 
-  return { plainText, insertion: { keyword, position, content } }
+  return { plainText, insertion: { keyword, position, content, mode: 'insert' } }
 }
 
 export default function AIChatWindow() {
@@ -204,7 +214,21 @@ export default function AIChatWindow() {
       parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}]`)
       if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
       if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 20000)}]`)
-      parts.push('\n如果用户要求生成描写、对话或叙述性内容，请按以下格式输出：\n【插入参考】\n原文关键词: <引述原文中要插入位置的上下文句子>\n建议位置: 该段之后\n\n【生成内容】\n<你的创作内容>')
+      parts.push(`
+如果用户要求生成新内容，请用以下格式：
+【插入参考】
+原文关键词: <引述原文中要插入位置的上下文句子>
+建议位置: 该段之后
+
+【生成内容】
+<你的创作内容>
+
+如果用户要求改写润色某段文字，请用以下格式（原文将被标红，改写将被标蓝插入其后，由使用者手动替换）：
+【改写参考】
+原文: <需要改写的原文句子（尽量完整引用）>
+
+【改写内容】
+<改写后的文字>`)
     }
 
     if (activePage === 'outline' && outlineContent) {

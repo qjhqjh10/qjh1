@@ -125,15 +125,24 @@ export default function ChapterWritingPage() {
   // Handle insertion action from AI
   useEffect(() => {
     if (!insertionAction) return
-    const { keyword, content: insContent, position } = insertionAction
+    const { keyword, content: insContent, position, mode } = insertionAction
 
     if (insContent && keyword) {
       const idx = content.indexOf(keyword)
       if (idx !== -1) {
-        const insertPos = position === 'after' ? idx + keyword.length : idx
-        const newText = content.slice(0, insertPos) + '\n\n' + insContent + content.slice(insertPos)
+        const isRewrite = mode === 'rewrite'
+        let newText: string
+        if (isRewrite) {
+          // Rewrite: original → RED, rewrite → BLUE inserted after
+          const before = content.slice(0, idx)
+          const original = content.slice(idx, idx + keyword.length)
+          const after = content.slice(idx + keyword.length)
+          newText = before + '<span style="color: #dc2626; background: rgba(220,38,38,0.06)">' + original + '</span>' + '\n\n' + '<span style="color: #3b82f6; background: rgba(59,130,246,0.06)">【改写建议】\n' + insContent + '</span>' + after
+        } else {
+          const insertPos = position === 'after' ? idx + keyword.length : idx
+          newText = content.slice(0, insertPos) + '\n\n' + insContent + content.slice(insertPos)
+        }
         setContent(newText)
-        // Also save to disk and update store
         if (projectPath && chapterId) {
           fileService.write(`${projectPath}/chapters/${chapterId}.txt`, newText).then(() => {
             setWritingChapter(chapterId!, {

@@ -43,7 +43,7 @@ export interface AppState {
   connectedModel: string
 
   // Insertion action (AI → editor)
-  insertionAction: { keyword: string; content: string; position: 'before' | 'after' } | null
+  insertionAction: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null
   replaceAction: { chapterId: string; content: string } | null
 
   // Actions - Project
