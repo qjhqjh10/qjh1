@@ -59,37 +59,36 @@ export default function Sidebar() {
   const detailedChapters = useStore(s => s.detailedChapters)
 
   const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId])
-  // Derive type from active project first, then from current URL path
-  const projectType = activeProject?.type
-    || (location.pathname.startsWith('/imitation') ? 'imitation' : '')
-    || (location.pathname.startsWith('/continuation') ? 'continuation' : '')
-    || 'writing'
+  const projectType = activeProject?.type || 'writing'
 
   const navItems = useMemo((): NavItem[] => {
     const items: NavItem[] = [{ path: '/', label: '首页', icon: HomeIcon }]
 
-    if (projectType === 'writing') {
-      items.push(...WRITING_ITEMS)
-      if (detailedChapters.length > 0) {
-        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
-      }
-    } else if (projectType === 'imitation') {
-      items.push(...IMITATION_ITEMS)
-      if (detailedChapters.length > 0) {
-        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
-      }
-    } else if (projectType === 'continuation') {
-      items.push({ path: '/continuation-workspace', label: '续写工作台', icon: DocumentTextIcon })
-      items.push({ path: '/continuation-outline', label: '(续写)大纲', icon: ListBulletIcon })
-      items.push({ path: '/continuation-detailed', label: '(续写)细纲', icon: BookOpenIcon })
-      if (detailedChapters.length > 0) {
-        items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+    // Only show project-specific nav when a project is active
+    if (activeProjectId) {
+      if (projectType === 'writing') {
+        items.push(...WRITING_ITEMS)
+        if (detailedChapters.length > 0) {
+          items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+        }
+      } else if (projectType === 'imitation') {
+        items.push(...IMITATION_ITEMS)
+        if (detailedChapters.length > 0) {
+          items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+        }
+      } else if (projectType === 'continuation') {
+        items.push({ path: '/continuation-workspace', label: '续写工作台', icon: DocumentTextIcon })
+        items.push({ path: '/continuation-outline', label: '(续写)大纲', icon: ListBulletIcon })
+        items.push({ path: '/continuation-detailed', label: '(续写)细纲', icon: BookOpenIcon })
+        if (detailedChapters.length > 0) {
+          items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
+        }
       }
     }
 
     items.push(...COMMON_ITEMS)
     return items
-  }, [projectType, detailedChapters.length])
+  }, [projectType, detailedChapters.length, activeProjectId])
 
   const handleNav = (path: string) => {
     if (path === '/chapter') {
