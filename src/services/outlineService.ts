@@ -42,25 +42,30 @@ export async function saveOutlineContent(projectPath: string, content: string): 
 }
 
 export async function loadWorldbuildingContent(projectPath: string): Promise<string> {
+  // New location: outline/worldbuilding.json
   try {
-    const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.json`)
+    const raw = await fileService.read(`${projectPath}/outline/worldbuilding.json`)
     if (raw) {
       const data = JSON.parse(raw) as WorldbuildingContentData
       return data.content || ''
     }
-  } catch { /* JSON doesn't exist, try legacy TXT */ }
+  } catch { /* not in new location */ }
 
+  // Migrate from old location: worldbuilding/worldbuilding.json
+  try {
+    const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.json`)
+    if (raw) {
+      const data = JSON.parse(raw) as WorldbuildingContentData
+      await saveWorldbuildingContent(projectPath, data.content)
+      return data.content || ''
+    }
+  } catch { /* not in old location either */ }
+
+  // Legacy TXT
   try {
     const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.txt`)
-    // Back up corrupt JSON if it exists before overwriting
-    try {
-      const existing = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.json`)
-      if (existing) {
-        await fileService.write(`${projectPath}/worldbuilding/worldbuilding.json.bak`, existing)
-      }
-    } catch { /* no corrupt JSON to back up */ }
     const data: WorldbuildingContentData = { content: raw, updatedAt: new Date().toISOString() }
-    await fileService.write(`${projectPath}/worldbuilding/worldbuilding.json`, JSON.stringify(data, null, 2))
+    await saveWorldbuildingContent(projectPath, raw)
     return raw
   } catch { /* neither exists */ }
 
@@ -70,8 +75,8 @@ export async function loadWorldbuildingContent(projectPath: string): Promise<str
 export async function saveWorldbuildingContent(projectPath: string, content: string): Promise<void> {
   const data: WorldbuildingContentData = { content, updatedAt: new Date().toISOString() }
   try {
-    await fileService.ensureDir(`${projectPath}/worldbuilding`)
-    await fileService.write(`${projectPath}/worldbuilding/worldbuilding.json`, JSON.stringify(data, null, 2))
+    await fileService.ensureDir(`${projectPath}/outline`)
+    await fileService.write(`${projectPath}/outline/worldbuilding.json`, JSON.stringify(data, null, 2))
   } catch (err) {
     logError('Failed to save worldbuilding content', err)
   }

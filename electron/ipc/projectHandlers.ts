@@ -4,7 +4,7 @@ import * as path from 'path'
 import { isSafePath } from './utils'
 import { logError } from './logger'
 
-const PROJECT_DIRS = ['worldbuilding', 'characters', 'outline', 'detailed_outline', 'chapters']
+const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters']
 
 let projectsBasePath = ''
 
@@ -33,7 +33,7 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     }
     const emptyOutline = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
     const emptyWorldbuilding = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
-    await fs.writeFile(path.join(projectPath, 'worldbuilding', 'worldbuilding.json'), emptyWorldbuilding, 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.json'), emptyWorldbuilding, 'utf-8')
     await fs.writeFile(path.join(projectPath, 'outline', 'outline.json'), emptyOutline, 'utf-8')
     // Persist project type metadata
     const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
