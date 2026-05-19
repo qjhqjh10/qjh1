@@ -1,7 +1,22 @@
 {
-  "currentVersion": "3.2.0",
+  "currentVersion": "3.3.0",
   "currentDate": "2026-05-19",
   "history": [
+    {
+      "version": "3.3.0",
+      "date": "2026-05-19",
+      "features": [
+        "续写系统核心流程重构: Step2逐章分析增加角色role分类(男主/女主可多名/男配/女配/反派/其他)",
+        "续写Step3聚合增加全局设定总结(powerSystem/keyItems/factions/locations/foreshadowing终态)",
+        "续写Step4→剧情走向: AI输出叙事文本(8000-12000字)替代JSON结构, 支持多段生成(首次+后续追加)",
+        "续写Step5新增大纲融合: AI生成续写9维大纲数据与原著大纲合并, 约束注入(已死/已毁/已灭黑名单)",
+        "续写大纲页重构: 三大白色卡片(原作理解/剧情走向/大纲融合)+多段剧情子卡片+独立AI会话+编辑Modal",
+        "续写细纲页重构: 后续剧情段选择→AI分10章细纲→每章[撰写本章]打通ChapterWritingPage",
+        "仿写系统独立页面化: ImitationOutlinePage(6维度卡片)+ImitationDetailedPage(原书章节+仿写细纲)",
+        "世界观移入大纲文件夹: outline/统一管理所有Tab数据, 旧数据自动迁移",
+        "项目类型追踪重构: 移除activeProjectType, 项目类型唯一来源projects数组, 根除切换不同步"
+      ]
+    },
     {
       "version": "3.2.0",
       "date": "2026-05-19",
