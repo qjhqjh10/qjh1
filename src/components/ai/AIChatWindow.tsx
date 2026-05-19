@@ -38,15 +38,6 @@ function makeConversation(id: string, title: string): Conversation {
   return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now() }
 }
 
-const PAGE_LABELS: Record<string, string> = {
-  home: '首页', worldbuilding: '世界观', characters: '角色',
-  outline: '小说大纲', 'detailed-outline': '小说细纲', chapter: '章节创作', settings: '系统设置',
-}
-
-const PAGE_TO_PROMPT_TYPE: Record<string, string> = {
-  worldbuilding: '世界观', outline: '大纲', 'detailed-outline': '细纲',
-}
-
 function parseInsertionSuggestion(text: string): {
   plainText: string
   insertion: Message['insertion']
@@ -172,19 +163,6 @@ export default function AIChatWindow() {
     window.addEventListener('mousemove', handleMove); window.addEventListener('mouseup', handleUp)
   }
 
-  const getEnabledPrompt = (): { title: string; content: string } | null => {
-    if (activePage === 'chapter') {
-      const p = promptTemplates.find(t => t.type === '章节' && t.enabled)
-      return p ? { title: p.title, content: p.content } : null
-    }
-    const pt = PAGE_TO_PROMPT_TYPE[activePage]
-    if (!pt) return null
-    const p = promptTemplates.find(t => t.type === pt && t.enabled)
-    return p ? { title: p.title, content: p.content } : null
-  }
-
-  const enabledPrompt = getEnabledPrompt()
-
   const [conversations, setConversations] = useState<Conversation[]>(() => [makeConversation('default', '新对话')])
   const [activeConversationId, setActiveConversationId] = useState('default')
   const [input, setInput] = useState('')
@@ -223,10 +201,12 @@ export default function AIChatWindow() {
     if (customRole?.prompt) {
       parts.push(`[AI角色: ${customRole.name}]\n${customRole.prompt}`)
     }
-    parts.push(`[用户当前所在页面: ${PAGE_LABELS[activePage] || activePage}]`)
 
-    if (enabledPrompt) {
-      parts.push(`[环节提示词（来自「${enabledPrompt.title}」）:\n${enabledPrompt.content}]`)
+    if (activePage === 'chapter' && currentChapter) {
+      parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}]`)
+      if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
+      if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 20000)}]`)
+      parts.push('\n如果用户要求生成描写、对话或叙述性内容，请按以下格式输出：\n【插入参考】\n原文关键词: <引述原文中要插入位置的上下文句子>\n建议位置: 该段之后\n\n【生成内容】\n<你的创作内容>')
     }
 
     const priorityInstruction = contextPriority === 'kb-first'
@@ -235,31 +215,8 @@ export default function AIChatWindow() {
         ? '\n以上知识库信息仅供参考，请以你的模型知识为主要依据进行回答。'
         : ''
 
-    if (activePage === 'outline') {
-      if (outlineContent) {
-        parts.push(`[当前大纲:\n${outlineContent.slice(0, 10000)}]`)
-      }
-      if (worldbuildingContent) {
-        parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 20000)}]`)
-      }
-      parts.push('用户正在编辑大纲/世界观设定，你可以分析现有大纲的结构、节奏、逻辑完整性，分析世界观的逻辑一致性，指出不足，提出扩展建议或修改方案。')
-    } else if (activePage === 'characters' && characters.length > 0) {
-      const cs = characters.map(c => `${c.name}(${c.role}): ${c.personality?.slice(0, 500) || ''}`).join('\n')
-      parts.push(`[当前角色列表:\n${cs}]`)
-    } else if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
-      const cs = detailedChapters.map(c => `章节: ${c.title}\n描述: ${c.description?.slice(0, 1000) || ''}`).join('\n---\n')
-      parts.push(`[当前细纲:\n${cs}]`)
-    } else if (activePage === 'chapter' && currentChapter) {
-      parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}]`)
-      if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
-      if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 20000)}]`)
-      parts.push('\n如果用户要求生成描写、对话或叙述性内容，请按以下格式输出：\n【插入参考】\n原文关键词: <引述原文中要插入位置的上下文句子>\n建议位置: 该段之后\n\n【生成内容】\n<你的创作内容>')
-    }
-
     if (kbContext) parts.push(kbContext + priorityInstruction)
     if (webContext) parts.push(webContext)
-
-    parts.push('\n你可以根据用户的需求对当前内容进行分析、修改、续写或提出建议。')
     return parts.join('\n\n')
   }
 
@@ -491,14 +448,6 @@ export default function AIChatWindow() {
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>AI写作助手</h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {enabledPrompt && (
-                <span title={`已加载: ${enabledPrompt.title}`} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontWeight: 600, maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {enabledPrompt.title}
-                </span>
-              )}
-              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(124,58,237,0.05)', color: '#6b5e54', fontWeight: 600 }}>
-                {PAGE_LABELS[activePage] || '未知'}
-              </span>
               <button onClick={() => setAIChatOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex' }}>
                 <XMarkIcon style={{ width: 18, height: 18 }} />
               </button>
@@ -641,7 +590,7 @@ export default function AIChatWindow() {
                 {msg.role === 'assistant' && msg.id !== 'welcome' && !msg.insertion && canApply && msg.content.length > 10 && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14, paddingLeft: 36 }}>
                     <button onClick={() => handleApplyToEditor(msg.content)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                      <ArrowDownTrayIcon style={{ width: 12, height: 12 }} /> 应用到{PAGE_LABELS[activePage]}
+                      <ArrowDownTrayIcon style={{ width: 12, height: 12 }} /> 应用到编辑器
                     </button>
                   </div>
                 )}
