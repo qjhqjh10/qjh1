@@ -4,7 +4,7 @@ export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent:
   return `你是一位专业的小说分析师。请分析以下章节，聚焦于"剧情理解"和"设定提取"。输出JSON（不要markdown）：
 
 {
-  "charactersAppeared": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","action":"本章做了什么","newInfo":"本章新增的信息（无则空）"}],
+  "charactersAppeared": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","importance":100,"action":"本章做了什么","newInfo":"本章新增的信息（无则空）"}],
   "plotEvents": ["关键事件1","关键事件2",...],
   "foreshadowingPlanted": ["本章新埋的伏笔（无则[]）"],
   "foreshadowingResolved": ["本章回收的前文伏笔（无则[]）"],
@@ -21,7 +21,7 @@ export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent:
 
 要求:
 1. plotEvents 至少列出3-8个关键事件，按重要性排序
-2. 角色role分类标准: 戏份最多推进主线的男性=男主,与男主有明确恋爱关系的女性=女主(可多名),重要对立面=反派,其余按性别标男配/女配,无法判断标其他。首次出现时标注,之后保持类型一致
+2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50。评分依据:出场次数、对主线推动程度、与其他角色互动频率。首次标注后importance稳定不变
 3. powerSystemMentions/itemsMentioned/factionsMentioned/locationsMentioned 只要文中明确提到或强烈暗示就提取，本章未涉及则填[]
 4. 道具的type从提供的分类中选最匹配的，不确定填"其他"
 5. 势力的type从提供的分类中选最匹配的，不确定填"其他"
@@ -35,7 +35,7 @@ export function buildAggregationPrompt(chapterAnalyses: string[], totalChapters:
   return `你是顶级的小说故事分析师。以下是${totalChapters}章小说逐章分析结果的摘要。请基于这些信息，进行全局故事理解。输出JSON：
 
 {
-  "characterArcs": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","chapters":[{"chapter":章号,"state":"角色在该章结束时的状态","change":"变化"}],"currentState":"当前状态","unresolved":true/false,"predictedDirection":"你的预测走向","personality":"性格特征总结","relationships":"与其他人物的关系"}],
+  "characterArcs": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","importance":100,"firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","currentState":"当前状态","unresolved":true/false,"predictedDirection":"你的预测走向","personality":"性格特征总结","relationships":"与其他人物的关系"}],
   "mainPlot": "主线一句话概括",
   "subPlots": ["支线1","支线2",...],
   "foreshadowingChain": [{"id":"f_001","description":"伏笔描述","plantedChapter":章号,"resolvedChapter":null或章号,"resolved":true/false,"predictedResolution":"预测回收方式"}],
@@ -101,7 +101,7 @@ export function buildGlobalAggregationPrompt(
 请基于以上信息，进行全局故事理解，并给出续写建议。输出JSON：
 
 {
-  "characterArcs": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","keyTurningPoints":[{"chapter":章号,"event":"转折事件"}],"currentState":"当前状态","unresolved":true/false,"predictedDirection":"预测走向","personality":"性格特征","relationships":"与其他人物的关系"}],
+  "characterArcs": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","importance":100,"firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","keyTurningPoints":[{"chapter":章号,"event":"转折事件"}],"currentState":"当前状态","unresolved":true/false,"predictedDirection":"预测走向","personality":"性格特征","relationships":"与其他人物的关系"}],
   "mainPlot": "主线一句话概括",
   "subPlots": ["支线1",...],
   "foreshadowingChain": [...],

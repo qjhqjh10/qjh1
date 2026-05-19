@@ -83,6 +83,25 @@ export async function getConfigStore(): Promise<ConfigStore> {
   return sharedStore
 }
 
+// ====================== Window Bounds ======================
+
+export interface WindowBounds { x?: number; y?: number; width: number; height: number; isMaximized: boolean }
+const DEFAULT_BOUNDS: WindowBounds = { width: 1400, height: 900, isMaximized: false }
+
+export async function loadWindowBounds(): Promise<WindowBounds> {
+  try {
+    const store = await getConfigStore()
+    return (store as any).get('windowBounds', DEFAULT_BOUNDS) as WindowBounds
+  } catch { return DEFAULT_BOUNDS }
+}
+
+export async function saveWindowBounds(bounds: WindowBounds): Promise<void> {
+  try {
+    const store = await getConfigStore()
+    ;(store as any).set('windowBounds', bounds)
+  } catch { /* ignore */ }
+}
+
 // ====================== Encoding Detection ======================
 
 function detectEncoding(buf: Buffer): string {

@@ -112,7 +112,7 @@ export default function ContinuationWorkspacePage() {
         const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
         const chars: any[] = json.charactersAppeared || []
         const analysis: ContinuationChapterAnalysis = {
-          charactersAppeared: chars.map((c: any) => ({ name: c.name, role: (c.role || '其他') as CharacterRole, action: c.action || '', newInfo: c.newInfo || '' })), plotEvents: json.plotEvents || [],
+          charactersAppeared: chars.map((c: any) => ({ name: c.name, role: (c.role || '其他') as CharacterRole, importance: c.importance || 0, action: c.action || '', newInfo: c.newInfo || '' })), plotEvents: json.plotEvents || [],
           foreshadowingPlanted: json.foreshadowingPlanted || [], foreshadowingResolved: json.foreshadowingResolved || [],
           worldbuildingRevealed: json.worldbuildingRevealed || [],
           powerSystemMentions: json.powerSystemMentions || [], itemsMentioned: json.itemsMentioned || [],

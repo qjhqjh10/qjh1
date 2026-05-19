@@ -28,6 +28,7 @@ export type CharacterRole = '男主' | '女主' | '男配' | '女配' | '反派'
 export interface CharacterAppearance {
   name: string
   role: CharacterRole
+  importance: number
   action: string
   newInfo: string
 }
@@ -59,6 +60,7 @@ export interface ContinuationChapter {
 export interface CharacterArcTracking {
   name: string
   role: CharacterRole
+  importance: number
   firstAppearance: number
   lastAppearance: number
   arcType: 'growth' | 'fall' | 'flat' | 'redemption' | 'corruption' | 'unknown'

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, shell, Menu } from 'electron'
 import { join, dirname } from 'path'
 import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
@@ -12,9 +12,11 @@ import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { logError } from './ipc/logger'
+import { loadWindowBounds, saveWindowBounds, type WindowBounds } from './ipc/utils'
 
 let mainWindow: BrowserWindow | null = null
 let watcher: ReturnType<typeof setupFileWatcher> | null = null
+let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null
 
 function getProjectsBasePath(): string {
   if (process.env.NODE_ENV === 'development' || process.env.ELECTRON_RENDERER_URL) {
@@ -23,10 +25,12 @@ function getProjectsBasePath(): string {
   return join(app.getPath('userData'), 'projects')
 }
 
-function createWindow() {
+async function createWindow() {
+  const saved = await loadWindowBounds()
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    x: saved.x, y: saved.y,
+    width: saved.width || 1400,
+    height: saved.height || 900,
     minWidth: 1100,
     minHeight: 700,
     title: 'AI 小说写作助手',
@@ -38,6 +42,26 @@ function createWindow() {
     frame: true,
     show: false,
   })
+
+  if (saved.isMaximized) mainWindow.maximize()
+
+  // Save bounds on resize/move (debounced)
+  const scheduleSaveBounds = () => {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer)
+    saveBoundsTimer = setTimeout(() => {
+      if (!mainWindow) return
+      const bounds = mainWindow.getBounds()
+      saveWindowBounds({
+        x: bounds.x, y: bounds.y,
+        width: bounds.width, height: bounds.height,
+        isMaximized: mainWindow.isMaximized(),
+      })
+    }, 500)
+  }
+  mainWindow.on('resize', scheduleSaveBounds)
+  mainWindow.on('move', scheduleSaveBounds)
+  mainWindow.on('maximize', scheduleSaveBounds)
+  mainWindow.on('unmaximize', scheduleSaveBounds)
 
   // Open external links in system browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -56,6 +80,7 @@ function createWindow() {
   }
 
   mainWindow.on('closed', () => {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer)
     mainWindow = null
   })
 
@@ -69,7 +94,8 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null)
   const projectsPath = getProjectsBasePath()
 
   registerFileHandlers(ipcMain, undefined, projectsPath)
@@ -91,7 +117,7 @@ app.whenReady().then(() => {
   registerExtractionHandlers(ipcMain)
   registerContinuationHandlers(ipcMain, parentDir)
 
-  const win = createWindow()
+  const win = await createWindow()
 
   // Set up file watcher for bidirectional sync (normalize paths for Windows)
   if (win) {
