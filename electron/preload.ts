@@ -164,6 +164,17 @@ const api = {
     writeGraph: (id: string, content: string): Promise<void> => ipcRenderer.invoke('story:writeGraph', id, content),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('story:delete', id),
   },
+  rewrite: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('rewrite:list'),
+    create: (name: string): Promise<any> => ipcRenderer.invoke('rewrite:create', name),
+    readMeta: (id: string): Promise<any> => ipcRenderer.invoke('rewrite:readMeta', id),
+    saveMeta: (id: string, meta: any): Promise<void> => ipcRenderer.invoke('rewrite:saveMeta', id, meta),
+    readChapter: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('rewrite:readChapter', id, chId),
+    writeChapter: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('rewrite:writeChapter', id, chId, content),
+    readAnalysis: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('rewrite:readAnalysis', id, chId),
+    writeAnalysis: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('rewrite:writeAnalysis', id, chId, content),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('rewrite:delete', id),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

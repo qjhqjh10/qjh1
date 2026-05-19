@@ -15,6 +15,7 @@ import {
   TagIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline'
 
 interface NavItem {
@@ -30,6 +31,7 @@ const COMMON_ITEMS: NavItem[] = [
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/style-templates', label: '风格模板', icon: TagIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
+  { path: '/rewrite', label: '剧情改写', icon: PencilIcon },
 ]
 
 const WRITING_ITEMS: NavItem[] = [
