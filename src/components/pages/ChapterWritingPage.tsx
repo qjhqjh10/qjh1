@@ -100,8 +100,13 @@ export default function ChapterWritingPage() {
         summary: dc?.summary || '',
       })
     }).catch(() => {
-      // File doesn't exist yet (first-time chapter) - initialize empty
       setContent('')
+      const dc = detailedChaptersRef.current.find(c => c.id === chapterId)
+      setWritingChapter(chapterId, {
+        id: chapterId, detailedChapterId: chapterId,
+        title: dc?.title || '', content: '',
+        summary: dc?.summary || '',
+      })
     })
     // Load characters if not already in store
     if (characters.length === 0) {
