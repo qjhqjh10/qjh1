@@ -11,6 +11,7 @@ import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
+import { registerStoryHandlers } from './ipc/storyHandlers'
 import { logError } from './ipc/logger'
 import { loadWindowBounds, saveWindowBounds, type WindowBounds } from './ipc/utils'
 
@@ -116,6 +117,7 @@ app.whenReady().then(async () => {
 
   registerExtractionHandlers(ipcMain)
   registerContinuationHandlers(ipcMain, parentDir)
+  registerStoryHandlers(ipcMain)
 
   const win = await createWindow()
 

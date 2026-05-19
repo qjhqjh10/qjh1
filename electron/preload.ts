@@ -150,6 +150,19 @@ const api = {
   extractions: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('extraction:importFile'),
   },
+  story: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('story:list'),
+    create: (name: string): Promise<any> => ipcRenderer.invoke('story:create', name),
+    readMeta: (id: string): Promise<any> => ipcRenderer.invoke('story:readMeta', id),
+    saveMeta: (id: string, meta: any): Promise<void> => ipcRenderer.invoke('story:saveMeta', id, meta),
+    readChapter: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('story:readChapter', id, chId),
+    writeChapter: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('story:writeChapter', id, chId, content),
+    readAnalysis: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('story:readAnalysis', id, chId),
+    writeAnalysis: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('story:writeAnalysis', id, chId, content),
+    readGraph: (id: string): Promise<string> => ipcRenderer.invoke('story:readGraph', id),
+    writeGraph: (id: string, content: string): Promise<void> => ipcRenderer.invoke('story:writeGraph', id, content),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('story:delete', id),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

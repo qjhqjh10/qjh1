@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
@@ -9,9 +8,7 @@ import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
-import { loadCharacters } from '@/services/characterService'
 import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
-import { loadOutlineContent } from '@/services/outlineService'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import * as continuationService from '@/services/continuationService'
 import type { Character } from '@/types/character'
@@ -29,7 +26,6 @@ import { TABS, EVENT_TYPE_LABELS, EVENT_TYPE_COLORS, EMPTY_EVENT, EMOTION_LINES,
 import { fieldLabel, linkBtn, iconBtn } from './styles'
 
 export default function StoryMapPage() {
-  const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const detailedChapters = useStore(s => s.detailedChapters)
@@ -41,7 +37,9 @@ export default function StoryMapPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
 
-  const [projectPath, setProjectPath] = useState('')
+  // Use project path if available, otherwise standalone workspace
+  const storyWorkspace = activeProjectId ? `${projectsBasePath}/${activeProjectId}` : `${projectsBasePath}/../story_workspace`
+  const [projectPath, setProjectPath] = useState(storyWorkspace)
   const [activeTab, setActiveTab] = useState<TabKey>('timeline')
   const [graph, setGraph] = useState<StoryGraph>({ events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], timeFlow: [], coOccurrence: null, romanceProgress: [], cultivationProgress: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {}, novelType: '' })
   const graphRef = useRef(graph)
@@ -84,24 +82,12 @@ export default function StoryMapPage() {
   const pendingCount = newChapterIds.length + modifiedChapterIds.length
 
   useEffect(() => {
-    if (!activeProjectId) return
-    const pp = `${projectsBasePath}/${activeProjectId}`
+    const pp = storyWorkspace
     setProjectPath(pp)
-
-    // Load outline if needed
-    if (!outlineContent) {
-      loadOutlineContent(pp).then(c => {
-        if (c) useStore.getState().setOutlineContent(c)
-      })
-    }
-
-    // Load detailed chapters
+    fileService.ensureDir(pp).catch(() => {})
+    fileService.ensureDir(`${pp}/chapters`).catch(() => {})
+    fileService.ensureDir(`${pp}/detailed_outline`).catch(() => {})
     loadDetailedChapters(pp).then(setDetailedChapters)
-
-    // Load characters
-    loadCharacters(pp).then(setCharacters)
-
-    // Load story graph
     loadGraph(pp)
   }, [activeProjectId, projectsBasePath])
 
@@ -540,7 +526,10 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
         const ch = sortedChapters[i]
         setChapterAnalysisProgress(`分析中 ${i + 1}/${sortedChapters.length}: ${ch.title}`)
         const wc = writingChapters[ch.id]
-        const content = wc?.content || ch.description || ''
+        let content = wc?.content || ''
+        if (!content) {
+          try { content = await fileService.read(`${projectPath}/chapters/${ch.id}.txt`) } catch { content = ch.description || '' }
+        }
         if (!content) { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }); continue }
         const prompt = continuationService.buildChapterAnalysisPrompt(ch.title, content, ch.order + 1)
         try {
@@ -588,13 +577,15 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
   const charSnapshots = graph.snapshots.filter(s => s.characterId === consistencyCharId)
   const allTraitKeys = [...new Set(charSnapshots.flatMap(s => Object.keys(s.traits)))]
 
-  if (!activeProjectId) {
+  if (sortedChapters.length === 0 && graph.events.length === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', color: '#9b8e84' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>📖</div>
-          <p style={{ fontSize: 15, marginBottom: 8 }}>请先在首页左侧选择一个项目</p>
-          <p style={{ fontSize: 13 }}>故事脉络需要基于项目中的章节数据进行分析</p>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+        <div style={{ textAlign: 'center', maxWidth: 600 }}>
+          <div style={{ fontSize: 56, marginBottom: 12 }}>📖</div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#2d2520', marginBottom: 8 }}>故事脉络</h2>
+          <p style={{ fontSize: 14, color: '#9b8e84', marginBottom: 24 }}>导入任意 TXT 小说，AI 自动逐章分析并检测一致性冲突</p>
+          <Button size="sm" onClick={handleImportTXT} disabled={!activeConfigId} style={{ marginBottom: 24, padding: '10px 24px' }} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>导入 TXT 文件</Button>
+          {!activeConfigId && <p style={{ fontSize: 11, color: '#9b8e84', marginBottom: 24 }}>请先在系统设置中配置 AI 模型</p>}
         </div>
       </div>
     )
@@ -753,7 +744,7 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
 }))}
 
 输出 JSON：{ "chapterPlotlines": [{ "chapterId": "章节ID", "plotlines": [{ "plotlineId": "支线ID", "plotlineName": "支线名", "intensity": 强度0-10 }] }] }`
-                    const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId)
+                    const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined)
                     const m = reply.match(/\{[\s\S]*\}/)
                     const parsed = JSON.parse(m ? m[0] : reply)
                     const aiCP: ChapterPlotline[] = (parsed.chapterPlotlines || []).map((cp: Record<string, unknown>) => ({
