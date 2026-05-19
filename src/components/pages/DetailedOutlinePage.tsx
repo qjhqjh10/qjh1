@@ -24,6 +24,7 @@ export default function DetailedOutlinePage() {
   const outlineContent = useStore(s => s.outlineContent)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const characters = useStore(s => s.characters)
+  const setActivePage = useStore(s => s.setActivePage)
 
   const os: React.CSSProperties = { padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', marginBottom: 8 }
   const ost: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#2d2520', marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid rgba(0,0,0,0.06)' }
@@ -33,6 +34,7 @@ export default function DetailedOutlinePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    setActivePage('detailed-outline')
     if (!activeProjectId) {
       navigate('/')
       return

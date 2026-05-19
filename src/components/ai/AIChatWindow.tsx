@@ -210,6 +210,21 @@ export default function AIChatWindow() {
       parts.push('\n如果用户要求生成描写、对话或叙述性内容，请按以下格式输出：\n【插入参考】\n原文关键词: <引述原文中要插入位置的上下文句子>\n建议位置: 该段之后\n\n【生成内容】\n<你的创作内容>')
     }
 
+    if (activePage === 'outline' && outlineContent) {
+      parts.push(`[当前大纲/基础设定:\n${outlineContent.slice(0, 10000)}]`)
+      parts.push('用户正在编辑基础设定。你可以分析大纲结构、剧情逻辑、节奏把控，提出修改建议。如果用户要求改写某段，直接输出改写后的内容。')
+    }
+
+    if (activePage === 'worldbuilding' && worldbuildingContent) {
+      parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 10000)}]`)
+      parts.push('用户正在编辑世界观设定。你可以分析世界观逻辑一致性、设定漏洞，提出扩展建议。如果用户要求改写，直接输出内容。')
+    }
+
+    if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
+      const cs = detailedChapters.map(c => `${c.title}: ${c.description?.slice(0, 500) || ''}`).join('\n---\n')
+      parts.push(`[当前细纲(${detailedChapters.length}章):\n${cs}]`)
+    }
+
     const priorityInstruction = contextPriority === 'kb-first'
       ? '\n优先参考以上知识库信息进行回答，知识库内容具有最高参考权重。'
       : contextPriority === 'model-first'
@@ -412,6 +427,8 @@ export default function AIChatWindow() {
     switch (activePage) {
       case 'outline':
         setOutlineContent(outlineContent ? outlineContent + '\n\n' + content : content); break
+      case 'worldbuilding':
+        setWorldbuildingContent(worldbuildingContent ? worldbuildingContent + '\n\n' + content : content); break
       case 'detailed-outline':
         if (currentChapterId) {
           const f = detailedChapters.find(c => c.id === currentChapterId)

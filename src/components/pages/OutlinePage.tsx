@@ -67,6 +67,7 @@ export default function OutlinePage() {
   const setOutlineContent = useStore(s => s.setOutlineContent)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
+  const setActivePage = useStore(s => s.setActivePage)
   const detailedChapters = useStore(s => s.detailedChapters)
 
   const [projectPath, setProjectPath] = useState('')
@@ -102,6 +103,9 @@ export default function OutlinePage() {
     if (!projectPath) return
     await saveOutlineContent(projectPath, outlineContent)
   }, [projectPath, outlineContent])
+
+  // Let AI assistant know which page we're on
+  useEffect(() => { setActivePage(activeTab === 'worldbuilding' ? 'worldbuilding' : 'outline') }, [activeTab])
 
   // Sync tab to URL
   useEffect(() => {
