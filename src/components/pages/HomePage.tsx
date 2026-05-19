@@ -131,7 +131,7 @@ projList.push({ id: name, ...meta, type: pt })
 
   const handleEnterProject = (project: Project) => {
     setActiveProject(project.id, project.type)
-    navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-workspace' : '/outline')
+    navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-outline' : '/outline')
   }
 
   const activeProject = projects.find(p => p.id === activeProjectId)
