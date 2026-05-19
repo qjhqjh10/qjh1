@@ -40,8 +40,8 @@ const WRITING_ITEMS: NavItem[] = [
 
 const IMITATION_ITEMS: NavItem[] = [
   { path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon },
-  { path: '/imitation?tab=outline', label: '(仿写)大纲', icon: DocumentTextIcon },
-  { path: '/imitation?tab=details', label: '(仿写)细纲', icon: ListBulletIcon },
+  { path: '/imitation-outline', label: '(仿写)大纲', icon: DocumentTextIcon },
+  { path: '/imitation-detailed', label: '(仿写)细纲', icon: ListBulletIcon },
 ]
 
 export default function Sidebar() {

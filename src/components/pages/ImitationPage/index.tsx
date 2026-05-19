@@ -945,7 +945,11 @@ ${summaryParts.join('\n')}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '4px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', gap: 2, flexShrink: 0 }}>
             {TABS.map(tab => (
-              <button key={tab.key} onClick={() => setPreviewTab(tab.key)} style={{
+              <button key={tab.key} onClick={() => {
+                if (tab.key === 'outline') { navigate('/imitation-outline'); return }
+                if (tab.key === 'details') { navigate('/imitation-detailed'); return }
+                setPreviewTab(tab.key)
+              }} style={{
                 padding: '5px 12px', borderRadius: '6px 6px 0 0', border: 'none',
                 background: previewTab === tab.key ? 'rgba(124,58,237,0.06)' : 'transparent',
                 color: previewTab === tab.key ? '#7c3aed' : '#6b5e54', fontSize: 12, cursor: 'pointer',
@@ -953,8 +957,8 @@ ${summaryParts.join('\n')}
               }}><tab.icon style={{ width: 13, height: 13 }} />{tab.label}</button>
             ))}
           </div>
-          {/* Dim switcher for 大纲 tabs (outside scroll area) */}
-          {(previewTab === 'srcOutline' || previewTab === 'outline') && (
+          {/* Dim switcher for 原书大纲 tab (outside scroll area) */}
+          {previewTab === 'srcOutline' && (
             <div style={{ display: 'flex', gap: 4, padding: '4px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', flexWrap: 'wrap', flexShrink: 0 }}>
               {(['characters','worldbuilding','items','powerSystem','foreshadowing','emotionCurve',...(novelType === 'erotic' ? ['erotic' as DimKey] : [])] as DimKey[]).map(dk => (
                 <button key={dk} onClick={() => setDimSubTab(dk)} style={{

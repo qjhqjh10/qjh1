@@ -39,6 +39,8 @@ import ContinuationDetailedPage from '@/components/pages/ContinuationDetailedPag
 import ContinuationWritingPage from '@/components/pages/ContinuationWritingPage'
 import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
 import ImitationPage from '@/components/pages/ImitationPage'
+import ImitationOutlinePage from '@/components/pages/ImitationOutlinePage'
+import ImitationDetailedPage from '@/components/pages/ImitationDetailedPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
 
@@ -82,6 +84,8 @@ function AnimatedRoutes() {
           <Route path="/continuation-writing" element={<ContinuationWritingPage />} />
           <Route path="/scene-workshop" element={<SceneWorkshopPage />} />
           <Route path="/imitation" element={<ImitationPage />} />
+          <Route path="/imitation-outline" element={<ImitationOutlinePage />} />
+          <Route path="/imitation-detailed" element={<ImitationDetailedPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
