@@ -1,7 +1,7 @@
 // AI prompt builders for novel continuation analysis pipeline
 
 export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent: string, chapterNumber: number): string {
-  return `你是一位专业的小说分析师。请分析以下章节，聚焦于"剧情理解"而非风格。输出JSON（不要markdown）：
+  return `你是一位专业的小说分析师。请分析以下章节，聚焦于"剧情理解"和"设定提取"。输出JSON（不要markdown）：
 
 {
   "charactersAppeared": [{"name":"角色名","action":"本章做了什么","newInfo":"本章新增的信息（无则空）"}],
@@ -9,6 +9,10 @@ export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent:
   "foreshadowingPlanted": ["本章新埋的伏笔（无则[]）"],
   "foreshadowingResolved": ["本章回收的前文伏笔（无则[]）"],
   "worldbuildingRevealed": ["本章揭示的新世界观信息（无则[]）"],
+  "powerSystemMentions": [{"name":"等级体系名称","levels":"涉及的等级","detail":"本章揭示的等级相关信息（修炼方式/晋升条件/实力对比等）"}],
+  "itemsMentioned": [{"name":"道具名称","type":"武器|法宝|丹药|功法|道具|其他","ability":"能力/效果","owner":"持有者"}],
+  "factionsMentioned": [{"name":"势力名称","type":"正道|邪道|中立|皇朝|其他","detail":"本章涉及的势力信息"}],
+  "locationsMentioned": [{"name":"地点名称","type":"门派|城池|秘境|自然|其他","detail":"本章涉及的地点信息"}],
   "emotionalTone": "本章情绪基调",
   "timelinePosition": "时间线定位",
   "chapterRole": "setup|development|climax|resolution|transition",
@@ -17,9 +21,10 @@ export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent:
 
 要求:
 1. plotEvents 至少列出3-8个关键事件，按重要性排序
-2. foreshadowingPlanted 判断标准: 文中提到但未完全解释的=planted
-3. foreshadowingResolved 判断标准: 之前planted的在本章得到解释的=resolved
-4. 只提取文中明确写出或强烈暗示的信息
+2. powerSystemMentions/itemsMentioned/factionsMentioned/locationsMentioned 只要文中明确提到或强烈暗示就提取，本章未涉及则填[]
+3. 道具的type从提供的分类中选最匹配的，不确定填"其他"
+4. 势力的type从提供的分类中选最匹配的，不确定填"其他"
+5. 只提取文中明确写出或强烈暗示的信息
 
 【第${chapterNumber}章】${chapterTitle}
 ${chapterContent.slice(0, 15000)}`
@@ -62,6 +67,10 @@ export function buildBatchSummaryPrompt(
   "majorEvents": ["事件1","事件2",...],
   "foreshadowingSummary": {"newlyPlanted": ["新伏笔"],"resolvedInStage": ["本阶段回收的前文伏笔"],"stillPending": ["仍未解决的伏笔"]},
   "worldbuildingProgress": ["该阶段新增或展开的世界观设定"],
+  "powerSystemEvolution": {"systems": [{"name":"体系名","currentLevels":"当前涉及的等级范围","changes":"该阶段的变化"}],"summary":"该阶段等级体系发展概述"},
+  "itemsEvolution": {"items": [{"name":"道具名","type":"类型","ability":"能力","owner":"持有者","status":"该阶段状态变化"}],"summary":"该阶段重要道具流转概述"},
+  "factionsEvolution": {"factions": [{"name":"势力名","type":"类型","status":"该阶段状态/立场变化","detail":"补充信息"}],"summary":"该阶段势力格局变化概述"},
+  "locationsEvolution": {"locations": [{"name":"地点名","type":"类型","role":"该阶段的作用"}],"summary":"该阶段重要地点概述"},
   "emotionalArc": "该阶段整体情绪走向（如：压抑→爆发→平静）",
   "endingCharacterStates": [{"name":"角色名","status":"状态","location":"位置","goal":"当前目标"}],
   "stageTheme": "该阶段的核心主题"
@@ -86,16 +95,20 @@ export function buildGlobalAggregationPrompt(
 请基于以上信息，进行全局故事理解，并给出续写建议。输出JSON：
 
 {
-  "characterArcs": [{"name":"角色名","firstAppearance":章号,"lastAppearance":章号,"arcType":"growth|fall|flat|redemption|corruption|unknown","keyTurningPoints":[{"chapter":章号,"event":"转折事件"}],"currentState":"当前状态","unresolved":true/false,"predictedDirection":"预测走向"}],
+  "characterArcs": [...],
   "mainPlot": "主线一句话概括",
-  "subPlots": ["支线1",...],
-  "foreshadowingChain": [{"id":"f_001","description":"伏笔描述","plantedChapter":章号,"resolvedChapter":null或章号,"resolved":true/false,"predictedResolution":"预测回收方式"}],
-  "worldRules": ["世界规则1",...],
-  "timeline": [{"chapter":章号,"event":"事件","type":"main|sub|character|worldbuilding"}],
-  "unresolvedQuestions": ["未解答问题1",...],
+  "subPlots": [...],
+  "foreshadowingChain": [...],
+  "worldRules": [...],
+  "powerSystemSummary": {"systems":[{"name":"体系名","levels":"等级范围","rules":"晋升/修炼规则","currentState":"截至最后的等级分布"}],"globalRules":"跨体系通用规则"},
+  "itemsSummary": {"keyItems":[{"name":"道具名","type":"类型","ability":"能力","owner":"持有者","significance":"在剧情中的重要性"}],"unresolvedItems":["去向不明或未回收的道具"]},
+  "factionsSummary": {"factions":[{"name":"势力名","type":"类型","currentStatus":"当前状态/立场","relationships":["与其他势力的关系"],"agenda":"当前目标"}],"landscape":"势力格局概述"},
+  "locationsSummary": {"keyLocations":[{"name":"地点名","type":"类型","significance":"剧情意义","currentRelevance":"当前相关性"}],"worldMap":"世界地理概述"},
+  "timeline": [...],
+  "unresolvedQuestions": [...],
   "storyStructure": "threeAct|fiveAct|episodic|other",
   "currentStage": "当前处于故事的哪个阶段",
-  "continuationSuggestions": ["基于最后20章态势+全局脉络的续写方向"]
+  "continuationSuggestions": ["基于最后20章态势+全局脉络的续写方向（需考虑等级/道具/势力/地点现状）"]
 }
 
 要求:

@@ -1,9 +1,38 @@
+export interface PowerSystemMention {
+  name: string
+  levels: string
+  detail: string
+}
+
+export interface ItemMention {
+  name: string
+  type: string
+  ability: string
+  owner: string
+}
+
+export interface FactionMention {
+  name: string
+  type: string
+  detail: string
+}
+
+export interface LocationMention {
+  name: string
+  type: string
+  detail: string
+}
+
 export interface ContinuationChapterAnalysis {
   charactersAppeared: { name: string; action: string; newInfo: string }[]
   plotEvents: string[]
   foreshadowingPlanted: string[]
   foreshadowingResolved: string[]
   worldbuildingRevealed: string[]
+  powerSystemMentions: PowerSystemMention[]
+  itemsMentioned: ItemMention[]
+  factionsMentioned: FactionMention[]
+  locationsMentioned: LocationMention[]
   emotionalTone: string
   timelinePosition: string
   chapterRole: 'setup' | 'development' | 'climax' | 'resolution' | 'transition'

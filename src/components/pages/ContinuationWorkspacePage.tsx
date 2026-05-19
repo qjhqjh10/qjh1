@@ -110,7 +110,10 @@ export default function ContinuationWorkspacePage() {
         const analysis: ContinuationChapterAnalysis = {
           charactersAppeared: json.charactersAppeared || [], plotEvents: json.plotEvents || [],
           foreshadowingPlanted: json.foreshadowingPlanted || [], foreshadowingResolved: json.foreshadowingResolved || [],
-          worldbuildingRevealed: json.worldbuildingRevealed || [], emotionalTone: json.emotionalTone || '',
+          worldbuildingRevealed: json.worldbuildingRevealed || [],
+          powerSystemMentions: json.powerSystemMentions || [], itemsMentioned: json.itemsMentioned || [],
+          factionsMentioned: json.factionsMentioned || [], locationsMentioned: json.locationsMentioned || [],
+          emotionalTone: json.emotionalTone || '',
           timelinePosition: json.timelinePosition || '', chapterRole: json.chapterRole || 'development',
           unresolvedQuestions: json.unresolvedQuestions || [],
         }
@@ -384,9 +387,31 @@ export default function ContinuationWorkspacePage() {
                     <div style={resultCard}><div style={resultCardHeader('#3b82f6')}>世界观与未解问题</div><div style={resultCardBody}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#3b82f6', marginBottom: 4 }}>世界观 ({chapters[selectedChapterIdx].analysis!.worldbuildingRevealed.length})</div>
                       {chapters[selectedChapterIdx].analysis!.worldbuildingRevealed.map((w, i) => (<div key={i} style={dimItem}>🌐 {w}</div>))}
+                      {chapters[selectedChapterIdx].analysis!.worldbuildingRevealed.length === 0 && <div style={dimEmpty}>本章无新世界观信息</div>}
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#ef4444', marginBottom: 4, marginTop: 8 }}>未解问题 ({chapters[selectedChapterIdx].analysis!.unresolvedQuestions.length})</div>
                       {chapters[selectedChapterIdx].analysis!.unresolvedQuestions.map((q, i) => (<div key={i} style={{ ...dimItem, borderLeft: '2px solid #ef4444' }}>❓ {q}</div>))}
+                      {chapters[selectedChapterIdx].analysis!.unresolvedQuestions.length === 0 && <div style={dimEmpty}>无未解问题</div>}
                     </div></div>
+                    {(chapters[selectedChapterIdx].analysis!.powerSystemMentions.length > 0 || chapters[selectedChapterIdx].analysis!.itemsMentioned.length > 0 || chapters[selectedChapterIdx].analysis!.factionsMentioned.length > 0 || chapters[selectedChapterIdx].analysis!.locationsMentioned.length > 0) && (
+                      <div style={resultCard}><div style={resultCardHeader('#8b5cf6')}>设定元素</div><div style={resultCardBody}>
+                        {chapters[selectedChapterIdx].analysis!.powerSystemMentions.length > 0 && <>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', marginBottom: 4, marginTop: 2 }}>⚡ 等级体系</div>
+                          {chapters[selectedChapterIdx].analysis!.powerSystemMentions.map((p, i) => (<div key={i} style={dimItem}><strong>{p.name}</strong> {p.levels}: {p.detail}</div>))}
+                        </>}
+                        {chapters[selectedChapterIdx].analysis!.itemsMentioned.length > 0 && <>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', marginBottom: 4, marginTop: 6 }}>🗡️ 道具</div>
+                          {chapters[selectedChapterIdx].analysis!.itemsMentioned.map((it, i) => (<div key={i} style={dimItem}><strong>{it.name}</strong> [{it.type}]: {it.ability}{it.owner ? ` (持有者: ${it.owner})` : ''}</div>))}
+                        </>}
+                        {chapters[selectedChapterIdx].analysis!.factionsMentioned.length > 0 && <>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', marginBottom: 4, marginTop: 6 }}>🏛️ 势力</div>
+                          {chapters[selectedChapterIdx].analysis!.factionsMentioned.map((f, i) => (<div key={i} style={dimItem}><strong>{f.name}</strong> [{f.type}]: {f.detail}</div>))}
+                        </>}
+                        {chapters[selectedChapterIdx].analysis!.locationsMentioned.length > 0 && <>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', marginBottom: 4, marginTop: 6 }}>📍 地点</div>
+                          {chapters[selectedChapterIdx].analysis!.locationsMentioned.map((l, i) => (<div key={i} style={dimItem}><strong>{l.name}</strong> [{l.type}]: {l.detail}</div>))}
+                        </>}
+                      </div></div>
+                    )}
                     <div style={{ padding: '8px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 10, color: '#6b5e54', display: 'flex', gap: 16, flexShrink: 0 }}>
                       <span>🎭 {chapters[selectedChapterIdx].analysis!.emotionalTone}</span><span>📍 {chapters[selectedChapterIdx].analysis!.timelinePosition}</span><span>📐 {chapters[selectedChapterIdx].analysis!.chapterRole}</span>
                     </div>
