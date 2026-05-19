@@ -14,7 +14,6 @@ export interface AppState {
   // Project
   projects: Project[]
   activeProjectId: string | null
-  activeProjectType: string | null
   activeProjectName: string | null
   projectsBasePath: string
 
@@ -108,7 +107,6 @@ export const useStore = create<AppState>()(
   immer((set, get) => ({
     projects: [],
     activeProjectId: null,
-    activeProjectType: null,
     activeProjectName: null,
     projectsBasePath: '',
     ...initialProjectState,
@@ -133,16 +131,13 @@ export const useStore = create<AppState>()(
     }),
     setActiveProject: (id, projectType) => set(s => {
       s.activeProjectId = id || null
-      s.activeProjectType = projectType || null
-      // For continuation/imitation projects, ensure they appear in the sidebar project list
-      if (id && projectType && projectType !== 'writing') {
-        const exists = s.projects.find(p => p.id === id)
-        if (!exists) {
-          s.projects.push({ id, name: s.activeProjectName || id, path: '', chapterCount: 0, wordCount: 0, type: projectType as any })
+      // Always sync the project type in the projects array
+      if (id && projectType) {
+        const existing = s.projects.find(p => p.id === id)
+        if (existing) {
+          (existing as any).type = projectType
         } else {
-          // Update the type if it was previously loaded as writing
-          const p = s.projects.find(p => p.id === id)
-          if (p) (p as any).type = projectType
+          s.projects.push({ id, name: s.activeProjectName || id, path: '', chapterCount: 0, wordCount: 0, type: projectType as any })
         }
       }
     }),

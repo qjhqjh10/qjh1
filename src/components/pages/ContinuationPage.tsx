@@ -30,7 +30,7 @@ export default function ContinuationPage() {
   }
 
   const handleEnterProject = (proj: ContinuationProject) => {
-    setActiveProject(proj.id, 'continuation' as any)
+    setActiveProject(proj.id, 'continuation')
     setActiveProjectName(proj.name)
     setActivePage('chapter')
     navigate('/continuation-workspace')
