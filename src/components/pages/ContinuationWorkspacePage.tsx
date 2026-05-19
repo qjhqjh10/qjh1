@@ -10,10 +10,10 @@ import ScrollArea from '@/components/common/ScrollArea'
 import {
   ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PencilIcon,
 } from '@heroicons/react/24/outline'
-import type { ContinuationProject, ContinuationChapter, StoryUnderstanding, InferredOutline, ContinuationPlan, ContinuationChapterPlan, ContinuationWrittenChapter, ContinuationChapterAnalysis } from '@/types/continuation'
+import type { ContinuationProject, ContinuationChapter, StoryUnderstanding, ContinuationPlan, ContinuationChapterPlan, ContinuationWrittenChapter, ContinuationChapterAnalysis, OutlineMergeData, CharacterRole } from '@/types/continuation'
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6
-const stepLabels = ['导入分章', '逐章分析', '原作理解', '续写大纲', '续写细纲', '续写章节']
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
+const stepLabels = ['导入分章', '逐章分析', '原作理解', '剧情走向', '大纲融合', '续写细纲', '续写章节']
 
 export default function ContinuationWorkspacePage() {
   const navigate = useNavigate()
@@ -33,7 +33,8 @@ export default function ContinuationWorkspacePage() {
   const [aggregating, setAggregating] = useState(false)
   const [aggregationProgress, setAggregationProgress] = useState('')
   const [storyUnderstand, setStoryUnderstand] = useState<StoryUnderstanding | null>(null)
-  const [inferredOutline, setInferredOutline] = useState<InferredOutline | null>(null)
+  const [plotDirection, setPlotDirection] = useState('')
+  const [outlineMerge, setOutlineMerge] = useState<OutlineMergeData | null>(null)
   const [continuationPlan, setContinuationPlan] = useState<ContinuationPlan | null>(null)
   const [writingChapter, setWritingChapter] = useState<ContinuationWrittenChapter | null>(null)
   const [writingContent, setWritingContent] = useState('')
@@ -56,9 +57,11 @@ export default function ContinuationWorkspacePage() {
         setProject(found)
         setChapters(found.sourceChapters)
         setStoryUnderstand(found.storyUnderstanding || null)
-        setInferredOutline(found.continuationOutline || (found as any).inferredOutline || null)
+        setPlotDirection(found.plotDirection || '')
+        setOutlineMerge(found.outlineMerge || null)
         setContinuationPlan(found.continuationPlan || null)
-        setStep(found.status === 'writing' ? 6 : found.status === 'planned' ? 5 : found.status === 'analyzed' ? 3 : 1)
+        const s = found.status
+        setStep(s === 'writing' ? 7 : s === 'planned' ? 6 : s === 'merged' ? 5 : s === 'outlining' ? 4 : s === 'analyzed' ? 3 : 1)
       }
     } catch (err) { logError('加载续写项目失败', err) }
   }
@@ -107,8 +110,9 @@ export default function ContinuationWorkspacePage() {
       const m = reply.match(/\{[\s\S]*\}/)
       if (m) {
         const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+        const chars: any[] = json.charactersAppeared || []
         const analysis: ContinuationChapterAnalysis = {
-          charactersAppeared: json.charactersAppeared || [], plotEvents: json.plotEvents || [],
+          charactersAppeared: chars.map((c: any) => ({ name: c.name, role: (c.role || '其他') as CharacterRole, action: c.action || '', newInfo: c.newInfo || '' })), plotEvents: json.plotEvents || [],
           foreshadowingPlanted: json.foreshadowingPlanted || [], foreshadowingResolved: json.foreshadowingResolved || [],
           worldbuildingRevealed: json.worldbuildingRevealed || [],
           powerSystemMentions: json.powerSystemMentions || [], itemsMentioned: json.itemsMentioned || [],
@@ -182,8 +186,15 @@ export default function ContinuationWorkspacePage() {
         const summaries = analyzed.map(c => `第${c.chapterNumber}章: ${c.analysis!.plotEvents.join('; ')}`)
         const prompt = cs.buildAggregationPrompt(summaries, totalChapters)
         const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-        const su = parseReply(reply)
-        if (su) { setStoryUnderstand(su as StoryUnderstanding); await save({ storyUnderstanding: su as StoryUnderstanding }) }
+        const su = parseReply(reply) as StoryUnderstanding | null
+        if (su) {
+          su.powerSystemFinal = su.powerSystemFinal || { name: '', levels: '', description: '' }
+          su.keyItemsFinal = su.keyItemsFinal || []
+          su.factionsFinal = su.factionsFinal || []
+          su.locationsFinal = su.locationsFinal || []
+          su.foreshadowingUnresolved = su.foreshadowingUnresolved || []
+          setStoryUnderstand(su); await save({ storyUnderstanding: su })
+        }
       } else {
         // Multi-stage: batch → global
         const totalBatches = Math.ceil(analyzed.length / BATCH_SIZE)
@@ -220,32 +231,62 @@ export default function ContinuationWorkspacePage() {
         )
         const prompt = cs.buildGlobalAggregationPrompt(batchResults, last20Summaries.join('\n\n'), totalChapters)
         const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-        const su = parseReply(reply)
-        if (su) { setStoryUnderstand(su as StoryUnderstanding); await save({ storyUnderstanding: su as StoryUnderstanding }) }
+        const su = parseReply(reply) as StoryUnderstanding | null
+        if (su) {
+          su.powerSystemFinal = su.powerSystemFinal || { name: '', levels: '', description: '' }
+          su.keyItemsFinal = su.keyItemsFinal || []
+          su.factionsFinal = su.factionsFinal || []
+          su.locationsFinal = su.locationsFinal || []
+          su.foreshadowingUnresolved = su.foreshadowingUnresolved || []
+          setStoryUnderstand(su); await save({ storyUnderstanding: su })
+        }
       }
     } catch (err) { logError('聚合失败', err) }
     setAggregationProgress('')
     setAggregating(false)
   }
 
-  const handleInferOutline = async () => {
+  const handlePlotDirection = async () => {
     if (!activeConfigId || !storyUnderstand) return
     setAggregating(true)
     try {
-      const prompt = cs.buildContinuationOutlinePrompt(JSON.stringify(storyUnderstand))
+      const analyzed = chapters.filter(c => c.analysis)
+      const lastStart = Math.max(0, analyzed.length - 20)
+      const lastDetail = analyzed.slice(lastStart).map(c =>
+        `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('；')} | 角色:${c.analysis!.charactersAppeared.map(a => `${a.name}(${a.role})`).join('、')}`
+      ).join('\n\n')
+      const prompt = cs.buildPlotDirectionPrompt(JSON.stringify(storyUnderstand), lastDetail)
+      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      setPlotDirection(reply)
+      await save({ plotDirection: reply, status: 'outlining' })
+    } catch (err) { logError('剧情走向生成失败', err) }
+    setAggregating(false)
+  }
+
+  const handleOutlineMerge = async () => {
+    if (!activeConfigId || !storyUnderstand || !plotDirection) return
+    setAggregating(true)
+    try {
+      const prompt = cs.buildOutlineMergePrompt(plotDirection, JSON.stringify(storyUnderstand))
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       const m = reply.match(/\{[\s\S]*\}/)
-      if (m) { const co = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as any; setInferredOutline(co); await save({ continuationOutline: co }) }
-    } catch (err) { logError('续写大纲生成失败', err) }
+      if (m) {
+        const om = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as OutlineMergeData
+        setOutlineMerge(om)
+        await save({ outlineMerge: om, status: 'merged' })
+      }
+    } catch (err) { logError('大纲融合失败', err) }
     setAggregating(false)
   }
 
   const handleGeneratePlan = async () => {
-    if (!activeConfigId || !storyUnderstand) return
+    if (!activeConfigId || !storyUnderstand || !plotDirection) return
     setAggregating(true)
-    const tc = (inferredOutline as any)?.estimatedChapters || inferredOutline?.estimatedTotalChapters || 10
+    // Estimate chapter count from plot direction (rough: ~3000 chars per chapter)
+    const estimatedChapters = Math.max(5, Math.round(plotDirection.length / 1000))
     try {
-      const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), JSON.stringify(inferredOutline || {}), tc)
+      const mergeJson = outlineMerge ? JSON.stringify(outlineMerge) : '{}'
+      const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), mergeJson, estimatedChapters)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       const m = reply.match(/\{[\s\S]*\}/)
       if (m) { const cp = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as ContinuationPlan; setContinuationPlan(cp); await save({ continuationPlan: cp, status: 'planned' }) }
@@ -260,8 +301,31 @@ export default function ContinuationWorkspacePage() {
     const prevSummary = prevChs.length > 0 ? prevChs.map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n') : chapters.slice(-3).map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n')
     const chars = storyUnderstand?.characterArcs?.map(c => `${c.name}: ${c.currentState}`).join('\n') || ''
     const rules = storyUnderstand?.worldRules?.join('\n') || ''
+
+    // Build characterFocus objects with role/personality
+    const charFocus = plan.characterFocus.map(name => {
+      const arc = storyUnderstand?.characterArcs?.find(a => a.name === name)
+      return { name, role: arc?.role || '其他', personality: arc?.personality || '', state: arc?.currentState || '' }
+    })
+
+    // Build constraints from outline merge
+    const constraints: string[] = []
+    if (outlineMerge) {
+      const deadChars = outlineMerge.characters?.filter(c => c.ending.includes('死') || c.ending.includes('逝'))
+      if (deadChars.length > 0) constraints.push(`已死亡角色(不可出现): ${deadChars.map(c => c.name).join('、')}`)
+      const destroyedItems = outlineMerge.items?.filter(i => i.previousStatus.includes('毁') || i.previousStatus.includes('失'))
+      if (destroyedItems.length > 0) constraints.push(`已毁/已失道具(不可使用): ${destroyedItems.map(i => i.name).join('、')}`)
+      const destroyedFactions = outlineMerge.factions?.filter(f => f.previousStatus.includes('灭') || f.previousStatus.includes('亡'))
+      if (destroyedFactions.length > 0) constraints.push(`已灭势力(不可出现): ${destroyedFactions.map(f => f.name).join('、')}`)
+      if (outlineMerge.powerSystem?.length > 0) constraints.push(`等级体系: ${outlineMerge.powerSystem.map(p => `${p.name}(${p.originalLevels}→${p.newLevels})`).join('; ')}`)
+    }
+    if (storyUnderstand?.foreshadowingUnresolved?.length) {
+      constraints.push(`待回收伏笔: ${storyUnderstand.foreshadowingUnresolved.map(f => f.description).join('; ')}`)
+    }
+
     try {
-      const prompt = cs.buildContinuationWritingPrompt(plan, prevSummary, chars, rules, plan.relativeChapterNumber)
+      const prompt = cs.buildContinuationWritingPrompt(
+        { ...plan, characterFocus: charFocus }, prevSummary, chars, rules, plan.relativeChapterNumber, constraints.join('\n'))
       const result = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       setWritingContent(result)
       setWritingChapter({ chapterNumber: plan.relativeChapterNumber, title: plan.tentativeTitle, content: result, plan, generatedAt: new Date().toISOString() })
@@ -445,29 +509,71 @@ export default function ContinuationWorkspacePage() {
 
           {step === 4 && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>续写大纲</h3><Button size="sm" onClick={handleInferOutline} disabled={aggregating || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '中...' : 'AI 生成'}</Button></div>
-              {inferredOutline && (<div><div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 12, color: '#6b5e54' }}><span>结构: {inferredOutline.structure}</span><span>阶段: {inferredOutline.currentStage}</span><span>{inferredOutline.estimatedTotalChapters}章</span><span>剩余: {inferredOutline.remainingChapters}</span></div>{inferredOutline.acts?.map((act, i) => (<div key={i} style={{ padding: '10px 14px', borderRadius: 8, background: '#faf9f8', marginBottom: 6, fontSize: 12 }}><strong>{act.name}</strong> ({act.chapterRange}): {act.summary}</div>))}<Button size="sm" style={{ marginTop: 8 }} onClick={() => setStep(5)}>进入续写计划 →</Button></div>)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>剧情走向</h3><Button size="sm" onClick={handlePlotDirection} disabled={aggregating || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '生成中...' : 'AI 生成剧情走向'}</Button></div>
+              {plotDirection ? (
+                <div>
+                  <div style={{ padding: '20px 24px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', fontSize: 14, lineHeight: 2, whiteSpace: 'pre-wrap', marginBottom: 16, maxHeight: '50vh', overflow: 'auto' }} className="custom-scrollbar">{plotDirection}</div>
+                  <Button onClick={() => setStep(5)}>进入大纲融合 →</Button>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
+                  <p style={{ fontSize: 14, marginBottom: 8 }}>点击按钮让 AI 以叙事方式写出续写的整体剧情走向</p>
+                  <p style={{ fontSize: 12 }}>不是结构大纲，而是连贯的剧情描述文字</p>
+                </div>
+              )}
             </div>
           )}
 
           {step === 5 && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>续写计划</h3><Button size="sm" onClick={handleGeneratePlan} disabled={aggregating || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '中...' : 'AI 生成'}</Button></div>
-              {continuationPlan && (<div><div style={{ fontSize: 12, marginBottom: 8, color: '#6b5e54' }}>{continuationPlan.overallDirection} | 结局: {continuationPlan.endingType} | {continuationPlan.chapterPlans?.length || 0} 章</div>{continuationPlan.chapterPlans?.map((plan, i) => (<div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8', marginBottom: 8 }}><div style={{ fontSize: 12, fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}><span>续第{i + 1}章: {plan.tentativeTitle}</span><span style={{ fontSize: 10, color: '#9b8e84' }}>~{plan.wordTarget}字</span></div><div style={{ fontSize: 11, marginTop: 4 }}>剧情: {plan.plotPoints.join(' → ')}</div><div style={{ fontSize: 11 }}>角色: {plan.characterFocus.join('、')}</div><Button size="sm" style={{ marginTop: 4 }} onClick={() => { setStep(6); handleWriteChapter(plan) }} icon={<PencilIcon style={{ width: 11, height: 11 }} />}>续写本章</Button></div>))}</div>)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>大纲融合</h3><Button size="sm" onClick={handleOutlineMerge} disabled={aggregating || !activeConfigId || !plotDirection} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '生成中...' : 'AI 生成新大纲'}</Button></div>
+              {outlineMerge ? (
+                <div className="custom-scrollbar" style={{ maxHeight: '60vh', overflow: 'auto' }}>
+                  <div style={{ fontSize: 13, color: '#4a3f38', lineHeight: 1.8, marginBottom: 16, padding: '12px 16px', borderRadius: 10, background: '#faf9f8' }}><strong>基础设定:</strong> {outlineMerge.basicSettingUpdate}</div>
+                  {outlineMerge.characters?.length > 0 && (
+                    <div style={{ marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 6 }}>角色变化 ({outlineMerge.characters.length})</div>
+                      {outlineMerge.characters.map((c, i) => (<div key={i} style={{ padding: '8px 12px', borderRadius: 8, background: '#faf9f8', marginBottom: 4, fontSize: 11 }}><strong>{c.name}</strong> [{c.role}] {c.originalStatus} → {c.newStatus} | 结局: {c.ending}</div>))}
+                    </div>
+                  )}
+                  {outlineMerge.items?.length > 0 && (
+                    <div style={{ marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 6 }}>道具流转 ({outlineMerge.items.length})</div>
+                      {outlineMerge.items.map((it, i) => (<div key={i} style={{ padding: '8px 12px', borderRadius: 8, background: '#faf9f8', marginBottom: 4, fontSize: 11 }}><strong>{it.name}</strong> [{it.type}] {it.previousStatus} → {it.newStatus} | 持有: {it.owner}</div>))}
+                    </div>
+                  )}
+                  {outlineMerge.factions?.length > 0 && (
+                    <div style={{ marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>势力变化 ({outlineMerge.factions.length})</div>
+                      {outlineMerge.factions.map((f, i) => (<div key={i} style={{ padding: '8px 12px', borderRadius: 8, background: '#faf9f8', marginBottom: 4, fontSize: 11 }}><strong>{f.name}</strong> [{f.type}] {f.previousStatus} → {f.newStatus}</div>))}
+                    </div>
+                  )}
+                  {outlineMerge.newForeshadowing?.length > 0 && <div style={{ marginBottom: 12, fontSize: 11 }}><strong>新增伏笔:</strong> {outlineMerge.newForeshadowing.map(f => f.description).join('；')}</div>}
+                  <Button onClick={() => setStep(6)} style={{ marginTop: 8 }}>进入续写细纲 →</Button>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
+                  <p style={{ fontSize: 14, marginBottom: 8 }}>基于剧情走向生成续写部分的大纲元素</p>
+                  <p style={{ fontSize: 12 }}>角色/道具/势力/地点/等级/伏笔/故事线 将融入原著大纲</p>
+                </div>
+              )}
             </div>
           )}
 
-          {step === 6 && continuationPlan && (
+          {step === 6 && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><h3 style={{ fontSize: 15, fontWeight: 700 }}>续写细纲</h3><Button size="sm" onClick={handleGeneratePlan} disabled={aggregating || !activeConfigId || !plotDirection} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{aggregating ? '生成中...' : 'AI 生成'}</Button></div>
+              {continuationPlan && (<div><div style={{ fontSize: 12, marginBottom: 8, color: '#6b5e54' }}>{continuationPlan.overallDirection} | 结局: {continuationPlan.endingType} | {continuationPlan.chapterPlans?.length || 0} 章</div>{continuationPlan.chapterPlans?.map((plan, i) => (<div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8', marginBottom: 8 }}><div style={{ fontSize: 12, fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}><span>续第{i + 1}章: {plan.tentativeTitle}</span><span style={{ fontSize: 10, color: '#9b8e84' }}>~{plan.wordTarget}字</span></div><div style={{ fontSize: 11, marginTop: 4 }}>剧情: {plan.plotPoints.join(' → ')}</div><div style={{ fontSize: 11 }}>角色: {plan.characterFocus.join('、')}</div><Button size="sm" style={{ marginTop: 4 }} onClick={() => { setStep(7); handleWriteChapter(plan) }} icon={<PencilIcon style={{ width: 11, height: 11 }} />}>续写本章</Button></div>))}</div>)}
+            </div>
+          )}
+
+          {step === 7 && continuationPlan && (
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ width: 200, flexShrink: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>续写计划</div>
                 {continuationPlan.chapterPlans?.map((plan, i) => {
                   const written = project?.writtenChapters?.find(c => c.chapterNumber === plan.relativeChapterNumber)
-                  const active = writingChapter?.chapterNumber === plan.relativeChapterNumber
                   return (
                     <div key={i} onClick={() => handleWriteChapter(plan)} style={{
                       padding: '8px 10px', borderRadius: 8, cursor: 'pointer', marginBottom: 4,
-                      background: active ? 'rgba(124,58,237,0.06)' : written ? 'rgba(22,163,74,0.04)' : '#faf9f8',
+                      background: written ? 'rgba(22,163,74,0.04)' : '#faf9f8',
                       border: '1px solid rgba(0,0,0,0.04)',
                     }}>
                       <div style={{ fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>

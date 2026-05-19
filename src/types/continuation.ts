@@ -23,8 +23,17 @@ export interface LocationMention {
   detail: string
 }
 
+export type CharacterRole = '男主' | '女主' | '男配' | '女配' | '反派' | '其他'
+
+export interface CharacterAppearance {
+  name: string
+  role: CharacterRole
+  action: string
+  newInfo: string
+}
+
 export interface ContinuationChapterAnalysis {
-  charactersAppeared: { name: string; action: string; newInfo: string }[]
+  charactersAppeared: CharacterAppearance[]
   plotEvents: string[]
   foreshadowingPlanted: string[]
   foreshadowingResolved: string[]
@@ -49,6 +58,7 @@ export interface ContinuationChapter {
 
 export interface CharacterArcTracking {
   name: string
+  role: CharacterRole
   firstAppearance: number
   lastAppearance: number
   arcType: 'growth' | 'fall' | 'flat' | 'redemption' | 'corruption' | 'unknown'
@@ -56,6 +66,8 @@ export interface CharacterArcTracking {
   currentState: string
   unresolved: boolean
   predictedDirection: string
+  personality: string
+  relationships: string
 }
 
 export interface ForeshadowItem2 {
@@ -79,6 +91,11 @@ export interface StoryUnderstanding {
   subPlots: string[]
   foreshadowingChain: ForeshadowItem2[]
   worldRules: string[]
+  powerSystemFinal: { name: string; levels: string; description: string }
+  keyItemsFinal: { name: string; type: string; ability: string; owner: string; status: string }[]
+  factionsFinal: { name: string; type: string; status: string; relationships: string }[]
+  locationsFinal: { name: string; type: string; significance: string }[]
+  foreshadowingUnresolved: { description: string; plantedChapter: number; predictedResolution: string }[]
   timeline: TimelineEvent[]
   unresolvedQuestions: string[]
   storyStructure: 'threeAct' | 'fiveAct' | 'episodic' | 'other'
@@ -94,14 +111,75 @@ export interface ContinuationOutline {
   ending: { type: 'happy' | 'tragic' | 'open' | 'bittersweet'; description: string }
 }
 
-export interface InferredOutline {
-  structure: string
-  currentStage: string
-  estimatedTotalChapters: number
-  remainingChapters: number
-  acts: { name: string; chapterRange: string; summary: string }[]
-  keyTurningPoints: { name: string; chapter: number; description: string }[]
+// ====================== Outline Merge (Step 5) ======================
+
+export interface OutlineMergeCharacter {
+  name: string
+  role: CharacterRole
+  originalStatus: string
+  newStatus: string
+  arc: string
+  ending: string
 }
+
+export interface OutlineMergeItem {
+  name: string
+  type: string
+  ability: string
+  owner: string
+  previousStatus: string
+  newStatus: string
+  newAbility: string
+}
+
+export interface OutlineMergeFaction {
+  name: string
+  type: string
+  previousStatus: string
+  newStatus: string
+  agenda: string
+}
+
+export interface OutlineMergeLocation {
+  name: string
+  type: string
+  description: string
+  significance: string
+}
+
+export interface OutlineMergePowerSystem {
+  name: string
+  originalLevels: string
+  newLevels: string
+  newRules: string
+}
+
+export interface OutlineMergeForeshadowing {
+  description: string
+  plantChapter: string
+  predictedResolution: string
+}
+
+export interface OutlineMergeThread {
+  name: string
+  type: 'main' | 'sub' | 'hidden'
+  description: string
+}
+
+export interface OutlineMergeData {
+  basicSettingUpdate: string
+  newWorldRules: string[]
+  existingWorldRules: string[]
+  characters: OutlineMergeCharacter[]
+  items: OutlineMergeItem[]
+  factions: OutlineMergeFaction[]
+  newLocations: OutlineMergeLocation[]
+  powerSystem: OutlineMergePowerSystem[]
+  newForeshadowing: OutlineMergeForeshadowing[]
+  newPlotThreads: OutlineMergeThread[]
+}
+
+// ====================== Step 4-7 types ======================
 
 export interface ContinuationChapterPlan {
   relativeChapterNumber: number
@@ -136,11 +214,13 @@ export interface ContinuationProject {
   sourceFileName: string
   sourceChapters: ContinuationChapter[]
   storyUnderstanding?: StoryUnderstanding
+  plotDirection?: string
+  outlineMerge?: OutlineMergeData
   continuationOutline?: ContinuationOutline
   continuationPlan?: ContinuationPlan
   writtenChapters: ContinuationWrittenChapter[]
   styleTemplateId?: string
-  status: 'imported' | 'analyzing' | 'analyzed' | 'planning' | 'planned' | 'writing'
+  status: 'imported' | 'analyzing' | 'analyzed' | 'outlining' | 'merged' | 'planned' | 'writing'
   createdAt: string
   updatedAt: string
 }
