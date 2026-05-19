@@ -1,20 +1,25 @@
 import {
   ClockIcon, LinkIcon, ShieldCheckIcon, ChartBarIcon,
   TableCellsIcon, ArrowsRightLeftIcon, Bars3Icon,
-  EyeIcon, ArrowTrendingUpIcon,
+  EyeIcon, ArrowTrendingUpIcon, SparklesIcon,
+  UserGroupIcon, HeartIcon,
 } from '@heroicons/react/24/outline'
 import type { StoryEvent } from '@/types/story'
 
-export type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth'
+export type TabKey = 'timeline' | 'foreshadowing' | 'consistency' | 'emotion' | 'presence' | 'rhythm' | 'plotline' | 'pov' | 'growth' | 'timeFlow' | 'coOccurrence' | 'romanceProgress' | 'cultivationProgress'
 
 export const TABS: { key: TabKey; label: string; icon: typeof ClockIcon }[] = [
   { key: 'growth', label: '成长', icon: ArrowTrendingUpIcon },
-  { key: 'timeline', label: '时间线', icon: ClockIcon },
+  { key: 'timeFlow', label: '时间流速', icon: ClockIcon },
+  { key: 'timeline', label: '时间线', icon: SparklesIcon },
   { key: 'foreshadowing', label: '伏笔链', icon: LinkIcon },
   { key: 'consistency', label: '一致性', icon: ShieldCheckIcon },
   { key: 'emotion', label: '情绪', icon: ChartBarIcon },
+  { key: 'romanceProgress', label: '感情线', icon: HeartIcon },
+  { key: 'coOccurrence', label: '共现网络', icon: UserGroupIcon },
   { key: 'presence', label: '出场', icon: TableCellsIcon },
   { key: 'rhythm', label: '节奏', icon: ArrowsRightLeftIcon },
+  { key: 'cultivationProgress', label: '修炼进度', icon: ArrowTrendingUpIcon },
   { key: 'plotline', label: '支线', icon: Bars3Icon },
   { key: 'pov', label: 'POV', icon: EyeIcon },
 ]

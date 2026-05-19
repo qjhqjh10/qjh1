@@ -491,6 +491,31 @@ export const GENRE_TRACK_PRESETS: Record<string, Omit<GrowthTrack, 'id' | 'order
 
 // ---- Unified Graph ----
 
+// Time flow: chapter time span and cumulative days
+export interface TimeFlowEntry {
+  chapterId: string; chapterOrder: number; chapterTitle: string
+  timeSpan: string; cumulativeDays: number; gapFromPrevious: string
+}
+
+// Character co-occurrence network
+export interface CoOccurrenceData {
+  pairs: { charA: string; charB: string; coCount: number }[]
+  nodes: { name: string; count: number }[]
+  edges: { source: string; target: string; weight: number }[]
+}
+
+// Romance progression tracking
+export interface RomanceProgressEntry {
+  couple: { nameA: string; roleA: string; nameB: string; roleB: string }
+  chapters: { chapterOrder: number; interactionCount: number; milestone: string }[]
+}
+
+// Cultivation/power level progression
+export interface CultivationProgressEntry {
+  characterName: string; systemName: string
+  chapters: { chapterOrder: number; level: string; breakthrough: boolean }[]
+}
+
 export interface StoryGraph {
   events: StoryEvent[]
   links: StoryLink[]
@@ -503,6 +528,10 @@ export interface StoryGraph {
   povs: ChapterPOV[]
   growthTracks: GrowthTrack[]
   growthEntries: GrowthEntry[]
+  timeFlow: TimeFlowEntry[]
+  coOccurrence: CoOccurrenceData | null
+  romanceProgress: RomanceProgressEntry[]
+  cultivationProgress: CultivationProgressEntry[]
   generatedAt: string
   scannedChapterIds: string[]
   scannedChapterHashes: Record<string, number>

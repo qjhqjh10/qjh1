@@ -41,7 +41,7 @@ export default function StoryMapPage() {
 
   const [projectPath, setProjectPath] = useState('')
   const [activeTab, setActiveTab] = useState<TabKey>('timeline')
-  const [graph, setGraph] = useState<StoryGraph>({ events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {}, novelType: '' })
+  const [graph, setGraph] = useState<StoryGraph>({ events: [], links: [], snapshots: [], emotions: [], presences: [], rhythms: [], plotlines: [], chapterPlotlines: [], povs: [], growthTracks: [], growthEntries: [], timeFlow: [], coOccurrence: null, romanceProgress: [], cultivationProgress: [], generatedAt: '', scannedChapterIds: [], scannedChapterHashes: {}, novelType: '' })
   const graphRef = useRef(graph)
   graphRef.current = graph
 
@@ -107,6 +107,10 @@ export default function StoryMapPage() {
           data.growthTracks = []
           data.growthEntries = data.growthEntries || []
         }
+        data.timeFlow = data.timeFlow || []
+        data.coOccurrence = data.coOccurrence || null
+        data.romanceProgress = data.romanceProgress || []
+        data.cultivationProgress = data.cultivationProgress || []
         setGraph(data)
         // Auto-select first character for consistency view
         if (data.snapshots.length > 0 && !consistencyCharId) {
@@ -378,6 +382,10 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
         generatedAt: new Date().toISOString(),
         scannedChapterIds: [...new Set([...latest.scannedChapterIds, ...chapterIds])],
         novelType: latest.novelType,
+        timeFlow: latest.timeFlow || [],
+        coOccurrence: latest.coOccurrence || null,
+        romanceProgress: latest.romanceProgress || [],
+        cultivationProgress: latest.cultivationProgress || [],
         scannedChapterHashes: {
           ...graph.scannedChapterHashes,
           ...Object.fromEntries(chapterIds.map(id => {
@@ -703,6 +711,18 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
                   await saveGraph(newGraph)
                 }}
               />
+            )}
+            {activeTab === 'timeFlow' && (
+              <TimeFlowView chapters={sortedChapters} />
+            )}
+            {activeTab === 'coOccurrence' && (
+              <CoOccurrenceView chapters={sortedChapters} />
+            )}
+            {activeTab === 'romanceProgress' && (
+              <RomanceProgressView chapters={sortedChapters} />
+            )}
+            {activeTab === 'cultivationProgress' && (
+              <CultivationProgressView chapters={sortedChapters} />
             )}
           </ScrollArea>
         </div>
@@ -2121,3 +2141,134 @@ function GrowthTimelineView({ tracks, entries, characters, chapters, onUpdateTra
   )
 }
 
+
+// ====================== Time Flow View ======================
+
+function TimeFlowView({ chapters }: { chapters: DetailedChapter[] }) {
+  const items = chapters.map((ch, i) => {
+    const timeSpan = ch.description?.match(/(\d+[天日月年])/) || ['?']
+    const gap = i === 0 ? '—' : '?'
+    return { ...ch, order: i + 1, timeSpan: timeSpan[0] || '?', gap, cumulative: 0 }
+  })
+  return (
+    <div style={{ padding: 16 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 12 }}>各章时间流速</h3>
+      <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 16 }}>
+        基于章节描述中的时间线索。请在章节细纲中补充每章的时间跨度信息（如"3天""次日"）以获取更准确的数据。
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {items.map((item, i) => (
+          <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px', borderRadius: 8, background: i % 2 === 0 ? '#faf9f8' : '#fff', fontSize: 11 }}>
+            <span style={{ fontWeight: 600, minWidth: 50, color: '#7c3aed' }}>第{item.order}章</span>
+            <span style={{ flex: 1, color: '#2d2520' }}>{item.title}</span>
+            <span style={{ color: '#6b5e54', minWidth: 80, textAlign: 'right' }}>时间跨度: {item.timeSpan}</span>
+          </div>
+        ))}
+      </div>
+      {items.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84' }}>暂无章节数据，请先在细纲中加入章节</div>}
+    </div>
+  )
+}
+
+// ====================== Co-Occurrence Network View ======================
+
+function CoOccurrenceView({ chapters }: { chapters: DetailedChapter[] }) {
+  const coMap = new Map<string, number>()
+  const charSet = new Set<string>()
+  chapters.forEach(ch => {
+    const names = (ch.description || '').match(/[：:]\s*(.+)/)?.[1]?.split(/[,，、]/) || []
+    names.forEach(n => { const t = n.trim(); if (t) charSet.add(t) })
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        const a = names[i].trim(); const b = names[j].trim()
+        if (!a || !b) continue
+        const key = [a, b].sort().join('|||')
+        coMap.set(key, (coMap.get(key) || 0) + 1)
+      }
+    }
+  })
+  const pairs = [...coMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => {
+    const [a, b] = k.split('|||')
+    return { charA: a, charB: b, coCount: v }
+  })
+  return (
+    <div style={{ padding: 16 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 12 }}>角色共现网络</h3>
+      <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 16 }}>
+        基于章节细纲中的角色字段。统计角色在同一章中共同出现的频率。
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {pairs.map((p, i) => (
+          <div key={i} style={{ padding: '8px 12px', borderRadius: 10, background: `rgba(124,58,237,${0.04 + p.coCount * 0.03})`, border: '1px solid rgba(124,58,237,0.1)', fontSize: 11 }}>
+            <span style={{ fontWeight: 600, color: '#7c3aed' }}>{p.charA}</span>
+            <span style={{ color: '#9b8e84', margin: '0 4px' }}>+</span>
+            <span style={{ fontWeight: 600, color: '#7c3aed' }}>{p.charB}</span>
+            <span style={{ marginLeft: 8, color: '#6b5e54' }}>共现 {p.coCount} 章</span>
+          </div>
+        ))}
+      </div>
+      {pairs.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84' }}>暂无角色数据。请在细纲中为各章添加角色信息。</div>}
+    </div>
+  )
+}
+
+// ====================== Romance Progress View ======================
+
+function RomanceProgressView({ chapters }: { chapters: DetailedChapter[] }) {
+  const items = chapters.map((ch, i) => {
+    const chars = (ch.description || '').match(/[：:]\s*(.+)/)?.[1]?.split(/[,，、]/)?.map(s => s.trim()) || []
+    return { order: i + 1, title: ch.title, chars, desc: ch.description?.slice(0, 200) || '' }
+  })
+  return (
+    <div style={{ padding: 16 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 12 }}>感情线进度</h3>
+      <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 16 }}>
+        基于章节细纲中的角色字段。请为各章标注男女主角以追踪感情线发展。
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {items.map((item, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '8px 12px', borderRadius: 8, background: i % 2 === 0 ? 'rgba(236,72,153,0.03)' : '#fff', border: '1px solid rgba(236,72,153,0.06)', fontSize: 11 }}>
+            <span style={{ fontWeight: 600, minWidth: 50, color: '#ec4899' }}>第{item.order}章</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: '#2d2520', marginBottom: 2 }}>{item.title}</div>
+              <div style={{ color: '#6b5e54' }}>角色: {item.chars.length > 0 ? item.chars.join('、') : '未标注'}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ====================== Cultivation Progress View ======================
+
+function CultivationProgressView({ chapters }: { chapters: DetailedChapter[] }) {
+  const items = chapters.map((ch, i) => ({
+    order: i + 1, title: ch.title, desc: ch.description || ''
+  }))
+  return (
+    <div style={{ padding: 16 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', marginBottom: 12 }}>修炼/等级进度</h3>
+      <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 16 }}>
+        基于章节细纲描述中的等级信息。请在细纲描述中标注各章的等级变化（如"突破斗王→斗皇"）。
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {items.map((item, i) => {
+          const levelMatch = item.desc.match(/等级[：:]\s*([^\n]+)/) || item.desc.match(/突破[至到]?\s*(\S+)/)
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderRadius: 8, background: i % 2 === 0 ? 'rgba(22,163,74,0.03)' : '#fff', border: '1px solid rgba(22,163,74,0.06)', fontSize: 11 }}>
+              <span style={{ fontWeight: 600, minWidth: 50, color: '#16a34a' }}>第{item.order}章</span>
+              <span style={{ flex: 1, color: '#2d2520' }}>{item.title}</span>
+              {levelMatch && (
+                <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(22,163,74,0.08)', color: '#16a34a', fontWeight: 600 }}>
+                  {levelMatch[1] || levelMatch[0]}
+                </span>
+              )}
+              {!levelMatch && <span style={{ color: '#9b8e84', fontSize: 10 }}>未检测到等级信息</span>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
