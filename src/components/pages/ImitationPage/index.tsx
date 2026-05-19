@@ -820,13 +820,40 @@ ${summaryParts.join('\n')}
 
   // Guard: need an imitation project selected
   const project = useStore(s => s.projects.find(p => p.id === activeProjectId))
+  const setActiveProject = useStore(s => s.setActiveProject)
+  const allProjects = useStore(s => s.projects)
+  const imitationProjects = allProjects.filter(p => p.type === 'imitation')
+
   if (!activeProjectId || !projectsBasePath || project?.type !== 'imitation') {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', color: '#9b8e84' }}>
-          <BookOpenIcon style={{ width: 56, height: 56, margin: '0 auto 16px', opacity: 0.2 }} />
-          <p style={{ fontSize: 15, marginBottom: 8 }}>{!activeProjectId ? '请先在左侧选择仿写项目' : '当前项目不是仿写类型，请选择仿写项目'}</p>
-          <p style={{ fontSize: 13 }}>点击首页「新建项目」创建一个仿写类型项目</p>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 32 }}>
+        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
+          <h2 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>小说仿写</h2>
+          <p style={{ fontSize: 14, color: '#9b8e84', marginBottom: 24 }}>
+            {imitationProjects.length === 0 ? '还没有仿写项目，请先在首页新建一个仿写类型项目' : '选择一个仿写项目开始工作'}
+          </p>
+          {imitationProjects.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {imitationProjects.map(p => (
+                <div key={p.id} onClick={() => { setActiveProject(p.id, 'imitation') }} style={{
+                  padding: '16px 20px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.06)',
+                  cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>{p.name}</div>
+                    <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 4 }}>
+                      {p.chapterCount}章 · {p.wordCount.toLocaleString()}字 · 仿写
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>进入 →</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 24, textAlign: 'center' }}>
+            <Button onClick={() => navigate('/')}>返回首页新建项目</Button>
+          </div>
         </div>
       </div>
     )

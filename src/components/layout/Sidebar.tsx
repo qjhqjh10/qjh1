@@ -59,7 +59,11 @@ export default function Sidebar() {
   const detailedChapters = useStore(s => s.detailedChapters)
 
   const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId])
-  const projectType = activeProject?.type || 'writing'
+  // Derive type from active project first, then from current URL path
+  const projectType = activeProject?.type
+    || (location.pathname.startsWith('/imitation') ? 'imitation' : '')
+    || (location.pathname.startsWith('/continuation') ? 'continuation' : '')
+    || 'writing'
 
   const navItems = useMemo((): NavItem[] => {
     const items: NavItem[] = [{ path: '/', label: '首页', icon: HomeIcon }]
