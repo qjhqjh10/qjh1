@@ -118,6 +118,7 @@ export const dialogService = {
 
 export const appService = {
   getProjectsBasePath: () => e().app.getProjectsBasePath(),
+  getStoryWorkspacePath: () => e().app.getStoryWorkspacePath(),
 }
 
 export const settingsService = {

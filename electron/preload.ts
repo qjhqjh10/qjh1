@@ -90,6 +90,7 @@ const api = {
   },
   app: {
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),
+    getStoryWorkspacePath: (): Promise<string> => ipcRenderer.invoke('app:getStoryWorkspacePath'),
   },
   kb: {
     list: (): Promise<KnowledgeMetadata> => ipcRenderer.invoke('kb:list'),

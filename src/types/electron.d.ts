@@ -57,6 +57,7 @@ export interface DialogAPI {
 
 export interface AppAPI {
   getProjectsBasePath: () => Promise<string>
+  getStoryWorkspacePath: () => Promise<string>
 }
 
 export interface SettingsAPI {

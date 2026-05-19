@@ -93,6 +93,11 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     return projectsBasePath
   })
 
+  ipcMain.handle('app:getStoryWorkspacePath', async () => {
+    const { app } = await import('electron')
+    return path.join(app.getPath('userData'), 'story_workspace')
+  })
+
   // ====================== Project Import ======================
 
   ipcMain.handle('project:import', async (_event, zipPath: string) => {
