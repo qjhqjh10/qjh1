@@ -316,3 +316,31 @@ ${constraints}
 5. 字数目标: ${plan.wordTarget || 3000} 字
 6. 正文用空行分隔自然段，段落长度自由，禁止全文一堆到底`
 }
+
+// Segment → chapter plans: split ~10000字 plot direction into N chapters
+export function buildSegmentChapterPlansPrompt(segmentContent: string, chapterCount: number = 10): string {
+  return `你是小说细纲策划专家。以下是一段续写剧情走向（约${segmentContent.length}字）。请将其合理分为 ${chapterCount} 章细纲。输出JSON：
+
+{
+  "chapters": [
+    {
+      "chapterNumber": 1,
+      "title": "章节标题",
+      "summary": "本章剧情摘要（100字内）",
+      "plotPoints": ["本章剧情点1","剧情点2","剧情点3"],
+      "characterFocus": ["重点角色1","重点角色2"],
+      "wordTarget": 预估字数
+    }
+  ]
+}
+
+要求：
+1. 每章字数合理分配（总约${segmentContent.length}字÷${chapterCount}章≈${Math.round(segmentContent.length / chapterCount)}字/章），可以有差异但不要差太多
+2. 章节之间剧情连贯，每章有明确的起承转合
+3. 角色弧线持续发展，不出现角色无故消失或突然出现
+4. 伏笔合理分布，不要集中在某几章
+5. 章节标题简洁有吸引力
+
+【剧情走向】
+${segmentContent}`
+}
