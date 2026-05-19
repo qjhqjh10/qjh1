@@ -6,7 +6,6 @@ import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
 import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings } from '@/types/settings'
 import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS } from '@/types/settings'
-import { nanoid } from 'nanoid'
 
 // ---- App Store ----
 

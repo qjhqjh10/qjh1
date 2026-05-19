@@ -8,7 +8,6 @@ import {
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
 } from '@heroicons/react/24/outline'
-import ScrollArea from '@/components/common/ScrollArea'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
@@ -71,8 +70,6 @@ export default function AIChatWindow() {
   const detailedChapters = useStore(s => s.detailedChapters)
   const currentChapterId = useStore(s => s.currentChapterId)
   const writingChapters = useStore(s => s.writingChapters)
-
-  const promptTemplates = useSettingsStore(s => s.prompts)
 
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
   const setOutlineContent = useStore(s => s.setOutlineContent)
@@ -337,11 +334,11 @@ export default function AIChatWindow() {
         }, 800)
       }
     } catch (err) {
-      const userMsg = parseAiErrorMessage(err)
+      const errMsg = parseAiErrorMessage(err)
 
       setMessages(prev => [...prev, {
         id: Date.now().toString() + '_e', role: 'assistant',
-        content: userMsg,
+        content: errMsg,
       }])
     }
     setLoading(false)

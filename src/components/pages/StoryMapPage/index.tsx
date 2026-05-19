@@ -20,7 +20,7 @@ import type { StoryEvent, StoryLink, CharacterSnapshot, StoryGraph, ChapterEmoti
 import { GENRE_TRACK_PRESETS } from '@/types/story'
 import {
   SparklesIcon, PlusIcon, TrashIcon, PencilIcon, XMarkIcon,
-  ClockIcon, LinkIcon, ShieldCheckIcon, MagnifyingGlassIcon,
+  ClockIcon, LinkIcon, ShieldCheckIcon,
   MapPinIcon, UserIcon, FlagIcon, ArrowRightIcon, ChartBarIcon,
   EyeIcon, TableCellsIcon, ArrowsRightLeftIcon, Bars3Icon, ArrowTrendingUpIcon,
 } from '@heroicons/react/24/outline'
