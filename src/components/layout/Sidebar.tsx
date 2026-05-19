@@ -38,12 +38,6 @@ const WRITING_ITEMS: NavItem[] = [
   { path: '/detailed-outline', label: '细纲', icon: ListBulletIcon },
 ]
 
-const IMITATION_ITEMS: NavItem[] = [
-  { path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon },
-  { path: '/imitation-outline', label: '(仿写)大纲', icon: DocumentTextIcon },
-  { path: '/imitation-detailed', label: '(仿写)细纲', icon: ListBulletIcon },
-]
-
 export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -64,7 +58,11 @@ export default function Sidebar() {
   const navItems = useMemo((): NavItem[] => {
     const items: NavItem[] = [{ path: '/', label: '首页', icon: HomeIcon }]
 
-    // Only show project-specific nav when a project is active
+    // Always show imitation and continuation entry points
+    items.push({ path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon })
+    items.push({ path: '/continuation', label: '小说续写', icon: BookOpenIcon })
+
+    // Show project-specific nav only when a project is active
     if (activeProjectId) {
       if (projectType === 'writing') {
         items.push(...WRITING_ITEMS)
@@ -72,7 +70,8 @@ export default function Sidebar() {
           items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
         }
       } else if (projectType === 'imitation') {
-        items.push(...IMITATION_ITEMS)
+        items.push({ path: '/imitation-outline', label: '(仿写)大纲', icon: DocumentTextIcon })
+        items.push({ path: '/imitation-detailed', label: '(仿写)细纲', icon: ListBulletIcon })
         if (detailedChapters.length > 0) {
           items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
         }
