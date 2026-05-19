@@ -84,7 +84,7 @@ export default function StoryMapPage() {
   const pendingCount = newChapterIds.length + modifiedChapterIds.length
 
   useEffect(() => {
-    if (!activeProjectId) { navigate('/'); return }
+    if (!activeProjectId) return
     const pp = `${projectsBasePath}/${activeProjectId}`
     setProjectPath(pp)
 
@@ -588,7 +588,17 @@ trackLabel 可选值（根据项目配置的成长维度）: ${graph.growthTrack
   const charSnapshots = graph.snapshots.filter(s => s.characterId === consistencyCharId)
   const allTraitKeys = [...new Set(charSnapshots.flatMap(s => Object.keys(s.traits)))]
 
-  if (!activeProjectId) return null
+  if (!activeProjectId) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', color: '#9b8e84' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📖</div>
+          <p style={{ fontSize: 15, marginBottom: 8 }}>请先在首页左侧选择一个项目</p>
+          <p style={{ fontSize: 13 }}>故事脉络需要基于项目中的章节数据进行分析</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 24 }}>
