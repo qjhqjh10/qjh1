@@ -1,6 +1,7 @@
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
 import type { NovelExtraction, DetailGenResult } from '@/types/story'
+import type { StyleTemplate } from '@/types/styleTemplate'
 import { SparklesIcon, CheckCircleIcon, UserGroupIcon, GlobeAltIcon, LightBulbIcon, BookOpenIcon, FireIcon } from '@heroicons/react/24/outline'
 
 function safeItemName(i: unknown): string {
@@ -28,16 +29,28 @@ interface Props {
   onSaveAllDetails: () => void
   onClearDetails: () => void
   onSelectRemaining: () => void
+  externalStyleId: string
+  externalTemplates: StyleTemplate[]
+  onStyleChange: (id: string) => void
 }
 
 export default function GenerateTab({
   extraction, outlineResults, outlineGenerated, novelType, genLoading, genPreview, genType,
   detailGenRunning, detailGenCurrent, detailGenResults, detailsResults, extractIds,
   onGenerateDim, onGenerateDetails, onStopDetailGen, onSaveAllDetails, onClearDetails, onSelectRemaining,
+  externalStyleId, externalTemplates, onStyleChange,
 }: Props) {
   return (
     <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* 外部风格模板选择 */}
+        <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(249,115,22,0.03)', border: '1px solid rgba(249,115,22,0.1)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#ea580c', marginBottom: 4 }}>外部风格模板（覆盖仿写内部风格分析）</div>
+          <select value={externalStyleId} onChange={e => onStyleChange(e.target.value)} style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit' }}>
+            <option value="">使用内部风格分析</option>
+            {externalTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.type})</option>)}
+          </select>
+        </div>
         <div style={{ padding: 14, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 700, color: '#7c3aed', marginBottom: 10 }}>大纲模仿 — 逐维度生成新设定</h4>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>

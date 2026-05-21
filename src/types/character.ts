@@ -30,6 +30,7 @@ export interface Character {
   relationships: string
   relationshipTags: RelationshipTag[]
   arc: string
+  image?: string
 }
 
 // ---- Relationship Graph (AI-generated) ----

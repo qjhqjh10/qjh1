@@ -9,12 +9,33 @@ import GlassCard from '@/components/common/GlassCard'
 import Modal from '@/components/common/Modal'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
+import ImageLightbox from '@/components/common/ImageLightbox'
 import { PlusIcon, TrashIcon, PencilIcon, UserIcon, SparklesIcon, TagIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
 import type { Character, CharacterRole, RelationshipGraph } from '@/types/character'
 import { EMPTY_CHARACTER, RELATIONSHIP_TAGS } from '@/types/character'
 import { inputStyle } from '@/components/common/styles'
 import RelationshipGraphModal from '@/components/common/RelationshipGraphModal'
 import { logError } from '@/utils/logger'
+
+// Resolves character image (file path or base64 data URL) for display
+function CharacterImage({ image, projectPath, alt, style, className }: {
+  image?: string; projectPath: string; alt: string
+  style?: React.CSSProperties; className?: string
+}) {
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    if (!image) { setSrc(''); return }
+    if (image.startsWith('data:')) { setSrc(image); return }
+    if (!projectPath) return // projectPath not yet resolved, wait for it
+    const ext = image.split('.').pop()?.toLowerCase() || 'png'
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+    fileService.readBinary(`${projectPath}/${image}`).then(b64 => {
+      if (b64) setSrc(`data:${mime};base64,${b64}`)
+    }).catch(() => setSrc(''))
+  }, [image, projectPath])
+  if (!src) return null
+  return <img src={src} alt={alt} style={style} className={className} />
+}
 
 const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
 
@@ -39,10 +60,12 @@ const AI_FORMAT_INSTRUCTION = `
 角色成长弧线: <角色故事发展轨迹>
 关系标签: <标签1、标签2、标签3>
 重要程度: <1-100的整数，数值越大越重要，默认50>
+形象图描述: <英文关键词描述，用于图片搜索，如"young swordsman with silver hair, blue eyes, dark armor, anime style, portrait">
 
 注意：
 - 每个字段都必须填写，不确定的可以写"暂无"
 - 关系标签请从以下选择或自行发挥：恋人、后宫、父亲、母亲、姐姐、妹妹、哥哥、弟弟、师父、徒弟、挚友、敌人、宿敌、竞争对手、青梅竹马、初恋、暗恋对象等
+- 形象图描述请使用英文关键词，描述角色外貌特征，便于搜索匹配的图片
 - 只输出上述格式的角色信息，不要输出其他内容`
 
 interface Props {
@@ -67,7 +90,20 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
 
   const [editingChar, setEditingChar] = useState<Character | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState('')
+
+  // Resolve image (file path or data URL) for lightbox display
+  const openLightbox = async (image: string) => {
+    if (image.startsWith('data:')) { setLightboxImage(image); return }
+    if (!projectPath) return
+    const ext = image.split('.').pop()?.toLowerCase() || 'png'
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+    try {
+      const b64 = await fileService.readBinary(`${projectPath}/${image}`)
+      if (b64) setLightboxImage(`data:${mime};base64,${b64}`)
+    } catch { setLightboxImage(image) }
+  }
 
   // AI generation state
   const [showAIGen, setShowAIGen] = useState(false)
@@ -261,11 +297,33 @@ ${JSON.stringify(charList, null, 2)}
       const reply = await aiService.chat(messages, genConfigId, activeProjectId || undefined)
       const parsed = parseCharacterFromAI(reply)
 
+      // Extract image prompt for Unsplash search
+      const imagePromptMatch = reply.match(/形象图描述[:：]\s*(.+)/)
+      const imagePrompt = imagePromptMatch?.[1]?.trim() || ''
+
+      // Search for character image
+      let characterImage: string | undefined
+      if (imagePrompt && projectPath) {
+        try {
+          const results = await aiService.executeFileTools([{
+            callId: nanoid(6),
+            toolName: 'search_images',
+            args: { query: imagePrompt, count: 1 },
+          }])
+          const r = results[0]
+          if (r?.status === 'success' && r?.detail) {
+            const detail = JSON.parse(r.detail) as { path: string; description: string }[]
+            if (detail.length > 0) characterImage = detail[0].path
+          }
+        } catch { /* image search is best-effort */ }
+      }
+
       // Open character edit modal with AI-generated data pre-filled
       const newChar: Character = {
         ...EMPTY_CHARACTER,
         id: nanoid(8),
         ...parsed,
+        image: characterImage,
       }
       setEditingChar(newChar)
       setShowAIGen(false)
@@ -333,10 +391,20 @@ ${JSON.stringify(charList, null, 2)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
             {characters.map(char => (
               <GlassCard key={char.id} onClick={() => handleEdit(char)}>
+                {/* 形象图 - 顶部 */}
+                <div onClick={e => { e.stopPropagation(); if (char.image) openLightbox(char.image) }}
+                  style={{ width: '100%', height: 120, borderRadius: 12, overflow: 'hidden', marginBottom: 12, cursor: char.image ? 'zoom-in' : 'default', border: '1px solid rgba(0,0,0,0.06)' }}>
+                  {char.image ? (
+                    <CharacterImage image={char.image} projectPath={projectPath} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', background: 'rgba(124,58,237,0.03)', border: '2px dashed rgba(124,58,237,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <UserIcon style={{ width: 24, height: 24, color: '#d4ccc4' }} />
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <UserIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />
                       <h4 style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {char.name || '未命名角色'}
                       </h4>
@@ -402,7 +470,7 @@ ${JSON.stringify(charList, null, 2)}
 
       {/* Character Edit Modal */}
       <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingChar(null) }} title="角色详情" width={760}>
-        {editingChar && <CharacterForm char={editingChar} onChange={setEditingChar} onSave={handleSave} onClose={() => { setShowModal(false); setEditingChar(null) }} />}
+        {editingChar && <CharacterForm char={editingChar} onChange={setEditingChar} onSave={handleSave} onClose={() => { setShowModal(false); setEditingChar(null) }} projectPath={projectPath} />}
       </Modal>
 
       {/* Relationship Graph Modal */}
@@ -489,16 +557,22 @@ ${JSON.stringify(charList, null, 2)}
           </div>
         </div>
       </Modal>
+
+      {/* 形象图灯箱 */}
+      {lightboxImage && (
+        <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+      )}
     </div>
   )
 }
 
 // Character form sub-component
-function CharacterForm({ char, onChange, onSave, onClose }: {
+function CharacterForm({ char, onChange, onSave, onClose, projectPath }: {
   char: Character
   onChange: (c: Character) => void
   onSave: () => void
   onClose: () => void
+  projectPath: string
 }) {
   const toggleTag = (tag: string) => {
     const tags = char.relationshipTags as string[]
@@ -513,6 +587,49 @@ function CharacterForm({ char, onChange, onSave, onClose }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 角色形象图 — at top */}
+      <div>
+        <div style={labelStyle}>形象图</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {char.image ? (
+            <div style={{ position: 'relative', width: 80, height: 80, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.08)' }}>
+              <CharacterImage image={char.image} projectPath={projectPath} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+          ) : (
+            <div style={{ width: 80, height: 80, borderRadius: 12, background: 'rgba(124,58,237,0.04)', border: '2px dashed rgba(124,58,237,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84', fontSize: 10 }}>
+              无形象
+            </div>
+          )}
+          <div>
+            <button onClick={() => {
+              const input = document.createElement('input')
+              input.type = 'file'; input.accept = 'image/*'
+              input.onchange = async () => {
+                const file = input.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = async () => {
+                  try {
+                    const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
+                    if (fn) { set('image', fn); return }
+                  } catch { /* fallback to base64 */ }
+                  set('image', reader.result as string)
+                }
+                reader.readAsDataURL(file)
+              }
+              input.click()
+            }} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
+              {char.image ? '更换形象图' : '上传形象图'}
+            </button>
+            {char.image && (
+              <button onClick={() => set('image', undefined)} style={{ marginLeft: 8, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.04)', color: '#dc2626', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
+                移除
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Basic info row */}
       <div style={{ display: 'flex', gap: 14 }}>
         <div style={{ flex: 1 }}>

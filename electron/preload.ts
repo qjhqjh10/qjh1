@@ -13,6 +13,9 @@ const api = {
     ensureDir: (dirPath: string): Promise<void> => ipcRenderer.invoke('files:ensureDir', dirPath),
     deleteFile: (path: string): Promise<void> => ipcRenderer.invoke('files:deleteFile', path),
     deleteDir: (dirPath: string): Promise<void> => ipcRenderer.invoke('files:deleteDir', dirPath),
+    readBinary: (filePath: string): Promise<string> => ipcRenderer.invoke('files:readBinary', filePath),
+    writeBinary: (filePath: string, base64: string): Promise<void> => ipcRenderer.invoke('files:writeBinary', filePath, base64),
+    saveImageUrl: (imageUrl: string, projectPath: string): Promise<string> => ipcRenderer.invoke('files:saveImageUrl', imageUrl, projectPath),
     onExternalChange: (callback: (event: { path: string; content: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { path: string; content: string }) =>
         callback(data)
@@ -27,11 +30,14 @@ const api = {
       ipcRenderer.invoke('project:delete', projectPath),
     getMeta: (projectPath: string): Promise<{
       name: string; chapterCount: number; wordCount: number; path: string; type: string
+      novelCategory?: string; coverImage?: string
     }> => ipcRenderer.invoke('project:getMeta', projectPath),
     listProjects: (basePath: string): Promise<string[]> =>
       ipcRenderer.invoke('project:listProjects', basePath),
     importProject: (zipPath: string): Promise<{ name: string; type: string }> =>
       ipcRenderer.invoke('project:import', zipPath),
+    updateCategory: (projectPath: string, novelCategory: string): Promise<void> =>
+      ipcRenderer.invoke('project:updateCategory', projectPath, novelCategory),
   },
   export: {
     exportChapters: (options: {
@@ -44,6 +50,7 @@ const api = {
     }): Promise<void> => ipcRenderer.invoke('export:singleChapter', options),
     exportProject: (projectPath: string, outputPath: string): Promise<void> =>
       ipcRenderer.invoke('export:project', projectPath, outputPath),
+    exportEpub: (options: { title: string; author: string; chapters: { title: string; content: string }[]; outputPath: string }): Promise<void> => ipcRenderer.invoke('export:epub', options),
   },
   ai: {
     chat: (messages: { role: string; content: string }[], configId: string, projectId?: string): Promise<string> =>
@@ -73,6 +80,10 @@ const api = {
     },
     listModels: (configId: string): Promise<string[]> =>
       ipcRenderer.invoke('ai:listModels', configId),
+    chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]): Promise<string> =>
+      ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools),
+    executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
+      ipcRenderer.invoke('ai:execute-file-tool', calls),
   },
   settings: {
     saveConfigs: (configs: ModelConfig[]): Promise<{warning?: string}> =>
@@ -150,6 +161,7 @@ const api = {
   },
   extractions: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('extraction:importFile'),
+    importFromPath: (filePath: string): Promise<{ name: string; content: string }> => ipcRenderer.invoke('extraction:importFromPath', filePath),
   },
   story: {
     list: (): Promise<any[]> => ipcRenderer.invoke('story:list'),

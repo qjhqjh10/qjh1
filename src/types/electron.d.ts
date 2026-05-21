@@ -11,6 +11,9 @@ export interface FileAPI {
   ensureDir: (dirPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
   deleteDir: (dirPath: string) => Promise<void>
+  readBinary: (filePath: string) => Promise<string>
+  writeBinary: (filePath: string, base64: string) => Promise<void>
+  saveImageUrl: (imageUrl: string, projectPath: string) => Promise<string>
   onExternalChange: (callback: (event: { path: string; content: string }) => void) => () => void
 }
 
@@ -18,10 +21,11 @@ export interface ProjectAPI {
   create: (name: string, basePath: string, type?: string) => Promise<void>
   delete: (projectPath: string) => Promise<void>
   getMeta: (projectPath: string) => Promise<{
-    name: string; chapterCount: number; wordCount: number; path: string; type: string
+    name: string; chapterCount: number; wordCount: number; path: string; type: string; novelCategory?: string; coverImage?: string
   }>
   listProjects: (basePath: string) => Promise<string[]>
   importProject: (zipPath: string) => Promise<{ name: string; type: string }>
+  updateCategory: (projectPath: string, novelCategory: string) => Promise<void>
 }
 
 export interface ExportAPI {
@@ -34,6 +38,11 @@ export interface ExportAPI {
     title: string; content: string; outputPath: string
   }) => Promise<void>
   exportProject: (projectPath: string, outputPath: string) => Promise<void>
+  exportEpub: (options: {
+    title: string; author: string
+    chapters: { title: string; content: string }[]
+    outputPath: string
+  }) => Promise<void>
 }
 
 export interface StreamUsage { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
@@ -47,6 +56,8 @@ export interface AIAPI {
   onChatError: (callback: (data: { message: string }) => void) => () => void
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
   listModels: (configId: string) => Promise<string[]>
+  chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]) => Promise<string>
+  executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
 }
 
 export interface DialogAPI {
@@ -136,6 +147,33 @@ export interface KBAPI {
 
 export interface ExtractionAPI {
   importFile: () => Promise<{ name: string; content: string } | null>
+  importFromPath: (filePath: string) => Promise<{ name: string; content: string }>
+}
+
+export interface StoryAPI {
+  list: () => Promise<any[]>
+  create: (name: string) => Promise<any>
+  readMeta: (id: string) => Promise<any>
+  saveMeta: (id: string, meta: any) => Promise<void>
+  readChapter: (id: string, chId: string) => Promise<string>
+  writeChapter: (id: string, chId: string, content: string) => Promise<void>
+  readAnalysis: (id: string, chId: string) => Promise<string>
+  writeAnalysis: (id: string, chId: string, content: string) => Promise<void>
+  readGraph: (id: string) => Promise<string>
+  writeGraph: (id: string, content: string) => Promise<void>
+  delete: (id: string) => Promise<void>
+}
+
+export interface RewriteAPI {
+  list: () => Promise<any[]>
+  create: (name: string) => Promise<any>
+  readMeta: (id: string) => Promise<any>
+  saveMeta: (id: string, meta: any) => Promise<void>
+  readChapter: (id: string, chId: string) => Promise<string>
+  writeChapter: (id: string, chId: string, content: string) => Promise<void>
+  readAnalysis: (id: string, chId: string) => Promise<string>
+  writeAnalysis: (id: string, chId: string, content: string) => Promise<void>
+  delete: (id: string) => Promise<void>
 }
 
 export interface ElectronAPI {
@@ -153,6 +191,8 @@ export interface ElectronAPI {
   templates: { list: () => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
+  story: StoryAPI
+  rewrite: RewriteAPI
 }
 
 declare global {

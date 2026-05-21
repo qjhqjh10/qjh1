@@ -16,10 +16,13 @@ export function registerFileHandlers(
   onFileWrite = onWrite || null
   if (basePath) projectsBasePath = basePath
 
+  const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+
   ipcMain.handle('files:read', async (_event, filePath: string) => {
     if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
     try {
-      await fs.access(filePath)
+      const stat = await fs.stat(filePath)
+      if (stat.size > MAX_FILE_SIZE) throw new Error(`File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`)
       return await fs.readFile(filePath, 'utf-8')
     } catch {
       return ''
@@ -28,6 +31,7 @@ export function registerFileHandlers(
 
   ipcMain.handle('files:write', async (_event, filePath: string, content: string) => {
     if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (typeof content === 'string' && content.length > 10_000_000) throw new Error('Content too large (>10M chars)')
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     // Normalize to forward slashes for cross-platform consistency
     const normalizedPath = filePath.replace(/\\/g, '/')
@@ -36,6 +40,51 @@ export function registerFileHandlers(
     setTimeout(() => pendingSaves.delete(normalizedPath), 500)
     // Emit event for KB auto-index (debounced per file)
     onFileWrite?.(filePath, content)
+  })
+
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
+
+  ipcMain.handle('files:readBinary', async (_event, filePath: string) => {
+    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    try {
+      const stat = await fs.stat(filePath)
+      if (stat.size > MAX_IMAGE_SIZE) throw new Error('File too large')
+      const buf = await fs.readFile(filePath)
+      return buf.toString('base64')
+    } catch { return '' }
+  })
+
+  ipcMain.handle('files:writeBinary', async (_event, filePath: string, base64: string) => {
+    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!base64 || base64.length > MAX_IMAGE_SIZE * 1.4) throw new Error('Image too large')
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    const buf = Buffer.from(base64, 'base64')
+    await fs.writeFile(filePath, buf)
+  })
+
+  ipcMain.handle('files:saveImageUrl', async (_event, imageUrl: string, projectPath: string) => {
+    if (!isSafePath(projectPath, projectsBasePath)) throw new Error('Access denied')
+    if (!imageUrl || (!imageUrl.startsWith('http') && !imageUrl.startsWith('data:image/'))) throw new Error('Invalid URL')
+    try {
+      let buf: Buffer
+      if (imageUrl.startsWith('data:image/')) {
+        const base64 = imageUrl.split(',')[1] || ''
+        buf = Buffer.from(base64, 'base64')
+      } else {
+        const res = await fetch(imageUrl)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const arrayBuf = await res.arrayBuffer()
+        if (arrayBuf.byteLength > MAX_IMAGE_SIZE) throw new Error('Image too large')
+        buf = Buffer.from(arrayBuf)
+      }
+      const imagesDir = path.join(projectPath, 'images')
+      await fs.mkdir(imagesDir, { recursive: true })
+      const ext = imageUrl.startsWith('data:image/') ? (imageUrl.split(';')[0]?.split('/')[1] || 'png') : 'jpg'
+      const fileName = `img_${Date.now().toString(36)}.${ext}`
+      const filePath = path.join(imagesDir, fileName)
+      await fs.writeFile(filePath, buf)
+      return fileName
+    } catch { return '' }
   })
 
   ipcMain.handle('files:listDir', async (_event, dirPath: string) => {

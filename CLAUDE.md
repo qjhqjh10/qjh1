@@ -14,10 +14,10 @@ Electron + React + TypeScript 桌面应用，AI 辅助小说创作。
 ## 架构
 
 ```
-electron/ipc/     — 9个IPC handler（文件读写/项目/AI/导出/知识库/统计/风格/模板/反推）
+electron/ipc/     — 10个IPC handler（文件读写/项目/AI/导出/知识库/统计/风格/模板/反推/文件工具）
 src/services/     — 6个service（fileService/characterService/chapterService/sceneService/extractionService）
-src/components/   — 11个页面 + 17个共享组件 + AI聊天悬浮窗
-src/store/        — Zustand (AppState + SettingsState)
+src/components/   — 12个页面 + 17个共享组件 + AI聊天悬浮窗
+src/store/        — Zustand (AppState + SettingsState + OperationHistoryState)
 src/types/        — TypeScript 类型定义
 src/utils/        — 工具函数
 ```
@@ -61,6 +61,9 @@ TipTap编辑器 + AI生成/续写/审稿/摘要 + 批量生成 + 版本对比。
 ### 故事脉络 (StoryMapPage)
 9标签页: 时间线/伏笔链/一致性/情绪曲线/出场热力图/节奏分析/支线/POV/成长。
 
+### AI 文件系统操作 (AIChatWindow) — v3.7.0
+AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_directory/read_file/search_files/search_content(只读), edit_file(预览确认+DiffView+自动备份), list_backups/restore_backup(备份管理), create_file/delete_file/rename_file(需用户确认)。编辑自动备份去重(每文件10份)，操作历史持久化到侧边栏。
+
 ### 系统设置 (SystemSettingsPage)
 模型配置/提示词库/AI写作助手/显示设置/Token统计/版本更新。
 
@@ -68,6 +71,15 @@ TipTap编辑器 + AI生成/续写/审稿/摘要 + 批量生成 + 版本对比。
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
+| v4.4.0 | 2026-05-21 | 文件损坏全面修复: 上下文用量条动态模型切换(contextWindow可编辑)+ImageLightbox拖拽平移重置+AI角色图片自动搜索+编辑器图片resize持久化+恢复文件上传(TXT/MD)+恢复EPUB导出(UI完整打通)+软件说明弹窗 |
+| v4.3.0 | 2026-05-21 | 角色形象图(卡片大图+灯箱缩放)+AI生成角色卡片命令+编辑器图片resize/对齐+HomePage重设计v2(宽卡片+三栏统计)+EPUB导出(标准3.0+图片提取+XML转义)+AI图片上传+后端安全修复(isSafePath/error handler/常量)+Scratchpad升级为RichTextEditor |
+| v4.2.0 | 2026-05-21 | HomePage重设计(左栏列表+右栏大卡片+玻璃拟态)+编辑器图片/链接(TipTap Image/Link+工具栏)+项目封面(covers/+二进制IPC)+AI多模态图片(normalizeContent+base64渲染)+AI图片搜索(search_images+Unsplash)+3项Bug修复 |
+| v4.1.0 | 2026-05-21 | 多窗口弹窗系统(大纲/世界观/草稿可拖拽+AI同时编辑+实时刷新)+语音对话(语音输入+AI朗读+零依赖)+AI使用指南+续写/仿写弹窗兼容+安全修复(story/rewrite路径穿越/file大小限制)+AI衔接补全(6页面) |
+| v4.0.0 | 2026-05-20 | Plan/Action完善(动态提示+pill切换)+纯文本改写(@@原文@@)+直接替换模式+会话持久化+草稿笔记系统(5工具)+后端修复(validateRole/cacheToken/超时)+10+Bug修复+代码架构优化(chatConstants/utils/hooks拆分) |
+| v3.10.0 | 2026-05-20 | Plan/Action双模式+文件上传+上下文用量显示+设置页能力面板+项目管理工具+知识库索引+内嵌命令系统 |
+| v3.9.0 | 2026-05-20 | 模板类型扩展到11种+续写写作注入风格/场景模板+全链路集成打通(extraction:importFromPath+仿写外部模板)+续写从项目目录导入+快照数据完整保留 |
+| v3.8.0 | 2026-05-20 | 细纲重构(结构化字段+2列卡片+弹窗编辑)+11种小说类型系统+风格工坊模板库合并(AI辅助填充维度)+AI知识注入5页面扩展+续写维度自定义+模板编辑维度标签云 |
+| v3.7.0 | 2026-05-20 | AI文件系统操作(10工具/Function Calling)+编辑预览Diff+一键回滚+智能备份(去重/保留10份)+操作历史面板+20项安全加固 |
 | v3.6.0 | 2026-05-19 | 故事脉络独立化+硬规则引擎+剧情改写(三栏工作流+AI红蓝标注)+AI改写机制 |
 | v3.5.0 | 2026-05-19 | AI助手增强(大纲/世界观)+故事脉络(独立导入+冲突检测+4新维度)+侧边栏重构+自动保存 |
 | v3.4.0 | 2026-05-19 | 窗口记忆+隐藏菜单+角色重要度(数值化)+灵活分析维度(13类型×专有预设)+AI助手精简 |

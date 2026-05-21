@@ -1,3 +1,5 @@
+import type { CharacterRole } from './character'
+
 export interface PowerSystemMention {
   name: string
   levels: string
@@ -23,7 +25,7 @@ export interface LocationMention {
   detail: string
 }
 
-export type CharacterRole = '男主' | '女主' | '男配' | '女配' | '反派' | '其他'
+export type { CharacterRole }
 
 export interface CharacterAppearance {
   name: string
@@ -47,7 +49,17 @@ export interface ContinuationChapterAnalysis {
   timelinePosition: string
   chapterRole: 'setup' | 'development' | 'climax' | 'resolution' | 'transition'
   unresolvedQuestions: string[]
+  // 快照数据（用于跨章节冲突检测）
+  characterSnapshots: CharacterSnapshot[]
+  itemSnapshots: ItemSnapshot[]
+  factionSnapshots: FactionSnapshot[]
+  locationSnapshots: LocationSnapshot[]
 }
+
+export interface CharacterSnapshot { name: string; alive: boolean; powerLevel: string; location: string }
+export interface ItemSnapshot { name: string; status: '完好' | '损坏' | '丢失' | '传承' | '毁灭'; owner: string }
+export interface FactionSnapshot { name: string; status: '活跃' | '削弱' | '覆灭' | '转型'; leader: string }
+export interface LocationSnapshot { name: string; status: '存在' | '毁灭' | '废弃'; significance: string }
 
 export interface ContinuationChapter {
   chapterNumber: number
@@ -235,3 +247,22 @@ export interface ContinuationProject {
   createdAt: string
   updatedAt: string
 }
+
+// 续写分析维度定义
+export const CONTINUATION_DIMS = [
+  { key: 'charactersAppeared', label: '出场角色', category: '基础' },
+  { key: 'plotEvents', label: '关键事件', category: '基础' },
+  { key: 'foreshadowingPlanted', label: '新埋伏笔', category: '伏笔' },
+  { key: 'foreshadowingResolved', label: '回收伏笔', category: '伏笔' },
+  { key: 'worldbuildingRevealed', label: '世界观信息', category: '基础' },
+  { key: 'powerSystemMentions', label: '等级体系', category: '进阶' },
+  { key: 'itemsMentioned', label: '道具提及', category: '进阶' },
+  { key: 'factionsMentioned', label: '势力提及', category: '进阶' },
+  { key: 'locationsMentioned', label: '地点提及', category: '基础' },
+  { key: 'emotionalTone', label: '情绪基调', category: '基础' },
+  { key: 'timelinePosition', label: '时间线定位', category: '进阶' },
+  { key: 'chapterRole', label: '章节角色', category: '基础' },
+  { key: 'unresolvedQuestions', label: '未解问题', category: '进阶' },
+] as const
+
+export type ContinuationDimKey = (typeof CONTINUATION_DIMS)[number]['key']

@@ -8,6 +8,7 @@ export interface ModelConfig {
   embeddingModel: string
   temperature: number
   maxTokens: number
+  contextWindow?: number
   systemPrompt: string
   reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
   inputPricePerM: number
@@ -36,6 +37,7 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   embeddingModel: 'text-embedding-3-small',
   temperature: 0.8,
   maxTokens: 0,
+  contextWindow: 128000,
   systemPrompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。',
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
@@ -59,6 +61,7 @@ export interface AIAssistantSettings {
   kbFileSelections: Record<string, string[]>
   customRoles: { id: string; name: string; prompt: string }[]
   styleAssignments: Record<string, string>  // targetProjectId → styleProjectId
+  workMode: 'plan' | 'action'               // Plan=只读分析 Action=全部工具
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -74,6 +77,7 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   contextPriority: 'balanced',
   kbFileSelections: {},
   styleAssignments: {},
+  workMode: 'action',
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },

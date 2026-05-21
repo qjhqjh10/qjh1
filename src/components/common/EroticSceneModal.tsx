@@ -161,7 +161,7 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
 
   const handleSaveTemplate = async () => {
     if (!tplName.trim()) return
-    const tpl = { id: `tpl_${nanoid(6)}`, name: tplName, type: 'erotic' as const, config, createdAt: new Date().toISOString() }
+    const tpl = { id: `tpl_${nanoid(6)}`, name: tplName, type: '情色小说' as const, config, createdAt: new Date().toISOString() }
     await templateService.save(tpl)
     setTemplates(prev => [...prev, tpl])
     setShowSaveTpl(false); setTplName('')

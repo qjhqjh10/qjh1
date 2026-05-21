@@ -4,7 +4,7 @@ import * as path from 'path'
 import { isSafePath } from './utils'
 import { logError } from './logger'
 
-const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters']
+const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images']
 
 let projectsBasePath = ''
 
@@ -37,7 +37,7 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     await fs.writeFile(path.join(projectPath, 'outline', 'outline.json'), emptyOutline, 'utf-8')
     // Persist project type metadata
     const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
-    await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType }), 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType, novelCategory: 'general' }), 'utf-8')
   })
 
   ipcMain.handle('project:delete', async (_event, projectPath: string) => {
@@ -70,14 +70,27 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
 
     // Read project type metadata (default to 'writing' for legacy projects)
     let type: string = 'writing'
+    let novelCategory: string = 'general'
+    let coverImage: string | undefined
     try {
       const metaRaw = await fs.readFile(path.join(projectPath, 'project.json'), 'utf-8')
       const meta = JSON.parse(metaRaw)
       if (meta.type === 'imitation') type = 'imitation'
       else if (meta.type === 'continuation') type = 'continuation'
+      if (meta.novelCategory) novelCategory = meta.novelCategory
+      if (meta.coverImage) coverImage = meta.coverImage
     } catch { /* no project.json, legacy project */ }
 
-    return { name, chapterCount, wordCount: charCount, path: projectPath, type }
+    return { name, chapterCount, wordCount: charCount, path: projectPath, type, novelCategory, coverImage }
+  })
+
+  ipcMain.handle('project:updateCategory', async (_event, projectPath: string, novelCategory: string) => {
+    if (!isSafePath(projectPath, projectsBasePath)) throw new Error('Access denied')
+    const metaPath = path.join(projectPath, 'project.json')
+    let meta: Record<string, unknown> = {}
+    try { meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) } catch { /* use defaults */ }
+    meta.novelCategory = novelCategory
+    await fs.writeFile(metaPath, JSON.stringify(meta), 'utf-8')
   })
 
   ipcMain.handle('project:listProjects', async (_event, _basePath: string) => {

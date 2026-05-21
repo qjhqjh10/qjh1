@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { fileService, aiService, appService } from '@/services/fileService'
+import { fileService, aiService, appService, extractionService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
@@ -28,6 +28,7 @@ const EMPTY_GRAPH: StoryGraph = { events: [], links: [], snapshots: [], emotions
 export default function StoryMapPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
+  const setActivePage = useStore(s => s.setActivePage)
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [detailedChapters, setDetailedChapters] = useState<DetailedChapter[]>([])
@@ -56,6 +57,7 @@ export default function StoryMapPage() {
 
   // Initialize workspace
   useEffect(() => {
+    setActivePage('story-map')
     appService.getStoryWorkspacePath().then(async (pp: string) => {
       setWorkspacePath(pp)
       await fileService.ensureDir(pp)
@@ -91,7 +93,6 @@ export default function StoryMapPage() {
   const handleImportTXT = async () => {
     if (!workspacePath) return
     try {
-      const extractionService = (await import('@/services/fileService')).extractionService
       const result = await extractionService.importFile() as { name: string; content: string } | null
       if (!result) return
       const split = splitChaptersByHeadings(result.content)

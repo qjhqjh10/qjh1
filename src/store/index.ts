@@ -4,6 +4,13 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
+
+export interface PopupWindow {
+  id: string
+  type: 'outline' | 'worldbuilding' | 'draft'
+  title: string
+  documentKey?: string
+}
 import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings } from '@/types/settings'
 import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS } from '@/types/settings'
 
@@ -18,14 +25,12 @@ export interface AppState {
 
   // Worldbuilding
   worldbuildingContent: string
-  worldbuildingDirty: boolean
 
   // Characters
   characters: Character[]
 
   // Outline
   outlineContent: string
-  outlineDirty: boolean
 
   // Detailed Outline
   detailedChapters: DetailedChapter[]
@@ -37,7 +42,6 @@ export interface AppState {
   // UI
   activePage: string
   isAIChatOpen: boolean
-  isExportModalOpen: boolean
   sidebarCollapsed: boolean
   connectionStatus: 'connected' | 'disconnected' | 'checking'
   connectedModel: string
@@ -45,7 +49,13 @@ export interface AppState {
   // Insertion action (AI → editor)
   insertionAction: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null
   replaceAction: { chapterId: string; content: string } | null
+  fileEditNotify: { filePath: string; newContent: string } | null
   rewriteContent: string
+
+  // Popup windows
+  popupWindows: PopupWindow[]
+  openPopup: (popup: PopupWindow) => void
+  closePopup: (id: string) => void
 
   // Actions - Project
   setProjectsBasePath: (p: string) => void
@@ -57,7 +67,6 @@ export interface AppState {
 
   // Actions - Worldbuilding
   setWorldbuildingContent: (content: string) => void
-  setWorldbuildingDirty: (dirty: boolean) => void
 
   // Actions - Characters
   setCharacters: (chars: Character[]) => void
@@ -67,7 +76,6 @@ export interface AppState {
 
   // Actions - Outline
   setOutlineContent: (content: string) => void
-  setOutlineDirty: (dirty: boolean) => void
 
   // Actions - Detailed Outline
   setDetailedChapters: (chapters: DetailedChapter[]) => void
@@ -77,18 +85,17 @@ export interface AppState {
 
   // Actions - Chapter Writing
   setWritingChapter: (chapterId: string, chapter: WritingChapter) => void
-  removeWritingChapter: (chapterId: string) => void
   setCurrentChapterId: (id: string | null) => void
 
   // Actions - UI
   setActivePage: (page: string) => void
   toggleAIChat: () => void
   setAIChatOpen: (open: boolean) => void
-  setExportModalOpen: (open: boolean) => void
   toggleSidebar: () => void
   setConnectionStatus: (status: 'connected' | 'disconnected' | 'checking', model?: string) => void
-  setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after' } | null) => void
+  setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null) => void
   setReplaceAction: (action: { chapterId: string; content: string } | null) => void
+  setFileEditNotify: (notify: { filePath: string; newContent: string } | null) => void
   setRewriteContent: (content: string) => void
 
   // Actions - Reset
@@ -97,13 +104,16 @@ export interface AppState {
 
 const initialProjectState = {
   worldbuildingContent: '',
-  worldbuildingDirty: false,
   characters: [] as Character[],
   outlineContent: '',
-  outlineDirty: false,
   detailedChapters: [] as DetailedChapter[],
   writingChapters: {} as Record<string, WritingChapter>,
   currentChapterId: null as string | null,
+  insertionAction: null as { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null,
+  replaceAction: null as { chapterId: string; content: string } | null,
+  fileEditNotify: null as { filePath: string; newContent: string } | null,
+  rewriteContent: '',
+  popupWindows: [],
 }
 
 export const useStore = create<AppState>()(
@@ -115,13 +125,14 @@ export const useStore = create<AppState>()(
     ...initialProjectState,
     activePage: 'home',
     isAIChatOpen: false,
-    isExportModalOpen: false,
     sidebarCollapsed: false,
     connectionStatus: 'checking',
     connectedModel: '',
     insertionAction: null,
   replaceAction: null,
+  fileEditNotify: null,
   rewriteContent: '',
+  popupWindows: [],
 
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setProjects: (projects) => set(s => {
@@ -162,7 +173,6 @@ export const useStore = create<AppState>()(
     }),
 
     setWorldbuildingContent: (content) => set({ worldbuildingContent: content }),
-    setWorldbuildingDirty: (dirty) => set({ worldbuildingDirty: dirty }),
 
     setCharacters: (chars) => set({ characters: chars }),
     addCharacter: (char) => set(s => { s.characters.push(char) }),
@@ -175,7 +185,6 @@ export const useStore = create<AppState>()(
     }),
 
     setOutlineContent: (content) => set({ outlineContent: content }),
-    setOutlineDirty: (dirty) => set({ outlineDirty: dirty }),
 
     setDetailedChapters: (chapters) => set({ detailedChapters: chapters }),
     addDetailedChapter: (chapter) => set(s => { s.detailedChapters.push(chapter) }),
@@ -190,19 +199,18 @@ export const useStore = create<AppState>()(
     setWritingChapter: (chapterId, chapter) => set(s => {
       s.writingChapters[chapterId] = chapter
     }),
-    removeWritingChapter: (chapterId) => set(s => {
-      delete s.writingChapters[chapterId]
-    }),
     setCurrentChapterId: (id) => set({ currentChapterId: id }),
 
     setActivePage: (page) => set({ activePage: page }),
     toggleAIChat: () => set(s => { s.isAIChatOpen = !s.isAIChatOpen }),
     setAIChatOpen: (open) => set({ isAIChatOpen: open }),
-    setExportModalOpen: (open) => set({ isExportModalOpen: open }),
     toggleSidebar: () => set(s => { s.sidebarCollapsed = !s.sidebarCollapsed }),
     setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
     setReplaceAction: (action: { chapterId: string; content: string } | null) => set({ replaceAction: action }),
+    openPopup: (popup) => set(s => { s.popupWindows.push(popup) }),
+    closePopup: (id) => set(s => { s.popupWindows = s.popupWindows.filter(p => p.id !== id) }),
+    setFileEditNotify: (notify) => set({ fileEditNotify: notify }),
     setRewriteContent: (content: string) => set({ rewriteContent: content }),
 
     resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),

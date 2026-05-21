@@ -81,7 +81,7 @@ export default function RewritePage() {
       const content = await rewriteApi.readChapter(id, cid)
       chs.push({ id: cid, chapterNumber: i, title: `第${i}章`, content })
       const raw = await rewriteApi.readAnalysis(id, cid)
-      if (raw) { try { ans[cid] = JSON.parse(raw) } catch {} }
+      if (raw) { try { ans[cid] = JSON.parse(raw) } catch (err) { logError(`解析章节${i}分析数据失败`, err) } }
     }
     setChapters(chs)
     setAnalyses(ans)

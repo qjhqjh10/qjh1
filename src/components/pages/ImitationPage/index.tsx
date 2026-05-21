@@ -35,7 +35,9 @@ interface RawCharacterInput {
 import type { Character } from '@/types/character'
 import { EMPTY_CHARACTER } from '@/types/character'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
-import { buildStylePrompt } from '@/utils/styleInjector'
+import { buildStylePrompt, getTemplateInjection } from '@/utils/styleInjector'
+import { styleTemplateService } from '@/services/fileService'
+import type { StyleTemplate } from '@/types/styleTemplate'
 import {
   SparklesIcon, TrashIcon, PlayIcon, StopIcon, FolderOpenIcon,
   ArrowLeftIcon, BookOpenIcon, DocumentArrowDownIcon,
@@ -59,6 +61,7 @@ export default function ImitationPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const setActivePage = useStore(s => s.setActivePage)
   const setCharacters = useStore(s => s.setCharacters)
   const setOutlineContent = useStore(s => s.setOutlineContent)
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
@@ -86,6 +89,8 @@ export default function ImitationPage() {
   const [genLoading, setGenLoading] = useState(false)
   const [genPreview, setGenPreview] = useState('')
   const [genType, setGenType] = useState<string | null>(null)
+  const [extStyleId, setExtStyleId] = useState('')
+  const [extStyleTpls, setExtStyleTpls] = useState<StyleTemplate[]>([])
   const [outlineGenerated, setOutlineGenerated] = useState<Record<string, boolean>>({})
   const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
   const [chapterWriteView, setChapterWriteView] = useState<string | null>(null)
@@ -121,7 +126,7 @@ export default function ImitationPage() {
   const pausedRef = useRef(false)
   const mountedRef = useRef(false)
 
-  useEffect(() => { loadProjects() }, [activeProjectId, projectsBasePath])
+  useEffect(() => { setActivePage('imitation'); loadProjects() }, [activeProjectId, projectsBasePath])
 
   // Sync previewTab to URL search params (skip mount to avoid overwriting sidebar deep-link)
   useEffect(() => {
@@ -1164,6 +1169,9 @@ ${summaryParts.join('\n')}
               detailGenResults={detailGenResults}
               detailsResults={detailsResults}
               extractIds={extractIds}
+              externalStyleId={extStyleId}
+              externalTemplates={extStyleTpls}
+              onStyleChange={setExtStyleId}
               onGenerateDim={handleGenerateDim}
               onGenerateDetails={handleGenerateDetailsImitation}
               onStopDetailGen={() => { detailGenAbortRef.current = true }}

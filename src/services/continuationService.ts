@@ -1,40 +1,57 @@
 // AI prompt builders for novel continuation analysis pipeline
 
-export function buildChapterAnalysisPrompt(chapterTitle: string, chapterContent: string, chapterNumber: number): string {
+export function buildChapterAnalysisPrompt(
+  chapterTitle: string,
+  chapterContent: string,
+  chapterNumber: number,
+  enabledDims?: Set<string>,
+): string {
+  const dims = enabledDims ?? new Set(CONTINUATION_DIM_KEYS)
+  const has = (key: string) => dims.has(key)
+
+  const jsonFields: string[] = []
+  if (has('charactersAppeared')) jsonFields.push(`  "charactersAppeared": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","importance":100,"action":"本章做了什么","newInfo":"本章新增的信息（无则空）"}]`)
+  if (has('plotEvents')) jsonFields.push(`  "plotEvents": ["关键事件1","关键事件2",...]`)
+  if (has('foreshadowingPlanted')) jsonFields.push(`  "foreshadowingPlanted": ["本章新埋的伏笔（无则[]）"]`)
+  if (has('foreshadowingResolved')) jsonFields.push(`  "foreshadowingResolved": ["本章回收的前文伏笔（无则[]）"]`)
+  if (has('worldbuildingRevealed')) jsonFields.push(`  "worldbuildingRevealed": ["本章揭示的新世界观信息（无则[]）"]`)
+  if (has('powerSystemMentions')) jsonFields.push(`  "powerSystemMentions": [{"name":"等级体系名称","levels":"涉及的等级","detail":"本章揭示的等级相关信息"}]`)
+  if (has('itemsMentioned')) jsonFields.push(`  "itemsMentioned": [{"name":"道具名称","type":"武器|法宝|丹药|功法|道具|其他","ability":"能力/效果","owner":"持有者"}]`)
+  if (has('factionsMentioned')) jsonFields.push(`  "factionsMentioned": [{"name":"势力名称","type":"正道|邪道|中立|皇朝|其他","detail":"本章涉及的势力信息"}]`)
+  if (has('locationsMentioned')) jsonFields.push(`  "locationsMentioned": [{"name":"地点名称","type":"门派|城池|秘境|自然|其他","detail":"本章涉及的地点信息"}]`)
+  if (has('emotionalTone')) jsonFields.push(`  "emotionalTone": "本章情绪基调"`)
+  if (has('timelinePosition')) jsonFields.push(`  "timelinePosition": "时间线定位"`)
+  if (has('chapterRole')) jsonFields.push(`  "chapterRole": "setup|development|climax|resolution|transition"`)
+  if (has('unresolvedQuestions')) jsonFields.push(`  "unresolvedQuestions": ["本章提出但未解答的问题"]`)
+  // Snapshots always included if any character/item/faction dimension is enabled
+  if (has('charactersAppeared')) jsonFields.push(`  "characterSnapshots": [{"name":"角色名","alive":true,"powerLevel":"当前等级(无则'')","location":"所在位置"}]`)
+  if (has('itemsMentioned')) jsonFields.push(`  "itemSnapshots": [{"name":"道具名","status":"完好|损坏|丢失|传承|毁灭","owner":"持有者"}]`)
+  if (has('factionsMentioned')) jsonFields.push(`  "factionSnapshots": [{"name":"势力名","status":"活跃|削弱|覆灭|转型","leader":"首领(无则'')}"}]`)
+  if (has('locationsMentioned')) jsonFields.push(`  "locationSnapshots": [{"name":"地点名","status":"存在|毁灭|废弃","significance":"重要性"}]`)
+
+  const requirements: string[] = []
+  if (has('plotEvents')) requirements.push('1. plotEvents 至少列出3-8个关键事件，按重要性排序')
+  if (has('charactersAppeared')) requirements.push('2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50')
+  if (has('charactersAppeared')) requirements.push('3. characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级')
+  if (has('itemsMentioned')) requirements.push('4. itemSnapshots: 本章出现或提及的所有道具,标注当前状态')
+  if (has('factionsMentioned')) requirements.push('5. factionSnapshots: 本章出现或提及的所有势力,标注当前状态')
+  requirements.push('6. 后续章节出现前面的角色/道具/势力时必须继承前面的状态')
+  requirements.push('7. 只提取文中明确写出或强烈暗示的信息')
+
   return `你是一位专业的小说分析师。请分析以下章节，聚焦于"剧情理解"和"设定提取"。输出JSON（不要markdown）：
 
 {
-  "charactersAppeared": [{"name":"角色名","role":"男主|女主|男配|女配|反派|其他","importance":100,"action":"本章做了什么","newInfo":"本章新增的信息（无则空）"}],
-  "plotEvents": ["关键事件1","关键事件2",...],
-  "foreshadowingPlanted": ["本章新埋的伏笔（无则[]）"],
-  "foreshadowingResolved": ["本章回收的前文伏笔（无则[]）"],
-  "worldbuildingRevealed": ["本章揭示的新世界观信息（无则[]）"],
-  "powerSystemMentions": [{"name":"等级体系名称","levels":"涉及的等级","detail":"本章揭示的等级相关信息（修炼方式/晋升条件/实力对比等）"}],
-  "itemsMentioned": [{"name":"道具名称","type":"武器|法宝|丹药|功法|道具|其他","ability":"能力/效果","owner":"持有者"}],
-  "factionsMentioned": [{"name":"势力名称","type":"正道|邪道|中立|皇朝|其他","detail":"本章涉及的势力信息"}],
-  "locationsMentioned": [{"name":"地点名称","type":"门派|城池|秘境|自然|其他","detail":"本章涉及的地点信息"}],
-  "emotionalTone": "本章情绪基调",
-  "timelinePosition": "时间线定位",
-  "chapterRole": "setup|development|climax|resolution|transition",
-  "unresolvedQuestions": ["本章提出但未解答的问题"],
-  "characterSnapshots": [{"name":"角色名","alive":true,"powerLevel":"当前等级(无则'')","location":"所在位置"}],
-  "itemSnapshots": [{"name":"道具名","status":"完好|损坏|丢失|传承|毁灭","owner":"持有者"}],
-  "factionSnapshots": [{"name":"势力名","status":"活跃|削弱|覆灭|转型","leader":"首领(无则'')"}],
-  "locationSnapshots": [{"name":"地点名","status":"存在|毁灭|废弃","significance":"重要性"}]
+${jsonFields.join(',\n')}
 }
 
 要求:
-1. plotEvents 至少列出3-8个关键事件，按重要性排序
-2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50
-3. characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级。已死角色alive=false
-4. itemSnapshots: 本章出现或提及的所有道具,标注当前状态。已毁灭的道具status=毁灭
-5. factionSnapshots: 本章出现或提及的所有势力,标注当前状态。已覆灭标status=覆灭
-6. 后续章节出现前面的角色/道具/势力时必须继承前面的状态(已死的不能复活,除非有复活情节)
-7. 只提取文中明确写出或强烈暗示的信息
+${requirements.join('\n')}
 
 【第${chapterNumber}章】${chapterTitle}
 ${chapterContent.slice(0, 15000)}`
 }
+
+const CONTINUATION_DIM_KEYS = ['charactersAppeared', 'plotEvents', 'foreshadowingPlanted', 'foreshadowingResolved', 'worldbuildingRevealed', 'powerSystemMentions', 'itemsMentioned', 'factionsMentioned', 'locationsMentioned', 'emotionalTone', 'timelinePosition', 'chapterRole', 'unresolvedQuestions']
 
 export function buildAggregationPrompt(chapterAnalyses: string[], totalChapters: number): string {
   return `你是顶级的小说故事分析师。以下是${totalChapters}章小说逐章分析结果的摘要。请基于这些信息，进行全局故事理解。输出JSON：
@@ -281,11 +298,13 @@ export function buildContinuationWritingPrompt(
   worldRules: string,
   chapterNumber: number,
   constraints: string,
+  styleInjection?: string,
+  sceneInjection?: string,
 ): string {
   const focusNames = plan.characterFocus.map(c => c.name).join('、')
   const charProfiles = plan.characterFocus.map(c => `【${c.name}】角色类型:${c.role} | 性格:${c.personality} | 当前状态:${c.state}`).join('\n')
 
-  return `你是小说续写专家。请根据以下约束续写第 ${chapterNumber} 章。
+  return `${styleInjection ? `【风格模板注入 — 必须严格遵循以下风格要求】\n${styleInjection}\n\n` : ''}${sceneInjection ? `【场景模板注入 — 本章场景配置】\n${sceneInjection}\n\n` : ''}你是小说续写专家。请根据以下约束续写第 ${chapterNumber} 章。
 
 【本章必须推进的剧情点】
 ${plan.plotPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}

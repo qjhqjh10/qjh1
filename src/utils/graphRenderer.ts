@@ -1,4 +1,3 @@
-import { Graph } from '@antv/g6'
 import type { RelationshipGraph } from '@/types/character'
 import { logError } from '@/utils/logger'
 
@@ -11,11 +10,14 @@ const NODE_COLORS: Record<string, string> = {
   '其他': '#6b7280',
 }
 
-export function renderRelationshipGraph(
+export async function renderRelationshipGraph(
   container: HTMLElement,
   data: RelationshipGraph,
   onNodeClick?: (characterId: string) => void,
-): { destroy: () => void } {
+): Promise<{ destroy: () => void }> {
+  // Lazy-load G6 — only when the relationship graph modal opens
+  const { Graph } = await import('@antv/g6')
+
   // Clear container
   container.innerHTML = ''
 

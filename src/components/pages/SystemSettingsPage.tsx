@@ -9,13 +9,16 @@ import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } fro
 import type { UsageResult } from '@/types/electron'
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESETS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
-import versionData from '@/data/version_history.json'
 import { logError } from '@/utils/logger'
+import { FormField, StatCard } from './settings/shared'
+import { VersionTab } from './settings/VersionTab'
 
 type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats' | 'version'
 
 export default function SystemSettingsPage() {
+  const setActivePage = useStore(s => s.setActivePage)
   const [activeTab, setActiveTab] = useState<SettingsTab>('models')
+  useEffect(() => { setActivePage('settings') }, [])
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -65,6 +68,12 @@ export default function SystemSettingsPage() {
       </div>
     </div>
   )
+}
+
+function formatContextWindow(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return `${n}`
 }
 
 function ModelSettingsTab() {
@@ -369,6 +378,18 @@ function ModelSettingsTab() {
                       style={inputStyle}
                     />
                   </FormField>
+                  <FormField label={`上下文窗口大小 (${formatContextWindow(activeConfig.contextWindow ?? 128000)})`}>
+                    <input
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      value={activeConfig.contextWindow ?? 128000}
+                      onChange={e => updateConfig(activeConfig.id, { contextWindow: parseInt(e.target.value) || 128000 })}
+                      style={inputStyle}
+                      placeholder="128000"
+                    />
+                    <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>模型总上下文容量（影响用量条上限）。常见：GPT-4o=128K，Claude=200K，DeepSeek V4=1M</div>
+                  </FormField>
                   <FormField label="推理深度 (reasoning_effort)">
                     <select
                       value={activeConfig.reasoningEffort || ''}
@@ -572,17 +593,6 @@ function PromptLibraryTab() {
   )
 }
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}
-
 // ====================== AI Settings Tab ======================
 
 function AISettingsTab() {
@@ -594,10 +604,69 @@ function AISettingsTab() {
   return (
     <div className="custom-scrollbar" style={{ overflowY: 'auto', paddingRight: 16, height: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* 能力总览面板 */}
+        <div style={{ padding: 20, borderRadius: 20, background: 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(59,130,246,0.04))', border: '1px solid rgba(124,58,237,0.12)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: '#7c3aed' }}>AI 写作助手能力总览</h4>
+          <p style={{ fontSize: 11, color: '#9b8e84', marginBottom: 14 }}>你的 AI 助手具备以下能力，覆盖写作全流程</p>
+
+          {/* 工具清单 */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>13 个文件操作工具</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {[
+                { n: 'list_directory', t: '只读' }, { n: 'read_file', t: '只读' }, { n: 'search_files', t: '只读' },
+                { n: 'search_content', t: '只读' }, { n: 'list_backups', t: '只读' },
+                { n: 'edit_file', t: '预览确认' },
+                { n: 'create_file', t: '需确认' }, { n: 'delete_file', t: '需确认' },
+                { n: 'rename_file', t: '需确认' }, { n: 'restore_backup', t: '需确认' },
+                { n: 'create_project', t: '需确认' }, { n: 'delete_project', t: '需确认' },
+                { n: 'kb_index_file', t: '自动' },
+              ].map(t => (
+                <span key={t.n} title={t.n} style={{
+                  padding: '2px 8px', borderRadius: 6, fontSize: 10,
+                  background: t.t === '只读' ? 'rgba(16,185,129,0.06)' : t.t === '需确认' ? 'rgba(245,158,11,0.06)' : t.t === '预览确认' ? 'rgba(59,130,246,0.06)' : 'rgba(124,58,237,0.04)',
+                  color: t.t === '只读' ? '#16a34a' : t.t === '需确认' ? '#d97706' : t.t === '预览确认' ? '#3b82f6' : '#7c3aed',
+                  fontWeight: 600, cursor: 'default',
+                }}>{t.n}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* 工作模式 */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 6 }}>2 种工作模式</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>Plan 分析</span>
+                <p style={{ fontSize: 10, color: '#6b5e54', margin: '4px 0 0' }}>仅只读工具，安全探索项目</p>
+              </div>
+              <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.1)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#d97706' }}>Action 执行</span>
+                <p style={{ fontSize: 10, color: '#6b5e54', margin: '4px 0 0' }}>全部工具，可修改文件</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 内嵌命令 + 页面覆盖 */}
+          <div style={{ display: 'flex', gap: 16, fontSize: 10, color: '#9b8e84' }}>
+            <span>6 个内嵌命令（分析/检查/创建/统计/备份）</span>
+            <span>10 个页面数据上下文注入</span>
+            <span>编辑预览 DiffView</span>
+            <span>一键回滚撤销</span>
+          </div>
+        </div>
+
         {/* AI Dialogue */}
         <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>AI 对话设置</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <FormField label="工作模式">
+              <select value={aiSettings.workMode || 'action'} onChange={e => update('workMode', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                <option value="plan">Plan 分析 — 仅可读取搜索，不可修改文件</option>
+                <option value="action">Action 执行 — 全部工具可用，可修改文件</option>
+              </select>
+              <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 4 }}>聊天窗口中也可随时切换。Plan 模式安全无风险。</div>
+            </FormField>
             <FormField label="默认角色">
               <select value={aiSettings.defaultRole} onChange={e => update('defaultRole', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
                 {aiSettings.customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -978,126 +1047,6 @@ function TokenStatsTab() {
           暂无统计数据。每次 AI 调用都会自动记录 token 用量，开始使用 AI 功能后此处将展示用量和花费。
         </p>
       )}
-    </div>
-  )
-}
-
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div style={{ flex: 1, padding: '10px 14px', borderRadius: 12, background: `${color}08`, border: `1px solid ${color}20` }}>
-      <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
-    </div>
-  )
-}
-
-function VersionTab() {
-  const [checkResult, setCheckResult] = useState<'idle' | 'checking' | 'latest' | 'update' | 'error'>('idle')
-  const [latestVersion, setLatestVersion] = useState('')
-  const [releaseUrl, setReleaseUrl] = useState('')
-
-  const currentVersion = versionData.currentVersion
-  const currentDate = versionData.currentDate
-  const repoUrl = 'https://github.com/qjhqjh10/qjh1/releases'
-  const versionHistory = versionData.history
-
-  const handleCheckUpdate = async () => {
-    setCheckResult('checking')
-    try {
-      const res = await fetch('https://api.github.com/repos/qjhqjh10/qjh1/releases/latest')
-      if (!res.ok) throw new Error('API error')
-      const data = await res.json()
-      const remoteVer = data.tag_name?.replace(/^v/, '') || ''
-      setLatestVersion(remoteVer)
-      setReleaseUrl(data.html_url || repoUrl)
-      if (remoteVer && remoteVer !== currentVersion) {
-        setCheckResult('update')
-      } else {
-        setCheckResult('latest')
-      }
-    } catch {
-      setCheckResult('error')
-    }
-  }
-
-  return (
-    <div className="custom-scrollbar" style={{ overflowY: 'auto', paddingRight: 16, height: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-        {/* 当前版本 */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>当前版本</h4>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: '#7c3aed' }}>v{currentVersion}</div>
-            <div>
-              <div style={{ fontSize: 13, color: '#6b5e54' }}>发布日期: {currentDate}</div>
-              <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>序列号: build-{currentDate.replace(/-/g, '')}</div>
-              {checkResult === 'latest' && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginTop: 4 }}>✅ 已是最新版本</div>}
-              {checkResult === 'update' && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, marginTop: 4 }}>🆕 可更新到 v{latestVersion}</div>}
-              {checkResult === 'error' && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>⚠ GitHub 连接失败（国内网络限制），请手动查看</div>}
-            </div>
-          </div>
-        </div>
-
-        {/* 检查更新 */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>检查更新</h4>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <button onClick={handleCheckUpdate} disabled={checkResult === 'checking'} style={{
-              padding: '8px 20px', borderRadius: 12, border: 'none', background: '#7c3aed', color: '#fff',
-              fontSize: 13, fontWeight: 600, cursor: checkResult === 'checking' ? 'not-allowed' : 'pointer',
-              opacity: checkResult === 'checking' ? 0.6 : 1, fontFamily: 'inherit',
-            }}>
-              {checkResult === 'checking' ? '检查中...' : '检查更新'}
-            </button>
-            {checkResult === 'update' && (
-              <a href={releaseUrl} target="_blank" rel="noreferrer" style={{
-                padding: '8px 16px', borderRadius: 10, border: '1px solid #16a34a', background: 'rgba(22,163,74,0.05)',
-                color: '#16a34a', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
-              }}>下载 v{latestVersion}</a>
-            )}
-            {checkResult === 'error' && (
-              <a href={repoUrl} target="_blank" rel="noreferrer" style={{
-                padding: '8px 16px', borderRadius: 10, border: '1px solid #7c3aed', background: 'rgba(124,58,237,0.05)',
-                color: '#7c3aed', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
-              }}>打开 GitHub Releases 查看更新</a>
-            )}
-          </div>
-          <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 10 }}>
-            更新源: github.com/qjhqjh10/qjh1/releases
-          </div>
-        </div>
-
-        {/* 版本历史 */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>版本历史</h4>
-          {versionHistory.map(v => (
-            <div key={v.version} style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>v{v.version} — {v.date}</div>
-              {v.features.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', marginBottom: 6 }}>新增功能</div>
-                  {v.features.map((f, i) => (
-                    <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(22,163,74,0.2)', marginLeft: 4, marginBottom: 2 }}>
-                      {f}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {v.fixes && v.fixes.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3b82f6', marginBottom: 6 }}>修复问题</div>
-                  {v.fixes.map((f: string, i: number) => (
-                    <div key={i} style={{ fontSize: 12, color: '#4a3f38', padding: '3px 0 3px 14px', borderLeft: '2px solid rgba(59,130,246,0.2)', marginLeft: 4, marginBottom: 2 }}>
-                      {f}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

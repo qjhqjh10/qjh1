@@ -42,8 +42,11 @@ import ImitationPage from '@/components/pages/ImitationPage'
 import ImitationOutlinePage from '@/components/pages/ImitationOutlinePage'
 import ImitationDetailedPage from '@/components/pages/ImitationDetailedPage'
 import RewritePage from '@/components/pages/RewritePage'
+import OperationHistoryPage from '@/components/pages/OperationHistoryPage'
+import ScratchpadPage from '@/components/pages/ScratchpadPage'
 import FloatingAIButton from '@/components/ai/FloatingAIButton'
 import AIChatWindow from '@/components/ai/AIChatWindow'
+import PopupWindow from '@/components/ai/PopupWindow'
 
 function NotFound() {
   return (
@@ -88,6 +91,8 @@ function AnimatedRoutes() {
           <Route path="/imitation-outline" element={<ImitationOutlinePage />} />
           <Route path="/imitation-detailed" element={<ImitationDetailedPage />} />
           <Route path="/rewrite" element={<RewritePage />} />
+          <Route path="/operation-history" element={<OperationHistoryPage />} />
+          <Route path="/scratchpad" element={<ScratchpadPage />} />
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -202,11 +207,34 @@ export default function App() {
   }, [displaySettings])
 
   return (
-    <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <AppLayout />
-      <ErrorBoundary><AnimatedRoutes /></ErrorBoundary>
-      <FloatingAIButton />
-      <ErrorBoundary><AIChatWindow /></ErrorBoundary>
-    </div>
+    <ErrorBoundary>
+      <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <AppLayout />
+        <ErrorBoundary><AnimatedRoutes /></ErrorBoundary>
+        <FloatingAIButton />
+        <ErrorBoundary><AIChatWindow /></ErrorBoundary>
+        <PopupWindowsLayer />
+      </div>
+    </ErrorBoundary>
+  )
+}
+
+function PopupWindowsLayer() {
+  const popupWindows = useStore(s => s.popupWindows)
+  const focusPopup = useStore(s => s.openPopup)
+
+  if (popupWindows.length === 0) return null
+
+  return (
+    <>
+      {popupWindows.map((pw, i) => (
+        <PopupWindow
+          key={pw.id}
+          popup={pw}
+          zIndex={i}
+          onFocus={() => focusPopup(pw)}
+        />
+      ))}
+    </>
   )
 }

@@ -2,6 +2,7 @@ import { logError } from '@/utils/logger'
 import type { ModelConfig } from '@/types/settings'
 import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { ModelPrice } from '@/types/electron'
+import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
 
 function e() {
   if (!window.electron) throw new Error('Electron bridge not available - run in Electron environment')
@@ -15,6 +16,9 @@ export const fileService = {
   ensureDir: (dirPath: string) => e().files.ensureDir(dirPath),
   deleteFile: (path: string) => e().files.deleteFile(path),
   deleteDir: (dirPath: string) => e().files.deleteDir(dirPath),
+  readBinary: (filePath: string) => e().files.readBinary(filePath),
+  writeBinary: (filePath: string, base64: string) => e().files.writeBinary(filePath, base64),
+  saveImageUrl: (imageUrl: string, projectPath: string) => e().files.saveImageUrl(imageUrl, projectPath),
   onExternalChange: (cb: (event: { path: string; content: string }) => void) =>
     e().files.onExternalChange(cb),
 }
@@ -25,6 +29,7 @@ export const projectService = {
   getMeta: (projectPath: string) => e().project.getMeta(projectPath),
   listProjects: (basePath: string) => e().project.listProjects(basePath),
   importProject: (zipPath: string) => e().project.importProject(zipPath),
+  updateCategory: (projectPath: string, novelCategory: string) => e().project.updateCategory(projectPath, novelCategory),
 }
 
 export const exportService = {
@@ -38,6 +43,11 @@ export const exportService = {
   }) => e().export.exportSingleChapter(opts),
   exportProject: (projectPath: string, outputPath: string) =>
     e().export.exportProject(projectPath, outputPath),
+  exportEpub: (opts: {
+    title: string; author: string
+    chapters: { title: string; content: string }[]
+    outputPath: string
+  }) => e().export.exportEpub(opts),
 }
 
 export const aiService = {
@@ -63,6 +73,36 @@ export const aiService = {
     return { text: raw, usage: undefined }
   },
   listModels: (configId: string) => e().ai.listModels(configId),
+  chatWithTools: async (
+    messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
+    configId: string,
+    projectId: string | undefined,
+    tools?: unknown[],
+  ): Promise<ChatWithToolsResult> => {
+    const raw = await e().ai.chatWithTools(messages, configId, projectId, tools)
+    try {
+      const parsed = JSON.parse(raw)
+      // #15: Validate tool_calls structure
+      const rawCalls = Array.isArray(parsed.tool_calls) ? parsed.tool_calls : []
+      const validCalls = rawCalls.filter((tc: unknown) => {
+        const t = tc as Record<string, unknown> | null
+        return t && typeof t.id === 'string'
+          && t.function && typeof (t.function as Record<string, unknown>).name === 'string'
+          && typeof (t.function as Record<string, unknown>).arguments === 'string'
+      })
+      const toolCalls = validCalls.length > 0 ? validCalls as ChatWithToolsResult['toolCalls'] : null
+      return {
+        text: typeof parsed.text === 'string' ? parsed.text : '',
+        toolCalls,
+        finishReason: parsed.finish_reason || 'stop',
+        images: Array.isArray(parsed.images) ? parsed.images : undefined,
+        usage: parsed.usage,
+      }
+    } catch (err) { logError('解析 chatWithTools 回复失败', err); return { text: raw, toolCalls: null, finishReason: 'stop' } }
+  },
+  executeFileTools: async (calls: ToolCallArgs[]): Promise<ToolCallResult[]> => {
+    return e().ai.executeFileTools(calls) as Promise<ToolCallResult[]>
+  },
   chatStream: (
     messages: { role: string; content: string }[],
     configId: string,
@@ -165,4 +205,31 @@ export const continuationService = {
 
 export const extractionService = {
   importFile: () => e().extractions.importFile(),
+  importFromPath: (filePath: string) => e().extractions.importFromPath(filePath),
+}
+
+export const storyService = {
+  list: () => e().story.list(),
+  create: (name: string) => e().story.create(name),
+  readMeta: (id: string) => e().story.readMeta(id),
+  saveMeta: (id: string, meta: any) => e().story.saveMeta(id, meta),
+  readChapter: (id: string, chId: string) => e().story.readChapter(id, chId),
+  writeChapter: (id: string, chId: string, content: string) => e().story.writeChapter(id, chId, content),
+  readAnalysis: (id: string, chId: string) => e().story.readAnalysis(id, chId),
+  writeAnalysis: (id: string, chId: string, content: string) => e().story.writeAnalysis(id, chId, content),
+  readGraph: (id: string) => e().story.readGraph(id),
+  writeGraph: (id: string, content: string) => e().story.writeGraph(id, content),
+  delete: (id: string) => e().story.delete(id),
+}
+
+export const rewriteService = {
+  list: () => e().rewrite.list(),
+  create: (name: string) => e().rewrite.create(name),
+  readMeta: (id: string) => e().rewrite.readMeta(id),
+  saveMeta: (id: string, meta: any) => e().rewrite.saveMeta(id, meta),
+  readChapter: (id: string, chId: string) => e().rewrite.readChapter(id, chId),
+  writeChapter: (id: string, chId: string, content: string) => e().rewrite.writeChapter(id, chId, content),
+  readAnalysis: (id: string, chId: string) => e().rewrite.readAnalysis(id, chId),
+  writeAnalysis: (id: string, chId: string, content: string) => e().rewrite.writeAnalysis(id, chId, content),
+  delete: (id: string) => e().rewrite.delete(id),
 }

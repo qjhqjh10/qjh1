@@ -9,6 +9,7 @@ release/
 projects/
 knowledge_base/
 style_projects/
+continuation_projects/
 
 # OS files
 .DS_Store

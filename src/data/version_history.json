@@ -1,7 +1,137 @@
 {
-  "currentVersion": "3.6.0",
-  "currentDate": "2026-05-19",
+  "currentVersion": "4.4.0",
+  "currentDate": "2026-05-21",
   "history": [
+    {
+      "version": "4.4.0",
+      "date": "2026-05-21",
+      "features": [
+        "软件说明弹窗: 设置页新增📖软件说明按钮, 15个功能分区卡片(项目管理/AI助手/大纲/角色/章节写作/仿写/续写/风格工坊/场景工坊/故事脉络/知识库/改写/EPUB/系统设置/快捷键)",
+        "上下文用量条: 新增contextWindow模型字段, 设置页高级参数区可编辑, ContextUsageBar根据模型动态切换(128K/200K/1M), 用量条接入AIChatWindow实时显示累计token",
+        "角色图片增强: ImageLightbox新增拖拽平移(鼠标按住拖动)+重置按钮(1:1), 角色卡片/编辑表单图片置顶, 上传改为文件存储(images/)+向后兼容base64",
+        "AI生成角色卡片含图片: AI_FORMAT_INSTRUCTION新增形象图描述字段(英文关键词), 生成后自动调用search_images搜索Unsplash匹配图片",
+        "编辑器图片完善: 自定义ResizableImage扩展(width/height持久化+CSS resize同步到节点+handleClickOn备用), CSS浮动清除修复(p:has(img[data-align])→flow-root), 嵌入/独立行切换按钮",
+        "恢复文件上传: AIChatWindow工具栏新增📄文件按钮, 支持TXT/MD上传作为对话上下文",
+        "恢复EPUB导出: fileService/electron.d.ts补齐exportEpub, 保存对话框支持epub过滤, ChapterExportModal新增EPUB电子书模式(书名/作者/章节选择/图片自动嵌入)"
+      ],
+      "fixes": [
+        "全量审计修复: 94个IPC通道全量检查(无孤儿通道), 前端后端对齐验证, 删除5个死文件+7个Store死字段, 合并chatConstants代码分裂(消除9处内联重复)",
+        "AI上下文注入大幅扩展: buildContextPrefix从5页面覆盖到11页面(新增characters/scene-workshop/continuation/story-map/style-workshop/imitation), StoryMapPage/StyleWorkshopPage/ImitationPage补充setActivePage",
+        "IPC通道补齐: story/rewrite 20个孤立通道添加前端service封装+类型声明, 补全preload getMeta返回类型",
+        "错误处理加固: 全局ErrorBoundary兜底, AIChatWindow localStorage异常添加logError记录",
+        "类型修复: CharacterRole统一到character.ts(消除continuation.ts重复定义), 清理10+个未使用的类型导出",
+        "文件损坏后批量恢复: v4.3.0-v3.10.0版本历史26项功能全面检查, 仅文件上传和EPUB前端断开, 均已修复",
+        "修复CharacterImage空projectPath导致files:readBinary路径校验失败(Access denied)",
+        "修复resize未持久化导致图片切换章节后恢复原始大小"
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "date": "2026-05-21",
+      "features": [
+        "角色形象图: Character接口新增image字段+卡片顶部大图+ImageLightbox灯箱(滚轮缩放+键盘+/-)+上传更换/移除",
+        "AI生成角色卡片: 内嵌命令'生成角色卡片'→AI读取章节分析人物→自动创建characters/*.json",
+        "编辑器图片增强: 插入图片可resize缩放+左中右对齐(文字环绕)+数据对齐属性CSS",
+        "HomePage重设计v2: 右栏卡片宽82%+名称类型同行+三栏统计面板+按钮重排",
+        "EPUB导出: export:epub handler+标准EPUB3.0+base64图片自动提取到OEBPS/images/",
+        "AI图片上传: 工具栏📷上传图片→自动保存images/→AI分析描述",
+        "后端安全修复: EPUB/outputPath isSafePath+error handler+XML转义+EPUB manifest修复+常量引用统一",
+        "Scratchpad图片支持: textarea→RichTextEditor+fileEditNotify自动刷新"
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "date": "2026-05-21",
+      "features": [
+        "HomePage布局重设计: 左栏项目列表+右栏居中工作台大卡片+玻璃拟态特效+渐变按钮+选中态动效",
+        "编辑器图片+链接功能: TipTap Image/Link扩展+工具栏🖼🔗按钮+base64图片插入+超链接",
+        "项目封面图: covers/目录+封面框+悬停更换/删除+二进制IPC读写+project.json持久化",
+        "AI多模态图片输出: normalizeContent解析GPT-4o/Gemini数组content+提取base64图片+聊天渲染",
+        "AI图片搜索: search_images工具+Unsplash API免费图库+双层兼容(训练数据+实时搜索)",
+        "图片功能Bug修复: CoverUpload删除清理磁盘文件+空catch添加logError+移除as any类型绕过"
+      ]
+    },
+    {
+      "version": "4.1.0",
+      "date": "2026-05-21",
+      "features": [
+        "AI多窗口弹窗系统: 大纲/世界观/草稿弹窗可拖拽缩放+AI可同时编辑多个文档+fileEditNotify实时刷新+工具栏快捷打开",
+        "语音对话功能: 语音输入(Web Speech API)+AI朗读回复+麦克风按钮+播放按钮, 零依赖纯前端实现",
+        "AI助手使用指南: 新会话欢迎消息含快速上手指导+系统提示词完整能力说明",
+        "续写/仿写项目弹窗兼容: 三种项目类型均可使用弹窗系统",
+        "安全修复: storyHandlers+rewriteHandlers路径穿越防护+fileHandlers文件大小限制+空catch块logError补充",
+        "AI衔接修复: SystemSettings/ContinuationWriting/Continuation页面缺失setActivePage补全+KnowledgeBase/Imitation上下文注入+RewritePage canApply添加"
+      ]
+    },
+    {
+      "version": "4.0.0",
+      "date": "2026-05-20",
+      "features": [
+        "Plan/Action模式完善: 系统提示词动态注入模式+提醒横幅关键词检测+分段pill切换器(绿/橙)",
+        "纯文本环境改写: outline/worldbuilding/detailed-outline支持@@原文@@ / @@修改@@格式, 聊天卡片红蓝框区分",
+        "直接替换模式: edit_file直接修改→编辑器自动刷新为干净内容, 无红蓝标记",
+        "AI行为优化: 不主动探索项目+闲聊不提模式切换+能力自我介绍+会话持久化(localStorage)",
+        "窗口拖拽缩放修复: 四角缩放同方向+尺寸/位置记忆",
+        "上下文进度条: 加高加宽+标签+数值颜色随进度变化",
+        "草稿笔记系统: notes/目录+5工具(list/read/write/append/delete_note)+AI管理草稿+ScratchpadPage界面",
+        "后端: validateRole支持tool+readFileWithEncoding编码检测+DANGEROUS_TOOL_NAMES补齐3工具+流式缓存token统计修复+OpenAI client timeout",
+        "Bug修复: handleUndo状态突变+对话标题+toolLoop中止+正则$锚点+多段落原文+fileEditNotify路径+timeout覆写+取消清理(10+项)",
+        "代码架构: chatConstants/chatUtils/chatStyles提取+useWindowDrag hook+SystemSettingsPage部分Tab拆分+死代码清理"
+      ]
+    },
+    {
+      "version": "3.10.0",
+      "date": "2026-05-20",
+      "features": [
+        "Plan/Action工作模式: Plan模式仅5个只读工具(安全分析), Action模式全部13个工具(可执行写入)",
+        "文件上传: 聊天窗口工具栏新增上传按钮, 支持TXT/PDF/DOCX/MD上传到知识库",
+        "上下文用量显示: 底部进度条实时显示当前会话token用量(已用/总上限), 绿黄红三级预警",
+        "设置页能力面板: AI写作助手Tab新增能力总览卡片, 展示13工具+2模式+6命令+10页面覆盖",
+        "项目管理工具: create_project/delete_project, AI可创建/删除完整项目骨架",
+        "知识库索引工具: kb_index_file, AI修改知识库文件后可触发embedding索引更新",
+        "内嵌命令系统: 6个多步命令(分析项目/检查一致性/创建项目/统计/备份等)",
+        "上下文用量性能优化: useMemo缓存计算, 避免每次渲染遍历全量消息"
+      ]
+    },
+    {
+      "version": "3.9.0",
+      "date": "2026-05-20",
+      "features": [
+        "模板类型全面扩展: 场景模板+风格模板从2种扩展到11种小说类型, 每种关联专属维度",
+        "续写系统深度增强: 续写写作prompt支持风格+场景模板注入, 步骤7模板选择UI, 快照数据完整保留",
+        "链路集成打通: extraction:importFromPath支持从项目目录导入, 仿写外部风格模板选择器",
+        "续写/风格/场景/仿写四大系统数据链路全通: AI创建→分析→模板注入→生成新章节",
+        "续写从项目目录导入: 步骤1支持列出项目内TXT文件直接导入, 无需原生文件选择器",
+        "仿写外部模板: GenerateTab新增风格模板下拉选择器, 覆盖内部风格分析"
+      ]
+    },
+    {
+      "version": "3.8.0",
+      "date": "2026-05-20",
+      "features": [
+        "细纲系统重构: 结构化字段(剧情概述/角色/地点/关键事件/情色剧情), 2列卡片网格, 弹窗编辑, 字数提示",
+        "小说类型系统: 11种类型(普通/情色/都市/修仙/武侠/恋爱/古风/悬疑/历史/科幻/穿越), 项目级持久化",
+        "风格工坊与模板库合并: 标签页布局(风格档案+模板库), AI辅助填充模板维度(17-21维)",
+        "AI知识注入扩展: 角色页/风格模板/风格工坊/场景工坊/故事脉络, 各页面AI可操作对应数据文件",
+        "模板编辑优化: 维度标签云展示填充状态, AI辅助创建风格模板, 模板复制功能",
+        "续写维度自定义: 13维度可选+动态prompt生成, 持久化存储",
+        "AI角色创建: buildPageContext注入角色JSON格式+关系标签, AI可创建/修改角色文件",
+        "细纲页AI增强: 注入细纲JSON格式知识, AI可用create_file直接创建章节细纲"
+      ]
+    },
+    {
+      "version": "3.7.0",
+      "date": "2026-05-20",
+      "features": [
+        "AI写作助手文件系统操作: 支持查找/读取/编辑/创建/删除/重命名文件(10个工具), OpenAI Function Calling驱动",
+        "编辑预览Diff: edit_file改为预览确认模式, 修改前展示新旧文本红绿对比, 用户确认后写入",
+        "一键回滚撤销: 编辑和删除操作成功后卡片增加撤销按钮, 从最新备份即时恢复",
+        "智能备份系统: 自动去重(内容相同则跳过)、每文件保留最近10份、时间戳命名可追溯、备份版本DiffView对比",
+        "操作历史面板: 侧边栏新增独立页面, 全局操作记录持久化, 可筛选/展开/追溯",
+        "文件重命名/移动: rename_file工具补全文件管理能力",
+        "20项代码安全加固: 路径穿越循环防御、符号链接检测、React不可变更新、IPC失败处理、文件级锁、后端拦截等"
+      ]
+    },
     {
       "version": "3.6.0",
       "date": "2026-05-19",

@@ -3,12 +3,18 @@ import {
   BoldIcon, ItalicIcon,
   QueueListIcon,
   MagnifyingGlassIcon,
+  PhotoIcon, LinkIcon,
 } from '@heroicons/react/24/outline'
 
 interface Props {
   editor: Editor | null
   onOpenSymbols: () => void
   onToggleFind: () => void
+  onInsertImage: () => void
+  onInsertLink: () => void
+  isImageActive?: boolean
+  currentImageAlign?: string | null
+  onImageAlign?: (align: 'left' | 'center' | 'right') => void
 }
 
 const FONTS = ['PingFang SC', 'Microsoft YaHei', 'SimSun', 'SimHei', 'KaiTi', 'FangSong', 'Noto Serif SC', 'Georgia']
@@ -16,7 +22,7 @@ const SIZES = ['12px', '14px', '16px', '18px', '20px', '24px', '28px', '32px']
 const LINE_HEIGHTS = ['1.0', '1.5', '1.8', '2.0', '2.5']
 const COLORS = ['#2d2520', '#dc2626', '#2563eb', '#16a34a', '#ca8a04', '#7c3aed', '#db2777', '#9b8e84']
 
-export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind }: Props) {
+export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onInsertImage, onInsertLink, isImageActive, currentImageAlign, onImageAlign }: Props) {
   if (!editor) return null
 
   const btn = (action: () => void, active: boolean, children: React.ReactNode, title: string) => (
@@ -85,6 +91,28 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind }: P
       {btn(() => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), <ItalicIcon style={{ width: 14, height: 14 }} />, '斜体')}
       {btn(() => editor.chain().focus().toggleUnderline().run(), editor.isActive('underline'), <span style={{ fontSize: 12, textDecoration: 'underline' }}>U</span>, '下划线')}
       {btn(() => editor.chain().focus().toggleStrike().run(), editor.isActive('strike'), <span style={{ fontSize: 12, textDecoration: 'line-through' }}>S</span>, '删除线')}
+      <D />
+      {/* Image & Link */}
+      {btn(onInsertImage, false, <PhotoIcon style={{ width: 14, height: 14 }} />, '插入图片')}
+      {btn(onInsertLink, editor.isActive('link'), <LinkIcon style={{ width: 14, height: 14 }} />, '插入链接')}
+      {/* Image alignment (visible when image selected) */}
+      {isImageActive && onImageAlign && (
+        <>
+          <D />
+          {btn(() => {
+            const attrs = editor.getAttributes('image')
+            const isBlock = attrs['data-display'] === 'block'
+            if (isBlock) {
+              editor.chain().focus().updateAttributes('image', { 'data-display': null, 'data-align': null }).run()
+            } else {
+              editor.chain().focus().updateAttributes('image', { 'data-display': 'block', 'data-align': 'center' }).run()
+            }
+          }, editor.getAttributes('image')?.['data-display'] === 'block', <span style={{ fontSize: 11 }}>⊞</span>, '嵌入(文字环绕) / 独立成行')}
+          {btn(() => onImageAlign('left'), currentImageAlign === 'left', <span style={{ fontSize: 11 }}>⫷</span>, '左对齐(文字环绕)')}
+          {btn(() => onImageAlign('center'), currentImageAlign === 'center', <span style={{ fontSize: 11 }}>⫿</span>, '居中')}
+          {btn(() => onImageAlign('right'), currentImageAlign === 'right', <span style={{ fontSize: 11 }}>⫸</span>, '右对齐(文字环绕)')}
+        </>
+      )}
       <D />
       {/* Alignment */}
       {btn(() => editor.chain().focus().setTextAlign('left').run(), editor.isActive({ textAlign: 'left' }), <span style={{ fontSize: 11 }}>⫷</span>, '左对齐')}

@@ -20,6 +20,7 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
   { key: 'relationshipTags', label: '关系标签' },
   { key: 'arc', label: '角色成长弧线' },
   { key: 'importance', label: '重要程度', isNumber: true },
+  { key: 'image', label: '形象图' },
 ]
 
 function jsonPath(projectPath: string, id: string) {

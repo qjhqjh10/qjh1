@@ -1,37 +1,22 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, statsService } from '@/services/fileService'
+import { aiService, kbService, fileService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, UserIcon, SparklesIcon,
   ArrowDownTrayIcon, BookOpenIcon, GlobeAltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
+  ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
 } from '@heroicons/react/24/outline'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { getStyleInjection } from '@/utils/styleInjector'
-
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  insertion?: { keyword: string; position: 'before' | 'after'; content: string; mode?: 'insert' | 'rewrite' }
-  sources?: { kb: { fileName: string; score: number }[]; web: { title: string; url: string }[] }
-}
-
-interface Conversation {
-  id: string
-  title: string
-  messages: Message[]
-  createdAt: number
-}
-
-const WELCOME_MSG: Message = {
-  id: 'welcome', role: 'assistant',
-  content: '你好！我是AI写作助手。\n\n🔍 我可以检索知识库和网络搜索\n📍 在章节创作中，我可以建议内容插入位置\n💡 点击回复下方的按钮应用内容到编辑器',
-}
+import { FILE_TOOLS, DANGEROUS_TOOLS, PREVIEW_TOOLS, READ_ONLY_TOOLS } from '@/types/fileOps'
+import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
+import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import type { Message, Conversation } from '@/components/ai/chatConstants'
 
 function makeConversation(id: string, title: string): Conversation {
   return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now() }
@@ -131,12 +116,13 @@ export default function AIChatWindow() {
   const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startR: 0, startB: 0, corner: '' })
   const dragRef = useRef({ startX: 0, startY: 0, startR: 0, startB: 0 })
   const cleanupDragRef = useRef<(() => void) | null>(null)
-  const budgetWarnedRef = useRef(false)
 
   // Cleanup drag/resize listeners on unmount
   useEffect(() => {
     return () => { cleanupDragRef.current?.() }
   }, [])
+
+  const [cumulativeTokens, setCumulativeTokens] = useState(0)
 
   const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -172,8 +158,16 @@ export default function AIChatWindow() {
     window.addEventListener('mousemove', handleMove); window.addEventListener('mouseup', handleUp)
   }
 
-  const [conversations, setConversations] = useState<Conversation[]>(() => [makeConversation('default', '新对话')])
-  const [activeConversationId, setActiveConversationId] = useState('default')
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) return p } } catch (e) { logError('加载对话历史失败', e) }
+    return [makeConversation('default', '新对话')]
+  })
+  const [activeConversationId, setActiveConversationId] = useState(() => {
+    try { const la = localStorage.getItem(LAST_ACTIVE_KEY); const s = localStorage.getItem(STORAGE_KEY); if (s && la) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.find(c => c.id === la)) return la } } catch (e) { logError('加载活动对话ID失败', e) }
+    return 'default'
+  })
+  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)) } catch (e) { logError('保存对话历史失败', e) } }, [conversations])
+  useEffect(() => { try { localStorage.setItem(LAST_ACTIVE_KEY, activeConversationId) } catch (e) { logError('保存活动对话ID失败', e) } }, [activeConversationId])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showConvList, setShowConvList] = useState(false)
@@ -183,18 +177,24 @@ export default function AIChatWindow() {
   const messages = activeConversation.messages
 
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
-    setConversations(prev => prev.map(c =>
-      c.id === activeConversationId
-        ? { ...c, messages: typeof updater === 'function' ? updater(c.messages) : updater, title: c.title === '新对话' && typeof updater === 'function' ? getConvTitle(c.messages) : c.title }
-        : c
-    ))
+    setConversations(prev => prev.map(c => {
+      if (c.id !== activeConversationId) return c
+      const newMessages = typeof updater === 'function' ? updater(c.messages) : updater
+      const title = c.title === '新对话' ? getConvTitle(newMessages) : c.title
+      return { ...c, messages: newMessages, title }
+    }))
   }
 
   function getConvTitle(msgs: Message[]): string {
     const firstUser = msgs.find(m => m.role === 'user')
-    if (!firstUser) return '新对话'
-    return firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '')
+    return firstUser ? firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '') : '新对话'
   }
+
+  const abortToolLoop = () => { setLoading(false) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId); setCumulativeTokens(0) } }
+  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setCumulativeTokens(0); setShowConvList(false) }
+  const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0) }
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }); setCumulativeTokens(0) }
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -264,6 +264,31 @@ export default function AIChatWindow() {
     if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
       const cs = detailedChapters.map(c => `${c.title}: ${c.description?.slice(0, 500) || ''}`).join('\n---\n')
       parts.push(`[当前细纲(${detailedChapters.length}章):\n${cs}]`)
+    }
+
+    if (activePage === 'characters' && characters.length > 0) {
+      const cs = characters.map(c => `${c.name}(${c.role || '未分类'}): ${c.personality?.slice(0, 200) || ''}`).join('\n')
+      parts.push(`[角色列表(${characters.length}个):\n${cs}]\n角色数据存储在 characters/*.json，你可读取/编辑角色文件。`)
+    }
+
+    if (activePage === 'scene-workshop') {
+      parts.push('用户正在场景工坊配置场景参数。你可帮助分析场景结构、推荐配置、优化叙事技法和情绪设计。')
+    }
+
+    if (activePage === 'continuation-workspace' || activePage === 'continuation-writing') {
+      parts.push('用户正在进行小说续写。你可帮助分析原文、提取角色和设定、规划剧情走向、生成续写大纲和细纲。续写数据存储在 continuation_projects/ 目录。')
+    }
+
+    if (activePage === 'story-map') {
+      parts.push('用户正在故事脉络页面分析小说结构。你可帮助分析时间线、检测设定冲突、解读情绪曲线和节奏。故事数据存储在 story_workspace/ 目录。')
+    }
+
+    if (activePage === 'style-workshop') {
+      parts.push('用户正在风格工坊分析文风。你可帮助分析 26 维文风特征、总结风格档案、填充风格模板。风格数据存储在 style_projects/ 目录。')
+    }
+
+    if (activePage === 'imitation') {
+      parts.push('用户正在进行小说仿写。你可帮助提取原作特征、生成模仿大纲和细纲。仿写数据存储在项目 extraction.json 文件中。')
     }
 
     const priorityInstruction = contextPriority === 'kb-first'
@@ -338,45 +363,75 @@ export default function AIChatWindow() {
       const styleInjection = await getStyleInjection(activeProjectId || '', assignments)
       const stylePrefix = styleInjection ? styleInjection + '\n\n---\n\n' : ''
 
-      // Build history: all previous messages (filter out welcome), then current user message with context prepended
+      // System messages
+      const systemMessages: Array<{ role: string; content: string }> = [
+        { role: 'system', content: FILE_OP_SYSTEM_PROMPT },
+        { role: 'system', content: aiSettings.workMode === 'plan'
+          ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content/list_backups + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
+          : `[Action执行模式] 全部工具可用。` },
+      ]
+
+      // History with tool support
       const historyMessages = messages
-        .filter(m => !m.id.startsWith('welcome'))
-        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-      const apiMessages = [
-        ...historyMessages,
+        .filter(m => !m.id.startsWith('welcome') && String(m.role) !== 'system')
+        .map(m => ({
+          role: m.role as string, content: m.content,
+          ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+          ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+        }))
+
+      // Tools
+      const activeTools = aiSettings.workMode === 'plan'
+        ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
+        : FILE_TOOLS
+      const toolsForApi = activeProjectId ? activeTools : activeTools.filter((t: any) => !['list_notes','read_note','write_note','append_note','delete_note'].includes(t.function.name))
+
+      const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
+        ...systemMessages,
         { role: 'user' as const, content: stylePrefix + contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
       ]
 
-      const reply = await aiService.chat(apiMessages, activeConfigId, activeProjectId || undefined)
+      let iteration = 0; const MAX_ITER = 8; let isDone = false
+      let sessionTokens = 0
+      while (iteration < MAX_ITER && !isDone) {
+        iteration++
+        const response = await aiService.chatWithTools(messagesForApi, activeConfigId!, activeProjectId || undefined, toolsForApi)
+        const { text, toolCalls, finishReason, images, usage } = response
+        sessionTokens += usage?.total_tokens || 0
 
-      // Parse insertion suggestion
-      const { plainText, insertion } = parseInsertionSuggestion(reply)
-
-      const assistantMsg: Message = {
-        id: Date.now().toString() + '_r', role: 'assistant',
-        content: plainText || reply,
-        insertion,
-        sources: { kb: kbSources, web: webSources },
-      }
-      setMessages(prev => [...prev, assistantMsg])
-
-      // Budget warning check (delayed so logTokenUsage completes on backend)
-      const storedAiSettings = useSettingsStore.getState().aiSettings
-      if (storedAiSettings.budgetWarning && storedAiSettings.monthlyBudget > 0 && !budgetWarnedRef.current) {
-        const budget = storedAiSettings.monthlyBudget
-        setTimeout(async () => {
-          try {
-            const monthCost = await statsService.getMonthCost()
-            if (monthCost > budget) {
-              budgetWarnedRef.current = true
-              setMessages(prev => [...prev, {
-                id: Date.now().toString() + '_bw', role: 'assistant',
-                content: `⚠️ **月度预算预警**\n\n本月 API 费用已达 **$${monthCost.toFixed(2)}**，超出设定的预算上限 **$${budget.toFixed(2)}**。请关注费用使用情况。`,
-              }])
+        if (!toolCalls || toolCalls.length === 0) {
+          const { plainText, insertion } = parseInsertionSuggestion(text)
+          const assistantMsg: Message = {
+            id: Date.now().toString() + '_r', role: 'assistant', content: plainText || text, insertion,
+            sources: { kb: kbSources, web: webSources }, images,
+          }
+          setMessages(prev => [...prev, assistantMsg])
+          isDone = true
+        } else {
+          // Process tool calls
+          messagesForApi.push({ role: 'assistant', content: text || '', tool_calls: toolCalls })
+          const resultMsgs: Message[] = []
+          for (const tc of toolCalls) {
+            try {
+              const args = JSON.parse(tc.function.arguments)
+              const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args }])
+              const r = results[0]
+              const content = JSON.stringify({ status: r?.status || 'error', summary: r?.summary || '', detail: r?.detail || '' })
+              messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
+              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id })
+            } catch {
+              const content = JSON.stringify({ status: 'error', summary: '工具执行异常' })
+              messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
+              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id })
             }
-          } catch { /* non-critical */ }
-        }, 800)
+          }
+          // Store tool results in conversation history
+          if (resultMsgs.length > 0) setMessages(prev => [...prev, ...resultMsgs])
+          if (finishReason !== 'tool_calls') isDone = true
+        }
       }
+      setCumulativeTokens(prev => prev + sessionTokens)
+      setLoading(false)
     } catch (err) {
       const errMsg = parseAiErrorMessage(err)
 
@@ -422,33 +477,6 @@ export default function AIChatWindow() {
 
   const handleRemoveRef = (fileId: string) => {
     setSelectedRefs(prev => prev.filter(r => r.id !== fileId))
-  }
-
-  // Conversation management
-  const handleNewConversation = () => {
-    const id = Date.now().toString()
-    setConversations(prev => [...prev, makeConversation(id, '新对话')])
-    setActiveConversationId(id)
-    setShowConvList(false)
-  }
-
-  const handleClearConversation = () => {
-    setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }])
-  }
-
-  const handleDeleteConversation = (convId: string) => {
-    setConversations(prev => {
-      const remaining = prev.filter(c => c.id !== convId)
-      if (remaining.length === 0) {
-        const fallback = makeConversation('default', '新对话')
-        setActiveConversationId('default')
-        return [fallback]
-      }
-      if (convId === activeConversationId) {
-        setActiveConversationId(remaining[0].id)
-      }
-      return remaining
-    })
   }
 
   const handleLocate = (keyword: string) => {
@@ -597,13 +625,24 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
+            {/* Plan/Action toggle */}
+            <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+              <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'plan' })} style={{ padding: '4px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
+              <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#9b8e84', fontFamily: 'inherit' }}>Action</button>
+            </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
+            {/* Upload file (TXT/MD) */}
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const text = r.result as string; if (text.trim()) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传文件: ${f.name}]\n\n${text.slice(0, 50000)}` }]); setTimeout(() => handleSend(), 100) } }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
+            {/* Upload image */}
+            <button onClick={() => { if (!activeProjectId) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path; if (!pp) return; try { const fn = await fileService.saveImageUrl(r.result as string, pp); if (fn) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传图片: images/${fn}]` }]); setTimeout(() => handleSend(), 100) } } catch {} }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {kbEnabled && (
               <span style={{ fontSize: 10, color: '#ca8a04', marginLeft: 4 }} title="知识库内容可能触发AI内容安全策略，如遇拦截请关闭此开关">
                 含敏感内容时建议关闭
               </span>
             )}
           </div>
+
+          <ContextUsageBar usedTokens={cumulativeTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
 
           {/* Messages */}
           <div ref={scrollRef} className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
@@ -618,6 +657,20 @@ export default function AIChatWindow() {
                     {msg.content}
                   </div>
                 </div>
+                {/* Images */}
+                {msg.images && msg.images.map((img: string, i: number) => (
+                  <div key={i} style={{ marginLeft: 36, marginTop: 4, marginBottom: 4 }}>
+                    <img src={img} alt={`AI图片${i+1}`} style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)' }} />
+                  </div>
+                ))}
+                {/* Plan reminder banner */}
+                {msg.role === 'assistant' && aiSettings.workMode === 'plan' && msg.content.length > 400 && /文件|修改|编辑|写入|创建|删除|章节|大纲|细纲|替换|改写|目录|备份|项目/.test(msg.content) && (
+                  <div style={{ marginLeft: 36, marginBottom: 8, padding: '6px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', fontSize: 11, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <ExclamationTriangleIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
+                    <span>Plan 模式 — 如需执行上述建议，请切换到</span>
+                    <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ fontWeight: 700, color: '#7c3aed', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 11 }}>Action 执行模式</button>
+                  </div>
+                )}
 
                 {/* Insertion card */}
                 {msg.insertion && (

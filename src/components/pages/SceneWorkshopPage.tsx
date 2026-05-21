@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '@/store'
 import { templateService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
@@ -6,7 +6,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
-import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate } from '@/types/story'
+import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate, SceneTemplateType } from '@/types/story'
 import { SparklesIcon, TrashIcon, PencilIcon, PlusIcon, DocumentTextIcon, FireIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import {
   LOCATIONS as EROTIC_LOCATIONS, TIMES as EROTIC_TIMES, ATMOSPHERES, PUBLICITIES,
@@ -249,7 +249,9 @@ function CustomInput({ label, values, onAdd, onRemove, hideDisplay }: { label?: 
 
 export default function SceneWorkshopPage() {
   const characters = useStore(s => s.characters)
+  const setActivePage = useStore(s => s.setActivePage)
   const [editorType, setEditorType] = useState<EditorType>(null)
+  const [templateType, setTemplateType] = useState<SceneTemplateType>('普通小说')
   const [templates, setTemplates] = useState<SceneTemplate[]>([])
   const [editingTemplate, setEditingTemplate] = useState<SceneTemplate | null>(null)
   const [showEditor, setShowEditor] = useState(false)
@@ -262,6 +264,7 @@ export default function SceneWorkshopPage() {
   const [showNovelSectionModal, setShowNovelSectionModal] = useState(false)
   const [editingNovelSection, setEditingNovelSection] = useState<number | null>(null)
   const [editTagMode, setEditTagMode] = useState(false)
+  useEffect(() => { setActivePage('scene-workshop') }, [])
 
   const toggleEroticAuto = (field: string, v: boolean) => setEroticConfig({ ...eroticConfig, autoFields: { ...eroticConfig.autoFields, [field]: v } })
   const toggleNovelAuto = (field: string, v: boolean) => setNovelConfig({ ...novelConfig, autoFields: { ...novelConfig.autoFields, [field]: v } })
@@ -271,9 +274,11 @@ export default function SceneWorkshopPage() {
     catch { setTemplates([]) }
   }
 
-  const handleEnterType = (type: 'erotic' | 'novel') => {
-    setEditorType(type); setEditingTemplate(null); setTemplateName('')
+  const handleEnterType = (tmplType: SceneTemplateType) => {
+    const editType = tmplType === '情色小说' ? 'erotic' : 'novel'
+    setEditorType(editType); setEditingTemplate(null); setTemplateName('')
     setEroticConfig(DEFAULT_EROTIC); setNovelConfig(DEFAULT_NOVEL); loadTemplates()
+    setTemplateType(tmplType)
   }
 
   const handleNewTemplate = () => {
@@ -283,7 +288,7 @@ export default function SceneWorkshopPage() {
 
   const handleEditTemplate = (tpl: SceneTemplate) => {
     setEditingTemplate(tpl); setTemplateName(tpl.name)
-    if (tpl.type === 'erotic') {
+    if (tpl.type === '情色小说') {
       const cfg = { ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig
       if (Array.isArray(cfg.customPOVs)) cfg.customPOVs = (cfg.customPOVs as unknown as string[]).join(',')
       setEroticConfig(cfg)
@@ -298,7 +303,7 @@ export default function SceneWorkshopPage() {
   const handleSaveTemplate = async () => {
     if (!templateName.trim()) { alert('请输入模板名称'); return }
     const tpl: SceneTemplate = {
-      id: editingTemplate?.id || nanoid(8), name: templateName.trim(), type: editorType!,
+      id: editingTemplate?.id || nanoid(8), name: templateName.trim(), type: templateType,
       config: editorType === 'erotic' ? eroticConfig : novelConfig,
       createdAt: editingTemplate?.createdAt || new Date().toISOString(),
     } as SceneTemplate
@@ -313,7 +318,7 @@ export default function SceneWorkshopPage() {
 
   const handleDuplicateTemplate = (tpl: SceneTemplate) => {
     setEditingTemplate(null); setTemplateName(tpl.name + ' (副本)')
-    if (tpl.type === 'erotic') setEroticConfig({ ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig)
+    if (tpl.type === '情色小说') setEroticConfig({ ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig)
     else setNovelConfig({ ...DEFAULT_NOVEL, ...tpl.config } as NovelSceneConfig)
     setShowEditor(true)
   }
@@ -754,23 +759,20 @@ export default function SceneWorkshopPage() {
         <div style={{ maxWidth: 700, margin: '0 auto', width: '100%' }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>场景工坊</h2>
           <p style={{ fontSize: 13, color: '#9b8e84', marginBottom: 28 }}>创建可复用的场景模板，在AI生成章节时加载使用</p>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <button onClick={() => handleEnterType('erotic')} style={{
-              flex: 1, padding: '28px 24px', borderRadius: 16, border: '2px solid rgba(220,38,38,0.15)', cursor: 'pointer',
-              background: 'linear-gradient(135deg, rgba(220,38,38,0.04), rgba(236,72,153,0.04))', textAlign: 'center',
-            }}>
-              <FireIcon style={{ width: 36, height: 36, color: '#dc2626', marginBottom: 12 }} />
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>情色场景</h3>
-              <p style={{ fontSize: 12, color: '#9b8e84' }}>角色定位 · 性癖 · 流程 · 技法 · 羞辱模式</p>
-            </button>
-            <button onClick={() => handleEnterType('novel')} style={{
-              flex: 1, padding: '28px 24px', borderRadius: 16, border: '2px solid rgba(59,130,246,0.15)', cursor: 'pointer',
-              background: 'linear-gradient(135deg, rgba(59,130,246,0.04), rgba(124,58,237,0.04))', textAlign: 'center',
-            }}>
-              <BookOpenIcon style={{ width: 36, height: 36, color: '#3b82f6', marginBottom: 12 }} />
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', marginBottom: 4 }}>普通场景</h3>
-              <p style={{ fontSize: 12, color: '#9b8e84' }}>场景类型 · 角色情绪 · 环境 · 对话 · POV</p>
-            </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+            {(['普通小说','情色小说','都市小说','修仙小说','武侠小说','恋爱小说','古风小说','悬疑小说','历史小说','科幻小说','穿越小说'] as SceneTemplateType[]).map(type => {
+              const isErotic = type === '情色小说'
+              return (
+                <button key={type} onClick={() => handleEnterType(type)} style={{
+                  padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit',
+                  border: isErotic ? '1px solid rgba(220,38,38,0.15)' : '1px solid rgba(124,58,237,0.1)',
+                  background: isErotic ? 'rgba(220,38,38,0.03)' : 'rgba(124,58,237,0.02)',
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#3b82f6', marginBottom: 4 }}>{type.replace('小说','')}</div>
+                  <div style={{ fontSize: 10, color: '#9b8e84' }}>{isErotic ? '26区块' : '10区块'}</div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

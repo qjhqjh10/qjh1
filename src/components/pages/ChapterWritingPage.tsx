@@ -52,6 +52,8 @@ export default function ChapterWritingPage() {
   const setInsertionAction = useStore(s => s.setInsertionAction)
   const replaceAction = useStore(s => s.replaceAction)
   const setReplaceAction = useStore(s => s.setReplaceAction)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const outlineContent = useStore(s => s.outlineContent)
 
@@ -161,9 +163,21 @@ export default function ChapterWritingPage() {
   useEffect(() => {
     if (!replaceAction || replaceAction.chapterId !== chapterId) return
     setContent(replaceAction.content)
-    handleSave(replaceAction.content)
+    handleSave(replaceAction.content).catch(err => logError('replaceAction自动保存失败', err))
     setReplaceAction(null)
   }, [replaceAction])
+
+  // AI direct edit via edit_file → reload editor with clean content
+  useEffect(() => {
+    if (!fileEditNotify || !chapterId || !projectPath) return
+    const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/')
+    if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
+      setContent(fileEditNotify.newContent)
+      handleSave(fileEditNotify.newContent).catch(err => logError('fileEditNotify自动保存失败', err))
+      setFileEditNotify(null)
+    }
+    return () => { setFileEditNotify(null) }
+  }, [fileEditNotify])
 
   // Save (file + store for export). Accept optional content to avoid stale closure.
   const handleSave = async (overrideContent?: string) => {

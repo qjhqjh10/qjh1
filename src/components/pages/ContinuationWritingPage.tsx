@@ -10,8 +10,10 @@ import type { ContinuationProject } from '@/types/continuation'
 export default function ContinuationWritingPage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
+  const setActivePage = useStore(s => s.setActivePage)
   const [project, setProject] = useState<ContinuationProject | null>(null)
 
+  useEffect(() => { setActivePage('continuation-writing') }, [])
   useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId])
 
   const load = async () => {

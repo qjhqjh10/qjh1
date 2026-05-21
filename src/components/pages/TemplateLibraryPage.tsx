@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { styleTemplateService } from '@/services/fileService'
-import type { StyleTemplate } from '@/types/styleTemplate'
+import type { StyleTemplate, StyleTemplateType } from '@/types/styleTemplate'
+import { getTemplateDims, createEmptyTemplate } from '@/types/styleTemplate'
 import type { DimAnalysis } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
 import Button from '@/components/common/Button'
@@ -10,35 +11,18 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import {
-  PlusIcon, PencilIcon, TrashIcon, DocumentTextIcon,
-  SparklesIcon, TagIcon, GlobeAltIcon, ClockIcon,
-  BookOpenIcon, FireIcon, XMarkIcon, CheckIcon,
+  PlusIcon, TrashIcon, DocumentTextIcon,
+  SparklesIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
 
-// Helper to create empty template
-function emptyTemplate(type: '情色小说' | '普通小说'): StyleTemplate {
-  return {
-    id: '', name: '', type, worldType: '', description: '', fullDescription: '',
-    dimensions: {}, vocabularyList: [], writingRules: [],
-    tone: { word: '', description: '', attitude: '' },
-    source: 'manual',
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  }
-}
-
-// Get default dimension keys for a type
-function defaultDims(type: '情色小说' | '普通小说'): string[] {
-  const base = ['narrativeTone','sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','compoundWordPattern','onomatopoeiaSystem','sensoryPackFormula','bodyMindBetrayal','humiliationTemplate']
-  if (type === '情色小说') return [...base, 'corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop']
-  return base
-}
+const TYPE_LABELS: Record<string, string> = { '普通小说': '普通', '情色小说': '情色', '都市小说': '都市', '修仙小说': '修仙', '武侠小说': '武侠', '恋爱小说': '恋爱', '古风小说': '古风', '悬疑小说': '悬疑', '历史小说': '历史', '科幻小说': '科幻', '穿越小说': '穿越' }
+const ALL_TYPES = Object.keys(TYPE_LABELS)
 
 export default function TemplateLibraryPage() {
   const navigate = useNavigate()
   const [templates, setTemplates] = useState<StyleTemplate[]>([])
   const [editTemplate, setEditTemplate] = useState<StyleTemplate | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [createType, setCreateType] = useState<'情色小说' | '普通小说' | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadTemplates() }, [])
@@ -47,9 +31,8 @@ export default function TemplateLibraryPage() {
     try { setTemplates(await styleTemplateService.list() as StyleTemplate[]) } catch { /* */ }
   }
 
-  const handleCreate = async (type: '情色小说' | '普通小说') => {
-    setCreateType(type)
-    setEditTemplate(emptyTemplate(type))
+  const handleCreate = async (type: StyleTemplateType) => {
+    setEditTemplate(createEmptyTemplate(type))
     setShowCreate(false)
   }
 
@@ -60,7 +43,6 @@ export default function TemplateLibraryPage() {
       await styleTemplateService.save(editTemplate)
       await loadTemplates()
       setEditTemplate(null)
-      setCreateType(null)
     } catch (err) { logError('保存模板失败', err) }
     setSaving(false)
   }
@@ -132,7 +114,7 @@ export default function TemplateLibraryPage() {
 
   // ── Render ──
   // Edit modal with dimension editor
-  const editingDims = editTemplate ? defaultDims(editTemplate.type) : []
+  const editingDims = editTemplate ? getTemplateDims(editTemplate.type) : []
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -183,10 +165,10 @@ export default function TemplateLibraryPage() {
                   {t.description || t.fullDescription?.slice(0, 80) || '暂无描述'}
                 </div>
                 <div style={{ display: 'flex', gap: 12, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap' }}>
-                  {t.worldType && <span><GlobeAltIcon style={{ width: 10, height: 10 }} /> {t.worldType}</span>}
-                  <span><TagIcon style={{ width: 10, height: 10 }} /> {Object.keys(t.dimensions).length}维</span>
+                  {t.worldType && <span>🌍 {t.worldType}</span>}
+                  <span>{Object.keys(t.dimensions).length}维</span>
                   <span>{t.source === 'ai-generated' ? '🤖 AI生成' : '✏️ 手动'}</span>
-                  <span><ClockIcon style={{ width: 10, height: 10 }} /> {new Date(t.updatedAt).toLocaleDateString()}</span>
+                  <span>{new Date(t.updatedAt).toLocaleDateString()}</span>
                 </div>
                 <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
                   <button onClick={e => { e.stopPropagation(); handleDelete(t.id) }} style={{
@@ -200,32 +182,28 @@ export default function TemplateLibraryPage() {
       </ScrollArea>
 
       {/* Create type selector */}
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="新建风格模板" width={400}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 13, color: '#6b5e54', marginBottom: 4 }}>选择模板类型：</div>
-          <button onClick={() => handleCreate('情色小说')} style={{
-            padding: '20px 24px', borderRadius: 14, border: '2px solid rgba(236,72,153,0.15)',
-            background: 'rgba(236,72,153,0.04)', cursor: 'pointer', textAlign: 'left',
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#ec4899', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <FireIcon style={{ width: 18, height: 18 }} /> 情色小说
-            </div>
-            <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 4 }}>含 26 个维度（情色专属4维+泛用5维），适合情色/成人小说</div>
-          </button>
-          <button onClick={() => handleCreate('普通小说')} style={{
-            padding: '20px 24px', borderRadius: 14, border: '2px solid rgba(124,58,237,0.15)',
-            background: 'rgba(124,58,237,0.04)', cursor: 'pointer', textAlign: 'left',
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <BookOpenIcon style={{ width: 18, height: 18 }} /> 普通小说
-            </div>
-            <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 4 }}>含 17 个维度（基础+进阶+泛用），适合一般题材小说</div>
-          </button>
+      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="新建风格模板" width={600}>
+        <div style={{ fontSize: 13, color: '#6b5e54', marginBottom: 10 }}>选择模板类型：</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          {ALL_TYPES.map(type => {
+            const dimCount = getTemplateDims(type).length
+            const isErotic = type === '情色小说'
+            return (
+              <button key={type} onClick={() => handleCreate(type as StyleTemplateType)} style={{
+                padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
+                background: isErotic ? 'rgba(239,68,68,0.02)' : 'rgba(124,58,237,0.02)',
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 2 }}>{TYPE_LABELS[type]}</div>
+                <div style={{ fontSize: 10, color: '#9b8e84' }}>{dimCount}维</div>
+              </button>
+            )
+          })}
         </div>
       </Modal>
 
       {/* Edit modal */}
-      <Modal isOpen={!!editTemplate} onClose={() => { setEditTemplate(null); setCreateType(null) }} title={createType ? '新建模板' : '编辑模板'} width={700}>
+      <Modal isOpen={!!editTemplate} onClose={() => { setEditTemplate(null) }} title={editTemplate?.source === 'manual' && !editTemplate?.fullDescription ? '新建模板' : '编辑模板'} width={700}>
         {editTemplate && (
           <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }} className="custom-scrollbar">
             {/* Basic info */}
@@ -324,7 +302,7 @@ export default function TemplateLibraryPage() {
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, paddingTop: 12, borderTop: '1px solid #f0ece8' }}>
-          <Button variant="secondary" onClick={() => { setEditTemplate(null); setCreateType(null) }}>取消</Button>
+          <Button variant="secondary" onClick={() => { setEditTemplate(null) }}>取消</Button>
           <Button onClick={handleSave} disabled={saving || !editTemplate?.name.trim()}>{saving ? '保存中...' : '保存模板'}</Button>
         </div>
       </Modal>

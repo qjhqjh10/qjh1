@@ -26,13 +26,12 @@ export default function ContinuationPage() {
   useEffect(() => { loadProjects() }, [])
 
   const loadProjects = async () => {
-    try { setProjects(await continuationService.list() as ContinuationProject[]) } catch {}
+    try { setProjects(await continuationService.list() as ContinuationProject[]) } catch (err) { logError('加载续写项目列表失败', err) }
   }
 
   const handleEnterProject = (proj: ContinuationProject) => {
     setActiveProject(proj.id, 'continuation')
     setActiveProjectName(proj.name)
-    setActivePage('chapter')
     navigate('/continuation-workspace')
   }
 

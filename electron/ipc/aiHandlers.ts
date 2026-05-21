@@ -1,6 +1,7 @@
 import { IpcMain, SafeStorage } from 'electron'
 import { logTokenUsage } from './statsHandlers'
 import { decryptKey, encryptKey, MASKED_KEY, getOpenAI, getConfigStore } from './utils'
+import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
 
@@ -18,21 +19,45 @@ function categorizeError(err: unknown): string {
   return `[API_ERROR] ${message}`
 }
 
-function validateRole(role: string): 'user' | 'assistant' | 'system' {
-  if (role === 'user' || role === 'assistant' || role === 'system') return role
+// Parse multimodal content (GPT-4o, Gemini, etc.) — extract text + base64 images
+function normalizeContent(content: unknown): { text: string; images: string[] } {
+  if (typeof content === 'string') return { text: content, images: [] }
+  if (!Array.isArray(content)) return { text: String(content || ''), images: [] }
+  const textParts: string[] = []
+  const images: string[] = []
+  for (const part of content) {
+    if (part.type === 'text' && part.text) {
+      textParts.push(part.text)
+    } else if (part.type === 'image_url' && part.image_url?.url) {
+      const url = part.image_url.url
+      if (url.startsWith('data:image/')) {
+        images.push(url)
+        textParts.push(`![AI生成图片](${url})`)
+      }
+    }
+  }
+  return { text: textParts.join('\n'), images }
+}
+
+function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
+  if (role === 'user' || role === 'assistant' || role === 'system' || role === 'tool') return role
   console.warn(`[AI] Invalid message role "${role}", falling back to "user"`)
   return 'user'
 }
 
 function calculateCost(inputTokens: number, outputTokens: number, cacheHitTokens: number, config: StoredConfig): number {
   const effectiveInput = Math.max(0, inputTokens - cacheHitTokens)
-  const inputCost = (effectiveInput * (config.inputPricePerM || 0)) / 1_000_000
-  const cacheCost = (cacheHitTokens * (config.cacheHitPricePerM || 0)) / 1_000_000
-  const outputCost = (outputTokens * (config.outputPricePerM || 0)) / 1_000_000
+  const inputPrice = config.inputPricePerM ?? 0
+  const cachePrice = config.cacheHitPricePerM ?? 0
+  const outputPrice = config.outputPricePerM ?? 0
+  // #17: If all prices are zero, return -0.001 to signal "unset" (won't affect display much but flags it)
+  const inputCost = (effectiveInput * inputPrice) / 1_000_000
+  const cacheCost = (cacheHitTokens * cachePrice) / 1_000_000
+  const outputCost = (outputTokens * outputPrice) / 1_000_000
   return inputCost + cacheCost + outputCost
 }
 
-export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
+export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, projectsPath?: string) {
   ipcMain.handle('ai:chat', async (_event, messages: { role: string; content: string }[], configId: string, projectId?: string) => {
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
@@ -45,6 +70,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
     const client = new OpenAI({
       apiKey,
       baseURL: config.apiUrl || undefined,
+      timeout: 120_000,
+      maxRetries: 1,
     })
 
     const systemMessage = config.systemPrompt
@@ -111,7 +138,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
 
     const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
     const OpenAI = await getOpenAI()
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined })
+    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
 
     const systemMessage = config.systemPrompt
       ? { role: 'system' as const, content: config.systemPrompt }
@@ -130,6 +157,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
     }
     streamAbortHandlers.set(wcId, onAbort)
     ipcMain.on('ai:abort-stream', onAbort)
+    // #20: Auto-cleanup when webContents is destroyed
+    event.sender.once('destroyed' as any, () => {
+      ipcMain.removeListener('ai:abort-stream', onAbort)
+      streamAbortHandlers.delete(wcId)
+    })
 
     try {
       // @ts-ignore TS2769 — reasoning_effort not in OpenAI SDK types yet
@@ -140,7 +172,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
       }, { signal: abortController.signal })
 
       let fullContent = ''
-      let usageInfo: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null
+      let usageInfo: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } | null = null
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content || ''
@@ -154,6 +186,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
             prompt_tokens: chunk.usage.prompt_tokens || 0,
             completion_tokens: chunk.usage.completion_tokens || 0,
             total_tokens: chunk.usage.total_tokens || 0,
+            cached_tokens: (chunk.usage as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details?.cached_tokens || 0,
           }
         }
       }
@@ -169,8 +202,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
           model: config.model,
           inputTokens: usageInfo.prompt_tokens,
           outputTokens: usageInfo.completion_tokens,
-          cacheHitTokens: 0,
-          cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, 0, config),
+          cacheHitTokens: usageInfo.cached_tokens || 0,
+          cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, usageInfo.cached_tokens || 0, config),
         }).catch(() => {})
       }
 
@@ -180,7 +213,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
           prompt_tokens: usageInfo.prompt_tokens,
           completion_tokens: usageInfo.completion_tokens,
           total_tokens: usageInfo.total_tokens,
-          cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, 0, config),
+          cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, usageInfo.cached_tokens || 0, config),
         } : undefined,
       })
     } catch (err) {
@@ -254,4 +287,103 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage) {
       cacheHitPricePerM: c.cacheHitPricePerM ?? 1.25,
     }))
   })
+
+  // ── Tool-enabled chat (single turn) ──
+  ipcMain.handle('ai:chat-with-tools',
+    async (_event, messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
+      configId: string, projectId?: string, tools?: unknown[],
+    ) => {
+      const store = await getConfigStore()
+      const configs = store.get('configs', []) as StoredConfig[]
+      const config = configs.find(c => c.id === configId)
+      if (!config) throw new Error('Model config not found')
+
+      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      const OpenAI = await getOpenAI()
+      const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
+
+      const systemMessage = config.systemPrompt
+        ? { role: 'system' as const, content: config.systemPrompt }
+        : null
+
+      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }> = [
+        ...(systemMessage ? [systemMessage] : []),
+        ...messages.map(m => {
+          const msg: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string } = {
+            role: validateRole(m.role),
+            content: m.content,
+          }
+          if (m.tool_calls) (msg as Record<string, unknown>).tool_calls = m.tool_calls
+          if (m.tool_call_id) (msg as Record<string, unknown>).tool_call_id = m.tool_call_id
+          return msg
+        }),
+      ]
+
+      try {
+        const params: Record<string, unknown> = {
+          model: config.model,
+          messages: apiMessages,
+          temperature: config.temperature,
+          max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
+          ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
+        }
+
+        if (tools && tools.length > 0) {
+          params.tools = tools
+          params.tool_choice = 'auto'
+        }
+
+        const completion = await client.chat.completions.create(params as any)
+
+        const usage = completion.usage
+        if (usage) {
+          logTokenUsage({
+            timestamp: new Date().toISOString(),
+            projectId: projectId || '__global__',
+            configId: config.id,
+            configName: config.name,
+            model: config.model,
+            inputTokens: usage.prompt_tokens || 0,
+            outputTokens: usage.completion_tokens || 0,
+            cacheHitTokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
+            cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
+          }).catch(() => {})
+        }
+
+        const choice = completion.choices[0]
+        const normalized = normalizeContent(choice?.message?.content)
+        return JSON.stringify({
+          text: normalized.text,
+          images: normalized.images.length > 0 ? normalized.images : undefined,
+          tool_calls: choice?.message?.tool_calls || null,
+          finish_reason: choice?.finish_reason || 'stop',
+          usage: usage ? {
+            prompt_tokens: usage.prompt_tokens || 0,
+            completion_tokens: usage.completion_tokens || 0,
+            total_tokens: usage.total_tokens || 0,
+            cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
+          } : undefined,
+        })
+      } catch (err) {
+        throw new Error(categorizeError(err))
+      }
+    })
+
+  // ── Execute file tools on main process ──
+  // #9: Backend enforcement — dangerous tools must be confirmed by frontend
+  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project'])
+  ipcMain.handle('ai:execute-file-tool',
+    async (_event, calls: ToolCallArgs[]) => {
+      if (!projectsPath) throw new Error('Projects path not configured')
+      const results = []
+      for (const call of calls) {
+        if (DANGEROUS_TOOL_NAMES.has(call.toolName) && !(call as unknown as Record<string, unknown>).confirmed) {
+          results.push({ callId: call.callId, toolName: call.toolName, status: 'error' as const, summary: '操作未获用户确认' })
+          continue
+        }
+        const result = await executeFileTool(call, projectsPath)
+        results.push(result)
+      }
+      return results
+    })
 }

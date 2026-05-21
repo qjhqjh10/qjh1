@@ -2,9 +2,20 @@ import { IpcMain } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { app } from 'electron'
+import { isSafePath } from './utils'
+
+function sanitizeId(id: string): string {
+  return String(id || '').replace(/\.\./g, '').replace(/[\\/]/g, '').slice(0, 64)
+}
 
 function getStoryPath(): string {
   return path.join(app.getPath('userData'), 'story_analyses')
+}
+
+function safeJoin(base: string, ...segments: string[]): string {
+  const p = path.join(base, ...segments.map(sanitizeId))
+  if (!isSafePath(p, base)) throw new Error('Access denied')
+  return p
 }
 
 export function registerStoryHandlers(ipcMain: IpcMain) {
@@ -42,53 +53,53 @@ export function registerStoryHandlers(ipcMain: IpcMain) {
   // Read meta
   ipcMain.handle('story:readMeta', async (_event, id: string) => {
     try {
-      return JSON.parse(await fs.readFile(path.join(basePath, id, 'meta.json'), 'utf-8'))
+      return JSON.parse(await fs.readFile(safeJoin(basePath, id, 'meta.json'), 'utf-8'))
     } catch { return null }
   })
 
   // Save meta
   ipcMain.handle('story:saveMeta', async (_event, id: string, meta: any) => {
-    await fs.writeFile(path.join(basePath, id, 'meta.json'), JSON.stringify({ ...meta, updatedAt: new Date().toISOString() }, null, 2))
+    await fs.writeFile(safeJoin(basePath, id, 'meta.json'), JSON.stringify({ ...meta, updatedAt: new Date().toISOString() }, null, 2))
   })
 
   // Read chapter
   ipcMain.handle('story:readChapter', async (_event, id: string, chapterId: string) => {
     try {
-      return await fs.readFile(path.join(basePath, id, 'chapters', `${chapterId}.txt`), 'utf-8')
+      return await fs.readFile(safeJoin(basePath, id, 'chapters', `${sanitizeId(chapterId)}.txt`), 'utf-8')
     } catch { return '' }
   })
 
   // Write chapter
   ipcMain.handle('story:writeChapter', async (_event, id: string, chapterId: string, content: string) => {
-    await fs.writeFile(path.join(basePath, id, 'chapters', `${chapterId}.txt`), content, 'utf-8')
+    await fs.writeFile(safeJoin(basePath, id, 'chapters', `${sanitizeId(chapterId)}.txt`), content, 'utf-8')
   })
 
   // Read analysis result
   ipcMain.handle('story:readAnalysis', async (_event, id: string, chapterId: string) => {
     try {
-      return await fs.readFile(path.join(basePath, id, 'analysis', `${chapterId}.json`), 'utf-8')
+      return await fs.readFile(safeJoin(basePath, id, 'analysis', `${sanitizeId(chapterId)}.json`), 'utf-8')
     } catch { return '' }
   })
 
   // Write analysis result
   ipcMain.handle('story:writeAnalysis', async (_event, id: string, chapterId: string, content: string) => {
-    await fs.writeFile(path.join(basePath, id, 'analysis', `${chapterId}.json`), content, 'utf-8')
+    await fs.writeFile(safeJoin(basePath, id, 'analysis', `${sanitizeId(chapterId)}.json`), content, 'utf-8')
   })
 
   // Read graph
   ipcMain.handle('story:readGraph', async (_event, id: string) => {
     try {
-      return await fs.readFile(path.join(basePath, id, 'graph.json'), 'utf-8')
+      return await fs.readFile(safeJoin(basePath, id, 'graph.json'), 'utf-8')
     } catch { return '{}' }
   })
 
   // Write graph
   ipcMain.handle('story:writeGraph', async (_event, id: string, content: string) => {
-    await fs.writeFile(path.join(basePath, id, 'graph.json'), content, 'utf-8')
+    await fs.writeFile(safeJoin(basePath, id, 'graph.json'), content, 'utf-8')
   })
 
   // Delete analysis
   ipcMain.handle('story:delete', async (_event, id: string) => {
-    await fs.rm(path.join(basePath, id), { recursive: true, force: true })
+    await fs.rm(safeJoin(basePath, id), { recursive: true, force: true })
   })
 }

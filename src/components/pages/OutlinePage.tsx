@@ -69,6 +69,8 @@ export default function OutlinePage() {
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
   const setActivePage = useStore(s => s.setActivePage)
   const detailedChapters = useStore(s => s.detailedChapters)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const [projectPath, setProjectPath] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -119,7 +121,7 @@ export default function OutlinePage() {
   }, [worldbuildingContent, projectPath])
 
   // Let AI assistant know which page we're on
-  useEffect(() => { setActivePage(activeTab === 'worldbuilding' ? 'worldbuilding' : 'outline') }, [activeTab])
+  useEffect(() => { setActivePage(activeTab === 'worldbuilding' ? 'worldbuilding' : activeTab === 'characters' ? 'characters' : 'outline') }, [activeTab])
 
   // Sync tab to URL
   useEffect(() => {
@@ -166,6 +168,22 @@ export default function OutlinePage() {
 
     setLoading(false)
   }, [activeProjectId, projectsBasePath])
+
+  // AI direct edit via edit_file → reload editor with clean content
+  useEffect(() => {
+    if (!fileEditNotify || !projectPath) return
+    const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
+    const outlinePath = `${projectPath}/outline/outline.json`.replace(/\\/g, '/')
+    const wbPath = `${projectPath}/outline/worldbuilding.json`.replace(/\\/g, '/')
+    if (normalized === outlinePath) {
+      setOutlineContent(fileEditNotify.newContent)
+      setFileEditNotify(null)
+    } else if (normalized === wbPath) {
+      setWorldbuildingContent(fileEditNotify.newContent)
+      setFileEditNotify(null)
+    }
+    return () => { setFileEditNotify(null) }
+  }, [fileEditNotify])
 
   const handleSaveWorldbuilding = useCallback(async () => {
     if (!projectPath) return

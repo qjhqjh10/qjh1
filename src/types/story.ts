@@ -315,8 +315,10 @@ export interface EroticSceneConfig {
   autoFields: Record<string, boolean>
 }
 
+export type SceneTemplateType = '普通小说' | '情色小说' | '都市小说' | '修仙小说' | '武侠小说' | '恋爱小说' | '古风小说' | '悬疑小说' | '历史小说' | '科幻小说' | '穿越小说'
+
 export interface SceneTemplate {
-  id: string; name: string; type: 'erotic' | 'novel'; config: EroticSceneConfig | NovelSceneConfig; createdAt: string
+  id: string; name: string; type: SceneTemplateType; config: EroticSceneConfig | NovelSceneConfig; createdAt: string
 }
 
 // ---- Novel Scene Builder ----

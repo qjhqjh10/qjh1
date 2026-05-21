@@ -1,16 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
-import { continuationService, aiService, extractionService } from '@/services/fileService'
+import { continuationService, aiService, extractionService, styleTemplateService, templateService, fileService } from '@/services/fileService'
+import { getTemplateInjection } from '@/utils/styleInjector'
+import type { SceneTemplate } from '@/types/story'
+import type { StyleTemplate } from '@/types/styleTemplate'
 import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
+import Modal from '@/components/common/Modal'
 import {
-  ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PencilIcon,
+  ArrowLeftIcon, SparklesIcon, CheckCircleIcon, PencilIcon, FolderOpenIcon,
 } from '@heroicons/react/24/outline'
 import type { ContinuationProject, ContinuationChapter, StoryUnderstanding, ContinuationPlan, ContinuationChapterPlan, ContinuationWrittenChapter, ContinuationChapterAnalysis, OutlineMergeData, PlotDirectionSegment, CharacterRole } from '@/types/continuation'
+import { CONTINUATION_DIMS } from '@/types/continuation'
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
 const stepLabels = ['导入分章', '逐章分析', '原作理解', '剧情走向', '大纲融合', '续写细纲', '续写章节']
@@ -18,6 +23,8 @@ const stepLabels = ['导入分章', '逐章分析', '原作理解', '剧情走�
 export default function ContinuationWorkspacePage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
+  const projectsBasePath = useStore(s => s.projectsBasePath)
+  const setActivePage = useStore(s => s.setActivePage)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
 
   const [project, setProject] = useState<ContinuationProject | null>(null)
@@ -39,7 +46,34 @@ export default function ContinuationWorkspacePage() {
   const [writingChapter, setWritingChapter] = useState<ContinuationWrittenChapter | null>(null)
   const [writingContent, setWritingContent] = useState('')
   const [writingLoading, setWritingLoading] = useState(false)
+  // 模板注入
+  const [sceneTemplates, setSceneTemplates] = useState<SceneTemplate[]>([])
+  const [styleTemplates, setStyleTemplates] = useState<StyleTemplate[]>([])
+  const [selectedSceneTplId, setSelectedSceneTplId] = useState('')
+  const [selectedStyleTplId, setSelectedStyleTplId] = useState(project?.styleTemplateId || '')
+  // 维度选择
+  const [showDimDialog, setShowDimDialog] = useState(false)
+  const [enabledDims, setEnabledDims] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`cont_dims_${activeProjectId}`)
+      return saved ? new Set(JSON.parse(saved)) : new Set(CONTINUATION_DIMS.map(d => d.key))
+    } catch { return new Set(CONTINUATION_DIMS.map(d => d.key)) }
+  })
 
+  const toggleDim = (key: string) => {
+    setEnabledDims(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      localStorage.setItem(`cont_dims_${activeProjectId}`, JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  useEffect(() => { setActivePage('continuation-workspace') }, [])
+  useEffect(() => {
+    templateService.list().then((list: any) => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => {})
+    styleTemplateService.list().then(setStyleTemplates).catch(() => {})
+  }, [])
   useEffect(() => { chaptersRef.current = chapters }, [chapters])
 
   useEffect(() => {
@@ -99,13 +133,27 @@ export default function ContinuationWorkspacePage() {
     setImporting(false)
   }
 
-  // ... (all handler functions: handleAnalyzeChapter, handleAnalyzeAll, handleAggregate, etc. — same as before)
+  const handleImportFromContent = async (name: string, content: string) => {
+    const split = splitChaptersByHeadings(content)
+    const chs: ContinuationChapter[] = split.map((r, i) => ({
+      chapterNumber: i + 1, title: r.title, content: r.content, wordCount: countChineseWords(r.content),
+    }))
+    setChapters(chs)
+    const proj: ContinuationProject = {
+      id: project?.id || '', name: project?.name || name.replace(/\.txt$/i, ''),
+      sourceFileName: name, sourceChapters: chs, writtenChapters: [],
+      status: 'imported', createdAt: project?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    const saved = await continuationService.save(proj)
+    setProject(saved)
+  }
+
   const handleAnalyzeChapter = async (idx: number) => {
     if (!activeConfigId || !project) return
     const ch = chapters[idx]
     setAnalyzingChapter(idx)
     try {
-      const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber)
+      const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       const m = reply.match(/\{[\s\S]*\}/)
       if (m) {
@@ -120,6 +168,11 @@ export default function ContinuationWorkspacePage() {
           emotionalTone: json.emotionalTone || '',
           timelinePosition: json.timelinePosition || '', chapterRole: json.chapterRole || 'development',
           unresolvedQuestions: json.unresolvedQuestions || [],
+          // 快照数据提取
+          characterSnapshots: (json.characterSnapshots || []).map((s: any) => ({ name: s.name || '', alive: s.alive !== false, powerLevel: s.powerLevel || '', location: s.location || '' })),
+          itemSnapshots: (json.itemSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '完好') as any, owner: s.owner || '' })),
+          factionSnapshots: (json.factionSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '活跃') as any, leader: s.leader || '' })),
+          locationSnapshots: (json.locationSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '存在') as any, significance: s.significance || '' })),
         }
         const updated = [...chapters]
         updated[idx] = { ...ch, analysis }
@@ -326,9 +379,25 @@ export default function ContinuationWorkspacePage() {
       constraints.push(`待回收伏笔: ${storyUnderstand.foreshadowingUnresolved.map(f => f.description).join('; ')}`)
     }
 
+    // 加载模板注入
+    let styleInjection = ''
+    let sceneInjection = ''
+    try {
+      if (selectedStyleTplId) styleInjection = await getTemplateInjection(selectedStyleTplId) || ''
+      const sceneTpl = sceneTemplates.find(s => s.id === selectedSceneTplId)
+      if (sceneTpl) {
+        const cfg = sceneTpl.config as any
+        if (sceneTpl.type === '情色小说') {
+          sceneInjection = `场景类型: 情色 | 角色: ${cfg.characters?.map?.((c: any) => c.name || c.characterName).join(',') || ''} | 地点: ${cfg.location || ''} | 氛围: ${cfg.atmosphere || ''} | 字数: ${cfg.wordTarget || ''}`
+        } else {
+          sceneInjection = `场景类型: ${cfg.sceneType || ''} | 角色: ${cfg.characters?.map?.((c: any) => c.characterName || c.name).filter(Boolean).join(',') || cfg.povCharacterName || ''} | 地点: ${cfg.location || ''} | 情绪: ${cfg.dominantEmotion || ''} | 冲突: ${cfg.conflictType || ''} | 字数: ${cfg.wordTarget || ''} | 叙事: ${cfg.narrativeStyle || ''}`
+        }
+      }
+    } catch { /* template injection optional */ }
+
     try {
       const prompt = cs.buildContinuationWritingPrompt(
-        { ...plan, characterFocus: charFocus }, prevSummary, chars, rules, plan.relativeChapterNumber, constraints.join('\n'))
+        { ...plan, characterFocus: charFocus }, prevSummary, chars, rules, plan.relativeChapterNumber, constraints.join('\n'), styleInjection, sceneInjection)
       const result = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       setWritingContent(result)
       setWritingChapter({ chapterNumber: plan.relativeChapterNumber, title: plan.tentativeTitle, content: result, plan, generatedAt: new Date().toISOString() })
@@ -395,6 +464,10 @@ export default function ContinuationWorkspacePage() {
             ))}
           </ScrollArea>
           <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <span style={{ fontSize: 9, color: '#9b8e84' }}>分析维度({enabledDims.size}/{CONTINUATION_DIMS.length})</span>
+              <button onClick={() => setShowDimDialog(true)} style={{ fontSize: 9, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600, fontFamily: 'inherit' }}>选择</button>
+            </div>
             <Button size="sm" onClick={handleAnalyzeRemaining} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>{analyzing ? '分析中...' : '分析剩余章节'}</Button>
             {selectedChapterIds.size > 0 && <Button size="sm" variant="secondary" onClick={handleAnalyzeSelected} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>分析选中({selectedChapterIds.size})</Button>}
           </div>
@@ -407,7 +480,23 @@ export default function ContinuationWorkspacePage() {
                 <div style={{ textAlign: 'center', padding: 60 }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
                   <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>导入小说</h3>
-                  <Button onClick={handleImport} disabled={importing} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{importing ? '导入中...' : '选择 TXT 文件'}</Button>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <Button onClick={handleImport} disabled={importing} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{importing ? '导入中...' : '选择 TXT 文件'}</Button>
+                    <Button variant="secondary" onClick={async () => {
+                      try {
+                        const pp = `${projectsBasePath}/${activeProjectId}`
+                        const files = await fileService.listDir(pp) as string[]
+                        const txtFiles = files.filter(f => f.endsWith('.txt'))
+                        if (txtFiles.length === 0) { alert('项目目录下无 TXT 文件。可让 AI 在 ai_workspace/ 创建。'); return }
+                        const name = prompt(`选择文件:\n${txtFiles.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\n输入序号:`, '1')
+                        if (!name) return
+                        const idx = parseInt(name) - 1
+                        if (isNaN(idx) || idx < 0 || idx >= txtFiles.length) { alert('无效选择'); return }
+                        const result = await extractionService.importFromPath(`${pp}/${txtFiles[idx]}`)
+                        if (result) await handleImportFromContent(result.name, result.content)
+                      } catch (err) { alert('导入失败: ' + (err instanceof Error ? err.message : '未知错误')) }
+                    }} icon={<FolderOpenIcon style={{ width: 14, height: 14 }} />}>从项目目录导入</Button>
+                  </div>
                 </div>
               ) : (
                 <div>
@@ -571,6 +660,18 @@ export default function ContinuationWorkspacePage() {
           {step === 7 && continuationPlan && (
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ width: 200, flexShrink: 0 }}>
+                {/* 模板注入选择器 */}
+                <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>模板注入</div>
+                  <select value={selectedStyleTplId} onChange={e => setSelectedStyleTplId(e.target.value)} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit', marginBottom: 4 }}>
+                    <option value="">风格: 无</option>
+                    {styleTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <select value={selectedSceneTplId} onChange={e => setSelectedSceneTplId(e.target.value)} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit' }}>
+                    <option value="">场景: 无</option>
+                    {sceneTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>续写计划</div>
                 {continuationPlan.chapterPlans?.map((plan, i) => {
                   const written = project?.writtenChapters?.find(c => c.chapterNumber === plan.relativeChapterNumber)
@@ -606,6 +707,34 @@ export default function ContinuationWorkspacePage() {
           )}
         </ScrollArea>
       </div>
+
+      {/* 维度选择弹窗 */}
+      <Modal isOpen={showDimDialog} onClose={() => setShowDimDialog(false)} title="选择分析维度" width={520}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <button onClick={() => setEnabledDims(new Set(CONTINUATION_DIMS.map(d => d.key)))} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>全选</button>
+            <button onClick={() => { setEnabledDims(new Set()); localStorage.setItem(`cont_dims_${activeProjectId}`, '[]') }} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>清空</button>
+            <button onClick={() => { const d = new Set(CONTINUATION_DIMS.filter(d => d.category === '基础').map(d => d.key)); setEnabledDims(d); localStorage.setItem(`cont_dims_${activeProjectId}`, JSON.stringify([...d])) }} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>仅基础</button>
+          </div>
+          {(['基础', '伏笔', '进阶'] as const).map(cat => {
+            const catDims = CONTINUATION_DIMS.filter(d => d.category === cat)
+            if (catDims.length === 0) return null
+            return (
+              <div key={cat}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 6 }}>{cat}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {catDims.map(d => (
+                    <label key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#2d2520', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={enabledDims.has(d.key)} onChange={() => toggleDim(d.key)} style={{ accentColor: '#7c3aed' }} />
+                      {d.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Modal>
     </div>
   )
 }

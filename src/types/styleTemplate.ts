@@ -1,9 +1,11 @@
 import type { DimAnalysis } from './story'
 
+export type StyleTemplateType = '普通小说' | '情色小说' | '都市小说' | '修仙小说' | '武侠小说' | '恋爱小说' | '古风小说' | '悬疑小说' | '历史小说' | '科幻小说' | '穿越小说'
+
 export interface StyleTemplate {
   id: string
   name: string
-  type: '情色小说' | '普通小说'
+  type: StyleTemplateType
   worldType: string
   description: string
   fullDescription: string
@@ -17,7 +19,36 @@ export interface StyleTemplate {
   updatedAt: string
 }
 
-export function createEmptyTemplate(type: '情色小说' | '普通小说'): StyleTemplate {
+// 每种小说类型的专属维度映射
+export const TYPE_EXTRA_DIMS: Record<string, string[]> = {
+  '普通小说': [],
+  '情色小说': ['corruptionArc', 'degradationRitual', 'narrativeVoice', 'shameVoyeurLoop'],
+  '都市小说': ['socialRealism'],
+  '修仙小说': ['cultivationCombat'],
+  '武侠小说': ['cultivationCombat', 'archaicStyle'],
+  '恋爱小说': ['romanceArc'],
+  '古风小说': ['archaicStyle'],
+  '悬疑小说': ['suspensePacing'],
+  '历史小说': ['socialRealism', 'archaicStyle'],
+  '科幻小说': ['socialRealism'],
+  '穿越小说': ['socialRealism', 'cultivationCombat'],
+}
+
+// 基础维度（17个，所有类型共用）
+export const BASE_DIMS = [
+  'narrativeTone', 'sentenceStyle', 'vocabularyStyle', 'rhetoricStyle',
+  'rhythmStyle', 'dialogueStyle', 'moodStyle',
+  'perspectiveStyle', 'bodyLanguageStyle', 'sensoryStyle',
+  'tensionStyle', 'descriptionPattern',
+  'compoundWordPattern', 'onomatopoeiaSystem', 'sensoryPackFormula',
+  'bodyMindBetrayal', 'humiliationTemplate',
+]
+
+export function getTemplateDims(type: string): string[] {
+  return [...BASE_DIMS, ...(TYPE_EXTRA_DIMS[type] || [])]
+}
+
+export function createEmptyTemplate(type: StyleTemplateType): StyleTemplate {
   return {
     id: '',
     name: '',

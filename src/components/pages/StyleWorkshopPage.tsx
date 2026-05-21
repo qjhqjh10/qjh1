@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { styleProjectService, aiService, styleTemplateService } from '@/services/fileService'
 import type { StyleTemplate } from '@/types/styleTemplate'
+import { getTemplateDims, BASE_DIMS, TYPE_EXTRA_DIMS } from '@/types/styleTemplate'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
@@ -14,13 +15,14 @@ import { splitChaptersByHeadings } from '@/utils/textUtils'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import {
-  SparklesIcon, PlusIcon, TrashIcon, PencilIcon, XMarkIcon,
+  SparklesIcon, PlusIcon, TrashIcon, XMarkIcon,
   DocumentTextIcon, PaintBrushIcon, FolderOpenIcon,
-  ArrowLeftIcon, CheckIcon, ClockIcon, DocumentMagnifyingGlassIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline'
 
 type ViewMode = 'library' | 'detail'
 type ResultTab = 'chapters' | 'overall'
+type WorkspaceTab = 'archives' | 'templates'
 
 function splitChapters(content: string): StyleChapter[] {
   let chapterNum = 0
@@ -45,6 +47,8 @@ const FEATURE_LABELS: Record<string, string> = {
 }
 
 export default function StyleWorkshopPage() {
+  const setActivePage = useStore(s => s.setActivePage)
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('archives')
   const [view, setView] = useState<ViewMode>('library')
   const [projects, setProjects] = useState<StyleProjectMeta[]>([])
   const [selectedProject, setSelectedProject] = useState<StyleProject | null>(null)
@@ -65,6 +69,22 @@ export default function StyleWorkshopPage() {
 
   const [showApply, setShowApply] = useState(false)
   const projectsList = useStore(s => s.projects)
+
+  // 模板库状态
+  const [templates, setTemplates] = useState<StyleTemplate[]>([])
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false)
+  const [editTemplate, setEditTemplate] = useState<StyleTemplate | null>(null)
+  const [templateTab, setTemplateTab] = useState<string>('all')
+  const [aiGenLoading, setAiGenLoading] = useState(false)
+
+  const loadTemplates = async () => {
+    try { setTemplates(await styleTemplateService.list()) } catch { setTemplates([]) }
+  }
+
+  useEffect(() => { setActivePage('style-workshop'); loadTemplates() }, [])
+
+  const NOVEL_TYPE_LABELS: Record<string, string> = { '普通小说': '普通', '情色小说': '情色', '都市小说': '都市', '修仙小说': '修仙', '武侠小说': '武侠', '恋爱小说': '恋爱', '古风小说': '古风', '悬疑小说': '悬疑', '历史小说': '历史', '科幻小说': '科幻', '穿越小说': '穿越' }
+  const filteredTemplates = templateTab === 'all' ? templates : templates.filter(t => t.type === templateTab)
   const styleAssignments = useSettingsStore(s => s.aiSettings.styleAssignments || {})
   const setStyleAssignments = useSettingsStore(s => s.setAISettings)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -293,8 +313,23 @@ export default function StyleWorkshopPage() {
     }
     try {
       await styleTemplateService.save(template)
+      await loadTemplates()
       alert('已保存为风格模板！')
     } catch { alert('保存失败') }
+  }
+
+  // ── 模板操作 ──
+  const handleCloneTemplate = async (t: StyleTemplate) => {
+    const clone: StyleTemplate = { ...t, id: '', name: `${t.name} (副本)`, source: 'manual', sourceProjectId: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    try {
+      await styleTemplateService.save(clone)
+      await loadTemplates()
+    } catch { alert('复制失败') }
+  }
+
+  const handleDeleteTemplate = async (t: StyleTemplate) => {
+    if (!confirm(`确定删除模板「${t.name}」？`)) return
+    try { await styleTemplateService.delete(t.id); await loadTemplates() } catch { alert('删除失败') }
   }
 
   const selectedChapter = selectedProject?.chapters.find(c => c.id === selectedChapterId)
@@ -306,10 +341,30 @@ export default function StyleWorkshopPage() {
       <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
         <ScrollArea style={{ flex: 1 }}>
         <div style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-            <div><h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d2520' }}>风格工坊</h2><p style={{ fontSize: 13, color: '#9b8e84', marginTop: 4 }}>导入名家作品，AI分析提取写作风格</p></div>
-            <Button onClick={handleImport} disabled={loading} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />}>{loading ? '导入中...' : '导入TXT小说'}</Button>
+          {/* Tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 4, background: 'rgba(0,0,0,0.03)', borderRadius: 12, padding: 3 }}>
+              {(['archives', 'templates'] as WorkspaceTab[]).map(tab => (
+                <button key={tab} onClick={() => setWorkspaceTab(tab)} style={{
+                  padding: '8px 20px', borderRadius: 10, border: 'none',
+                  background: workspaceTab === tab ? '#fff' : 'transparent',
+                  color: workspaceTab === tab ? '#7c3aed' : '#9b8e84',
+                  fontSize: 13, fontWeight: workspaceTab === tab ? 700 : 500,
+                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                  boxShadow: workspaceTab === tab ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                }}>
+                  {tab === 'archives' ? '风格档案' : '模板库'}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {workspaceTab === 'archives' && <Button onClick={handleImport} disabled={loading} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />}>{loading ? '导入中...' : '导入TXT小说'}</Button>}
+            </div>
           </div>
+
+          {/* Archives Tab */}
+          {workspaceTab === 'archives' && (<>
+          <div style={{ marginBottom: 16 }}><h2 style={{ fontSize: 18, fontWeight: 600, color: '#2d2520' }}>风格档案</h2><p style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>导入名家作品，AI分析提取写作风格</p></div>
           {projects.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}><PaintBrushIcon style={{ width: 56, height: 56, margin: '0 auto 16px', opacity: 0.2 }} /><p style={{ fontSize: 15 }}>暂无风格档案</p></div>
           ) : (
@@ -320,10 +375,50 @@ export default function StyleWorkshopPage() {
                     <div style={{ flex: 1 }}><h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', marginBottom: 6 }}>{p.name}</h3>
                       <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}><span>{p.sourceFileName}</span><span>{p.chapterCount}章</span><span>{(p.totalCharCount/10000).toFixed(1)}万字</span><span style={{ color: '#7c3aed' }}>{p.novelType || '通用'}</span>{p.hasProfile && <span style={{ color: '#16a34a' }}>✓ 已总结</span>}</div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}><Button size="sm" onClick={() => handleEnterProject(p)}>查看详情</Button><Button size="sm" variant="ghost" onClick={() => { setShowApply(true) }}>应用</Button><button onClick={() => handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}><TrashIcon style={{ width: 16, height: 16 }} /></button></div>
+                    <div style={{ display: 'flex', gap: 6 }}><Button size="sm" onClick={() => handleEnterProject(p)}>查看详情</Button><Button size="sm" variant="ghost" onClick={() => { handleEnterProject(p); setTimeout(() => setShowApply(true), 100) }}>应用</Button><button onClick={() => handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}><TrashIcon style={{ width: 16, height: 16 }} /></button></div>
                   </div>
                 </GlassCard>
               ))}
+            </div>
+          )}
+          </>)}
+          {/* Templates Tab */}
+          {workspaceTab === 'templates' && (
+            <div>
+              <div style={{ marginBottom: 16 }}><h2 style={{ fontSize: 18, fontWeight: 600, color: '#2d2520' }}>模板库</h2><p style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>管理风格模板，通过风格分析生成或手动创建</p></div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Button size="sm" onClick={() => setShowCreateTemplate(true)} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建模板</Button>
+                {(['all', ...Object.keys(NOVEL_TYPE_LABELS)] as const).map(t => (
+                  <button key={t} onClick={() => setTemplateTab(t)} style={{
+                    padding: '4px 12px', borderRadius: 8, border: templateTab === t ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
+                    background: templateTab === t ? 'rgba(124,58,237,0.05)' : 'transparent',
+                    color: templateTab === t ? '#7c3aed' : '#9b8e84', fontSize: 10, fontWeight: templateTab === t ? 600 : 400,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>{t === 'all' ? '全部' : NOVEL_TYPE_LABELS[t] || t}</button>
+                ))}
+              </div>
+              {filteredTemplates.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 13 }}>暂无模板。从风格档案分析后保存为模板，或点击新建。</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {filteredTemplates.map(t => (
+                    <GlassCard key={t.id} hover style={{ cursor: 'pointer', padding: 16 }} onClick={() => setEditTemplate(t)}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</h4>
+                        <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 6, background: t.type === '情色小说' ? 'rgba(239,68,68,0.06)' : 'rgba(124,58,237,0.06)', color: t.type === '情色小说' ? '#dc2626' : '#7c3aed', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{NOVEL_TYPE_LABELS[t.type] || t.type}</span>
+                      </div>
+                      <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description || '(无简介)'}</p>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 10, color: '#9b8e84', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{t.worldType || '通用'} · {Object.keys(t.dimensions || {}).length}维 · {t.source === 'ai-generated' ? 'AI生成' : '手动'}</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button onClick={(e) => { e.stopPropagation(); handleCloneTemplate(t) }} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', cursor: 'pointer', color: '#6b5e54', fontFamily: 'inherit' }}>复制</button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t) }} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.03)', cursor: 'pointer', color: '#dc2626', fontFamily: 'inherit' }}>删除</button>
+                        </div>
+                      </div>
+                    </GlassCard>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -736,6 +831,150 @@ export default function StyleWorkshopPage() {
             <Button onClick={() => setShowApply(false)}>完成</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* 新建/编辑模板弹窗 */}
+      <Modal isOpen={showCreateTemplate || editTemplate !== null} onClose={() => { setShowCreateTemplate(false); setEditTemplate(null); setAiGenLoading(false) }} title={editTemplate ? `编辑模板 — ${editTemplate.name}` : '新建风格模板'} width={640}>
+        {editTemplate ? (
+          /* ---- Edit Mode ---- */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '65vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input value={editTemplate.name} onChange={e => setEditTemplate({ ...editTemplate, name: e.target.value })} placeholder="模板名称" style={{ ...inputStyle, flex: 1 }} />
+              <select value={editTemplate.worldType} onChange={e => setEditTemplate({ ...editTemplate, worldType: e.target.value })} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, fontFamily: 'inherit', width: 120 }}>
+                <option value="">世界观</option>
+                <option value="ancient">古代</option>
+                <option value="modern">现代</option>
+                <option value="western">西幻</option>
+                <option value="japanese">日系</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input value={editTemplate.description} onChange={e => setEditTemplate({ ...editTemplate, description: e.target.value })} placeholder="一句话描述" style={{ ...inputStyle, flex: 1 }} />
+              <select value={editTemplate.tone?.attitude || ''} onChange={e => setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, attitude: e.target.value } })} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit', width: 110 }}>
+                <option value="">叙事态度</option>
+                <option value="冷漠旁观">冷漠旁观</option>
+                <option value="欣赏把玩">欣赏把玩</option>
+                <option value="幽默调侃">幽默调侃</option>
+                <option value="温柔包容">温柔包容</option>
+                <option value="神圣庄严">神圣庄严</option>
+              </select>
+            </div>
+            <div style={{ background: 'rgba(124,58,237,0.04)', borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 8 }}>AI辅助填充维度</div>
+              <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8 }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。</p>
+              <textarea id="aiDescInput" placeholder="例如：适合修仙小说的风格，战斗场面招式华丽，日常对话幽默轻松，古风文言和现代白话交织，节奏紧凑步步推进..." style={{ width: '100%', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, outline: 'none', fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', padding: 10, minHeight: 80, resize: 'vertical' }} />
+              <button
+                disabled={aiGenLoading || !activeConfigId}
+                onClick={async () => {
+                  const desc = (document.getElementById('aiDescInput') as HTMLTextAreaElement)?.value?.trim()
+                  if (!desc) { alert('请描述你想要的写作风格'); return }
+                  setAiGenLoading(true)
+                  try {
+                    const dimKeys = getTemplateDims(editTemplate.type)
+                    const dimList = dimKeys.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')
+                    const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${editTemplate.type}生成风格模板的维度数据。
+
+风格描述: ${desc}
+
+需要填充的维度: ${dimList}
+
+对每个维度，请用JSON格式输出：
+{
+  "dimensions": {
+    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["原文例证1", "例证2"], "writingRules": ["写作规则1", "规则2"], "vocabularyList": ["词汇1", "词汇2"] },
+    ...
+  },
+  "fullDescription": "整体风格综述(200-400字)",
+  "tone": { "word": "叙事基调词", "description": "基调描述(50-100字)" }
+}
+
+只输出JSON，不要markdown。`
+                    const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId!)
+                    const m = reply.match(/\{[\s\S]*\}/)
+                    if (m) {
+                      const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+                      setEditTemplate(prev => prev ? {
+                        ...prev,
+                        fullDescription: json.fullDescription || prev.fullDescription,
+                        tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
+                        dimensions: { ...prev.dimensions, ...(json.dimensions || {}) },
+                        source: prev.source === 'ai-generated' ? 'ai-generated' : 'manual',
+                        description: prev.description || (json.fullDescription || '').slice(0, 100),
+                      } : prev)
+                    }
+                  } catch (err) { logError('AI填充失败', err); alert('AI填充失败: ' + (err instanceof Error ? err.message : '未知错误')) }
+                  setAiGenLoading(false)
+                }}
+                style={{ marginTop: 8, padding: '8px 16px', borderRadius: 8, border: 'none', background: activeConfigId ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: activeConfigId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <SparklesIcon style={{ width: 14, height: 14 }} /> {aiGenLoading ? '生成中...' : 'AI填充维度'}
+              </button>
+              {editTemplate.fullDescription && <div style={{ marginTop: 8, fontSize: 11, color: '#6b5e54', lineHeight: 1.6, maxHeight: 100, overflow: 'auto' }}>{editTemplate.fullDescription}</div>}
+            </div>
+            {/* Per-dimension status */}
+            {/* 维度标签云 */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#2d2520', marginBottom: 8 }}>
+                维度概览（{Object.keys(editTemplate.dimensions || {}).filter(k => (editTemplate.dimensions?.[k] as any)?.description).length}/{getTemplateDims(editTemplate.type).length} 已填充）
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {getTemplateDims(editTemplate.type).map(dk => {
+                  const dim = (editTemplate.dimensions?.[dk] as any) || {}
+                  const filled = !!dim.description
+                  const label = DIMENSION_META[dk]?.label || dk
+                  return (
+                    <span key={dk} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      padding: '3px 10px', borderRadius: 8,
+                      border: filled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(0,0,0,0.06)',
+                      background: filled ? 'rgba(16,185,129,0.04)' : 'rgba(0,0,0,0.01)',
+                      color: filled ? '#16a34a' : '#9b8e84',
+                      fontSize: 10, fontWeight: filled ? 600 : 400,
+                    }}>
+                      {filled ? '✓' : '—'} {label}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+              <button onClick={() => { setEditTemplate(null); setAiGenLoading(false) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>取消</button>
+              <button onClick={async () => {
+                if (!editTemplate) return
+                try {
+                  await styleTemplateService.save({ ...editTemplate, updatedAt: new Date().toISOString() })
+                  await loadTemplates()
+                  setEditTemplate(null)
+                } catch { alert('保存失败') }
+              }} disabled={!editTemplate.name} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: editTemplate.name ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: editTemplate.name ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>保存模板</button>
+            </div>
+          </div>
+        ) : (
+          /* ---- Create Mode ---- */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <input id="newTmplName" style={inputStyle} placeholder="输入模板名称..." />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {Object.entries(NOVEL_TYPE_LABELS).map(([type, label]) => {
+                const dimCount = getTemplateDims(type).length
+                const isErotic = type === '情色小说'
+                return (
+                  <button key={type} onClick={() => {
+                    const name = (document.getElementById('newTmplName') as HTMLInputElement)?.value?.trim() || '新模板'
+                    const t: StyleTemplate = { id: '', name, type: type as StyleTemplate['type'], worldType: '', description: '', fullDescription: '', dimensions: {}, vocabularyList: [], writingRules: [], tone: { word: '', description: '', attitude: '' }, source: 'manual', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+                    styleTemplateService.save(t).then(async () => { await loadTemplates(); setShowCreateTemplate(false) }).catch(() => alert('创建失败'))
+                  }} style={{
+                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                    border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
+                    background: isErotic ? 'rgba(239,68,68,0.02)' : 'rgba(124,58,237,0.02)',
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 10, color: '#9b8e84' }}>{dimCount}维</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

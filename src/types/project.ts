@@ -5,4 +5,6 @@ export interface Project {
   chapterCount: number
   wordCount: number
   type: 'writing' | 'imitation' | 'continuation'
+  novelCategory?: string
+  coverImage?: string
 }

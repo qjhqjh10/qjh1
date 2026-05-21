@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
-import { projectService, continuationService, exportService, dialogService } from '@/services/fileService'
+import { projectService, fileService, continuationService, exportService, dialogService } from '@/services/fileService'
+import { NOVEL_CATEGORIES } from '@/types/chapter'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
+import CoverUpload from '@/components/common/CoverUpload'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -31,6 +33,7 @@ export default function HomePage() {
   const [showCreate, setShowCreate] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectType, setNewProjectType] = useState<'writing' | 'imitation' | 'continuation'>('writing')
+  const [newNovelCategory, setNewNovelCategory] = useState('general')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
@@ -62,6 +65,10 @@ projList.push({ id: name, ...meta, type: pt })
     const name = newProjectName.trim()
     try {
       await projectService.create(name, projectsBasePath, newProjectType)
+      // Set initial novel category for writing projects
+      if (newProjectType === 'writing') {
+        await projectService.updateCategory(`${projectsBasePath}/${name}`, newNovelCategory)
+      }
       const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
       addProject({ id: name, ...meta, type: newProjectType })
       // For continuation projects, also create the ContinuationProject entry (with same ID)
@@ -71,7 +78,7 @@ projList.push({ id: name, ...meta, type: pt })
             id: name, name, sourceFileName: '', sourceChapters: [], writtenChapters: [],
             status: 'imported', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
           })
-        } catch {}
+        } catch (err) { logError('创建续写项目记录失败', err) }
       }
       setNewProjectName('')
       setShowCreate(false)
@@ -92,10 +99,10 @@ projList.push({ id: name, ...meta, type: pt })
   const handleDeleteProject = async (project: Project) => {
     try {
       if (project.type === 'continuation') {
-        try { await continuationService.delete(project.id) } catch {}
+        try { await continuationService.delete(project.id) } catch (err) { logError('删除续写记录失败', err) }
       }
       if (project.path) {
-        try { await projectService.delete(project.path) } catch {}
+        try { await projectService.delete(project.path) } catch (err) { logError('删除项目目录失败', err) }
       }
       removeProject(project.id)
     } catch (err) {
@@ -131,114 +138,228 @@ projList.push({ id: name, ...meta, type: pt })
 
   const handleEnterProject = (project: Project) => {
     setActiveProject(project.id, project.type)
-    navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-outline' : '/outline')
+    navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-workspace' : '/outline')
   }
 
   const activeProject = projects.find(p => p.id === activeProjectId)
 
+  const handleUpdateCategory = async (category: string) => {
+    if (!activeProject?.path) return
+    await projectService.updateCategory(activeProject.path, category)
+    await loadProjects()
+  }
+
+  const handleCoverChange = async (coverImage: string | undefined) => {
+    if (!activeProject?.path) return
+    try {
+      const pp = activeProject.path
+      const metaPath = `${pp}/project.json`.replace(/\\/g, '/')
+      const raw = await fileService.read(metaPath)
+      const meta = raw ? JSON.parse(raw) : {}
+      if (coverImage) {
+        meta.coverImage = coverImage
+      } else {
+        delete meta.coverImage
+      }
+      await fileService.write(metaPath, JSON.stringify(meta, null, 2))
+    } catch (err) { logError('保存封面元数据失败', err) }
+    await loadProjects()
+  }
+
+  const novelCategory = activeProject?.novelCategory || 'general'
+
   return (
-    <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
-      <div style={{ maxWidth: 900, width: '100%', margin: '0 auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+      {/* ── Left Panel: Project List ── */}
+      <div style={{
+        width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)',
+        display: 'flex', flexDirection: 'column',
+        background: 'rgba(255,255,255,0.35)',
+      }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-          <div>
-            <h2 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520' }}>工作台</h2>
-            <p style={{ fontSize: 14, color: '#9b8e84', marginTop: 4 }}>
-              {activeProject ? `当前项目: ${activeProject.name}` : '选择或创建一个项目开始写作'}
-            </p>
-          </div>
+        <div style={{ padding: '20px 16px 12px' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#2d2520', marginBottom: 12 }}>项目列表</h2>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="secondary" size="sm" onClick={handleImportProject}>导入项目</Button>
-            <Button onClick={() => setShowCreate(true)} icon={<PlusIcon style={{ width: 18, height: 18 }} />}>
-              新建项目
-            </Button>
+            <button
+              onClick={() => setShowCreate(true)}
+              style={{
+                flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+                color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <PlusIcon style={{ width: 15, height: 15 }} /> 新建
+            </button>
+            <button
+              onClick={handleImportProject}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                padding: '9px 12px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
+                background: 'rgba(255,255,255,0.6)', color: '#6b5e54', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s ease',
+              }}
+            >
+              导入
+            </button>
           </div>
         </div>
 
-        {/* Active Project Detail */}
-        {activeProject ? (
-          <GlassCard style={{ marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-              <div>
-                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{activeProject.name}</h3>
-                <div style={{ display: 'flex', gap: 32, marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: '#9b8e84' }}>完成章节</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{activeProject.chapterCount}</div>
+        {/* Project list */}
+        <div className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '0 10px 12px' }}>
+          {projects.map(project => {
+            const active = activeProjectId === project.id
+            return (
+              <div
+                key={project.id}
+                onClick={() => setActiveProject(project.id, project.type)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                  marginBottom: 4, borderRadius: 12, cursor: 'pointer',
+                  background: active ? 'rgba(124,58,237,0.08)' : 'transparent',
+                  borderLeft: active ? '3px solid #7c3aed' : '3px solid transparent',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(124,58,237,0.03)' }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#7c3aed' : '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {project.name}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 12, color: '#9b8e84' }}>已写字数</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{formatWordCount(activeProject.wordCount)}</div>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
+                    <span>{project.chapterCount}章</span>
+                    <span>{formatWordCount(project.wordCount)}字</span>
+                    <span style={{
+                      padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 600,
+                      background: project.type === 'imitation' ? 'rgba(22,163,74,0.1)' : project.type === 'continuation' ? 'rgba(217,119,6,0.1)' : 'rgba(124,58,237,0.1)',
+                      color: project.type === 'imitation' ? '#16a34a' : project.type === 'continuation' ? '#d97706' : '#7c3aed',
+                    }}>
+                      {project.type === 'imitation' ? '仿写' : project.type === 'continuation' ? '续写' : '写作'}
+                    </span>
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => handleEnterProject(activeProject)} icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}>
-                  进入项目
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => handleExportProject(activeProject)}>导出</Button>
-                <Button variant="danger" onClick={() => handleDeleteProject(activeProject)} icon={<TrashIcon style={{ width: 16, height: 16 }} />}>
-                  删除
-                </Button>
-              </div>
+            )
+          })}
+          {projects.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 32, color: '#9b8e84', fontSize: 12 }}>
+              暂无项目，点击"新建"开始
             </div>
-          </GlassCard>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9b8e84' }}>
-            <BookOpenIcon style={{ width: 64, height: 64, margin: '0 auto 16px', opacity: 0.3 }} />
-            <p style={{ fontSize: 16, marginBottom: 8 }}>尚未选择项目</p>
-            <p style={{ fontSize: 13 }}>选择左侧项目列表中的项目，或创建一个新项目</p>
-          </div>
-        )}
+          )}
+        </div>
+      </div>
 
-        {/* All Projects */}
-        <div style={{ marginTop: 8 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#6b5e54', marginBottom: 12 }}>
-            所有项目 ({projects.length})
-          </h3>
-          <ScrollArea maxHeight={400}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-              {projects.map(project => (
-                <GlassCard
-                  key={project.id}
-                  onClick={() => setActiveProject(project.id, project.type)}
+      {/* ── Right Panel: Workspace ── */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.25)' }}>
+        {activeProject ? (
+          <div style={{
+            width: '82%', minWidth: 520, maxWidth: 880, minHeight: '75vh', margin: '40px auto',
+            padding: '44px 48px', borderRadius: 24,
+            background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255,255,255,0.6)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+          }}>
+            {/* Cover */}
+            <CoverUpload
+              projectPath={activeProject.path}
+              coverImage={activeProject.coverImage}
+              onCoverChange={handleCoverChange}
+            />
+
+            {/* Project info */}
+            <div style={{ marginTop: 28 }}>
+              {/* Name & Type row */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: 0 }}>
+                  {activeProject.name}
+                </h3>
+                <select
+                  value={novelCategory}
+                  onChange={e => handleUpdateCategory(e.target.value)}
                   style={{
-                    border: activeProjectId === project.id ? '2px solid rgba(124, 58, 237, 0.3)' : undefined,
+                    padding: '6px 16px', borderRadius: 8,
+                    border: '1px solid rgba(124,58,237,0.2)',
+                    background: 'rgba(124,58,237,0.04)',
+                    color: '#7c3aed', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'inherit',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <h4 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {project.name}
-                      </h4>
-                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}>
-                        <span><DocumentTextIcon style={{ width: 14, height: 14, display: 'inline', marginRight: 2 }} /> {project.chapterCount}章</span>
-                        <span>{formatWordCount(project.wordCount)}字</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteTarget(project) }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: 6,
-                        borderRadius: 8,
-                        color: '#d4ccc4',
-                        flexShrink: 0,
-                      }}
-                      onMouseEnter={e => { (e.target as HTMLElement).style.color = '#dc2626' }}
-                      onMouseLeave={e => { (e.target as HTMLElement).style.color = '#d4ccc4' }}
-                    >
-                      <TrashIcon style={{ width: 16, height: 16 }} />
-                    </button>
-                  </div>
-                </GlassCard>
-              ))}
+                  {NOVEL_CATEGORIES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Stats row */}
+              <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.06)', overflow: 'hidden' }}>
+                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.chapterCount}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>完成章节</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{formatWordCount(activeProject.wordCount)}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>已写字数</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.type === 'imitation' ? '仿写' : activeProject.type === 'continuation' ? '续写' : '写作'}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>项目类型</div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                <button
+                  onClick={() => handleEnterProject(activeProject)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1,
+                    padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+                    justifyContent: 'center', transition: 'all 0.2s ease',
+                  }}
+                >
+                  <ArrowRightIcon style={{ width: 16, height: 16 }} /> 进入项目
+                </button>
+                <button
+                  onClick={() => handleExportProject(activeProject)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '12px 24px', borderRadius: 12,
+                    border: '1px solid rgba(0,0,0,0.08)', cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.6)', color: '#4a3f38',
+                    fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  导出
+                </button>
+                <button
+                  onClick={() => handleDeleteProject(activeProject)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '12px 24px', borderRadius: 12,
+                    border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer',
+                    background: 'rgba(239,68,68,0.04)', color: '#dc2626',
+                    fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <TrashIcon style={{ width: 14, height: 14 }} /> 删除
+                </button>
+              </div>
             </div>
-          </ScrollArea>
-          {loading && <div style={{ textAlign: 'center', padding: 16, color: '#9b8e84', fontSize: 13 }}>加载中...</div>}
-        </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
+            <BookOpenIcon style={{ width: 64, height: 64, margin: '0 auto 16px', opacity: 0.2 }} />
+            <p style={{ fontSize: 16, marginBottom: 4 }}>选择左侧项目</p>
+            <p style={{ fontSize: 13 }}>或点击"新建"创建项目</p>
+          </div>
+        )}
       </div>
 
       {/* Delete Confirmation Modal */}
@@ -311,6 +432,29 @@ projList.push({ id: name, ...meta, type: pt })
               </button>
             </div>
           </div>
+          {/* Novel category selector — only for writing projects */}
+          {newProjectType === 'writing' && (
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>
+                小说类型
+              </label>
+              <select
+                value={newNovelCategory}
+                onChange={e => setNewNovelCategory(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: 12,
+                  border: '1px solid rgba(124,58,237,0.2)',
+                  background: 'rgba(124,58,237,0.04)',
+                  color: '#7c3aed', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
+                }}
+              >
+                {NOVEL_CATEGORIES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button variant="secondary" onClick={() => setShowCreate(false)}>取消</Button>
             <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>创建</Button>

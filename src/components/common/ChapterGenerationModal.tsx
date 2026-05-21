@@ -95,7 +95,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   // Scene template injection
   const [sceneTemplates, setSceneTemplates] = useState<SceneTemplate[]>([])
   const [selectedSceneId, setSelectedSceneId] = useState('')
-  const [sceneFilterType, setSceneFilterType] = useState<'all' | 'erotic' | 'novel'>('all')
+  const [sceneFilterType, setSceneFilterType] = useState<'all' | '情色小说' | '普通小说'>('all')
   const [styleTemplates, setStyleTemplates] = useState<any[]>([])
   const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState('')
   const selectedStyleTemplate = selectedStyleTemplateId ? styleTemplates.find((t: any) => t.id === selectedStyleTemplateId) : null
@@ -117,7 +117,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     const a = (field: string) => !!auto[field]
     const autoLabel = (field: string, label: string) => a(field) ? `【${label}：AI根据上下文自主决定】` : null
 
-    if (tpl.type === 'erotic') {
+    if (tpl.type === '情色小说') {
       const ec = tpl.config as EroticSceneConfig
       const parts: string[] = []
       if (a('characters')) parts.push('【角色状态：AI根据上下文自主决定】')
@@ -519,18 +519,18 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>F. 场景注入</div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            {(['all', 'erotic', 'novel'] as const).map(t => (
+            {(['all', '情色小说', '普通小说'] as const).map(t => (
               <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
                 padding: '3px 8px', borderRadius: 6, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.08)',
                 background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#fff', cursor: 'pointer', fontSize: 10,
                 color: sceneFilterType === t ? '#7c3aed' : '#6b5e54',
-              }}>{t === 'all' ? '全部' : t === 'erotic' ? '情色' : '普通'}</button>
+              }}>{t === 'all' ? '全部' : t === '情色小说' ? '情色' : '普通'}</button>
             ))}
           </div>
           <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
             <option value="">-- 不注入场景模板 --</option>
             {sceneTemplates.filter(t => sceneFilterType === 'all' || t.type === sceneFilterType).map(t => (
-              <option key={t.id} value={t.id}>{t.name} ({t.type === 'erotic' ? '情色' : '普通'})</option>
+              <option key={t.id} value={t.id}>{t.name} ({t.type === '情色小说' ? '情色' : '普通'})</option>
             ))}
           </select>
           {selectedScene && (

@@ -36,17 +36,21 @@ export default function RelationshipGraphModal({
   useEffect(() => {
     if (!isOpen || !containerRef.current || !graphData) return
 
+    let cancelled = false
     const timer = setTimeout(() => {
-      if (!containerRef.current) return
+      if (!containerRef.current || cancelled) return
       graphRef.current?.destroy()
-      graphRef.current = renderRelationshipGraph(
+      renderRelationshipGraph(
         containerRef.current,
         graphData,
         (id) => onNodeClickRef.current(id),
-      )
+      ).then(g => {
+        if (!cancelled) graphRef.current = g
+      })
     }, 300)
 
     return () => {
+      cancelled = true
       clearTimeout(timer)
       graphRef.current?.destroy()
     }

@@ -1,4 +1,4 @@
-import { styleProjectService } from '@/services/fileService'
+import { styleProjectService, styleTemplateService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
 import type { StyleProject, StyleProfile, DimAnalysis } from '@/types/story'
 
@@ -310,7 +310,6 @@ export function convertTemplateToProfile(template: {
 export async function getTemplateInjection(templateId: string): Promise<string | null> {
   if (!templateId) return null
   try {
-    const { styleTemplateService } = await import('@/services/fileService')
     const template = await styleTemplateService.read(templateId) as any
     if (!template) return null
     const profileWrapper = convertTemplateToProfile(template)

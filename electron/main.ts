@@ -103,7 +103,7 @@ app.whenReady().then(async () => {
   registerFileHandlers(ipcMain, undefined, projectsPath)
   registerProjectHandlers(ipcMain, projectsPath)
   registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
-  registerAiHandlers(ipcMain, safeStorage)
+  registerAiHandlers(ipcMain, safeStorage, projectsPath)
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
   registerStatsHandlers(ipcMain)
 
@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
   const templatesPath = join(parentDir, 'scene_templates')
   registerTemplateHandlers(ipcMain, templatesPath)
 
-  registerExtractionHandlers(ipcMain)
+  registerExtractionHandlers(ipcMain, parentDir)
   registerContinuationHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
