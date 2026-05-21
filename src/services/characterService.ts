@@ -3,7 +3,7 @@ import { logError } from '@/utils/logger'
 import type { Character, CharacterRole } from '@/types/character'
 import { EMPTY_CHARACTER } from '@/types/character'
 
-const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
+export const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
 
 export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?: boolean }[] = [
   { key: 'name', label: '姓名' },

@@ -4,7 +4,7 @@ import * as path from 'path'
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog, isSafePath } from './utils'
 import type { StoredConfig } from './utils'
 import { logError } from './logger'
-import type { KnowledgeFile, KnowledgeChunk, KnowledgeIndex, KnowledgeMetadata } from '../../src/types/knowledge'
+import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../src/types/knowledge'
 
 let projectsBasePath = ''
 
@@ -269,6 +269,59 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
     await saveIndex(index)
     meta.files.find(f => f.id === fileId)!.chunkCount = chunks.length
+    await saveMetadata(meta)
+  })
+
+  // Create a new KB file
+  ipcMain.handle('kb:create', async (_event, name: string, content: string, projectId?: string) => {
+    const meta = await loadMetadata()
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+    const safeName = `${id}.md`
+    const filePath = path.join(getKBPath(), 'files', safeName)
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, content, 'utf-8')
+
+    const newFile: KnowledgeFile = {
+      id, name: safeName, originalName: name.endsWith('.md') ? name : `${name}.md`,
+      type: 'md', size: Buffer.byteLength(content, 'utf-8'), chunkCount: 0,
+      projects: projectId ? [projectId] : [],
+      source: 'ai' as any,
+      uploadedAt: new Date().toISOString(),
+    }
+    meta.files.push(newFile)
+    await saveMetadata(meta)
+    return { id, name: newFile.originalName }
+  })
+
+  // Append content to an existing KB file
+  ipcMain.handle('kb:append', async (_event, fileId: string, content: string) => {
+    const meta = await loadMetadata()
+    const file = meta.files.find(f => f.id === fileId)
+    if (!file) throw new Error('File not found')
+
+    const filePath = safeKBFilePath(file)
+    const existing = await fs.readFile(filePath, 'utf-8')
+    const newContent = existing + '\n\n---\n\n' + content
+    await fs.writeFile(filePath, newContent, 'utf-8')
+
+    file.size = Buffer.byteLength(newContent, 'utf-8')
+    file.uploadedAt = new Date().toISOString()
+    await saveMetadata(meta)
+
+    // Remove old chunks so they can be re-indexed
+    const index = await loadIndex()
+    index.chunks = index.chunks.filter(c => c.fileId !== fileId)
+    const chunks = chunkText(newContent)
+    for (const c of chunks) {
+      index.chunks.push({
+        id: `${fileId}_chunk_${c.charStart}`,
+        fileId, fileName: file.originalName,
+        content: c.content, embedding: [],
+        charStart: c.charStart, charEnd: c.charEnd,
+      })
+    }
+    file.chunkCount = chunks.length
+    await saveIndex(index)
     await saveMetadata(meta)
   })
 

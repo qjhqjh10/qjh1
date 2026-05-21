@@ -102,7 +102,6 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
-  const location = useLocation()
   const setProjectsBasePath = useStore(s => s.setProjectsBasePath)
   const setConnectionStatus = useStore(s => s.setConnectionStatus)
   const setProjects = useStore(s => s.setProjects)

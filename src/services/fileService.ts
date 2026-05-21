@@ -145,6 +145,9 @@ export const kbService = {
   getEmbedding: (text: string, configId: string) =>
     e().kb.getEmbedding(text, configId),
   estimate: (filePath: string) => e().kb.estimate(filePath),
+  create: (name: string, content: string, projectId?: string) =>
+    e().kb.create(name, content, projectId),
+  append: (fileId: string, content: string) => e().kb.append(fileId, content),
   rename: (fileId: string, newName: string) => e().kb.rename(fileId, newName),
   download: (fileId: string) => e().kb.download(fileId),
   webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => e().kb.webSearch(query, maxResults, safeSearch, prioritySites),

@@ -173,16 +173,50 @@ export default function OutlinePage() {
   useEffect(() => {
     if (!fileEditNotify || !projectPath) return
     const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
-    const outlinePath = `${projectPath}/outline/outline.json`.replace(/\\/g, '/')
-    const wbPath = `${projectPath}/outline/worldbuilding.json`.replace(/\\/g, '/')
+    const pp = projectPath.replace(/\\/g, '/')
+    const outlinePath = `${pp}/outline/outline.json`
+    const wbPath = `${pp}/outline/worldbuilding.json`
+    const metaPath = `${pp}/outline/outline_meta.json`
+    const itemsPath = `${pp}/outline/items.json`
+    const locationsPath = `${pp}/outline/locations.json`
+    const factionsPath = `${pp}/outline/factions.json`
+    const powerPath = `${pp}/outline/power_system.json`
+    const emotionPath = `${pp}/outline/emotion.json`
+
     if (normalized === outlinePath) {
-      setOutlineContent(fileEditNotify.newContent)
-      setFileEditNotify(null)
+      if (fileEditNotify.newContent === '__AI_EDITED__') {
+        loadOutlineContent(projectPath).then(setOutlineContent)
+      } else {
+        try { setOutlineContent(JSON.parse(fileEditNotify.newContent).content || fileEditNotify.newContent) } catch { setOutlineContent(fileEditNotify.newContent) }
+      }
     } else if (normalized === wbPath) {
-      setWorldbuildingContent(fileEditNotify.newContent)
-      setFileEditNotify(null)
+      if (fileEditNotify.newContent === '__AI_EDITED__') {
+        loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
+      } else {
+        try { setWorldbuildingContent(JSON.parse(fileEditNotify.newContent).content || fileEditNotify.newContent) } catch { setWorldbuildingContent(fileEditNotify.newContent) }
+      }
+    } else if (normalized === metaPath) {
+      if (fileEditNotify.newContent === '__AI_EDITED__') {
+        fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
+          try { setMeta(JSON.parse(c) as OutlineMeta) } catch {}
+        }).catch(() => {})
+      } else {
+        try { setMeta(JSON.parse(fileEditNotify.newContent) as OutlineMeta) } catch {}
+      }
+    } else if (normalized === itemsPath) {
+      loadOutlineData<OutlineItemsData>(projectPath, 'items.json', { items: [] }).then(d => setItems(d.items))
+    } else if (normalized === locationsPath) {
+      loadOutlineData<OutlineLocationsData>(projectPath, 'locations.json', { locations: [] }).then(d => setLocations(d.locations))
+    } else if (normalized === factionsPath) {
+      loadOutlineData<OutlineFactionsData>(projectPath, 'factions.json', { factions: [] }).then(d => setFactions(d.factions))
+    } else if (normalized === powerPath) {
+      loadOutlineData<PowerSystem>(projectPath, 'power_system.json', { name: '', levels: [], description: '' }).then(d => {
+        setPowerSystem({ ...d, levels: (d.levels || []).map(l => typeof l === 'string' ? { name: l as unknown as string, description: '' } : l) })
+      })
+    } else if (normalized === emotionPath) {
+      loadOutlineData<EmotionData>(projectPath, 'emotion.json', { segments: [] }).then(setEmotionData)
     }
-    return () => { setFileEditNotify(null) }
+    setFileEditNotify(null)
   }, [fileEditNotify])
 
   const handleSaveWorldbuilding = useCallback(async () => {

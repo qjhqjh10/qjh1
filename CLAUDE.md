@@ -71,6 +71,7 @@ AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_dir
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
+| v4.5.0 | 2026-05-21 | 大纲全Tab AI编辑+全局项目结构知识+细纲AI管理+知识库智能保存(kb:create/append)+AI主动服务(素材保存)+大纲/世界观/草稿AI弹窗+fileEditNotify关键修复(界面刷新)+文件拆分(CharactersPanel/SceneWorkshopPage) |
 | v4.4.0 | 2026-05-21 | 文件损坏全面修复: 上下文用量条动态模型切换(contextWindow可编辑)+ImageLightbox拖拽平移重置+AI角色图片自动搜索+编辑器图片resize持久化+恢复文件上传(TXT/MD)+恢复EPUB导出(UI完整打通)+软件说明弹窗 |
 | v4.3.0 | 2026-05-21 | 角色形象图(卡片大图+灯箱缩放)+AI生成角色卡片命令+编辑器图片resize/对齐+HomePage重设计v2(宽卡片+三栏统计)+EPUB导出(标准3.0+图片提取+XML转义)+AI图片上传+后端安全修复(isSafePath/error handler/常量)+Scratchpad升级为RichTextEditor |
 | v4.2.0 | 2026-05-21 | HomePage重设计(左栏列表+右栏大卡片+玻璃拟态)+编辑器图片/链接(TipTap Image/Link+工具栏)+项目封面(covers/+二进制IPC)+AI多模态图片(normalizeContent+base64渲染)+AI图片搜索(search_images+Unsplash)+3项Bug修复 |

@@ -247,6 +247,36 @@ export const FILE_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'kb_create_file',
+      description: '在知识库中创建新的 .md 文件，用于保存研究发现、写作素材、分析结论等。创建后可调用 kb_index_file 建立索引。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '文件名（如"古风服饰描写.md"），建议用描述性名称' },
+          content: { type: 'string', description: '文件内容（Markdown 格式）' },
+        },
+        required: ['name', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'kb_append_file',
+      description: '向知识库已有文件末尾追加内容，保留原有内容。适合向已有素材集逐步添加新信息。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: '目标文件的 id（从 kb:list 获取）' },
+          content: { type: 'string', description: '要追加的内容（Markdown 格式）' },
+        },
+        required: ['file_id', 'content'],
+      },
+    },
+  },
   // ── 草稿笔记 ──
   {
     type: 'function' as const,

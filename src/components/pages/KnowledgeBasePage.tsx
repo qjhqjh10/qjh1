@@ -181,7 +181,7 @@ export default function KnowledgeBasePage() {
 
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '8px 12px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {filteredFiles.filter(f => f.source === 'upload').map(file => (
+            {filteredFiles.filter(f => (f.source === 'upload' || f.source === 'ai')).map(file => (
               <button key={file.id} onClick={() => handleSelectFile(file)} style={{
                 width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12,
                 border: 'none', cursor: 'pointer',
@@ -203,7 +203,7 @@ export default function KnowledgeBasePage() {
                 </div>
               </button>
             ))}
-            {filteredFiles.filter(f => f.source === 'upload').length === 0 && (
+            {filteredFiles.filter(f => (f.source === 'upload' || f.source === 'ai')).length === 0 && (
               <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 13 }}>
                 {searchQuery ? '未找到匹配文件' : '暂无文件，点击"上传文件"添加'}
               </div>

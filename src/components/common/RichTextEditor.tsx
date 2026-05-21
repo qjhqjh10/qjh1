@@ -41,7 +41,6 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
 
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
-  const configs = useSettingsStore(s => s.configs)
   const prompts = useSettingsStore(s => s.prompts)
 
   // Refs to avoid stale closure in TipTap callbacks

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'

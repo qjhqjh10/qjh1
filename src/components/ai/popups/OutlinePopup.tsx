@@ -42,11 +42,18 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
     if (!fileEditNotify || !activeProjectId || !projectsBasePath) return
     const expectedPath = `${projectsBasePath}/${activeProjectId}/outline/${fileName}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
-      try {
-        const data = JSON.parse(fileEditNotify.newContent)
-        setContent(data.content || fileEditNotify.newContent)
-      } catch {
-        setContent(fileEditNotify.newContent)
+      if (fileEditNotify.newContent === '__AI_EDITED__') {
+        // Reload from disk
+        fileService.read(expectedPath).then(c => {
+          try { const data = JSON.parse(c); setContent(data.content || c) } catch { setContent(c) }
+        }).catch(() => {})
+      } else {
+        try {
+          const data = JSON.parse(fileEditNotify.newContent)
+          setContent(data.content || fileEditNotify.newContent)
+        } catch {
+          setContent(fileEditNotify.newContent)
+        }
       }
       setFileEditNotify(null)
     }

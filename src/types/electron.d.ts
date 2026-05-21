@@ -139,6 +139,8 @@ export interface KBAPI {
   search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>
+  create: (name: string, content: string, projectId?: string) => Promise<{ id: string; name: string }>
+  append: (fileId: string, content: string) => Promise<void>
   download: (fileId: string) => Promise<boolean>
   getEmbedding: (text: string, configId: string) => Promise<number[]>
   estimate: (filePath: string) => Promise<KBFileEstimate>

@@ -1,7 +1,27 @@
 {
-  "currentVersion": "4.4.0",
+  "currentVersion": "4.5.0",
   "currentDate": "2026-05-21",
   "history": [
+    {
+      "version": "4.5.0",
+      "date": "2026-05-21",
+      "features": [
+        "大纲全Tab AI编辑: OutlinePage fileEditNotify扩展监听8个JSON文件(道具/地点/势力/等级/伏笔/情绪/故事线)+AIChatWindow上下文注入完整字段schema+文件路径",
+        "全局项目结构知识: 系统提示词新增项目文件地图(11类文件路径+JSON schema),AI在任何页面都能定位并编辑任意文件",
+        "细纲AI管理: DetailedOutlinePage fileEditNotify自动刷新+上下文注入字段schema+5条操作规则(单章查看/修改/新建/删除/建议)",
+        "知识库智能保存: kb:create+kb:append后端handler+前端service+FILE_TOOLS工具注册(kb_create_file/kb_append_file)+AIChatWindow工具路由",
+        "知识库AI主动服务: 系统提示词引导AI在收集到素材/灵感/分析结论后主动询问用户是否保存到知识库",
+        "大纲/世界观/草稿AI弹窗: 对话中AI自动识别【打开大纲】【打开世界观】【打开草稿】标记并弹出对应窗口",
+        "fileEditNotify关键修复: 后端工具调用成功后设置通知(AIChatWindow工具循环)→各组件从磁盘重新加载数据,解决了AI编辑后界面不刷新的核心Bug",
+        "文件拆分: CharactersPanel(719→548行)提取CharacterForm+CharacterImage, SceneWorkshopPage(886→806行)提取sceneWorkshopConstants"
+      ],
+      "fixes": [
+        "修复setFileEditNotify从未被设置的阻断性Bug: AIChatWindow工具循环现在在edit_file/create_file/delete_file成功后自动设置通知",
+        "修复OutlinePopup/OutlinePage收到__AI_EDITED__标记时从磁盘重读而非解析空内容",
+        "修复CharactersPage.tsx死文件(路由已重定向,从未被导入)",
+        "修复知识库仅显示source=upload文件,补全source=ai类型显示"
+      ]
+    },
     {
       "version": "4.4.0",
       "date": "2026-05-21",

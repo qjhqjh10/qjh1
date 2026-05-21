@@ -14,7 +14,7 @@ import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
 import { registerRewriteHandlers } from './ipc/rewriteHandlers'
 import { logError } from './ipc/logger'
-import { loadWindowBounds, saveWindowBounds, type WindowBounds } from './ipc/utils'
+import { loadWindowBounds, saveWindowBounds } from './ipc/utils'
 
 let mainWindow: BrowserWindow | null = null
 let watcher: ReturnType<typeof setupFileWatcher> | null = null

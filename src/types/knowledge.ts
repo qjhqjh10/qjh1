@@ -6,7 +6,7 @@ export interface KnowledgeFile {
   size: number
   chunkCount: number
   projects: string[]
-  source: 'upload' | 'project' | 'review'
+  source: 'upload' | 'project' | 'review' | 'ai'
   uploadedAt: string
 }
 

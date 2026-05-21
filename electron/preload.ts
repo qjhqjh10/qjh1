@@ -124,6 +124,10 @@ const api = {
     getEmbedding: (text: string, configId: string): Promise<number[]> =>
       ipcRenderer.invoke('kb:getEmbedding', text, configId),
     estimate: (filePath: string): Promise<KBFileEstimate> => ipcRenderer.invoke('kb:estimate', filePath),
+    create: (name: string, content: string, projectId?: string): Promise<{ id: string; name: string }> =>
+      ipcRenderer.invoke('kb:create', name, content, projectId),
+    append: (fileId: string, content: string): Promise<void> =>
+      ipcRenderer.invoke('kb:append', fileId, content),
     webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]): Promise<KBWebSearchResult[]> =>
       ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5, safeSearch ?? 'moderate', prioritySites ?? []),
   },

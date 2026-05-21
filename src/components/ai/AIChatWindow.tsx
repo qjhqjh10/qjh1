@@ -13,13 +13,29 @@ import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { getStyleInjection } from '@/utils/styleInjector'
-import { FILE_TOOLS, DANGEROUS_TOOLS, PREVIEW_TOOLS, READ_ONLY_TOOLS } from '@/types/fileOps'
+import { FILE_TOOLS, READ_ONLY_TOOLS } from '@/types/fileOps'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
-import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 
 function makeConversation(id: string, title: string): Conversation {
   return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now() }
+}
+
+function parsePopupCommand(text: string): { text: string; popup?: { type: 'outline' | 'worldbuilding' | 'draft'; title: string; documentKey?: string } } {
+  const patterns: { pattern: RegExp; type: 'outline' | 'worldbuilding' | 'draft'; title: string; documentKey?: string }[] = [
+    { pattern: /【打开大纲】/, type: 'outline', title: '大纲' },
+    { pattern: /【打开世界观】/, type: 'worldbuilding', title: '世界观' },
+    { pattern: /【打开草稿(?:[：:]\s*(.+?))?】/, type: 'draft', title: '草稿本', documentKey: '草稿本.md' },
+  ]
+  for (const p of patterns) {
+    const match = text.match(p.pattern)
+    if (match) {
+      const docKey = p.type === 'draft' ? (match[1]?.trim() || '草稿本.md') : undefined
+      return { text: text.replace(p.pattern, '').trim(), popup: { type: p.type, title: p.title, documentKey: docKey } }
+    }
+  }
+  return { text }
 }
 
 function parseInsertionSuggestion(text: string): {
@@ -58,6 +74,8 @@ export default function AIChatWindow() {
   const activePage = useStore(s => s.activePage)
   const setInsertionAction = useStore(s => s.setInsertionAction)
   const setReplaceAction = useStore(s => s.setReplaceAction)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
+  const openPopup = useStore(s => s.openPopup)
 
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const characters = useStore(s => s.characters)
@@ -233,8 +251,22 @@ export default function AIChatWindow() {
     }
 
     if (activePage === 'outline' && outlineContent) {
-      parts.push(`[当前大纲/基础设定:\n${outlineContent.slice(0, 10000)}]`)
-      parts.push('用户正在编辑基础设定。你可以分析大纲结构、剧情逻辑、节奏把控，提出修改建议。如果用户要求改写某段，直接输出改写后的内容。')
+      parts.push(`[当前大纲/基础设定:\n${outlineContent.slice(0, 8000)}]`)
+      parts.push(`用户正在大纲页面。大纲包含10个Tab，你可通过 edit_file 编辑对应的JSON文件来修改各个Tab的数据。
+
+**大纲各Tab与对应文件：**
+- 基础设定 → outline/outline.json (JSON: {content, updatedAt})
+- 世界观 → outline/worldbuilding.json (JSON: {content, updatedAt})
+- 角色 → characters/*.json (每个角色一个文件)
+- 道具 → outline/items.json (JSON: {items: [{id,name,type,grade,ability,owner,description}]})
+- 地点 → outline/locations.json (JSON: {locations: [{id,name,description,type}]})
+- 势力 → outline/factions.json (JSON: {factions: [{id,name,description,type}]})
+- 等级 → outline/power_system.json (JSON: {name,levels:[{name,description}],description})
+- 伏笔 → outline/outline_meta.json (foreshadowing数组: [{id,description,status}])
+- 情绪 → outline/emotion.json (JSON: {segments:[{chapterStart,chapterEnd,dominantEmotion}]})
+- 故事线 → outline/outline_meta.json (plotThreads数组: [{id,name,type,color}])
+
+修改文件后界面会自动刷新。用 read_file 查看当前数据，edit_file 精确修改。分析建议和文本改写可直接在聊天中输出。`)
     }
 
     if (activePage === 'worldbuilding' && worldbuildingContent) {
@@ -262,8 +294,27 @@ export default function AIChatWindow() {
     }
 
     if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
-      const cs = detailedChapters.map(c => `${c.title}: ${c.description?.slice(0, 500) || ''}`).join('\n---\n')
-      parts.push(`[当前细纲(${detailedChapters.length}章):\n${cs}]`)
+      const chapterList = detailedChapters.map(c => `[${c.status === 'completed' ? '✓' : '○'}] ${c.title} (id: ${c.id})`).join('\n')
+      parts.push(`[当前细纲列表(${detailedChapters.length}章):\n${chapterList}]`)
+      parts.push(`用户正在细纲页面。细纲的每个章节是独立的JSON文件，存储在 detailed_outline/{id}.json。
+
+**字段结构:**
+- id: 唯一标识
+- title: 章节标题（如"章节 3"）
+- order: 排序序号
+- status: 'incomplete' | 'completed'
+- plotOverview: 剧情概述（150-250字）
+- characters: 出场角色（每行一个角色名）
+- location: 场景地点
+- keyEvents: 关键事件（每行一个）
+- eroticContent: 情色内容（仅情色小说）
+
+**操作规则（重要）:**
+1. 查看细纲：用户需指定具体章节（如"查看章节3的细纲"）。如果没说哪一章，提醒用户选择。
+2. 修改细纲：先用 read_file 查看该章JSON，给出分析建议，用户确认后用 edit_file 修改。
+3. 新建细纲：用 create_file 创建 detailed_outline/{新id}.json，然后问用户要填什么内容（剧情概述/角色/地点/事件）。
+4. 删除细纲：用 delete_file 删除对应JSON文件（需用户确认）。
+5. 一次只操作一个章节的细纲，不要把全部细纲内容一起读出来。`)
     }
 
     if (activePage === 'characters' && characters.length > 0) {
@@ -400,9 +451,16 @@ export default function AIChatWindow() {
         sessionTokens += usage?.total_tokens || 0
 
         if (!toolCalls || toolCalls.length === 0) {
-          const { plainText, insertion } = parseInsertionSuggestion(text)
+          const popupParsed = parsePopupCommand(text)
+          const displayText = popupParsed.popup ? popupParsed.text : text
+          const { plainText, insertion } = parseInsertionSuggestion(displayText)
+          // Auto-open popup if AI included the command
+          if (popupParsed.popup) {
+            const id = Date.now().toString()
+            openPopup({ id: `ai_${id}`, type: popupParsed.popup.type, title: popupParsed.popup.title, documentKey: popupParsed.popup.documentKey })
+          }
           const assistantMsg: Message = {
-            id: Date.now().toString() + '_r', role: 'assistant', content: plainText || text, insertion,
+            id: Date.now().toString() + '_r', role: 'assistant', content: plainText || displayText, insertion,
             sources: { kb: kbSources, web: webSources }, images,
           }
           setMessages(prev => [...prev, assistantMsg])
@@ -414,11 +472,35 @@ export default function AIChatWindow() {
           for (const tc of toolCalls) {
             try {
               const args = JSON.parse(tc.function.arguments)
-              const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args }])
-              const r = results[0]
+              let r: { status: string; summary: string; detail?: string } | undefined
+              // Route KB creation/append tools to kbService directly
+              if (tc.function.name === 'kb_create_file') {
+                try {
+                  const result = await kbService.create(args.name || '未命名.md', args.content || '', activeProjectId || undefined)
+                  r = { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}\n可在知识库页面查看和索引。` }
+                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
+              } else if (tc.function.name === 'kb_append_file') {
+                try {
+                  await kbService.append(args.file_id, args.content || '')
+                  r = { status: 'success', summary: '已追加到知识库文件', detail: '内容已追加。可在知识库页面查看。' }
+                } catch (e: any) { r = { status: 'error', summary: `追加失败: ${e.message}` } }
+              } else {
+                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args }])
+                r = results[0]
+              }
               const content = JSON.stringify({ status: r?.status || 'error', summary: r?.summary || '', detail: r?.detail || '' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
               resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id })
+              // Notify components when files are modified by AI tools
+              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'restore_backup']
+              if (fileModifyingTools.includes(tc.function.name) && r?.status === 'success' && args.file_path && activeProjectId) {
+                const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
+                if (pp) {
+                  const absPath = `${pp}/${String(args.file_path).replace(/\\/g, '/')}`.replace(/\\/g, '/')
+                  setFileEditNotify({ filePath: absPath, newContent: '__AI_EDITED__' })
+                  setTimeout(() => setFileEditNotify(null), 100)
+                }
+              }
             } catch {
               const content = JSON.stringify({ status: 'error', summary: '工具执行异常' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })

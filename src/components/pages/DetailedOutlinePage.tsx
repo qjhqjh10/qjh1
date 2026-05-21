@@ -30,6 +30,8 @@ export default function DetailedOutlinePage() {
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const characters = useStore(s => s.characters)
   const setActivePage = useStore(s => s.setActivePage)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const os: React.CSSProperties = { padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', marginBottom: 8 }
   const ost: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#2d2520', marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid rgba(0,0,0,0.06)' }
@@ -64,6 +66,17 @@ export default function DetailedOutlinePage() {
     setLoading(true)
     loadDetailedChapters(pp).then(setDetailedChapters).finally(() => setLoading(false))
   }, [activeProjectId, projectsBasePath])
+
+  // AI file edit → auto-refresh
+  useEffect(() => {
+    if (!fileEditNotify || !projectPath) return
+    const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
+    const pp = projectPath.replace(/\\/g, '/')
+    if (normalized.includes('/detailed_outline/') && normalized.startsWith(pp)) {
+      loadDetailedChapters(projectPath).then(setDetailedChapters)
+    }
+    setFileEditNotify(null)
+  }, [fileEditNotify])
 
   const saveDetailedChapterToFile = async (ch: DetailedChapter) => {
     await saveDetailedChapter(projectPath, ch)
