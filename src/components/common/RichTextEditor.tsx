@@ -25,11 +25,15 @@ interface Props {
   onContentChange: (html: string) => void
   onBlur?: () => void
   placeholder?: string
+  showFind?: boolean
+  onToggleFind?: () => void
 }
 
-export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...' }: Props) {
+export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind }: Props) {
   const [showSymbols, setShowSymbols] = useState(false)
   const [showFind, setShowFind] = useState(false)
+  const effectiveShowFind = externalShowFind !== undefined ? externalShowFind : showFind
+  const effectiveToggleFind = externalToggleFind || (() => setShowFind(!showFind))
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
   const [selectedText, setSelectedText] = useState('')
@@ -243,7 +247,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
           <EditorToolbar
             editor={editor}
             onOpenSymbols={() => setShowSymbols(true)}
-            onToggleFind={() => setShowFind(!showFind)}
+            onToggleFind={effectiveToggleFind}
             onInsertImage={handleInsertImage}
             onInsertLink={handleInsertLink}
             isImageActive={isImageActive}
@@ -254,7 +258,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       </div>
 
       {/* Find/replace bar */}
-      {showFind && <FindReplace editor={editor} onClose={() => setShowFind(false)} />}
+      {effectiveShowFind && <FindReplace editor={editor} onClose={effectiveToggleFind} />}
 
       {/* Writing paper — centered with maxWidth */}
       <div className="writing-paper" style={{ flex: 1, borderRadius: '0 0 8px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 900 }}>

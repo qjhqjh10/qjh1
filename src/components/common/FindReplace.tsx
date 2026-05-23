@@ -70,10 +70,10 @@ export default function FindReplace({ editor, onClose }: Props) {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-      padding: '8px 14px', background: '#faf9f8',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap',
+      padding: '10px 20px', background: '#faf9f8',
       borderBottom: '1px solid rgba(0,0,0,0.06)',
-      fontSize: 12,
+      fontSize: 13,
     }}>
       <input
         aria-label="查找"
@@ -82,8 +82,8 @@ export default function FindReplace({ editor, onClose }: Props) {
         placeholder="查找..."
         autoFocus
         style={{
-          width: 140, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
-          outline: 'none', fontSize: 12, background: '#fff',
+          width: 200, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)',
+          outline: 'none', fontSize: 13, background: '#fff',
         }}
       />
       <input
@@ -92,8 +92,8 @@ export default function FindReplace({ editor, onClose }: Props) {
         onChange={e => setReplaceText(e.target.value)}
         placeholder="替换为..."
         style={{
-          width: 120, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
-          outline: 'none', fontSize: 12, background: '#fff',
+          width: 180, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)',
+          outline: 'none', fontSize: 13, background: '#fff',
         }}
       />
       <button onClick={() => goToMatch(currentMatch - 2)} disabled={matches.length < 2} style={srBtn}>
@@ -102,20 +102,20 @@ export default function FindReplace({ editor, onClose }: Props) {
       <button onClick={() => goToMatch(currentMatch)} disabled={matches.length < 2} style={srBtn}>
         <ChevronDownIcon style={{ width: 12, height: 12 }} />
       </button>
-      <button onClick={replaceOne} disabled={matches.length === 0} style={{ ...srBtn, fontWeight: 600 }}>替换</button>
-      <button onClick={replaceAll} disabled={matches.length === 0} style={{ ...srBtn, fontWeight: 600 }}>全部替换</button>
-      <span style={{ color: '#9b8e84', fontSize: 11 }}>
+      <button onClick={replaceOne} disabled={matches.length === 0} style={srBtn}>替换</button>
+      <button onClick={replaceAll} disabled={matches.length === 0} style={srBtn}>全部替换</button>
+      <span style={{ color: '#9b8e84', fontSize: 12, minWidth: 50 }}>
         {matchCount > 0 ? `${currentMatch}/${matchCount}` : findText ? '无匹配' : ''}
       </span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', marginLeft: 'auto', display: 'flex' }}>
-        <XMarkIcon style={{ width: 14, height: 14 }} />
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', marginLeft: 8, display: 'flex' }}>
+        <XMarkIcon style={{ width: 16, height: 16 }} />
       </button>
     </div>
   )
 }
 
 const srBtn: React.CSSProperties = {
-  padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)',
-  background: '#fff', cursor: 'pointer', fontSize: 11, color: '#4a3f38',
-  display: 'flex', alignItems: 'center',
+  padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+  background: '#fff', cursor: 'pointer', fontSize: 12, color: '#4a3f38',
+  display: 'flex', alignItems: 'center', fontWeight: 500,
 }

@@ -9,6 +9,7 @@ import { nanoid } from 'nanoid'
 import WordCount from '@/components/common/WordCount'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import CharactersPanel from '@/components/panels/CharactersPanel'
 import { EntityEditModal } from '@/components/common/EntityEditModal'
 import { loadOutlineData, saveOutlineData } from '@/utils/outlineData'
@@ -28,11 +29,11 @@ type Tab = 'basic' | 'worldbuilding' | 'characters' | 'items' | 'locations' | 'f
  * 大纲页 10 个 Tab 定义
  *
  * 故事剧情 (basic) — 核心剧情协作空间: 用户与AI在此讨论、碰撞和发展故事剧情。
- *   数据: outline/plot.json。AI 可通过 edit_file 实时修改，界面自动刷新。
+ *   数据: outline/plot.md（纯文本/Markdown）。AI 可通过 edit_file 实时修改，界面自动刷新。
  *   设计意图: 多用、活用此 Tab，让AI成为创作伙伴而非一次性工具。
  *
  * 世界观（设定） (worldbuilding) — 世界观体系设定: 地理/政治/社会/历史/魔法科技。
- *   数据: outline/worldbuilding.json。与故事剧情互补，前者聚焦"发生了什么"，
+ *   数据: outline/worldbuilding.md（纯文本/Markdown）。与故事剧情互补，前者聚焦"发生了什么"，
  *   后者聚焦"这个世界是怎样的"。
  *
  * 角色/道具/地点/势力/等级/伏笔/情绪/故事线 — 结构化数据管理。
@@ -194,9 +195,11 @@ export default function OutlinePage() {
     if (!fileEditNotify || !projectPath) return
     const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
     const pp = projectPath.replace(/\\/g, '/')
-    const outlinePath = `${pp}/outline/plot.json`
+    const outlinePath = `${pp}/outline/plot.md`
+    const outlineJsonPath = `${pp}/outline/plot.json` // backward compat
     const outlineLegacyPath = `${pp}/outline/outline.json` // backward compat
-    const wbPath = `${pp}/outline/worldbuilding.json`
+    const wbPath = `${pp}/outline/worldbuilding.md`
+    const wbJsonPath = `${pp}/outline/worldbuilding.json` // backward compat
     const metaPath = `${pp}/outline/outline_meta.json`
     const itemsPath = `${pp}/outline/items.json`
     const locationsPath = `${pp}/outline/locations.json`
@@ -204,13 +207,13 @@ export default function OutlinePage() {
     const powerPath = `${pp}/outline/power_system.json`
     const emotionPath = `${pp}/outline/emotion.json`
 
-    if (normalized === outlinePath || normalized === outlineLegacyPath) {
+    if (normalized === outlinePath || normalized === outlineJsonPath || normalized === outlineLegacyPath) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         loadOutlineContent(projectPath).then(setOutlineContent)
       } else {
         setOutlineContent(fileEditNotify.newContent)
       }
-    } else if (normalized === wbPath) {
+    } else if (normalized === wbPath || normalized === wbJsonPath) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
       } else {
@@ -324,25 +327,21 @@ export default function OutlinePage() {
     switch (activeTab) {
       case 'basic':
         return (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <textarea
-              value={outlineContent}
-              onChange={e => handleOutlineChange(e.target.value)}
-              placeholder="故事剧情协作空间。直接输入 Markdown，或让 AI 帮你整理。# 标题 ## 章节 - 列表"
-              className="custom-scrollbar"
-              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 20, fontSize: 14, lineHeight: 1.9, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
+          <div style={{ flex: 1, overflow: 'auto' }} className="custom-scrollbar">
+            <RichTextEditor
+              content={outlineContent}
+              onContentChange={handleOutlineChange}
+              placeholder="故事剧情协作空间。直接输入，或让 AI 帮你整理。支持标题、列表、图片、排版..."
             />
           </div>
         )
       case 'worldbuilding':
         return (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <textarea
-              value={worldbuildingContent}
-              onChange={e => handleWbChange(e.target.value)}
-              placeholder="世界观设定。直接输入 Markdown，或让 AI 帮你整理。# 世界名称 ## 力量体系 - 规则列表"
-              className="custom-scrollbar"
-              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 20, fontSize: 14, lineHeight: 1.9, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
+          <div style={{ flex: 1, overflow: 'auto' }} className="custom-scrollbar">
+            <RichTextEditor
+              content={worldbuildingContent}
+              onContentChange={handleWbChange}
+              placeholder="世界观设定。直接输入，或让 AI 帮你整理。支持标题、列表、图片、排版..."
             />
           </div>
         )

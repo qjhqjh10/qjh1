@@ -395,12 +395,25 @@ export async function executeFileTool(
       }
 
       case 'edit_file': {
-        const fp = await safeResolve('file_path', args, projectPath)
-        if (!fp) return deny(callId, toolName, '路径不在项目目录内')
-        let stat: fs.Stats
-        try { stat = await fsp.stat(fp) } catch {
-          return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+        const resolveNotePath = async (): Promise<string | null> => {
+          const notesPath = (args.file_path as string || '').replace(/\\/g, '/')
+          if (!notesPath.startsWith('notes/')) return null
+          const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
+          // Strip 'notes/' prefix since globalNotesDir already is the notes root
+          const cleanPath = notesPath.replace(/^notes\//, '')
+          return await safeResolve('file_path', { ...args, file_path: cleanPath }, globalNotesDir)
         }
+        let fp = await safeResolve('file_path', args, projectPath)
+        // Fallback: try global notes dir for notes/* paths
+        if (!fp) fp = await resolveNotePath()
+        // Also try if resolved path doesn't exist on disk
+        if (fp) {
+          try { await fsp.stat(fp) } catch { fp = null }
+        }
+        if (!fp) fp = await resolveNotePath()
+        if (!fp) return deny(callId, toolName, '路径不在项目目录内')
+        const stat = await fsp.stat(fp).catch(() => null as fs.Stats | null)
+        if (!stat) return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
         if (stat.size > MAX_FILE_SIZE) {
           return { callId, toolName, status: 'error', summary: `文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB，上限 10MB)，无法编辑` }
         }
@@ -408,11 +421,19 @@ export async function executeFileTool(
         try { content = await readFileWithEncoding(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件读取失败: ${args.file_path}` }
         }
-        const oldStr = args.old_string as string
+        let oldStr = args.old_string as string
         const newStr = args.new_string as string
         const replaceAll = !!args.replace_all
+        // Try exact match; fall back to trimmed match (AI often adds extra whitespace)
         if (!content.includes(oldStr)) {
-          return { callId, toolName, status: 'error', summary: '未找到要替换的文本', detail: 'old_string 在文件中未匹配到任何内容，请检查文本是否精确。' }
+          const trimmed = oldStr.trim()
+          if (trimmed && trimmed !== oldStr && content.includes(trimmed)) {
+            oldStr = trimmed
+          }
+        }
+        if (!content.includes(oldStr)) {
+          const snippet = JSON.stringify(content.slice(0, 300))
+          return { callId, toolName, status: 'error', summary: '未找到要替换的文本', detail: `文件前300字: ${snippet}\n请用 read_note 重新确认内容，复制 old_string 时确保与原文逐字一致。` }
         }
         const occurrenceCount = content.split(oldStr).length - 1
         if (occurrenceCount > 1 && !replaceAll) {
@@ -430,8 +451,10 @@ export async function executeFileTool(
           }
         }
 
-        // Confirmed: execute with backup
-        const backupRelPath = await backupFile(fp, projectPath)
+        // Confirmed: execute with backup (use correct base for notes vs project files)
+        const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
+        const backupBase = fp.startsWith(globalNotesDir) ? globalNotesDir : projectPath
+        const backupRelPath = await backupFile(fp, backupBase)
         await fsp.writeFile(fp, newContent, 'utf-8')
         const replaced = replaceAll ? occurrenceCount : 1
         return {

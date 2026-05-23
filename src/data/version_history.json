@@ -1,7 +1,21 @@
 {
-  "currentVersion": "4.12.0",
-  "currentDate": "2026-05-23",
+  "currentVersion": "5.0.0",
+  "currentDate": "2026-05-24",
   "history": [
+    {
+      "version": "5.0.0",
+      "date": "2026-05-24",
+      "features": [
+        "Token优化体系: 系统提示词/工作模式/提示词状态仅首条发送, 风格注入完全移除, 工具结果仅保留最近3条, write_note/append_note内容自动剥离",
+        "智能压缩对话: 右键菜单可压缩旧对话为摘要, ContextUsageBar 70%警告+快捷压缩, 压缩摘要注入AI上下文",
+        "草稿本全局化: 移除项目绑定, 所有草稿统一存global notes/, 扁平列表, edit_file支持草稿精确替换",
+        "大纲编辑器升级: plot/worldbuilding从textarea升级为RichTextEditor, 文件扩展名.json→.md消除歧义, 编辑器滚动修复",
+        "AI写作助手全面修复: edit_file全局notes路径回退+trim模糊匹配, 章节/角色/DraftPopup通知修复, Action模式无限制",
+        "查找替换增强: 草稿本标题栏搜索按钮, FindReplace居中放大, EditorToolbar工具栏居中放大",
+        "系统提示词优化: plot/worldbuilding纯文本→HTML富文本, 角色16字段强制schema, create_project禁止自行创建, write_note/append_note内容剥离说明",
+        "后端修复: fileHandlers全局notes白名单, aiHandlers AbortController通道分离, fileToolHandlers死代码清理+create_project去hidden+notes目录移除"
+      ]
+    },
     {
       "version": "4.12.0",
       "date": "2026-05-23",

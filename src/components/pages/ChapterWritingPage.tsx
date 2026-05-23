@@ -192,15 +192,13 @@ export default function ChapterWritingPage() {
     const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/')
     const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/')
     if (notifyPath === expectedPath || notifyPath.includes(`/chapters/${chapterId}.txt`)) {
-      // Reload content from disk — __AI_EDITED__ sentinel means AI modified the file
       fileService.read(expectedPath).then(c => {
         setContent(c)
         handleSave(c).catch(err => logError('fileEditNotify自动保存失败', err))
       }).catch(() => {})
       setFileEditNotify(null)
     }
-    return () => { setFileEditNotify(null) }
-  }, [fileEditNotify])
+  }, [fileEditNotify, chapterId, projectPath])
 
   // Save (file + store for export). Accept optional content to avoid stale closure.
   const handleSave = async (overrideContent?: string) => {

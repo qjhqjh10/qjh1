@@ -16,6 +16,7 @@ export default function ScratchpadPage() {
   const [content, setContent] = useState('')
   const [title, setTitle] = useState('')
   const [search, setSearch] = useState('')
+  const [showFind, setShowFind] = useState(false)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
@@ -197,6 +198,13 @@ export default function ScratchpadPage() {
                   }}
                   placeholder="草稿标题"
                 />
+                <button onClick={() => setShowFind(!showFind)} title="查找替换" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px',
+                  borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: showFind ? 'rgba(124,58,237,0.06)' : 'rgba(255,255,255,0.6)',
+                  color: showFind ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                }}>
+                  <MagnifyingGlassIcon style={{ width: 12, height: 12 }} /> 查找
+                </button>
                 <button
                   onClick={handleDelete}
                   style={{
@@ -209,11 +217,13 @@ export default function ScratchpadPage() {
                 </button>
               </div>
 
-              <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ flex: 1, overflow: 'auto' }} className="custom-scrollbar">
                 <RichTextEditor
                   content={content}
                   onContentChange={setContent}
                   placeholder="在此输入草稿内容...（支持图片和排版）"
+                  showFind={showFind}
+                  onToggleFind={() => setShowFind(!showFind)}
                 />
               </div>
 

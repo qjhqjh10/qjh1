@@ -19,7 +19,7 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
 
   const content = worldbuilding ? worldbuildingContent : outlineContent
   const setContent = worldbuilding ? setWorldbuildingContent : setOutlineContent
-  const fileName = worldbuilding ? 'worldbuilding.json' : 'plot.json'
+  const fileName = worldbuilding ? 'worldbuilding.md' : 'plot.md'
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Auto-save debounced (plain text, no JSON wrapper)

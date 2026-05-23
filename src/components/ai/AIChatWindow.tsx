@@ -8,11 +8,11 @@ import {
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
+  TrashIcon, Square2StackIcon,
 } from '@heroicons/react/24/outline'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
-import { getStyleInjection } from '@/utils/styleInjector'
 import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS } from '@/types/fileOps'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
@@ -129,12 +129,7 @@ export default function AIChatWindow() {
     } catch (e) { logError('加载知识库文件列表失败', e); setKbFiles([]) }
   }
 
-  // Auto-switch to Plan when leaving a project (no project = no Action)
-  useEffect(() => {
-    if (!activeProjectId && aiSettings.workMode === 'action') {
-      useSettingsStore.getState().setAISettings({ workMode: 'plan' })
-    }
-  }, [activeProjectId])
+  // Action mode now works without a project (global notes, templates, KB)
 
   const toggleKBFile = (fileId: string) => {
     const cur = currentSelections[activePage] || []
@@ -235,14 +230,18 @@ export default function AIChatWindow() {
     const conv = conversations.find(c => c.id === activeConversationId)
     setCumulativeTokens(conv?.totalTokens || 0)
     setLastPromptTokens(conv?.lastPromptTokens || 0)
+    systemPromptSentRef.current = false
   }, [activeConversationId])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(false)
+  const systemPromptSentRef = useRef(false)
   const [showConvList, setShowConvList] = useState(false)
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set())
+  const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
+  const [compressing, setCompressing] = useState(false)
   const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -251,6 +250,55 @@ export default function AIChatWindow() {
   const deleteSelectedMsgs = () => {
     setMessages(prev => prev.filter(m => !selectedMsgIds.has(m.id)))
     setSelectedMsgIds(new Set())
+  }
+
+  const deleteSingleMsg = (msgId: string) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId))
+  }
+
+  const compressMessages = async (upToMsgId: string) => {
+    if (!activeConfigId) { alert('请先配置AI模型'); return }
+    const currentMsgs = activeConversation.messages
+    const upToIndex = currentMsgs.findIndex(m => m.id === upToMsgId)
+    if (upToIndex <= 0) return
+    const toCompress = currentMsgs.slice(1, upToIndex + 1)
+    const toKeep = currentMsgs.slice(upToIndex + 1)
+    if (toCompress.length === 0) return
+
+    setCompressing(true)
+    try {
+      // Build summary prompt
+      const conversationText = toCompress
+        .filter(m => m.role !== 'tool')
+        .map(m => {
+          const roleLabel = m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role
+          const text = (m.content || '').slice(0, 600).replace(/\n/g, ' ')
+          return `[${roleLabel}]: ${text}`
+        })
+        .join('\n')
+
+      // Estimate tokens saved (rough: 3 chars ≈ 1 token for Chinese)
+      const compressedChars = toCompress.reduce((s, m) => s + (m.content || '').length, 0)
+      const estimatedTokens = Math.round(compressedChars / 3)
+
+      const result = await aiService.chatWithUsage([
+        { role: 'user', content: `请将以下对话历史压缩为一段简洁的上下文摘要（200-400字），保留关键信息：用户的核心需求和目标、已做出的重要决策、创建/修改了哪些文件及原因、当前任务的进展和下一步、用户的偏好和习惯。\n\n对话历史：\n${conversationText}\n\n只输出摘要文本，不要加前缀或解释。` }
+      ], activeConfigId!)
+
+      const summaryMsg: Message = {
+        id: `compressed_${Date.now()}`,
+        role: 'system',
+        content: result.text || '（压缩摘要生成失败）',
+        timestamp: Date.now(),
+        compressedSummary: true,
+        compressedCount: toCompress.length,
+        compressedTokens: estimatedTokens,
+      }
+
+      setMessages([currentMsgs[0], summaryMsg, ...toKeep])
+    } catch (err) { logError('压缩对话失败', err); alert('压缩失败，请重试') }
+    setCompressing(false)
+    setContextMenu(null)
   }
 
   const activeConversation = conversations.find(c => c.id === activeConversationId) || conversations[0]
@@ -275,6 +323,14 @@ export default function AIChatWindow() {
   const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false) }
   const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0); setLastPromptTokens(0); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
+
+  // Dismiss context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = () => setContextMenu(null)
+    window.addEventListener('click', dismiss)
+    return () => window.removeEventListener('click', dismiss)
+  }, [contextMenu])
 
   // Scroll to bottom when messages change, conversation switches, or window opens
   useEffect(() => {
@@ -327,11 +383,11 @@ export default function AIChatWindow() {
       parts.push(`[当前故事剧情记录:\n${outlineContent.slice(0, 8000)}]`)
       parts.push(`用户正在大纲页面。大纲包含10个Tab，你可通过 edit_file 编辑对应的JSON文件来修改各个Tab的数据。
 
-**核心Tab — 故事剧情 (outline/plot.json) 和 世界观（设定） (outline/worldbuilding.json):**
-纯文本文件，用 Markdown 格式 (# 标题, - 列表)。写入: read_file 确认内容 → edit_file(old_string="原文", new_string="原文\n新增")。若文件为空则 old_string=""。绝不写JSON。
+**核心Tab — 故事剧情 (outline/plot.md) 和 世界观（设定） (outline/worldbuilding.md):**
+HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原文 → edit_file(old_string="原文", new_string="原文\n新增")。若文件为空（内容为" "或空）则 old_string="" 配合 create_file 写入初始HTML。支持HTML标签、图片、链接。
 
 **其他大纲Tab与对应文件（完整字段，创建时必须全部包含）：**
-- 世界观（设定） → outline/worldbuilding.json（纯文本，同故事剧情）
+- 世界观（设定） → outline/worldbuilding.md（HTML富文本，同故事剧情）
 - 角色 → characters/{nanoid}.json（创建时 generate_nanoid:true）字段: id,name,role(必须是:男主|女主|男配|女配|反派|其他之一),gender,age,occupation(必填,职业/身份/社会地位,不可为空),background,appearance,personality,**abilities(纯文本字符串,不可为对象!)**,weaknesses,relationships,relationshipTags(字符串数组),arc,importance(1-100),image
 - 道具 → outline/items.json: {"items":[{"id":"nanoid","name":"","type":"武器|法宝|丹药|功法|道具|其他","grade":"","ability":"","owner":"","description":""}]}
 - 地点 → outline/locations.json: {"locations":[{"id":"nanoid","name":"","description":"","type":"门派|城池|秘境|自然|其他"}]}
@@ -491,37 +547,59 @@ export default function AIChatWindow() {
 
       const contextPrefix = buildContextPrefix(kbContext, webContext) + refContext
 
-      // Inject style if assigned to active project
-      const assignments = useSettingsStore.getState().aiSettings.styleAssignments || {}
-      const styleInjection = await getStyleInjection(activeProjectId || '', assignments)
-      const stylePrefix = styleInjection ? styleInjection + '\n\n---\n\n' : ''
+      // Style injection: only when user explicitly requests chapter generation, not just chatting.
+      // The AI can read style templates via read_file if needed. Removed automatic injection.
 
-      // System messages
+      // System messages — FILE_OP_SYSTEM_PROMPT only on first call of conversation
       const promptStatus = prompts.map(p =>
         `  [${p.enabled ? '✓' : ' '}] ${p.id}: ${p.title} (${p.type})${p.enabled ? ' ← 当前使用' : ''}`
       ).join('\n')
-      const systemMessages: Array<{ role: string; content: string }> = [
-        { role: 'system', content: FILE_OP_SYSTEM_PROMPT },
-        { role: 'system', content: aiSettings.workMode === 'plan'
-          ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content/list_backups + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
-          : `[Action执行模式] 全部工具可用。` },
-        { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
-      ]
+      const systemMessages: Array<{ role: string; content: string }> = []
+      if (!systemPromptSentRef.current) {
+        systemMessages.push({ role: 'system', content: FILE_OP_SYSTEM_PROMPT })
+        systemMessages.push(
+          { role: 'system', content: aiSettings.workMode === 'plan'
+            ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content/list_backups + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
+            : `[Action执行模式] 全部工具可用。` },
+          { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
+        )
+        systemPromptSentRef.current = true
+      }
 
-      // History with tool support — maps stored UI messages back to API format
-      const historyMessages = messages
-        .filter(m => !m.id.startsWith('welcome') && String(m.role) !== 'system')
-        .map(m => ({
-          role: m.role as string, content: m.content,
+      // History with tool support — keep last 3 tool results in full, compress older ones.
+      // Compressed summary messages are extracted and injected as separate system messages.
+      const TOOL_HISTORY_LIMIT = 3
+      // Extract compressed summaries BEFORE system-role filter (they have role='system')
+      const compressedMsgs = messages.filter(m => m.compressedSummary)
+      const allFiltered = messages.filter(m => !m.id.startsWith('welcome') && String(m.role) !== 'system' && !m.compressedSummary)
+      const filteredMessages = allFiltered
+      // Find indices of the last N tool messages
+      const toolIndices: number[] = []
+      for (let i = filteredMessages.length - 1; i >= 0; i--) {
+        if (filteredMessages[i].role === 'tool') toolIndices.unshift(i)
+      }
+      const keepTools = new Set(toolIndices.slice(-TOOL_HISTORY_LIMIT))
+      const historyMessages = filteredMessages.map((m, idx) => {
+        const isTool = m.role === 'tool'
+        const content = isTool && !keepTools.has(idx)
+          ? JSON.stringify({ status: 'success', summary: '早期工具调用结果已省略' })
+          : m.content
+        return {
+          role: m.role as string, content,
           ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
           ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-        }))
+        }
+      })
+      // Inject compressed summaries as extra system messages
+      for (const cm of compressedMsgs) {
+        systemMessages.push({ role: 'system', content: `[对话历史摘要 — ${cm.compressedCount || '?'}条消息已压缩]\n${cm.content}` })
+      }
 
       // Build the full message array: system prompts + conversation history + current user message
       const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
         ...systemMessages,
         ...historyMessages,
-        { role: 'user' as const, content: stylePrefix + contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
+        { role: 'user' as const, content: contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
       ]
 
       // Tools
@@ -569,10 +647,18 @@ export default function AIChatWindow() {
           const assistantMsgForApi: Record<string, unknown> = { role: 'assistant', content: text || '', tool_calls: toolCalls }
           if (reasoning_content) assistantMsgForApi.reasoning_content = reasoning_content
           messagesForApi.push(assistantMsgForApi as any)
-          // Persist assistant message with tool_calls so conversation history retains context
+          // Persist assistant message with tool_calls. Strip note content to save tokens.
+          const strippedCalls = toolCalls.map((tc: any) => {
+            if (tc.function.name === 'write_note' || tc.function.name === 'append_note') {
+              const args = JSON.parse(tc.function.arguments)
+              const stripped = { ...args, content: `(${String(args.content || '').length}字符，已自动省略。用read_note读取)` }
+              return { ...tc, function: { ...tc.function, arguments: JSON.stringify(stripped) } }
+            }
+            return tc
+          })
           setMessages(prev => [...prev, {
             id: `${Date.now()}_tc`, role: 'assistant' as const, content: text || '', timestamp: Date.now(),
-            tool_calls: toolCalls,
+            tool_calls: strippedCalls,
           }])
           const resultMsgs: Message[] = []
           for (const tc of toolCalls) {
@@ -930,7 +1016,14 @@ export default function AIChatWindow() {
                   if (tc.function.name === 'delete_project') {
                     targetPath = pp
                   } else if (fileModifyingTools.includes(tc.function.name)) {
-                    targetPath = `${pp}/${String(args.file_path || '').replace(/\\/g, '/')}`.replace(/\\/g, '/')
+                    const relPath = String(args.file_path || '').replace(/\\/g, '/')
+                    // For notes/, use global notes path instead of project path
+                    if (relPath.startsWith('notes/')) {
+                      const globalDir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
+                      targetPath = `${globalDir}/${relPath.replace(/^notes\//, '')}`.replace(/\\/g, '/')
+                    } else {
+                      targetPath = `${pp}/${relPath}`.replace(/\\/g, '/')
+                    }
                   } else if (tc.function.name === 'search_images') {
                     targetPath = `${pp}/images/`  // 图片保存目录
                   } else {
@@ -1178,16 +1271,12 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
-            {/* Plan/Action toggle — Action requires entering a project first */}
+            {/* Plan/Action toggle */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}
-                title={activeProjectId ? '' : '请先进入一个项目，才能使用 Action 模式'}>
+              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
                 <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'plan' })} style={{ padding: '4px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
-                <button onClick={() => { if (activeProjectId) useSettingsStore.getState().setAISettings({ workMode: 'action' }) }} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: activeProjectId ? 'pointer' : 'not-allowed', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit', opacity: activeProjectId ? 1 : 0.5 }}>Action</button>
+                <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit' }}>Action</button>
               </div>
-              {!activeProjectId && (
-                <span style={{ fontSize: 9, color: '#d97706', fontWeight: 600 }}>进入项目后可用</span>
-              )}
             </div>
             {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff' }}
@@ -1236,7 +1325,17 @@ export default function AIChatWindow() {
             </select>
           </div>
 
-          <ContextUsageBar usedTokens={lastPromptTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
+          <ContextUsageBar
+            usedTokens={lastPromptTokens}
+            contextWindow={activeConfig?.contextWindow ?? 128000}
+            onCompress={() => {
+              // Compress oldest messages, keeping last 20
+              const msgs = activeConversation.messages
+              if (msgs.length <= 21) return // welcome + 20 messages
+              const targetMsg = msgs[msgs.length - 21] // keep last 20 messages
+              compressMessages(targetMsg.id)
+            }}
+          />
 
           {/* Delete bar */}
           {selectedMsgIds.size > 0 && (
@@ -1284,11 +1383,41 @@ export default function AIChatWindow() {
               // Show tool call names for assistant messages that only contain tool_calls
               const isToolCallOnly = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0 && !msg.content?.trim()
 
+              // Compressed summary card — rendered instead of regular bubble
+              if (msg.compressedSummary) {
+                const timeSep = showTime ? (
+                  <div key={`ts_${msg.id}`} style={{ textAlign: 'center', margin: '10px 0' }}>
+                    <span style={{ fontSize: 10, color: '#9b8e84', background: 'rgba(0,0,0,0.03)', padding: '2px 10px', borderRadius: 10 }}>
+                      {fmtTime(msg.timestamp!)}
+                    </span>
+                  </div>
+                ) : null
+                return (
+                  <div key={`w_${msg.id}`}>
+                    {timeSep}
+                    <div onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY }) }}
+                      style={{ background: selectedMsgIds.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8 }}>
+                      <div style={{
+                        margin: '0 18px 10px', padding: '12px 16px', borderRadius: 12,
+                        background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)',
+                      }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 6 }}>
+                          📦 已压缩 {msg.compressedCount || '?'} 条消息
+                          {msg.compressedTokens ? `（节省约 ${(msg.compressedTokens / 1000).toFixed(1)}K tokens）` : ''}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#4a3f38', lineHeight: 1.7 }}>{msg.content}</div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
+
               return (
               <div key={`w_${msg.id}`}>
                 {timeSep}
-              <div onContextMenu={e => { e.preventDefault(); toggleSelectMsg(msg.id) }}
-                style={{ background: selectedMsgIds.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8, transition: 'background 0.15s' }}>
+                {/* Compressed summary card */}
+              <div onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY }) }}
+                style={{ background: (selectedMsgIds.has(msg.id) || contextMenu?.msgId === msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8, transition: 'background 0.15s' }}>
                 {/* Tool call indicator for assistant messages with tool_calls but no text */}
                 {isToolCallOnly && (
                   <div style={{ padding: '4px 0 4px 36px' }}>
@@ -1322,12 +1451,14 @@ export default function AIChatWindow() {
                   }}>
                     {/* Collapsible long content */}
                     {(() => {
-                      const isLong = msg.role === 'assistant' && !msg.tool_calls && displayContent.length > 550
+                      const isLong = (msg.role === 'assistant' && !msg.tool_calls || msg.role === 'tool') && displayContent.length > 550
                       if (!isLong) return displayContent
                       const isExpanded = expandedMsgs.has(msg.id)
                       return (
                         <div>
-                          <div style={{ marginBottom: isExpanded ? 8 : 0 }}>{isExpanded ? displayContent : displayContent.slice(0, 380) + '...'}</div>
+                          <div style={{ marginBottom: isExpanded ? 8 : 0, maxHeight: isExpanded ? 400 : undefined, overflowY: isExpanded ? 'auto' : undefined }}>
+                            {isExpanded ? displayContent : displayContent.slice(0, 380) + '...'}
+                          </div>
                           <button onClick={() => toggleExpand(msg.id)} style={{
                             background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#7c3aed', fontWeight: 600,
                             padding: '2px 0', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
@@ -1523,8 +1654,34 @@ export default function AIChatWindow() {
       )}
     </AnimatePresence>
     {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
+    {/* Right-click context menu */}
+    {contextMenu && (
+      <div style={{
+        position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 200,
+        background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+        border: '1px solid rgba(0,0,0,0.08)', padding: 4, minWidth: 180,
+      }} onClick={e => e.stopPropagation()}>
+        <button onClick={() => { deleteSingleMsg(contextMenu.msgId); setContextMenu(null) }} style={ctxMenuBtn}>
+          <TrashIcon style={{ width: 13, height: 13 }} /> 删除此消息
+        </button>
+        <button onClick={() => compressMessages(contextMenu.msgId)} disabled={compressing} style={{ ...ctxMenuBtn, opacity: compressing ? 0.5 : 1 }}>
+          <SparklesIcon style={{ width: 13, height: 13 }} /> {compressing ? '压缩中...' : '从此处向上压缩'}
+        </button>
+        <button onClick={() => { toggleSelectMsg(contextMenu.msgId); setContextMenu(null) }} style={ctxMenuBtn}>
+          <Square2StackIcon style={{ width: 13, height: 13 }} /> 选择消息
+        </button>
+      </div>
+    )}
     </>
   )
+}
+
+const ctxMenuBtn: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+  padding: '7px 12px', borderRadius: 8, border: 'none',
+  background: 'transparent', cursor: 'pointer',
+  fontSize: 12, color: '#2d2520', fontFamily: 'inherit',
+  textAlign: 'left' as const, transition: 'background 0.1s',
 }
 
 function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {

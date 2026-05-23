@@ -63,6 +63,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const characters = useStore(s => s.characters)
   const setCharacters = useStore(s => s.setCharacters)
   const removeCharacter = useStore(s => s.removeCharacter)
@@ -292,6 +293,7 @@ ${JSON.stringify(charList, null, 2)}
     if (p.includes('/characters/') && activeProjectId) {
       const pp = `${projectsBasePath}/${activeProjectId}`
       loadCharacters(pp).then(setCharacters)
+      setFileEditNotify(null)
     }
   }, [fileEditNotify])
 

@@ -27,18 +27,18 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
 
   const btn = (action: () => void, active: boolean, children: React.ReactNode, title: string) => (
     <button type="button" onClick={action} title={title} style={{
-      width: 32, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      border: 'none', borderRadius: 5, cursor: 'pointer',
+      width: 36, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      border: 'none', borderRadius: 6, cursor: 'pointer',
       background: active ? 'rgba(124,58,237,0.1)' : 'transparent',
-      color: active ? '#7c3aed' : '#5c5048', fontSize: 'var(--toolbar-font-size, 12px)', fontWeight: active ? 700 : 400,
+      color: active ? '#7c3aed' : '#5c5048', fontSize: 'var(--toolbar-font-size, 13px)', fontWeight: active ? 700 : 400,
       transition: 'background 0.1s',
     }}>{children}</button>
   )
 
-  const D = () => <div style={{ width: 1, height: 18, background: 'rgba(0,0,0,0.06)', margin: '0 3px' }} />
+  const D = () => <div style={{ width: 1, height: 22, background: 'rgba(0,0,0,0.06)', margin: '0 4px' }} />
   const selStyle: React.CSSProperties = {
-    padding: '2px 4px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.08)',
-    fontSize: 10, color: '#4a3f38', background: '#fff', cursor: 'pointer', height: 24, outline: 'none',
+    padding: '3px 6px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.1)',
+    fontSize: 11, color: '#4a3f38', background: '#fff', cursor: 'pointer', height: 26, outline: 'none',
   }
 
   const mergedTextStyle = (updates: Record<string, string>) => {
@@ -71,8 +71,8 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
 
   return (
     <div style={{
-      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1,
-      padding: '4px 8px', userSelect: 'none',
+      display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 2,
+      padding: '6px 12px', userSelect: 'none',
     }}>
       {/* Font */}
       <select onChange={e => editor.chain().focus().setFontFamily(e.target.value).run()} style={selStyle} defaultValue="">
@@ -164,7 +164,7 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
       <div style={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         {COLORS.map(c => (
           <button key={c} type="button" onClick={() => editor.chain().focus().setColor(c).run()} title={c} style={{
-            width: 18, height: 18, borderRadius: '50%', border: editor.isActive('textStyle', { color: c }) ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.1)',
+            width: 20, height: 20, borderRadius: '50%', border: editor.isActive('textStyle', { color: c }) ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.1)',
             background: c, cursor: 'pointer', padding: 0,
           }} />
         ))}

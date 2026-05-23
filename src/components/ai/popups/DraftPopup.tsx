@@ -47,10 +47,13 @@ export function DraftPopup({ documentKey }: Props) {
     if (!fileEditNotify || !notesDir || !documentKey) return
     const expectedPath = `${notesDir}/${documentKey}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
-      setContent(fileEditNotify.newContent)
+      if (fileEditNotify.newContent === '__AI_EDITED__') {
+        fileService.read(expectedPath).then(c => setContent(c)).catch(() => {})
+      } else {
+        setContent(fileEditNotify.newContent)
+      }
       setFileEditNotify(null)
     }
-    return () => { setFileEditNotify(null) }
   }, [fileEditNotify, notesDir, documentKey])
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
