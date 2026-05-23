@@ -474,7 +474,7 @@ ${dimensionInstructions}
 ["写作规则1","写作规则2","写作规则3",...]
 
 ---TONE---
-{"word":"基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严）"}
+{"word":"基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索，或自定义）"}
 
 【关键规则——决定输出哪些维度】
 1. **有证据才写，没证据不写**。仅分析在原文中找到实际证据的维度。某维度在本章中完全没有体现（如纯对话章没有身体描写、普通章节没有情色内容），**直接跳过不写该维度**，不要输出空分析，不要写"[此维度在本章不适用]"之类的占位文字。
@@ -638,7 +638,9 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
 
   // Build string fields (backward compat)
   const strVal = (dk: string) => dimAnalyses[dk]?.description || ''
-  const excerpt = '' // V3 doesn't output excerpts
+  // Extract first non-empty description as excerpt, limit to 200 chars
+  const firstDesc = Object.values(dimAnalyses).find(d => (d as DimAnalysis)?.description?.length > 10)
+  const excerpt = firstDesc ? (firstDesc as DimAnalysis).description.slice(0, 200) : ''
 
   return {
     sentenceStyle: strVal('sentenceStyle'), vocabularyStyle: strVal('vocabularyStyle'),
@@ -654,6 +656,47 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
     analyzedAt: new Date().toISOString(),
     dimAnalyses: Object.keys(dimAnalyses).length > 0 ? dimAnalyses : undefined,
   }
+}
+
+// Builds a V3-format summary prompt that asks AI to synthesize per-chapter
+// dimAnalyses into a unified StyleProfile using the same marked-block format.
+export function buildSummarizePromptV3(
+  analyzedCount: number,
+  dimAnalysesSummary: string,
+  novelType: string,
+): string {
+  return `你是专业的文学风格分析师。请综合以下 ${analyzedCount} 章的逐章分析，生成一份完整的风格档案。
+
+【小说类型】${novelType}
+
+【各章分析汇总】
+${dimAnalysesSummary}
+
+【输出格式】
+请严格按照以下格式输出（不要用 markdown 代码块）：
+
+=== 风格综述 ===
+（300-500字。综合所有章节，描述该小说的整体写作风格特征）
+
+=== [维度key]: [中文标签] ===
+（200-400字。该维度在全书的综合表现，引用最具代表性的原文证据）
+...分析内容...
+
+---VOCABULARY---
+["全书高频词1","全书高频词2",...]
+
+---RULES---
+["全局写作规则1","全局写作规则2",...]
+
+---TONE---
+{"word":"整体叙事基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索，或自定义）"}
+
+【规则】
+1. 综合各章分析，提炼最具代表性的特征。如果某维度在多数章节都有体现，重点分析；如果某维度仅偶尔出现，简要提及即可
+2. 全书写词汇优先列出出现频率最高、最具辨识度的词
+3. 全局写作规则应提炼为可跨章节执行的通用原则
+4. 只输出 JSON 合法的数组和对象，不要尾部逗号
+5. 不要用代码块包裹内容`
 }
 
 // ---- Extract representative excerpts for few-shot prompting ----

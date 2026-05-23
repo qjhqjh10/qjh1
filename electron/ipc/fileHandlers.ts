@@ -15,11 +15,16 @@ export function registerFileHandlers(
 ): void {
   onFileWrite = onWrite || null
   if (basePath) projectsBasePath = basePath
+  const globalNotesPath = path.join(path.dirname(projectsBasePath), 'notes')
+
+  // Allow paths within projects dir OR global notes dir
+  const isAllowedPath = (filePath: string) =>
+    isSafePath(filePath, projectsBasePath) || isSafePath(filePath, globalNotesPath)
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
   ipcMain.handle('files:read', async (_event, filePath: string) => {
-    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(filePath)) throw new Error('Access denied')
     try {
       const stat = await fs.stat(filePath)
       if (stat.size > MAX_FILE_SIZE) throw new Error(`File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`)
@@ -30,7 +35,7 @@ export function registerFileHandlers(
   })
 
   ipcMain.handle('files:write', async (_event, filePath: string, content: string) => {
-    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(filePath)) throw new Error('Access denied')
     if (typeof content === 'string' && content.length > 10_000_000) throw new Error('Content too large (>10M chars)')
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     // Normalize to forward slashes for cross-platform consistency
@@ -46,7 +51,7 @@ export function registerFileHandlers(
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 
   ipcMain.handle('files:readBinary', async (_event, filePath: string) => {
-    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(filePath)) throw new Error('Access denied')
     try {
       const stat = await fs.stat(filePath)
       if (stat.size > MAX_IMAGE_SIZE) throw new Error('File too large')
@@ -56,7 +61,7 @@ export function registerFileHandlers(
   })
 
   ipcMain.handle('files:writeBinary', async (_event, filePath: string, base64: string) => {
-    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(filePath)) throw new Error('Access denied')
     if (!base64 || base64.length > MAX_IMAGE_SIZE * 1.4) throw new Error('Image too large')
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     const buf = Buffer.from(base64, 'base64')
@@ -89,7 +94,7 @@ export function registerFileHandlers(
   })
 
   ipcMain.handle('files:listDir', async (_event, dirPath: string) => {
-    if (!isSafePath(dirPath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(dirPath)) throw new Error('Access denied')
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true })
       return entries.map(e => e.name)
@@ -99,19 +104,19 @@ export function registerFileHandlers(
   })
 
   ipcMain.handle('files:ensureDir', async (_event, dirPath: string) => {
-    if (!isSafePath(dirPath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(dirPath)) throw new Error('Access denied')
     await fs.mkdir(dirPath, { recursive: true })
   })
 
   ipcMain.handle('files:deleteFile', async (_event, filePath: string) => {
-    if (!isSafePath(filePath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(filePath)) throw new Error('Access denied')
     try {
       await fs.unlink(filePath)
     } catch { /* ignore */ }
   })
 
   ipcMain.handle('files:deleteDir', async (_event, dirPath: string) => {
-    if (!isSafePath(dirPath, projectsBasePath)) throw new Error('Access denied')
+    if (!isAllowedPath(dirPath)) throw new Error('Access denied')
     try {
       await fs.rm(dirPath, { recursive: true, force: true })
     } catch { /* ignore */ }

@@ -1,7 +1,22 @@
 {
-  "currentVersion": "4.11.0",
+  "currentVersion": "4.12.0",
   "currentDate": "2026-05-23",
   "history": [
+    {
+      "version": "4.12.0",
+      "date": "2026-05-23",
+      "features": [
+        "风格工坊+模板库合并: 统一为风格工坊双Tab(风格档案/风格模板), 移除独立模板库页面和路由",
+        "风格模板UI全面重设计: 搜索/排序/标签云筛选/FramerMotion动画/填充进度条/一键展开折叠维度",
+        "新建模板流程修复: 选类型→直接进入编辑器(AI填充+逐维度编辑), 世界观和叙述者态度扩充(11/9项)+自定义输入",
+        "AI写作助手全面诊断修复: V2/V3总结器统一/单章失败不中断全局/分析错误日志/AbortController工具取消/空维度检查/上下文用量修复/Fisher-Yates洗牌/批量保存",
+        "草稿本全局化重构: 移除项目绑定, 所有草稿统一存global notes/, 扁平列表无分组, AI工具Route D前端直连",
+        "草稿edit_file支持: System prompt引导AI用write_note覆写草稿段落, 死代码note handler清理",
+        "AI工具权限修复: create_style_template等6工具加入READ_ONLY_TOOLS, Plan/Action双模式可用",
+        "项目列表过滤增强: 排除.开头/style_templates/scene_templates/notes等系统目录, create_project去掉hidden标记",
+        "其他修复: 删除确认弹窗/悬浮按钮位置记忆/ContextUsageBar/DraftPopup全局化/kb_index_file参数修正/fileHandlers全局notes路径白名单/AbortController通道分离"
+      ]
+    },
     {
       "version": "4.11.0",
       "date": "2026-05-23",

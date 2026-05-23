@@ -68,10 +68,13 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     const sensoryData = dims?.sensoryStyle
     let worldType = ''
     const fullText = [vocabData?.description||'', sensoryData?.description||''].join(' ')
-    if (/教堂|教皇|修女|骑士|神圣|魔法|神教/.test(fullText)) worldType = '西幻（西方奇幻/宗教）'
-    else if (/驿站|宰相|剑妃|蛮越|大虞|太和殿/.test(fullText)) worldType = '古代（东方古典/宫廷江湖）'
-    else if (/豪车|别墅|直播间|网红|公司|社畜|JK|泳装|情趣/.test(fullText)) worldType = '现代（都市/职场/日常）'
-    else if (/妈妈|主人|宝贝|～/.test(fullText) || fullText.includes('♥') || fullText.includes('♪')) worldType = '日系（二次元/萌系/ACG）'
+    if (/教堂|教皇|修女|骑士|神圣|魔法|神教|龙|精灵|矮人|兽人/.test(fullText)) worldType = '西幻'
+    else if (/驿站|宰相|剑妃|蛮越|大虞|太和殿|仙宗|门派|灵根|御剑|金丹|元婴/.test(fullText)) worldType = '古代'
+    else if (/豪车|别墅|直播间|网红|公司|社畜|JK|泳装|情趣|电梯|手机|地铁/.test(fullText)) worldType = '现代'
+    else if (/妈妈|主人|宝贝|～/.test(fullText) || fullText.includes('♥') || fullText.includes('♪')) worldType = '日系'
+    else if (/丧尸|辐射|避难所|变异|废土|幸存者|末日/.test(fullText)) worldType = '末日'
+    else if (/太空|飞船|星系|AI|人工智能|赛博|义体|克隆|纳米/.test(fullText)) worldType = '科幻'
+    else if (/鬼魂|幽灵|诅咒|附身|凶宅|灵异|超自然|道术/.test(fullText)) worldType = '灵异'
 
     const calibrationLines: string[] = []
     calibrationLines.push(`【风格尺度校准 - 必须达到的描写密度和极端程度】`)

@@ -8,8 +8,6 @@ interface Props {
 }
 
 export function DraftPopup({ documentKey }: Props) {
-  const activeProjectId = useStore(s => s.activeProjectId)
-  const projects = useStore(s => s.projects)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileEditNotify = useStore(s => s.fileEditNotify)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
@@ -19,42 +17,41 @@ export function DraftPopup({ documentKey }: Props) {
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
-  const project = projects.find(p => p.id === activeProjectId)
-  const projectPath = activeProjectId && projectsBasePath ? `${projectsBasePath}/${activeProjectId}` : ''
+  const notesDir = projectsBasePath ? projectsBasePath.replace(/[/\\]projects[/\\]?$/, '/notes') : ''
 
   // Load content
   useEffect(() => {
-    if (!projectPath || !documentKey) return
+    if (!notesDir || !documentKey) return
     setLoading(true)
-    fileService.read(`${projectPath}/notes/${documentKey}`).then(c => {
+    fileService.read(`${notesDir}/${documentKey}`).then(c => {
       setContent(c)
       setLoading(false)
     }).catch(() => { setContent(''); setLoading(false) })
-  }, [projectPath, documentKey])
+  }, [notesDir, documentKey])
 
   // Auto-save debounced
   const handleChange = useCallback((value: string) => {
     setContent(value)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
-      if (!projectPath) return
+      if (!notesDir) return
       try {
-        await fileService.write(`${projectPath}/notes/${documentKey}`, value)
+        await fileService.write(`${notesDir}/${documentKey}`, value)
         setLastSaved(new Date().toLocaleTimeString())
       } catch (err) { logError('保存草稿失败', err) }
     }, 800)
-  }, [projectPath, documentKey])
+  }, [notesDir, documentKey])
 
   // Auto-refresh when AI edits the file
   useEffect(() => {
-    if (!fileEditNotify || !projectPath || !documentKey) return
-    const expectedPath = `${projectPath}/notes/${documentKey}`.replace(/\\/g, '/')
+    if (!fileEditNotify || !notesDir || !documentKey) return
+    const expectedPath = `${notesDir}/${documentKey}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
       setContent(fileEditNotify.newContent)
       setFileEditNotify(null)
     }
     return () => { setFileEditNotify(null) }
-  }, [fileEditNotify, projectPath, documentKey])
+  }, [fileEditNotify, notesDir, documentKey])
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
@@ -74,7 +71,7 @@ export function DraftPopup({ documentKey }: Props) {
         placeholder="在此输入草稿内容...（支持 Markdown）"
       />
       <div style={{ padding: '4px 14px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: 9, color: '#9b8e84', display: 'flex', justifyContent: 'space-between' }}>
-        <span>{project?.name || ''} / notes / {documentKey}</span>
+        <span>notes / {documentKey}</span>
         <span>{lastSaved ? `已保存 ${lastSaved}` : ''}</span>
       </div>
     </div>

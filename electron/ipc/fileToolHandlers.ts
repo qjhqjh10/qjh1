@@ -524,7 +524,7 @@ export async function executeFileTool(
         if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return deny(callId, toolName, '无效的项目名称')
         const pp = path.join(projectPath, name)
         try { await fsp.access(pp); return { callId, toolName, status: 'error', summary: `项目已存在: ${name}` } } catch { /* ok */ }
-        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images']) {
+        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
         await fsp.writeFile(path.join(pp, 'outline', 'plot.json'), '', 'utf-8')
@@ -532,7 +532,8 @@ export async function executeFileTool(
         const novelCat = (args.novelCategory as string) || 'general'
         const projType = (args.type as string) === 'imitation' ? 'imitation' : (args.type as string) === 'continuation' ? 'continuation' : 'writing'
         await fsp.writeFile(path.join(pp, 'project.json'), JSON.stringify({ type: projType, novelCategory: novelCat }), 'utf-8')
-        return { callId, toolName, status: 'success', summary: `已创建项目: ${name}`, detail: `类型: ${projType}\n小说类型: ${novelCat}\n路径: ${name}` }
+        // Notify HomePage to refresh project list
+        return { callId, toolName, status: 'success', summary: `已创建项目: ${name}`, detail: `类型: ${projType}\n小说类型: ${novelCat}\n可在首页项目列表中查看` }
       }
 
       case 'delete_project': {
@@ -545,76 +546,8 @@ export async function executeFileTool(
         return { callId, toolName, status: 'success', summary: `已删除项目: ${name}` }
       }
 
-      // ── 知识库索引 ──
-      case 'kb_index_file': {
-        const fp = resolvePath('file_path')
-        if (!fp || !isSafePath(fp, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        // 架构限制: 此工具上下文无 configId/API key，无法直接调用 Embedding API。
-        // 完整的索引逻辑（分块+Embedding+写入index.json）在 kbHandlers.ts 的 kb:index handler 中，需通过知识库页面的"索引"按钮触发。
-        try { await fsp.access(fp) } catch { return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` } }
-        return { callId, toolName, status: 'success', summary: `文件已验证: ${args.file_path}`, detail: '文件已验证存在。请在知识库页面点击"索引"按钮来建立语义搜索索引（需要 API key 和 Embedding 模型配置）。' }
-      }
-
-      // ── 草稿笔记 ──
-      case 'list_notes': {
-        const notesDir = path.join(projectPath, 'notes')
-        try {
-          const entries = await fsp.readdir(notesDir, { withFileTypes: true })
-          const files = entries
-            .filter(e => e.isFile() && e.name.endsWith('.md'))
-            .map(e => e.name)
-          return { callId, toolName, status: 'success', summary: `共 ${files.length} 个草稿`, detail: JSON.stringify(files) }
-        } catch {
-          return { callId, toolName, status: 'success', summary: 'notes/ 目录为空或不存在', detail: '[]' }
-        }
-      }
-
-      case 'read_note': {
-        const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        if (!noteName) return deny(callId, toolName, '草稿名称无效')
-        const np = path.join(projectPath, 'notes', path.basename(noteName))
-        if (!isSafePath(np, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        try { const c = await readFileWithEncoding(np); return { callId, toolName, status: 'success', summary: `已读取: ${noteName}`, detail: c } }
-        catch { return { callId, toolName, status: 'error', summary: `草稿不存在: ${noteName}` } }
-      }
-
-      case 'write_note': {
-        const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        if (!noteName) return deny(callId, toolName, '草稿名称无效')
-        const content = String(args.content || '')
-        if (content.length > MAX_WRITE_CHARS) return { callId, toolName, status: 'error', summary: `内容超过 ${MAX_WRITE_CHARS} 字符上限` }
-        const notesDir = path.join(projectPath, 'notes')
-        await fsp.mkdir(notesDir, { recursive: true })
-        const np = path.join(notesDir, path.basename(noteName))
-        if (!isSafePath(np, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        await fsp.writeFile(np, content, 'utf-8')
-        return { callId, toolName, status: 'success', summary: `已写入草稿: ${noteName} (${content.length} 字符)` }
-      }
-
-      case 'append_note': {
-        const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        if (!noteName) return deny(callId, toolName, '草稿名称无效')
-        const newContent = String(args.content || '')
-        if (newContent.length > MAX_WRITE_CHARS) return { callId, toolName, status: 'error', summary: `追加内容超过 ${MAX_WRITE_CHARS} 字符上限` }
-        const notesDir = path.join(projectPath, 'notes')
-        await fsp.mkdir(notesDir, { recursive: true })
-        const np = path.join(notesDir, path.basename(noteName))
-        if (!isSafePath(np, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        let existing = ''
-        try { existing = await readFileWithEncoding(np) } catch { /* file doesn't exist yet, create new */ }
-        const combined = existing ? existing + '\n\n' + newContent : newContent
-        await fsp.writeFile(np, combined, 'utf-8')
-        return { callId, toolName, status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
-      }
-
-      case 'delete_note': {
-        const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        if (!noteName) return deny(callId, toolName, '草稿名称无效')
-        const np = path.join(projectPath, 'notes', path.basename(noteName))
-        if (!isSafePath(np, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        try { await fsp.unlink(np); return { callId, toolName, status: 'success', summary: `已删除草稿: ${noteName}` } }
-        catch { return { callId, toolName, status: 'error', summary: `草稿不存在: ${noteName}` } }
-      }
+      // 草稿笔记工具已迁移至前端 Route D（AIChatWindow.tsx 路由 D），
+      // 直接操作全局 notes/ 目录。此处不再处理 note 工具。
 
       case 'search_images': {
         const query = String(args.query || '').slice(0, 200)

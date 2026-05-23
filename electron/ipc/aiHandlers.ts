@@ -123,8 +123,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     }
   })
 
-  // Track abort handlers per webContents to prevent listener accumulation across concurrent streams
+  // Track abort handlers per webContents (stream and tool-chat use separate maps/channels)
   const streamAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
+  const toolChatAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
 
   // Streaming chat: renders chunks via events
   ipcMain.handle('ai:chat-stream', async (event, messages: { role: string; content: string }[], configId: string, projectId?: string) => {
@@ -290,7 +291,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
   // ── Tool-enabled chat (single turn) ──
   ipcMain.handle('ai:chat-with-tools',
-    async (_event, messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
+    async (event, messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
       configId: string, projectId?: string, tools?: unknown[],
     ) => {
       const store = await getConfigStore()
@@ -301,6 +302,20 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
       const OpenAI = await getOpenAI()
       const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
+
+      // AbortController for tool-chat, uses dedicated channel to avoid conflict with stream
+      const abortController = new AbortController()
+      const wcId = event.sender.id
+      const onAbort = (ev: Electron.IpcMainEvent) => { if (ev.sender.id === wcId) abortController.abort() }
+      if (toolChatAbortHandlers.has(wcId)) {
+        ipcMain.removeListener('ai:abort-tool-chat', toolChatAbortHandlers.get(wcId)!)
+      }
+      toolChatAbortHandlers.set(wcId, onAbort)
+      ipcMain.on('ai:abort-tool-chat', onAbort)
+      event.sender.once('destroyed' as any, () => {
+        ipcMain.removeListener('ai:abort-tool-chat', onAbort)
+        toolChatAbortHandlers.delete(wcId)
+      })
 
       const systemMessage = config.systemPrompt
         ? { role: 'system' as const, content: config.systemPrompt }
@@ -334,7 +349,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           params.tool_choice = 'auto'
         }
 
-        const completion = await client.chat.completions.create(params as any)
+        const completion = await client.chat.completions.create(params as any, { signal: abortController.signal })
 
         const usage = completion.usage
         if (usage) {
@@ -369,7 +384,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           } : undefined,
         })
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return JSON.stringify({ text: '', tool_calls: null, finish_reason: 'stop', aborted: true })
+        }
         throw new Error(categorizeError(err))
+      } finally {
+        ipcMain.removeListener('ai:abort-tool-chat', onAbort)
+        toolChatAbortHandlers.delete(wcId)
       }
     })
 

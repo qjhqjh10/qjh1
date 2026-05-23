@@ -1,29 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { styleProjectService, aiService, styleTemplateService } from '@/services/fileService'
 import type { StyleTemplate } from '@/types/styleTemplate'
-import { getTemplateDims, BASE_DIMS, TYPE_EXTRA_DIMS } from '@/types/styleTemplate'
-import { NOVEL_TYPE_LABELS } from '@/types/story'
+import { getTemplateDims } from '@/types/styleTemplate'
+import type { DimAnalysis } from '@/types/story'
+import { DIMENSION_META, NOVEL_TYPE_LABELS, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import { nanoid } from 'nanoid'
+import { motion, AnimatePresence } from 'framer-motion'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
-import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3 } from '@/services/extractionService'
+import { buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3, buildSummarizePromptV3 } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
-import { DIMENSION_META, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import {
   SparklesIcon, PlusIcon, TrashIcon, XMarkIcon,
   DocumentTextIcon, PaintBrushIcon, FolderOpenIcon,
-  ArrowLeftIcon,
+  ArrowLeftIcon, MagnifyingGlassIcon, ArrowsUpDownIcon,
+  ArrowPathIcon, TagIcon,
 } from '@heroicons/react/24/outline'
 
 type ViewMode = 'library' | 'detail'
 type ResultTab = 'chapters' | 'overall'
 type WorkspaceTab = 'archives' | 'templates'
+type SortKey = 'updatedAt' | 'name' | 'type' | 'dimCount'
 
 function splitChapters(content: string): StyleChapter[] {
   let chapterNum = 0
@@ -46,6 +49,16 @@ const FEATURE_LABELS: Record<string, string> = {
   compoundWordPattern: '造词模式', onomatopoeiaSystem: '拟声词系统', sensoryPackFormula: '感官打包',
   bodyMindBetrayal: '身心背离', humiliationTemplate: '羞辱公式',
 }
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'updatedAt', label: '最新' },
+  { key: 'name', label: '名称' },
+  { key: 'type', label: '类型' },
+  { key: 'dimCount', label: '维度' },
+]
+
+const WORLD_TYPE_PRESETS = ['古代', '现代', '西幻', '日系', '末日', '科幻', '灵异', '架空历史', '玄幻', '游戏', '混合']
+const ATTITUDE_PRESETS = ['冷漠旁观', '欣赏把玩', '幽默调侃', '温柔包容', '神圣庄严', '冷酷写实', '热忱歌颂', '暧昧诱导', '疑惑探索']
 
 export default function StyleWorkshopPage() {
   const setActivePage = useStore(s => s.setActivePage)
@@ -74,12 +87,25 @@ export default function StyleWorkshopPage() {
   const [showApply, setShowApply] = useState(false)
   const projectsList = useStore(s => s.projects)
 
-  // 模板库状态
+  // 风格模板状态
   const [templates, setTemplates] = useState<StyleTemplate[]>([])
   const [showCreateTemplate, setShowCreateTemplate] = useState(false)
   const [editTemplate, setEditTemplate] = useState<StyleTemplate | null>(null)
   const [templateTab, setTemplateTab] = useState<string>('all')
   const [aiGenLoading, setAiGenLoading] = useState(false)
+  const [templateSearch, setTemplateSearch] = useState('')
+  const [templateSort, setTemplateSort] = useState<SortKey>('updatedAt')
+  const [expandedDims, setExpandedDims] = useState<Set<string>>(new Set())
+  const [customWorldType, setCustomWorldType] = useState('')
+  const [customAttitude, setCustomAttitude] = useState('')
+
+  const toggleDimExpanded = (key: string) => {
+    setExpandedDims(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   const loadTemplates = async () => {
     try {
@@ -90,7 +116,7 @@ export default function StyleWorkshopPage() {
           projectList = await styleTemplateService.listProject(`${projectsBasePath}/${activeProjectId}`) as any[]
         } catch { /* project dir may not exist */ }
       }
-      const seen = new Set(globalList.map(t => t.id))
+      const seen = new Set(globalList.map((t: any) => t.id))
       const merged = [...globalList]
       for (const t of projectList) { if (!seen.has(t.id)) { merged.push(t); seen.add(t.id) } }
       setTemplates(merged)
@@ -104,7 +130,6 @@ export default function StyleWorkshopPage() {
     if (fileEditNotify?.filePath?.includes('style_templates')) loadTemplates()
   }, [fileEditNotify])
 
-  const filteredTemplates = templateTab === 'all' ? templates : templates.filter(t => t.type === templateTab)
   const styleAssignments = useSettingsStore(s => s.aiSettings.styleAssignments || {})
   const setStyleAssignments = useSettingsStore(s => s.setAISettings)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -114,6 +139,91 @@ export default function StyleWorkshopPage() {
   const loadProjects = async () => {
     try { setProjects(await styleProjectService.listProjects() as StyleProjectMeta[]) } catch { /* */ }
   }
+
+  // ── Computed template list ──
+  const filteredAndSortedTemplates = useMemo(() => {
+    let list = [...templates]
+    // Filter by type
+    if (templateTab !== 'all') list = list.filter(t => t.type === templateTab)
+    // Search by name
+    if (templateSearch.trim()) {
+      const q = templateSearch.trim().toLowerCase()
+      list = list.filter(t => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q))
+    }
+    // Sort
+    list.sort((a, b) => {
+      switch (templateSort) {
+        case 'name': return a.name.localeCompare(b.name, 'zh-CN')
+        case 'type': return (a.type || '').localeCompare(b.type || '', 'zh-CN')
+        case 'dimCount': return Object.keys(b.dimensions || {}).length - Object.keys(a.dimensions || {}).length
+        default: return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      }
+    })
+    return list
+  }, [templates, templateTab, templateSearch, templateSort])
+
+  // ── Dim editing helpers (from TemplateLibraryPage) ──
+  const updateDim = (key: string, field: keyof DimAnalysis, value: string | string[]) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const existing = dims[key] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
+    dims[key] = { ...existing, [field]: value }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const addVocabItem = (dimKey: string) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const existing = dims[dimKey] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
+    dims[dimKey] = { ...existing, vocabularyList: [...existing.vocabularyList, ''] }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const updateVocabItem = (dimKey: string, idx: number, value: string) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.vocabularyList || [])]
+    list[idx] = value
+    dims[dimKey] = { ...dims[dimKey], vocabularyList: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const removeVocabItem = (dimKey: string, idx: number) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.vocabularyList || [])]
+    list.splice(idx, 1)
+    dims[dimKey] = { ...dims[dimKey], vocabularyList: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const addRule = (dimKey: string) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const existing = dims[dimKey] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
+    dims[dimKey] = { ...existing, writingRules: [...existing.writingRules, ''] }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const updateRule = (dimKey: string, idx: number, value: string) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.writingRules || [])]
+    list[idx] = value
+    dims[dimKey] = { ...dims[dimKey], writingRules: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const removeRule = (dimKey: string, idx: number) => {
+    if (!editTemplate) return
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.writingRules || [])]
+    list.splice(idx, 1)
+    dims[dimKey] = { ...dims[dimKey], writingRules: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  // ── Archived project operations ──
 
   const handleImport = async () => {
     setLoading(true)
@@ -141,7 +251,6 @@ export default function StyleWorkshopPage() {
     setLoading(true)
     try {
       const proj = await styleProjectService.loadProject(meta.id) as StyleProject
-      // Ensure all chapters have analysis field and backward compat for novelType/enabledDimensions
       proj.chapters = proj.chapters.map(c => ({ ...c, analysis: c.analysis || null, analyzed: c.analyzed || false }))
       if (!proj.novelType) proj.novelType = '通用'
       if (!proj.enabledDimensions?.length) proj.enabledDimensions = NOVEL_TYPE_DIMS[proj.novelType] || NOVEL_TYPE_DIMS['通用']
@@ -176,32 +285,64 @@ export default function StyleWorkshopPage() {
   }
 
   // ---- Analysis ----
+  // Fisher-Yates shuffle (unbiased, non-mutating)
+  const shuffleChapters = (arr: StyleChapter[]): StyleChapter[] => {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+  }
+
+  let saveCounter = 0
+  const batchSaveProject = () => {
+    saveCounter++
+    if (saveCounter % 10 === 0 && selectedProject) {
+      styleProjectService.saveProject(selectedProject).catch(err => logError('批量保存失败', err))
+    }
+  }
+  const finalSaveProject = () => {
+    if (selectedProject) {
+      styleProjectService.saveProject(selectedProject).catch(err => logError('最终保存失败', err))
+    }
+  }
+
   const handleAnalyze = async () => {
     if (!selectedProject || !activeConfigId) return
+    if (enabledDimensions.length === 0) { alert('请先配置分析维度（点击「配置维度」按钮）'); return }
     const chaptersToAnalyze = selectedProject.chapters.filter(c => analyzeIds.has(c.id))
     if (chaptersToAnalyze.length === 0) return
     setAnalyzeLoading(true)
+    saveCounter = 0
     try {
       if (analyzeMode === 'quick') {
-        const sample = chaptersToAnalyze.sort(() => Math.random() - 0.5).slice(0, 10)
-        setAnalyzeProgress(`快速模式: ${sample.length} 章...`)
-        // Analyze all at once, then split result per chapter (simple approach: assign same analysis to each)
-        for (const ch of sample) {
-          const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-          updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
-          setAnalyzeProgress(`快速模式: ${sample.indexOf(ch) + 1}/${sample.length}`)
+        const sample = shuffleChapters(chaptersToAnalyze).slice(0, 10)
+        setAnalyzeProgress(`抽样分析: 0/${sample.length}`)
+        for (let idx = 0; idx < sample.length; idx++) {
+          try {
+            const ch = sample[idx]
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
+            batchSaveProject()
+          } catch (err) { logError(`分析章节失败: ${sample[idx].title}`, err) }
+          setAnalyzeProgress(`抽样分析: ${idx + 1}/${sample.length}`)
         }
       } else {
         const batches: StyleChapter[][] = []
         for (let i = 0; i < chaptersToAnalyze.length; i += 3) batches.push(chaptersToAnalyze.slice(i, i + 3))
         for (let i = 0; i < batches.length; i++) {
-          setAnalyzeProgress(`精确模式: ${i + 1}/${batches.length} 批...`)
+          setAnalyzeProgress(`全量分析: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-            updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
+            try {
+              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+              updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
+              batchSaveProject()
+            } catch (err) { logError(`分析章节失败: ${ch.title}`, err) }
           }
         }
       }
+      finalSaveProject()
       setAnalyzeProgress('分析完成')
     } catch (err) { logError('风格分析失败', err); setAnalyzeProgress('分析失败') }
     setAnalyzeLoading(false)
@@ -215,65 +356,47 @@ export default function StyleWorkshopPage() {
         ...prev,
         chapters: prev.chapters.map(c => c.id === chapterId ? { ...c, analysis, analyzed: true } : c),
       }
-      // Save after state update
-      styleProjectService.saveProject(updated).catch(() => {})
       return updated
     })
   }
 
-  // ---- Summarize ----
+  // ---- Summarize (V3 format) ----
   const handleSummarize = async () => {
     if (!selectedProject || !activeConfigId) return
     const analyzedChapters = selectedProject.chapters.filter(c => c.analysis)
     if (analyzedChapters.length === 0) { alert('没有已分析的章节'); return }
     setSummarizeLoading(true)
     try {
-      const analyses = analyzedChapters.map(c => {
-        const a = c.analysis!
-        const parts: string[] = [`[${c.title}]`]
-        // Only include string fields that have actual content
-        if (a.sentenceStyle) parts.push(`句式:${a.sentenceStyle}`)
-        if (a.vocabularyStyle) parts.push(`词汇:${a.vocabularyStyle}`)
-        if (a.rhetoricStyle) parts.push(`修辞:${a.rhetoricStyle}`)
-        if (a.rhythmStyle) parts.push(`节奏:${a.rhythmStyle}`)
-        if (a.dialogueStyle) parts.push(`对话:${a.dialogueStyle}`)
-        if (a.moodStyle) parts.push(`氛围:${a.moodStyle}`)
-        if (a.perspectiveStyle) parts.push(`视角:${a.perspectiveStyle}`)
-        if (a.bodyLanguageStyle) parts.push(`身体:${a.bodyLanguageStyle}`)
-        if (a.sensoryStyle) parts.push(`感官:${a.sensoryStyle}`)
-        if (a.tensionStyle) parts.push(`张力:${a.tensionStyle}`)
-        if (a.subtextStyle) parts.push(`暗示:${a.subtextStyle}`)
-        if (a.descriptionPattern) parts.push(`描写结构:${JSON.stringify(a.descriptionPattern)}`)
-        if (a.corruptionArc) parts.push(`堕落弧线:${JSON.stringify(a.corruptionArc)}`)
-        if (a.degradationRitual) parts.push(`仪式剧本:${JSON.stringify(a.degradationRitual)}`)
-        if (a.narrativeVoice) parts.push(`叙事声音:${JSON.stringify(a.narrativeVoice)}`)
-        // Report which V3 dimensions were found
-        if (a.dimAnalyses && Object.keys(a.dimAnalyses).length > 0) {
-          parts.push(`V3维度:${Object.keys(a.dimAnalyses).join(',')}`)
+      // Build dimAnalyses summary from all analyzed chapters
+      const dimSummaryParts: string[] = []
+      for (const ch of analyzedChapters) {
+        if (ch.analysis?.dimAnalyses && Object.keys(ch.analysis.dimAnalyses).length > 0) {
+          const parts = [`[${ch.title}]`]
+          for (const [dk, da] of Object.entries(ch.analysis.dimAnalyses)) {
+            const meta = DIMENSION_META[dk]
+            parts.push(`  ${dk}(${meta?.label || dk}): ${(da as DimAnalysis).description?.slice(0, 150) || ''}`)
+          }
+          dimSummaryParts.push(parts.join('\n'))
         }
-        return parts.join('\n')
-      }).join('\n\n')
-      const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
-      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-      const result = parseStyleAnalysisReply(reply)
-      // Aggregate dimAnalyses from all analyzed chapters
-      const aggregatedDimAnalyses: Record<string, import('@/types/story').DimAnalysis> = {}
+      }
+
+      // First, manually aggregate dimAnalyses across chapters
+      const aggregatedDimAnalyses: Record<string, DimAnalysis> = {}
       for (const ch of analyzedChapters) {
         if (ch.analysis?.dimAnalyses) {
           for (const [dk, da] of Object.entries(ch.analysis.dimAnalyses)) {
             const existing = aggregatedDimAnalyses[dk]
             if (!existing) {
-              aggregatedDimAnalyses[dk] = { ...da }
+              aggregatedDimAnalyses[dk] = { ...(da as DimAnalysis) }
             } else {
-              // Deduplicate examples and vocabulary
               const mergedExamples = [...existing.examples]
-              for (const ex of da.examples || []) { if (!mergedExamples.includes(ex)) mergedExamples.push(ex) }
+              for (const ex of (da as DimAnalysis).examples || []) { if (!mergedExamples.includes(ex)) mergedExamples.push(ex) }
               const mergedVocab = [...existing.vocabularyList]
-              for (const v of da.vocabularyList || []) { if (!mergedVocab.includes(v)) mergedVocab.push(v) }
+              for (const v of (da as DimAnalysis).vocabularyList || []) { if (!mergedVocab.includes(v)) mergedVocab.push(v) }
               aggregatedDimAnalyses[dk] = {
-                description: existing.description || da.description,
+                description: existing.description || (da as DimAnalysis).description,
                 examples: mergedExamples.slice(0, 30),
-                writingRules: [...new Set([...(existing.writingRules || []), ...(da.writingRules || [])])],
+                writingRules: [...new Set([...(existing.writingRules || []), ...((da as DimAnalysis).writingRules || [])])],
                 vocabularyList: mergedVocab.slice(0, 80),
               }
             }
@@ -281,25 +404,57 @@ export default function StyleWorkshopPage() {
         }
       }
 
+      // Use V3 summarization if there are dimAnalyses, otherwise fall back to string-based summary
+      let fullDescription = ''
+      if (dimSummaryParts.length > 0) {
+        const dimSummary = dimSummaryParts.join('\n\n')
+        const prompt = buildSummarizePromptV3(analyzedChapters.length, dimSummary, selectedProject.novelType || '通用')
+        const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+        const v3Result = parseStyleAnalysisReplyV3(reply, enabledDimensions)
+        // Merge AI-summarized dimAnalyses with the manually-aggregated ones
+        if (v3Result.dimAnalyses) {
+          for (const [dk, da] of Object.entries(v3Result.dimAnalyses)) {
+            if (!aggregatedDimAnalyses[dk]) {
+              aggregatedDimAnalyses[dk] = da
+            } else {
+              // AI summary takes description priority, manual aggregation keeps examples/vocab
+              aggregatedDimAnalyses[dk] = {
+                ...aggregatedDimAnalyses[dk],
+                description: da.description || aggregatedDimAnalyses[dk].description,
+              }
+            }
+          }
+        }
+        fullDescription = v3Result.dimAnalyses
+          ? Object.entries(v3Result.dimAnalyses).map(([k, d]) => `${DIMENSION_META[k]?.label || k}: ${d.description?.slice(0, 80)}`).join('; ')
+          : `已分析${analyzedChapters.length}章，${Object.keys(aggregatedDimAnalyses).length}个维度`
+      } else {
+        // Fallback: build simple summary from legacy string fields
+        const strFields = analyzedChapters[0]?.analysis
+        fullDescription = strFields
+          ? `句式: ${strFields.sentenceStyle || ''}; 词汇: ${strFields.vocabularyStyle || ''}; 节奏: ${strFields.rhythmStyle || ''}; 对话: ${strFields.dialogueStyle || ''}`
+          : `已分析${analyzedChapters.length}章`
+      }
+
       const profile: StyleProfile = {
         features: {
-          sentenceStyle: result.sentenceStyle, vocabularyStyle: result.vocabularyStyle,
-          rhetoricStyle: result.rhetoricStyle, rhythmStyle: result.rhythmStyle,
-          dialogueStyle: result.dialogueStyle, moodStyle: result.moodStyle,
-          perspectiveStyle: result.perspectiveStyle, bodyLanguageStyle: result.bodyLanguageStyle,
-          sensoryStyle: result.sensoryStyle, tensionStyle: result.tensionStyle,
-          subtextStyle: result.subtextStyle,
-          descriptionPattern: result.descriptionPattern || null,
-          corruptionArc: result.corruptionArc || null,
-          degradationRitual: result.degradationRitual || null,
-          narrativeVoice: result.narrativeVoice || null,
-          sceneMechanics: result.sceneMechanics || null,
-          somaticTension: result.somaticTension || null,
-          identityDissolution: result.identityDissolution || null,
-          shameVoyeurLoop: result.shameVoyeurLoop || null,
+          sentenceStyle: aggregatedDimAnalyses['sentenceStyle']?.description || '',
+          vocabularyStyle: aggregatedDimAnalyses['vocabularyStyle']?.description || '',
+          rhetoricStyle: aggregatedDimAnalyses['rhetoricStyle']?.description || '',
+          rhythmStyle: aggregatedDimAnalyses['rhythmStyle']?.description || '',
+          dialogueStyle: aggregatedDimAnalyses['dialogueStyle']?.description || '',
+          moodStyle: aggregatedDimAnalyses['moodStyle']?.description || '',
+          perspectiveStyle: aggregatedDimAnalyses['perspectiveStyle']?.description || '',
+          bodyLanguageStyle: aggregatedDimAnalyses['bodyLanguageStyle']?.description || '',
+          sensoryStyle: aggregatedDimAnalyses['sensoryStyle']?.description || '',
+          tensionStyle: aggregatedDimAnalyses['tensionStyle']?.description || '',
+          subtextStyle: aggregatedDimAnalyses['subtextStyle']?.description || '',
+          descriptionPattern: null, corruptionArc: null, degradationRitual: null,
+          narrativeVoice: null, sceneMechanics: null, somaticTension: null,
+          identityDissolution: null, shameVoyeurLoop: null,
         },
-        fullDescription: `句式: ${result.sentenceStyle}; 词汇: ${result.vocabularyStyle}; 修辞: ${result.rhetoricStyle}; 节奏: ${result.rhythmStyle}; 对话: ${result.dialogueStyle}; 氛围: ${result.moodStyle}; 视角: ${result.perspectiveStyle}; 身体: ${result.bodyLanguageStyle}; 感官: ${result.sensoryStyle}; 张力: ${result.tensionStyle}; 暗示: ${result.subtextStyle}`,
-        excerpts: result.excerpt ? [{ text: result.excerpt, note: result.excerptNote }] : [],
+        fullDescription,
+        excerpts: [],
         analyzedAt: new Date().toISOString(),
         analyzedChapterCount: analyzedChapters.length,
         dimAnalyses: Object.keys(aggregatedDimAnalyses).length > 0 ? aggregatedDimAnalyses : undefined,
@@ -330,7 +485,6 @@ export default function StyleWorkshopPage() {
   const handleSaveAsTemplate = async () => {
     if (!selectedProject?.profile) return
     const profile = selectedProject.profile
-    // Build a StyleTemplate from the StyleProject's profile
     const dims = profile.dimAnalyses || {}
     const vocabList: string[] = []
     const rulesList: string[] = []
@@ -355,6 +509,7 @@ export default function StyleWorkshopPage() {
     try {
       await styleTemplateService.save(template)
       await loadTemplates()
+      setWorkspaceTab('templates')
       alert('已保存为风格模板！')
     } catch { alert('保存失败') }
   }
@@ -362,10 +517,7 @@ export default function StyleWorkshopPage() {
   // ── 模板操作 ──
   const handleCloneTemplate = async (t: StyleTemplate) => {
     const clone: StyleTemplate = { ...t, id: '', name: `${t.name} (副本)`, source: 'manual', sourceProjectId: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-    try {
-      await styleTemplateService.save(clone)
-      await loadTemplates()
-    } catch { alert('复制失败') }
+    try { await styleTemplateService.save(clone); await loadTemplates() } catch { alert('复制失败') }
   }
 
   const handleDeleteTemplate = async (t: StyleTemplate) => {
@@ -373,87 +525,118 @@ export default function StyleWorkshopPage() {
     try { await styleTemplateService.delete(t.id); await loadTemplates() } catch { alert('删除失败') }
   }
 
+  const handleCreateFromType = (type: string) => {
+    const name = (document.getElementById('newTmplName') as HTMLInputElement)?.value?.trim() || '新模板'
+    const t: StyleTemplate = {
+      id: '', name, type: type as StyleTemplate['type'], worldType: '', description: '',
+      fullDescription: '', dimensions: {}, vocabularyList: [], writingRules: [],
+      tone: { word: '', description: '', attitude: '' }, source: 'manual',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    setShowCreateTemplate(false)
+    setEditTemplate(t)
+  }
+
+  const handleSaveTemplate = async () => {
+    if (!editTemplate) return
+    // Clean up sentinel values from custom inputs
+    const clean = { ...editTemplate }
+    if (clean.worldType === '__custom__') clean.worldType = ''
+    if (clean.tone?.attitude === '__custom__') clean.tone = { ...clean.tone, attitude: '' }
+    try {
+      await styleTemplateService.save({ ...clean, updatedAt: new Date().toISOString() })
+      await loadTemplates()
+      setEditTemplate(null)
+      setExpandedDims(new Set())
+      setCustomWorldType('')
+      setCustomAttitude('')
+    } catch { alert('保存失败') }
+  }
+
   const selectedChapter = selectedProject?.chapters.find(c => c.id === selectedChapterId)
   const analyzedChapters = selectedProject?.chapters.filter(c => c.analysis) || []
 
-  // ---- Library View ----
+  // ============ LIBRARY VIEW ============
   if (view === 'library') {
     return (
       <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
         <ScrollArea style={{ flex: 1 }}>
-        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
+        <div style={{ maxWidth: 960, width: '100%', margin: '0 auto' }}>
           {/* Tabs */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ display: 'flex', gap: 4, background: 'rgba(0,0,0,0.03)', borderRadius: 12, padding: 3 }}>
-              {(['archives', 'templates'] as WorkspaceTab[]).map(tab => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+            <div style={{ display: 'flex', gap: 4, background: 'rgba(0,0,0,0.03)', borderRadius: 14, padding: 4 }}>
+              {([
+                ['archives', '风格档案', PaintBrushIcon],
+                ['templates', '风格模板', TagIcon],
+              ] as [WorkspaceTab, string, React.ComponentType<{ style?: React.CSSProperties }>][]).map(([tab, label, Icon]) => (
                 <button key={tab} onClick={() => setWorkspaceTab(tab)} style={{
-                  padding: '8px 20px', borderRadius: 10, border: 'none',
+                  padding: '9px 22px', borderRadius: 11, border: 'none',
                   background: workspaceTab === tab ? '#fff' : 'transparent',
                   color: workspaceTab === tab ? '#7c3aed' : '#9b8e84',
                   fontSize: 13, fontWeight: workspaceTab === tab ? 700 : 500,
-                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                  boxShadow: workspaceTab === tab ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
+                  boxShadow: workspaceTab === tab ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
                 }}>
-                  {tab === 'archives' ? '风格档案' : '模板库'}
+                  <Icon style={{ width: 16, height: 16 }} />{label}
                 </button>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              {workspaceTab === 'archives' && <Button onClick={handleImport} disabled={loading} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />}>{loading ? '导入中...' : '导入TXT小说'}</Button>}
+              {workspaceTab === 'archives' && (
+                <Button onClick={handleImport} disabled={loading} icon={<FolderOpenIcon style={{ width: 16, height: 16 }} />}>
+                  {loading ? '导入中...' : '导入TXT小说'}
+                </Button>
+              )}
+              {workspaceTab === 'templates' && (
+                <Button onClick={() => setShowCreateTemplate(true)} icon={<PlusIcon style={{ width: 16, height: 16 }} />}>
+                  新建模板
+                </Button>
+              )}
             </div>
           </div>
 
           {/* Archives Tab */}
-          {workspaceTab === 'archives' && (<>
-          <div style={{ marginBottom: 16 }}><h2 style={{ fontSize: 18, fontWeight: 600, color: '#2d2520' }}>风格档案</h2><p style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>导入名家作品，AI分析提取写作风格</p></div>
-          {projects.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}><PaintBrushIcon style={{ width: 56, height: 56, margin: '0 auto 16px', opacity: 0.2 }} /><p style={{ fontSize: 15 }}>暂无风格档案</p></div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {projects.map(p => (
-                <GlassCard key={p.id} hover={false} style={{ padding: 20 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                    <div style={{ flex: 1 }}><h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', marginBottom: 6 }}>{p.name}</h3>
-                      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}><span>{p.sourceFileName}</span><span>{p.chapterCount}章</span><span>{(p.totalCharCount/10000).toFixed(1)}万字</span><span style={{ color: '#7c3aed' }}>{p.novelType || '通用'}</span>{p.hasProfile && <span style={{ color: '#16a34a' }}>✓ 已总结</span>}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}><Button size="sm" onClick={() => handleEnterProject(p)}>查看详情</Button><Button size="sm" variant="ghost" onClick={() => { handleEnterProject(p); setTimeout(() => setShowApply(true), 100) }}>应用</Button><button onClick={() => handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}><TrashIcon style={{ width: 16, height: 16 }} /></button></div>
-                  </div>
-                </GlassCard>
-              ))}
-            </div>
-          )}
-          </>)}
-          {/* Templates Tab */}
-          {workspaceTab === 'templates' && (
+          {workspaceTab === 'archives' && (
             <div>
-              <div style={{ marginBottom: 16 }}><h2 style={{ fontSize: 18, fontWeight: 600, color: '#2d2520' }}>模板库</h2><p style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>管理风格模板，通过风格分析生成或手动创建</p></div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Button size="sm" onClick={() => setShowCreateTemplate(true)} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建模板</Button>
-                {(['all', ...Object.keys(NOVEL_TYPE_LABELS)] as const).map(t => (
-                  <button key={t} onClick={() => setTemplateTab(t)} style={{
-                    padding: '4px 12px', borderRadius: 8, border: templateTab === t ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
-                    background: templateTab === t ? 'rgba(124,58,237,0.05)' : 'transparent',
-                    color: templateTab === t ? '#7c3aed' : '#9b8e84', fontSize: 10, fontWeight: templateTab === t ? 600 : 400,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}>{t === 'all' ? '全部' : NOVEL_TYPE_LABELS[t] || t}</button>
-                ))}
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: '#2d2520', margin: '0 0 4px' }}>风格档案</h2>
+                <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>导入名家作品，AI分析提取写作风格</p>
               </div>
-              {filteredTemplates.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 13 }}>暂无模板。从风格档案分析后保存为模板，或点击新建。</div>
+              {projects.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}>
+                  <PaintBrushIcon style={{ width: 56, height: 56, margin: '0 auto 16px', opacity: 0.2 }} />
+                  <p style={{ fontSize: 15 }}>暂无风格档案</p>
+                  <p style={{ fontSize: 12, marginTop: 4 }}>导入TXT小说开始分析</p>
+                </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                  {filteredTemplates.map(t => (
-                    <GlassCard key={t.id} hover style={{ cursor: 'pointer', padding: 16 }} onClick={() => setEditTemplate(t)}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</h4>
-                        <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 6, background: t.type === '情色小说' ? 'rgba(239,68,68,0.06)' : 'rgba(124,58,237,0.06)', color: t.type === '情色小说' ? '#dc2626' : '#7c3aed', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{NOVEL_TYPE_LABELS[t.type] || t.type}</span>
-                      </div>
-                      <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description || '(无简介)'}</p>
-                      <div style={{ display: 'flex', gap: 12, fontSize: 10, color: '#9b8e84', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{t.worldType || '通用'} · {Object.keys(t.dimensions || {}).length}维 · {t.source === 'ai-generated' ? 'AI生成' : '手动'}</span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button onClick={(e) => { e.stopPropagation(); handleCloneTemplate(t) }} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', cursor: 'pointer', color: '#6b5e54', fontFamily: 'inherit' }}>复制</button>
-                          <button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t) }} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.03)', cursor: 'pointer', color: '#dc2626', fontFamily: 'inherit' }}>删除</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {projects.map(p => (
+                    <GlassCard key={p.id} hover={false} style={{ padding: 20 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', marginBottom: 6 }}>{p.name}</h3>
+                          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#9b8e84' }}>
+                            <span>{p.sourceFileName}</span>
+                            <span>{p.chapterCount}章</span>
+                            <span>{(p.totalCharCount/10000).toFixed(1)}万字</span>
+                            <span style={{ color: '#7c3aed' }}>{p.novelType || '通用'}</span>
+                            {p.hasProfile && <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ 已总结</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <Button size="sm" onClick={() => handleEnterProject(p)}>查看详情</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { handleEnterProject(p); setTimeout(() => setShowApply(true), 100) }}>应用</Button>
+                          {p.hasProfile && (
+                            <Button size="sm" variant="ghost" onClick={async () => {
+                              const proj = await styleProjectService.loadProject(p.id) as StyleProject
+                              setSelectedProject(proj)
+                              setTimeout(() => handleSaveAsTemplate(), 100)
+                            }}>存为模板</Button>
+                          )}
+                          <button onClick={() => handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}>
+                            <TrashIcon style={{ width: 16, height: 16 }} />
+                          </button>
                         </div>
                       </div>
                     </GlassCard>
@@ -462,15 +645,587 @@ export default function StyleWorkshopPage() {
               )}
             </div>
           )}
+
+          {/* ───── 风格模板 Tab ───── */}
+          {workspaceTab === 'templates' && (
+            <div>
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: '#2d2520', margin: '0 0 4px' }}>风格模板</h2>
+                <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>管理风格模板，让AI写出你想要的文风</p>
+              </div>
+
+              {/* Search + Sort bar */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+                <div style={{
+                  flex: 1, display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 14px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(0,0,0,0.06)',
+                  backdropFilter: 'blur(8px)',
+                }}>
+                  <MagnifyingGlassIcon style={{ width: 16, height: 16, color: '#9b8e84', flexShrink: 0 }} />
+                  <input
+                    value={templateSearch}
+                    onChange={e => setTemplateSearch(e.target.value)}
+                    placeholder="搜索模板名称或描述..."
+                    style={{
+                      flex: 1, border: 'none', outline: 'none', background: 'transparent',
+                      fontSize: 13, color: '#2d2520', fontFamily: 'inherit',
+                    }}
+                  />
+                  {templateSearch && (
+                    <button onClick={() => setTemplateSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, display: 'flex' }}>
+                      <XMarkIcon style={{ width: 14, height: 14 }} />
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 2, background: 'rgba(0,0,0,0.03)', borderRadius: 10, padding: 3 }}>
+                  {SORT_OPTIONS.map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setTemplateSort(opt.key)}
+                      style={{
+                        padding: '6px 12px', borderRadius: 8, border: 'none',
+                        background: templateSort === opt.key ? '#fff' : 'transparent',
+                        color: templateSort === opt.key ? '#7c3aed' : '#9b8e84',
+                        fontSize: 11, fontWeight: templateSort === opt.key ? 600 : 400,
+                        cursor: 'pointer', fontFamily: 'inherit',
+                        boxShadow: templateSort === opt.key ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {opt.key === 'updatedAt' && <ArrowsUpDownIcon style={{ width: 12, height: 12 }} />}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Type filter tag cloud */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+                {(['all', ...Object.keys(NOVEL_TYPE_LABELS)] as const).map(t => {
+                  const selected = templateTab === t
+                  const isErotic = t === '情色小说'
+                  return (
+                    <motion.button
+                      key={t}
+                      onClick={() => setTemplateTab(t)}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      style={{
+                        padding: '5px 14px', borderRadius: 20, border: selected
+                          ? `1.5px solid ${isErotic ? 'rgba(236,72,153,0.3)' : 'rgba(124,58,237,0.25)'}`
+                          : '1px solid rgba(0,0,0,0.06)',
+                        background: selected
+                          ? isErotic ? 'rgba(236,72,153,0.06)' : 'rgba(124,58,237,0.06)'
+                          : 'transparent',
+                        color: selected ? (isErotic ? '#ec4899' : '#7c3aed') : '#9b8e84',
+                        fontSize: 11, fontWeight: selected ? 600 : 400,
+                        cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'background 0.15s, border 0.15s',
+                      }}
+                    >
+                      {t === 'all' ? '全部' : NOVEL_TYPE_LABELS[t] || t}
+                    </motion.button>
+                  )
+                })}
+              </div>
+
+              {/* Template Cards Grid */}
+              {filteredAndSortedTemplates.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{
+                    textAlign: 'center', padding: 64, color: '#9b8e84',
+                    background: 'rgba(255,255,255,0.4)', borderRadius: 20,
+                    border: '2px dashed rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <TagIcon style={{ width: 44, height: 44, margin: '0 auto 12px', opacity: 0.25 }} />
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: '#6b5e54' }}>
+                    {templateSearch ? '没有匹配的模板' : '暂无风格模板'}
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {templateSearch ? '换个搜索词试试' : (
+                      <>切换到「<span style={{ color: '#7c3aed', fontWeight: 600, cursor: 'pointer' }} onClick={() => setWorkspaceTab('archives')}>风格档案</span>」导入小说分析后保存为模板，或点击"新建模板"手动创建</>
+                    )}
+                  </div>
+                  {!templateSearch && (
+                    <Button size="sm" style={{ marginTop: 12 }} onClick={() => setShowCreateTemplate(true)} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>
+                      新建模板
+                    </Button>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  initial="hidden"
+                  animate="visible"
+                  variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.04 } } }}
+                  style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}
+                >
+                  {filteredAndSortedTemplates.map(t => {
+                    const totalDims = getTemplateDims(t.type).length
+                    const filledDims = Object.values(t.dimensions || {}).filter(d => (d as DimAnalysis)?.description).length
+                    const fillPct = totalDims > 0 ? Math.round((filledDims / totalDims) * 100) : 0
+                    const isErotic = t.type === '情色小说'
+                    const accentColor = isErotic ? '#ec4899' : '#7c3aed'
+                    const accentBg = isErotic ? 'rgba(236,72,153,0.06)' : 'rgba(124,58,237,0.06)'
+
+                    return (
+                      <motion.div
+                        key={t.id}
+                        variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } }}
+                        whileHover={{ y: -4, boxShadow: '0 12px 32px rgba(0,0,0,0.1), 0 0 0 1px rgba(124,58,237,0.08)' }}
+                        onClick={() => setEditTemplate(t)}
+                        style={{
+                          padding: '18px 20px', borderRadius: 16,
+                          background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)',
+                          border: '1px solid rgba(255,255,255,0.6)',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03)',
+                          cursor: 'pointer', transition: 'box-shadow 0.2s ease',
+                          display: 'flex', flexDirection: 'column', gap: 10,
+                        }}
+                      >
+                        {/* Top row: type badge + source */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, padding: '2px 10px', borderRadius: 10,
+                            background: `linear-gradient(135deg, ${accentColor}15, ${accentColor}08)`,
+                            color: accentColor, border: `1px solid ${accentColor}20`,
+                          }}>
+                            {isErotic ? '🔥 ' : '📖 '}{NOVEL_TYPE_LABELS[t.type] || t.type}
+                          </span>
+                          <span style={{ fontSize: 10, color: '#9b8e84' }}>
+                            {t.source === 'ai-generated' ? '🤖 AI' : '✏️ 手动'}
+                          </span>
+                        </div>
+
+                        {/* Name */}
+                        <h4 style={{
+                          fontSize: 15, fontWeight: 700, color: '#2d2520',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          margin: 0, lineHeight: 1.3,
+                        }}>
+                          {t.name || '未命名模板'}
+                        </h4>
+
+                        {/* Description */}
+                        <p style={{
+                          fontSize: 11, color: '#6b5e54', margin: 0,
+                          overflow: 'hidden', display: '-webkit-box',
+                          WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                          lineHeight: 1.5, minHeight: 33,
+                        }}>
+                          {t.description || t.fullDescription?.slice(0, 100) || '暂无描述'}
+                        </p>
+
+                        {/* Progress bar */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
+                            <span style={{ color: '#9b8e84' }}>维度填充</span>
+                            <span style={{ color: fillPct > 0 ? accentColor : '#9b8e84', fontWeight: 600 }}>
+                              {filledDims}/{totalDims} ({fillPct}%)
+                            </span>
+                          </div>
+                          <div style={{
+                            height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.05)',
+                            overflow: 'hidden',
+                          }}>
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${fillPct}%` }}
+                              transition={{ duration: 0.6, ease: 'easeOut' }}
+                              style={{
+                                height: '100%', borderRadius: 2,
+                                background: fillPct > 0
+                                  ? `linear-gradient(90deg, ${accentColor}80, ${accentColor})`
+                                  : 'rgba(0,0,0,0.04)',
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Info row */}
+                        <div style={{ display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap' }}>
+                          {t.worldType && <span>🌍 {t.worldType}</span>}
+                          {t.tone?.word && <span>🎭 {t.tone.word.slice(0, 8)}</span>}
+                          <span>{new Date(t.updatedAt).toLocaleDateString()}</span>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+                          <button onClick={(e) => { e.stopPropagation(); setEditTemplate(t) }} style={cardActionBtn}>
+                            ✎ 编辑
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleCloneTemplate(t) }} style={cardActionBtn}>
+                            <ArrowPathIcon style={{ width: 10, height: 10 }} /> 复制
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t) }} style={{ ...cardActionBtn, color: '#dc2626' }}>
+                            <TrashIcon style={{ width: 10, height: 10 }} /> 删除
+                          </button>
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </motion.div>
+              )}
+            </div>
+          )}
         </div>
         </ScrollArea>
+
+        {/* ───── 新建模板：选择类型 ───── */}
+        <AnimatePresence>
+          {showCreateTemplate && (
+            <Modal isOpen={showCreateTemplate} onClose={() => setShowCreateTemplate(false)} title="新建风格模板" width={600}>
+              <div style={{ fontSize: 13, color: '#6b5e54', marginBottom: 4 }}>输入模板名称（可选）：</div>
+              <input id="newTmplName" style={{ ...inputStyle, marginBottom: 14 }} placeholder="例如: 古风武侠·华丽战斗风格" />
+              <div style={{ fontSize: 13, color: '#6b5e54', marginBottom: 10 }}>选择小说类型：</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {Object.entries(NOVEL_TYPE_LABELS).map(([type, label]) => {
+                  const dimCount = getTemplateDims(type).length
+                  const isErotic = type === '情色小说'
+                  return (
+                    <motion.button
+                      key={type}
+                      whileHover={{ scale: 1.03, y: -2 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => handleCreateFromType(type)}
+                      style={{
+                        padding: '14px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                        border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
+                        background: isErotic ? 'rgba(239,68,68,0.02)' : 'rgba(124,58,237,0.02)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 3 }}>
+                        {label}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#9b8e84' }}>{dimCount}个维度</div>
+                    </motion.button>
+                  )
+                })}
+              </div>
+            </Modal>
+          )}
+        </AnimatePresence>
+
+        {/* ───── 编辑模板 Modal ───── */}
+        <AnimatePresence>
+          {editTemplate !== null && (
+            <Modal isOpen={true} onClose={() => { setEditTemplate(null); setExpandedDims(new Set()); setCustomWorldType(''); setCustomAttitude(''); setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={720}>
+              <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }} className="custom-scrollbar">
+                {/* Basic info */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={labelStyle}>模板名称</div>
+                      <input value={editTemplate.name} onChange={e => setEditTemplate({ ...editTemplate, name: e.target.value })} style={inputStyle as any} placeholder="输入模板名称" />
+                    </div>
+                    <div style={{ width: 180 }}>
+                      <div style={labelStyle}>世界观</div>
+                      <select
+                        value={(() => {
+                          if (!editTemplate.worldType) return ''
+                          return WORLD_TYPE_PRESETS.includes(editTemplate.worldType) ? editTemplate.worldType : '__custom__'
+                        })()}
+                        onChange={e => {
+                          const v = e.target.value
+                          if (v === '__custom__') {
+                            setCustomWorldType('')
+                            setEditTemplate({ ...editTemplate, worldType: '__custom__' })
+                          } else {
+                            setCustomWorldType('')
+                            setEditTemplate({ ...editTemplate, worldType: v })
+                          }
+                        }}
+                        style={{ ...inputStyle as any, cursor: 'pointer' }}
+                      >
+                        <option value="">未设置</option>
+                        {WORLD_TYPE_PRESETS.map(w => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                        <option value="__custom__">✎ 自定义...</option>
+                      </select>
+                      {(!WORLD_TYPE_PRESETS.includes(editTemplate.worldType) && editTemplate.worldType) && (
+                        <input
+                          value={customWorldType || (editTemplate.worldType === '__custom__' ? '' : editTemplate.worldType)}
+                          onChange={e => {
+                            setCustomWorldType(e.target.value)
+                            setEditTemplate({ ...editTemplate, worldType: e.target.value || '__custom__' })
+                          }}
+                          style={{ ...inputStyle as any, marginTop: 4, fontSize: 11 }}
+                          placeholder="输入自定义世界观..."
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={labelStyle}>简介</div>
+                    <input value={editTemplate.description} onChange={e => setEditTemplate({ ...editTemplate, description: e.target.value })} style={inputStyle as any} placeholder="一句话描述这个风格" />
+                  </div>
+                </div>
+
+                {/* Tone section */}
+                <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.1)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#ec4899', marginBottom: 10 }}>🎭 叙事基调</div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={labelStyle}>基调词</div>
+                      <input value={editTemplate.tone?.word || ''} onChange={e => setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: e.target.value, description: editTemplate.tone?.description || '', attitude: editTemplate.tone?.attitude || '' } })} style={inputStyle as any} placeholder="如: 冷酷复仇的性支配" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={labelStyle}>叙述者态度</div>
+                      <select
+                        value={(() => {
+                          if (!editTemplate.tone?.attitude) return ''
+                          return ATTITUDE_PRESETS.includes(editTemplate.tone.attitude) ? editTemplate.tone.attitude : '__custom__'
+                        })()}
+                        onChange={e => {
+                          const v = e.target.value
+                          if (v === '__custom__') {
+                            setCustomAttitude('')
+                            setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: editTemplate.tone?.word || '', description: editTemplate.tone?.description || '', attitude: '__custom__' } })
+                          } else {
+                            setCustomAttitude('')
+                            setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: editTemplate.tone?.word || '', description: editTemplate.tone?.description || '', attitude: v } })
+                          }
+                        }}
+                        style={{ ...inputStyle as any, cursor: 'pointer' }}
+                      >
+                        <option value="">未设置</option>
+                        {ATTITUDE_PRESETS.map(a => (
+                          <option key={a} value={a}>{a}</option>
+                        ))}
+                        <option value="__custom__">✎ 自定义...</option>
+                      </select>
+                      {(!ATTITUDE_PRESETS.includes(editTemplate.tone?.attitude || '') && editTemplate.tone?.attitude) && (
+                        <input
+                          value={customAttitude || (editTemplate.tone?.attitude === '__custom__' ? '' : editTemplate.tone?.attitude || '')}
+                          onChange={e => {
+                            setCustomAttitude(e.target.value)
+                            setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: editTemplate.tone?.word || '', description: editTemplate.tone?.description || '', attitude: e.target.value || '__custom__' } })
+                          }}
+                          style={{ ...inputStyle as any, marginTop: 4, fontSize: 11 }}
+                          placeholder="输入自定义叙述者态度..."
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <div style={labelStyle}>基调描述</div>
+                    <textarea value={editTemplate.tone?.description || ''} onChange={e => setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: editTemplate.tone?.word || '', description: e.target.value, attitude: editTemplate.tone?.attitude || '' } })} rows={2} style={{ ...inputStyle as any, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} placeholder="50-100字基调描述" />
+                  </div>
+                </div>
+
+                {/* AI辅助填充维度 */}
+                <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>✨ AI辅助填充维度</div>
+                  <p style={{ fontSize: 11, color: '#6b5e54', margin: '0 0 8px' }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。</p>
+                  <textarea
+                    id="aiDescInput"
+                    placeholder="例如：适合修仙小说的风格，战斗场面招式华丽，日常对话幽默轻松，古风文言和现代白话交织，节奏紧凑步步推进..."
+                    style={{ width: '100%', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, outline: 'none', fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', padding: 10, minHeight: 80, resize: 'vertical' }}
+                  />
+                  <button
+                    disabled={aiGenLoading || !activeConfigId}
+                    onClick={async () => {
+                      const desc = (document.getElementById('aiDescInput') as HTMLTextAreaElement)?.value?.trim()
+                      if (!desc) { alert('请描述你想要的写作风格'); return }
+                      setAiGenLoading(true)
+                      try {
+                        const dimKeys = getTemplateDims(editTemplate.type)
+                        const dimList = dimKeys.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')
+                        const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${editTemplate.type}生成风格模板的维度数据。
+
+风格描述: ${desc}
+
+需要填充的维度: ${dimList}
+
+对每个维度，请用JSON格式输出：
+{
+  "dimensions": {
+    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["原文例证1", "例证2"], "writingRules": ["写作规则1", "规则2"], "vocabularyList": ["词汇1", "词汇2"] },
+    ...
+  },
+  "fullDescription": "整体风格综述(200-400字)",
+  "tone": { "word": "叙事基调词", "description": "基调描述(50-100字)" }
+}
+
+只输出JSON，不要markdown。`
+                        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId!)
+                        const m = reply.match(/\{[\s\S]*\}/)
+                        if (m) {
+                          const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+                          setEditTemplate(prev => prev ? {
+                            ...prev,
+                            fullDescription: json.fullDescription || prev.fullDescription,
+                            tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
+                            dimensions: { ...prev.dimensions, ...(json.dimensions || {}) },
+                            source: prev.source === 'ai-generated' ? 'ai-generated' : 'manual',
+                            description: prev.description || (json.fullDescription || '').slice(0, 100),
+                          } : prev)
+                        }
+                      } catch (err) { logError('AI填充失败', err); alert('AI填充失败: ' + (err instanceof Error ? err.message : '未知错误')) }
+                      setAiGenLoading(false)
+                    }}
+                    style={{ marginTop: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: activeConfigId ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: activeConfigId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <SparklesIcon style={{ width: 14, height: 14 }} /> {aiGenLoading ? '生成中...' : 'AI填充维度'}
+                  </button>
+                  {editTemplate.fullDescription && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#6b5e54', lineHeight: 1.6, maxHeight: 100, overflow: 'auto', padding: 8, borderRadius: 6, background: '#fff' }}>
+                      {editTemplate.fullDescription}
+                    </div>
+                  )}
+                </div>
+
+                {/* Dimension accordion list */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>
+                      维度编辑 · {
+                        getTemplateDims(editTemplate.type).filter(dk => (editTemplate.dimensions?.[dk] as DimAnalysis)?.description).length
+                      }/{getTemplateDims(editTemplate.type).length} 已填充
+                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => setExpandedDims(new Set(getTemplateDims(editTemplate.type)))}
+                        style={{
+                          padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.12)',
+                          background: 'rgba(124,58,237,0.03)', color: '#7c3aed', fontSize: 10,
+                          fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        全部展开
+                      </button>
+                      <button
+                        onClick={() => setExpandedDims(new Set())}
+                        style={{
+                          padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)',
+                          background: 'rgba(0,0,0,0.02)', color: '#6b5e54', fontSize: 10,
+                          fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        全部折叠
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dimension overview tags */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                    {getTemplateDims(editTemplate.type).map(dk => {
+                      const dim = (editTemplate.dimensions?.[dk] || {}) as DimAnalysis
+                      const filled = !!dim.description
+                      const label = DIMENSION_META[dk]?.label || dk
+                      return (
+                        <motion.button
+                          key={dk}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => toggleDimExpanded(dk)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                            padding: '4px 10px', borderRadius: 8, border: 'none',
+                            cursor: 'pointer', fontFamily: 'inherit',
+                            borderColor: filled ? 'rgba(16,185,129,0.3)' : 'rgba(0,0,0,0.08)',
+                            borderStyle: 'solid', borderWidth: 1,
+                            background: expandedDims.has(dk)
+                              ? (filled ? 'rgba(16,185,129,0.08)' : 'rgba(124,58,237,0.05)')
+                              : (filled ? 'rgba(16,185,129,0.03)' : 'rgba(0,0,0,0.01)'),
+                            color: filled ? '#16a34a' : '#9b8e84',
+                            fontSize: 10, fontWeight: filled ? 600 : 400,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          {filled ? '✓' : '—'} {label}
+                        </motion.button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Expanded dimension editors */}
+                  {getTemplateDims(editTemplate.type).filter(dk => expandedDims.has(dk)).map(dk => {
+                    const meta = DIMENSION_META[dk]
+                    const dim = (editTemplate.dimensions?.[dk] || { description: '', examples: [], writingRules: [], vocabularyList: [] }) as DimAnalysis
+                    return (
+                      <motion.div
+                        key={dk}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.05)', overflow: 'hidden' }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <div>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{meta?.label || dk}</span>
+                            <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 10, marginLeft: 6 }}>({meta?.category || ''})</span>
+                          </div>
+                          <button onClick={() => toggleDimExpanded(dk)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2 }}>
+                            <XMarkIcon style={{ width: 14, height: 14 }} />
+                          </button>
+                        </div>
+
+                        {/* Description */}
+                        <textarea
+                          value={dim.description || ''}
+                          onChange={e => updateDim(dk, 'description', e.target.value)}
+                          rows={2}
+                          style={{ ...inputStyle as any, width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 11, marginBottom: 10 }}
+                          placeholder="维度描述（200-400字）"
+                        />
+
+                        {/* Vocabulary tags */}
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            词汇清单 ({(dim.vocabularyList || []).length})
+                            <button onClick={() => addVocabItem(dk)} style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>+ 添加</button>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {(dim.vocabularyList || []).map((v: string, i: number) => (
+                              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <input value={v} onChange={e => updateVocabItem(dk, i, e.target.value)} style={{ width: 80, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit' }} placeholder="词" />
+                                <button onClick={() => removeVocabItem(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 10 }}>×</button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Writing rules */}
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            写作规则 ({(dim.writingRules || []).length})
+                            <button onClick={() => addRule(dk)} style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>+ 添加</button>
+                          </div>
+                          {(dim.writingRules || []).map((r: string, i: number) => (
+                            <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                              <input value={r} onChange={e => updateRule(dk, i, e.target.value)} style={{ flex: 1, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit' }} placeholder="规则" />
+                              <button onClick={() => removeRule(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 12 }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #f0ece8' }}>
+                <Button variant="secondary" onClick={() => { setEditTemplate(null); setExpandedDims(new Set()); setCustomWorldType(''); setCustomAttitude(''); setAiGenLoading(false) }}>取消</Button>
+                <Button onClick={handleSaveTemplate} disabled={!editTemplate.name.trim()}>保存模板</Button>
+              </div>
+            </Modal>
+          )}
+        </AnimatePresence>
       </div>
     )
   }
 
   if (!selectedProject) return null
 
-  // ---- Detail View ----
+  // ============ DETAIL VIEW ============
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -494,7 +1249,7 @@ export default function StyleWorkshopPage() {
         <button onClick={() => setAnalyzeIds(new Set(selectedProject.chapters.slice(0, 50).map(c => c.id)))} style={linkBtn}>前50章</button>
         <button onClick={() => setAnalyzeIds(new Set(selectedProject.chapters.slice(0, 10).map(c => c.id)))} style={linkBtn}>前10章</button>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {analyzeIds.size}章</span>
-        <select value={analyzeMode} onChange={e => setAnalyzeMode(e.target.value as 'precise' | 'quick')} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}><option value="precise">精确模式</option><option value="quick">快速模式</option></select>
+        <select value={analyzeMode} onChange={e => setAnalyzeMode(e.target.value as 'precise' | 'quick')} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}><option value="precise">全量分析</option><option value="quick">抽样分析</option></select>
         <Button size="sm" variant="secondary" onClick={() => setShowDimConfig(true)}>配置维度 ({enabledDimensions.length})</Button>
         <Button size="sm" variant="ghost" onClick={() => setShowDimDetail(true)}>维度详情</Button>
         <Button size="sm" onClick={handleAnalyze} disabled={analyzeLoading || !activeConfigId || analyzeIds.size === 0} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{analyzeLoading ? '分析中...' : '开始分析'}</Button>
@@ -854,7 +1609,7 @@ export default function StyleWorkshopPage() {
             </div>
           ))}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
-            <Button onClick={() => setShowDimConfig(false)}>确定</Button>
+            <Button onClick={() => { setShowDimConfig(false); if (selectedProject) { const updated = { ...selectedProject, enabledDimensions }; styleProjectService.saveProject(updated).catch(err => logError('保存维度配置失败', err)); setSelectedProject(updated) } }}>确定</Button>
           </div>
         </div>
       </Modal>
@@ -877,162 +1632,16 @@ export default function StyleWorkshopPage() {
           </div>
         </div>
       </Modal>
-
-      {/* 新建/编辑模板弹窗 */}
-      <Modal isOpen={showCreateTemplate || editTemplate !== null} onClose={() => { setShowCreateTemplate(false); setEditTemplate(null); setAiGenLoading(false) }} title={editTemplate ? `编辑模板 — ${editTemplate.name}` : '新建风格模板'} width={640}>
-        {editTemplate ? (
-          /* ---- Edit Mode ---- */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '65vh', overflow: 'auto' }}>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <input value={editTemplate.name} onChange={e => setEditTemplate({ ...editTemplate, name: e.target.value })} placeholder="模板名称" style={{ ...inputStyle, flex: 1 }} />
-              <select value={editTemplate.worldType} onChange={e => setEditTemplate({ ...editTemplate, worldType: e.target.value })} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, fontFamily: 'inherit', width: 120 }}>
-                <option value="">世界观</option>
-                <option value="ancient">古代</option>
-                <option value="modern">现代</option>
-                <option value="western">西幻</option>
-                <option value="japanese">日系</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input value={editTemplate.description} onChange={e => setEditTemplate({ ...editTemplate, description: e.target.value })} placeholder="一句话描述" style={{ ...inputStyle, flex: 1 }} />
-              <select value={editTemplate.tone?.attitude || ''} onChange={e => setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, attitude: e.target.value } })} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit', width: 110 }}>
-                <option value="">叙事态度</option>
-                <option value="冷漠旁观">冷漠旁观</option>
-                <option value="欣赏把玩">欣赏把玩</option>
-                <option value="幽默调侃">幽默调侃</option>
-                <option value="温柔包容">温柔包容</option>
-                <option value="神圣庄严">神圣庄严</option>
-              </select>
-            </div>
-            <div style={{ background: 'rgba(124,58,237,0.04)', borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 8 }}>AI辅助填充维度</div>
-              <p style={{ fontSize: 11, color: '#6b5e54', marginBottom: 8 }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。</p>
-              <textarea id="aiDescInput" placeholder="例如：适合修仙小说的风格，战斗场面招式华丽，日常对话幽默轻松，古风文言和现代白话交织，节奏紧凑步步推进..." style={{ width: '100%', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, outline: 'none', fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', padding: 10, minHeight: 80, resize: 'vertical' }} />
-              <button
-                disabled={aiGenLoading || !activeConfigId}
-                onClick={async () => {
-                  const desc = (document.getElementById('aiDescInput') as HTMLTextAreaElement)?.value?.trim()
-                  if (!desc) { alert('请描述你想要的写作风格'); return }
-                  setAiGenLoading(true)
-                  try {
-                    const dimKeys = getTemplateDims(editTemplate.type)
-                    const dimList = dimKeys.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')
-                    const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${editTemplate.type}生成风格模板的维度数据。
-
-风格描述: ${desc}
-
-需要填充的维度: ${dimList}
-
-对每个维度，请用JSON格式输出：
-{
-  "dimensions": {
-    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["原文例证1", "例证2"], "writingRules": ["写作规则1", "规则2"], "vocabularyList": ["词汇1", "词汇2"] },
-    ...
-  },
-  "fullDescription": "整体风格综述(200-400字)",
-  "tone": { "word": "叙事基调词", "description": "基调描述(50-100字)" }
-}
-
-只输出JSON，不要markdown。`
-                    const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId!)
-                    const m = reply.match(/\{[\s\S]*\}/)
-                    if (m) {
-                      const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
-                      setEditTemplate(prev => prev ? {
-                        ...prev,
-                        fullDescription: json.fullDescription || prev.fullDescription,
-                        tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
-                        dimensions: { ...prev.dimensions, ...(json.dimensions || {}) },
-                        source: prev.source === 'ai-generated' ? 'ai-generated' : 'manual',
-                        description: prev.description || (json.fullDescription || '').slice(0, 100),
-                      } : prev)
-                    }
-                  } catch (err) { logError('AI填充失败', err); alert('AI填充失败: ' + (err instanceof Error ? err.message : '未知错误')) }
-                  setAiGenLoading(false)
-                }}
-                style={{ marginTop: 8, padding: '8px 16px', borderRadius: 8, border: 'none', background: activeConfigId ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: activeConfigId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <SparklesIcon style={{ width: 14, height: 14 }} /> {aiGenLoading ? '生成中...' : 'AI填充维度'}
-              </button>
-              {editTemplate.fullDescription && <div style={{ marginTop: 8, fontSize: 11, color: '#6b5e54', lineHeight: 1.6, maxHeight: 100, overflow: 'auto' }}>{editTemplate.fullDescription}</div>}
-            </div>
-            {/* Per-dimension status */}
-            {/* 维度标签云 */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#2d2520', marginBottom: 8 }}>
-                维度概览（{Object.keys(editTemplate.dimensions || {}).filter(k => (editTemplate.dimensions?.[k] as any)?.description).length}/{getTemplateDims(editTemplate.type).length} 已填充）
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {getTemplateDims(editTemplate.type).map(dk => {
-                  const dim = (editTemplate.dimensions?.[dk] as any) || {}
-                  const filled = !!dim.description
-                  const label = DIMENSION_META[dk]?.label || dk
-                  return (
-                    <span key={dk} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 3,
-                      padding: '3px 10px', borderRadius: 8,
-                      border: filled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(0,0,0,0.06)',
-                      background: filled ? 'rgba(16,185,129,0.04)' : 'rgba(0,0,0,0.01)',
-                      color: filled ? '#16a34a' : '#9b8e84',
-                      fontSize: 10, fontWeight: filled ? 600 : 400,
-                    }}>
-                      {filled ? '✓' : '—'} {label}
-                    </span>
-                  )
-                })}
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-              <button onClick={() => { setEditTemplate(null); setAiGenLoading(false) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>取消</button>
-              <button onClick={async () => {
-                if (!editTemplate) return
-                try {
-                  await styleTemplateService.save({ ...editTemplate, updatedAt: new Date().toISOString() })
-                  await loadTemplates()
-                  setEditTemplate(null)
-                } catch { alert('保存失败') }
-              }} disabled={!editTemplate.name} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: editTemplate.name ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: editTemplate.name ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>保存模板</button>
-            </div>
-          </div>
-        ) : (
-          /* ---- Create Mode ---- */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <input id="newTmplName" style={inputStyle} placeholder="输入模板名称..." />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              {Object.entries(NOVEL_TYPE_LABELS).map(([type, label]) => {
-                const dimCount = getTemplateDims(type).length
-                const isErotic = type === '情色小说'
-                return (
-                  <button key={type} onClick={() => {
-                    const name = (document.getElementById('newTmplName') as HTMLInputElement)?.value?.trim() || '新模板'
-                    const t: StyleTemplate = { id: '', name, type: type as StyleTemplate['type'], worldType: '', description: '', fullDescription: '', dimensions: {}, vocabularyList: [], writingRules: [], tone: { word: '', description: '', attitude: '' }, source: 'manual', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-                    styleTemplateService.save(t).then(async () => { await loadTemplates(); setShowCreateTemplate(false) }).catch(() => alert('创建失败'))
-                  }} style={{
-                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                    border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
-                    background: isErotic ? 'rgba(239,68,68,0.02)' : 'rgba(124,58,237,0.02)',
-                  }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontSize: 10, color: '#9b8e84' }}>{dimCount}维</div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }
 
 // Extract readable description from DIMENSION_META prompt
 function parsePromptDescription(prompt: string): string {
-  // Handle simple string prompts: "描述1+描述2+描述3"
   if (prompt.startsWith('"') && !prompt.startsWith('"[') && !prompt.startsWith('"{')) {
     const inner = prompt.replace(/^"[^"]+":\s*"/, '').replace(/"$/, '')
     return inner.split('+').map(p => p.replace(/[:：].*/, '').trim()).filter(Boolean).join('、')
   }
-  // Handle JSON prompts: extract key fields and show them
   const fields: string[] = []
   const jsonMatch = prompt.match(/\{[\s\S]*\}/)
   if (jsonMatch) {
@@ -1042,7 +1651,6 @@ function parsePromptDescription(prompt: string): string {
     }
     if (fields.length > 0) return fields.join('; ')
   }
-  // Fallback: truncate
   return prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt
 }
 
@@ -1052,4 +1660,11 @@ const presetBtn: React.CSSProperties = {
 }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', padding: 0, fontFamily: 'inherit',
+}
+const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }
+const cardActionBtn: React.CSSProperties = {
+  fontSize: 10, padding: '3px 10px', borderRadius: 6,
+  border: '1px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.6)',
+  cursor: 'pointer', color: '#6b5e54', fontFamily: 'inherit',
+  display: 'inline-flex', alignItems: 'center', gap: 3,
 }

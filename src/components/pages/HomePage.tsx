@@ -45,8 +45,9 @@ export default function HomePage() {
       const names = await projectService.listProjects(projectsBasePath)
       const projList: Project[] = []
       for (const name of names) {
+        if (name.startsWith('.') || name === 'style_templates' || name === 'scene_templates' || name === 'notes') continue
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-        if ((meta as Record<string, unknown>).hidden) continue
+        if (!meta || (meta as Record<string, unknown>).hidden) continue
         const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
 projList.push({ id: name, ...meta, type: pt })
       }
@@ -351,7 +352,7 @@ projList.push({ id: name, ...meta, type: pt })
                   导出
                 </button>
                 <button
-                  onClick={() => handleDeleteProject(activeProject)}
+                  onClick={() => setDeleteTarget(activeProject)}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     padding: '12px 24px', borderRadius: 12,

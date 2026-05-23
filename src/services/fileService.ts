@@ -134,6 +134,7 @@ export const aiService = {
   generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> => {
     return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number }>
   },
+  abortStream: () => { e().ai.abortStream() },
 }
 
 export const kbService = {

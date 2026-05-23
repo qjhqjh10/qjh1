@@ -504,7 +504,7 @@ export const FILE_TOOLS = [
         properties: {
           name: { type: 'string', description: '模板名称' },
           type: { type: 'string', description: '小说类型: 普通小说/情色小说/玄幻小说/奇幻小说/灵异小说/游戏小说/末世小说/轻小说/都市小说/修仙小说/武侠小说/恋爱小说/古风小说/悬疑小说/历史小说/科幻小说/穿越小说' },
-          worldType: { type: 'string', description: '世界类型，如"古代仙侠"' },
+          worldType: { type: 'string', description: '世界观类型: 古代/现代/西幻/日系/末日/科幻/灵异/架空历史/玄幻/游戏/混合，或自定义' },
           description: { type: 'string', description: '简短描述' },
           dimensions: { type: 'object', description: '维度分析结果，key为维度名，value为{description, examples, writingRules, vocabularyList}' },
           vocabularyList: { type: 'array', items: { type: 'string' }, description: '词汇清单' },
@@ -575,7 +575,7 @@ export const FILE_TOOLS = [
 // Tools that require user confirmation
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project']) as ReadonlySet<string>
 export const PREVIEW_TOOLS = new Set(['edit_file']) as ReadonlySet<string>
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_backups', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_backups', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -598,7 +598,7 @@ export function summarizeFileOp(
     case 'kb_list': return `列出知识库文件`
     case 'kb_create_file': return `创建KB文件: ${args.name}`
     case 'kb_append_file': return `追加到KB: ${args.file_id}`
-    case 'kb_index_file': return `索引KB: ${args.file_path}`
+    case 'kb_index_file': return `索引KB: ${args.file_id}`
     case 'list_notes': return `列出草稿`
     case 'read_note': return `读取草稿: ${args.note_name}`
     case 'write_note': return `写草稿: ${args.note_name}`

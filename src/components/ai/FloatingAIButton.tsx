@@ -2,20 +2,46 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useStore } from '@/store'
 import { SparklesIcon } from '@heroicons/react/24/outline'
 
+const POS_STORAGE_KEY = 'floating-ai-button-pos'
 const DEFAULT_POS = { x: 28, y: 28 } // from bottom-right
+
+function loadPosition(): { x: number; y: number } {
+  try {
+    const raw = localStorage.getItem(POS_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 60, parsed.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 60, parsed.y)),
+        }
+      }
+    }
+  } catch {}
+  return DEFAULT_POS
+}
 
 export default function FloatingAIButton() {
   const isOpen = useStore(s => s.isAIChatOpen)
   const toggleAIChat = useStore(s => s.toggleAIChat)
 
-  const [pos, setPos] = useState(DEFAULT_POS)
+  const [pos, setPos] = useState(loadPosition)
+  const posRef = useRef(pos)
   const dragging = useRef(false)
   const didDrag = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 })
   const cleanupDragRef = useRef<(() => void) | null>(null)
 
+  // Sync posRef
+  useEffect(() => { posRef.current = pos }, [pos])
+
   // Cleanup drag listeners on unmount
   useEffect(() => () => { cleanupDragRef.current?.() }, [])
+
+  // Persist position to localStorage on change
+  useEffect(() => {
+    try { localStorage.setItem(POS_STORAGE_KEY, JSON.stringify(pos)) } catch {}
+  }, [pos])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     dragging.current = true

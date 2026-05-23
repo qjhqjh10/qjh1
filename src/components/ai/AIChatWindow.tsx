@@ -107,7 +107,6 @@ export default function AIChatWindow() {
   // Search toggles
   const prompts = useSettingsStore(s => s.prompts)
   const updatePromptStore = useSettingsStore(s => s.updatePrompt)
-  const setPrompts = useSettingsStore(s => s.setPrompts)
   const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
   const [kbEnabled, setKbEnabled] = useState(true)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
@@ -271,7 +270,7 @@ export default function AIChatWindow() {
     return firstUser ? firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '') : '新对话'
   }
 
-  const abortToolLoop = () => { abortRef.current = true; setLoading(false) }
+  const abortToolLoop = () => { abortRef.current = true; aiService.abortStream(); setLoading(false) }
   const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId) } }
   const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false) }
   const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0); setLastPromptTokens(0); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0 } : c)) }
@@ -411,6 +410,10 @@ export default function AIChatWindow() {
       parts.push('用户正在故事脉络页面分析小说结构。你可帮助分析时间线、检测设定冲突、解读情绪曲线和节奏。故事数据存储在 story_workspace/ 目录。')
     }
 
+    if (activePage === 'scratchpad') {
+      parts.push('用户正在草稿本。草稿全局存储，不绑定项目。你可使用 read_note/write_note/append_note 操作草稿。')
+    }
+
     if (activePage === 'style-workshop') {
       parts.push('用户正在风格工坊分析文风。你可帮助分析 26 维文风特征、总结风格档案、填充风格模板。风格数据存储在 style_projects/ 目录。')
     }
@@ -525,7 +528,7 @@ export default function AIChatWindow() {
       const activeTools = aiSettings.workMode === 'plan'
         ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
         : FILE_TOOLS
-      const toolsForApi = activeProjectId ? activeTools : activeTools.filter((t: any) => !['list_notes','read_note','write_note','append_note','delete_note'].includes(t.function.name))
+      const toolsForApi = activeTools
 
       let iteration = 0; const MAX_ITER = 8; let isDone = false
       let sessionTokens = 0; let lastPrompt = 0
@@ -641,7 +644,7 @@ export default function AIChatWindow() {
               // ── 路由B: 模板创建工具 ──
               // 这些工具构建完整模板对象后调用 service 保存
 
-              // create_style_template: 创建风格模板 → 连接 StyleWorkshopPage + TemplateLibraryPage
+              // create_style_template: 创建风格模板 → 连接 StyleWorkshopPage（风格模板Tab）
               } else if (tc.function.name === 'create_style_template') {
                 try {
                   const tmpl: any = {
@@ -824,14 +827,68 @@ export default function AIChatWindow() {
                   r = { status: 'success', summary: `已更新提示词 ${fields}`, detail: `模板ID: ${pid}` }
                 }
 
+              // ── 路由 D: 草稿笔记工具 (全局存储) ──
+              } else if (tc.function.name === 'list_notes') {
+                try {
+                  const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
+                  const files = await fileService.listDir(dir)
+                  const mdFiles = files.filter((f: string) => f.endsWith('.md'))
+                  r = { status: 'success', summary: `${mdFiles.length} 个草稿`, detail: mdFiles.join('\n') || '(无草稿)' }
+                } catch (e: any) { r = { status: 'error', summary: `列出失败: ${e.message}` } }
+
+              } else if (tc.function.name === 'read_note') {
+                try {
+                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
+                  else {
+                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
+                    const content = await fileService.read(`${dir}/${noteName}`)
+                    r = { status: 'success', summary: `已读取: ${noteName}`, detail: content || '(草稿为空)' }
+                  }
+                } catch (e: any) { r = { status: 'error', summary: `读取失败: ${e.message}` } }
+
+              } else if (tc.function.name === 'write_note' || tc.function.name === 'append_note') {
+                try {
+                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
+                  else {
+                    const newContent = String(args.content || '')
+                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
+                    const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
+                    if (tc.function.name === 'append_note') {
+                      let existing = ''
+                      try { existing = await fileService.read(filePath) } catch { /* */ }
+                      const combined = existing ? existing + '\n\n' + newContent : newContent
+                      await fileService.write(filePath, combined)
+                      r = { status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
+                    } else {
+                      await fileService.write(filePath, newContent)
+                      r = { status: 'success', summary: `已写入草稿: ${noteName} (${newContent.length} 字符)` }
+                    }
+                    setFileEditNotify({ filePath, newContent: '__AI_EDITED__' })
+                  }
+                } catch (e: any) { r = { status: 'error', summary: `操作失败: ${e.message}` } }
+
+              } else if (tc.function.name === 'delete_note') {
+                try {
+                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
+                  else {
+                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
+                    const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
+                    await fileService.deleteFile(filePath)
+                    r = { status: 'success', summary: `已删除草稿: ${noteName}` }
+                    setFileEditNotify({ filePath, newContent: '__AI_EDITED__' })
+                  }
+                } catch (e: any) { r = { status: 'error', summary: `删除失败: ${e.message}` } }
+
               // ── 路由C: 项目文件工具 (IPC 后端) ──
               // 所有对项目目录内文件的 CRUD 操作，通过 executeFileTools 发送到主进程
               // 后端 handler: electron/ipc/fileToolHandlers.ts 的 executeFileTool()
               // 支持的工具: list_directory, read_file, search_files, search_content,
               //   edit_file, create_file, delete_file, rename_file, restore_backup,
               //   list_backups, create_project, delete_project,
-              //   list_notes, read_note, write_note, append_note, delete_note,
-              //   search_images, kb_index_file 等
+              //   search_images 等
               // edit_file: auto-apply directly (auto-backup in backend)
               } else if (tc.function.name === 'edit_file') {
                 const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: { ...args, _confirmed: true } }])
@@ -860,21 +917,18 @@ export default function AIChatWindow() {
               //   {projectPath}/notes/*.md       → ScratchpadPage, DraftPopup
               //   {projectPath}                   → HomePage (项目级变更)
               //   knowledge_base/*               → KnowledgeBasePage, KbPopup
-              //   style_templates/*              → StyleWorkshopPage, TemplateLibraryPage
+              //   style_templates/*              → StyleWorkshopPage（风格模板Tab）
               //   scene_templates/*              → SceneWorkshopPage
               //
               // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存
               // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）
               const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'restore_backup', 'create_project', 'delete_project']
-              const noteModifyingTools = ['write_note', 'append_note', 'delete_note']
               if (r?.status === 'success' && activeProjectId) {
                 const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
                 if (pp) {
                   let targetPath: string
-                  if (tc.function.name === 'create_project' || tc.function.name === 'delete_project') {
+                  if (tc.function.name === 'delete_project') {
                     targetPath = pp
-                  } else if (noteModifyingTools.includes(tc.function.name)) {
-                    targetPath = `${pp}/notes/${String(args.note_name || '')}`.replace(/\\/g, '/')
                   } else if (fileModifyingTools.includes(tc.function.name)) {
                     targetPath = `${pp}/${String(args.file_path || '').replace(/\\/g, '/')}`.replace(/\\/g, '/')
                   } else if (tc.function.name === 'search_images') {
@@ -1182,7 +1236,7 @@ export default function AIChatWindow() {
             </select>
           </div>
 
-          <ContextUsageBar usedTokens={lastPromptTokens || cumulativeTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
+          <ContextUsageBar usedTokens={lastPromptTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
 
           {/* Delete bar */}
           {selectedMsgIds.size > 0 && (

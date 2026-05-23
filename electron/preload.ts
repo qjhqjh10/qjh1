@@ -59,7 +59,7 @@ const api = {
       ipcRenderer.invoke('ai:chat-stream', messages, configId, projectId),
     generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> =>
       ipcRenderer.invoke('ai:generateImage', prompt, configId, projectId, size, style),
-    abortStream: (): void => { ipcRenderer.send('ai:abort-stream') },
+    abortStream: (): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
       ipcRenderer.on('ai:chat-chunk', handler)
