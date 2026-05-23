@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, fileService } from '@/services/fileService'
+import { aiService, fileService } from '@/services/fileService'
 import { getStyleInjection } from '@/utils/styleInjector'
+import { loadOutlineDimensions } from '@/utils/outlineData'
+import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import type { DetailedChapter } from '@/types/chapter'
 import type { Character } from '@/types/character'
 import type { VersionRecord } from './ChapterGenerationModal'
 import { saveVersionRecord } from './ChapterGenerationModal'
 import Modal from './Modal'
 import Button from './Button'
-import ScrollArea from './ScrollArea'
 import { SparklesIcon, XMarkIcon, CheckIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
 
@@ -19,9 +20,7 @@ interface Props {
   worldbuildingContent: string
   characters: Character[]
   outlineContent: string
-  currentChapterId: string
   onVersionSaved: (v: VersionRecord) => void
-  genOverlay: boolean
   onGenStart: () => void
   onGenChunk: (data: { charCount: number }) => void
   onGenDone: () => void
@@ -53,15 +52,19 @@ export default function BatchGenerationModal({
   const sortedChapters = [...chapters].sort((a, b) => a.order - b.order)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(sortedChapters.map(c => c.id)))
 
-  // Config (simplified A-G)
+  // Config (simplified — defaults from persisted settings)
+  const cg = useSettingsStore(s => s.aiSettings.chapterGen)
   const [genConfigId, setGenConfigId] = useState(activeConfigId || '')
-  const [wordTarget, setWordTarget] = useState(2000)
-  const [streamMode, setStreamMode] = useState(true)
-  const [replaceMode, setReplaceMode] = useState(true)
-  const [useWorldbuilding, setUseWorldbuilding] = useState(true)
-  const [useCharacters, setUseCharacters] = useState(true)
-  const [useOutline, setUseOutline] = useState(true)
-  const [useDetailedOutline, setUseDetailedOutline] = useState(true)
+  const [wordTarget, setWordTarget] = useState(cg.wordTarget)
+  const [streamMode, setStreamMode] = useState(cg.streamMode)
+  const [replaceMode, setReplaceMode] = useState(cg.replaceMode)
+  const [outlineTabs, setOutlineTabs] = useState<OutlineTabToggles>(cg.outlineTabs)
+  const [detailedOutlineFields, setDetailedOutlineFields] = useState<DetailedOutlineToggles>(cg.detailedOutlineFields)
+
+  const toggleOutlineTab = (key: keyof OutlineTabToggles) =>
+    setOutlineTabs(prev => ({ ...prev, [key]: !prev[key] }))
+  const toggleDetailedField = (key: keyof DetailedOutlineToggles) =>
+    setDetailedOutlineFields(prev => ({ ...prev, [key]: !prev[key] }))
 
   // Queue
   const [queue, setQueue] = useState<QueueItem[]>([])
@@ -87,7 +90,7 @@ export default function BatchGenerationModal({
 
   const chapterPrompt = prompts.find(p => p.type === '章节' && p.enabled)
 
-  const buildPromptForChapter = async (ch: DetailedChapter) => {
+  const buildPromptForChapter = async (ch: DetailedChapter, loadedDims?: { items: string; locations: string; factions: string; powerSystem: string; emotion: string; foreshadowing: string; plotThreads: string }) => {
     const parts: string[] = []
     // Style injection
     const storeActiveProjectId = useStore.getState().activeProjectId
@@ -96,13 +99,29 @@ export default function BatchGenerationModal({
       const styleInjection = await getStyleInjection(storeActiveProjectId, assignments)
       if (styleInjection) parts.push(styleInjection)
     }
-    if (useWorldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}`)
-    if (useOutline && outlineContent) parts.push(`【小说大纲】\n${outlineContent.slice(0, 15000)}`)
-    if (useDetailedOutline && ch.description) parts.push(`【本章细纲】\n${ch.description}`)
-    if (useCharacters && characters.length > 0) {
+    // Outline tab dimensions
+    if (outlineTabs.plot && outlineContent) parts.push(`【故事剧情】\n${outlineContent.slice(0, 15000)}`)
+    if (outlineTabs.worldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}`)
+    if (outlineTabs.characters && characters.length > 0) {
       const charDescs = characters.map(c => [c.name, c.role, c.personality].filter(Boolean).join('，')).join('\n')
       parts.push(`【角色列表】\n${charDescs}`)
     }
+    // Async dimensions
+    if (loadedDims) {
+      if (loadedDims.items) parts.push(loadedDims.items)
+      if (loadedDims.locations) parts.push(loadedDims.locations)
+      if (loadedDims.factions) parts.push(loadedDims.factions)
+      if (loadedDims.powerSystem) parts.push(loadedDims.powerSystem)
+      if (loadedDims.emotion) parts.push(loadedDims.emotion)
+      if (loadedDims.foreshadowing) parts.push(loadedDims.foreshadowing)
+      if (loadedDims.plotThreads) parts.push(loadedDims.plotThreads)
+    }
+    // Detailed outline fields
+    if (detailedOutlineFields.plotOverview && ch.plotOverview) parts.push(`【本章剧情概述】\n${ch.plotOverview}`)
+    if (detailedOutlineFields.chapterCharacters && ch.characters) parts.push(`【本章出场角色列表】\n${ch.characters}`)
+    if (detailedOutlineFields.location && ch.location) parts.push(`【场景地点】\n${ch.location}`)
+    if (detailedOutlineFields.keyEvents && ch.keyEvents) parts.push(`【关键事件】\n${ch.keyEvents}`)
+    if (detailedOutlineFields.eroticContent && ch.eroticContent) parts.push(`【情色剧情要求】\n${ch.eroticContent}`)
     const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。'
     parts.push(`【创作要求】\n${template}\n\n字数目标: ${wordTarget}字`)
     return parts.join('\n\n---\n\n')
@@ -124,6 +143,11 @@ export default function BatchGenerationModal({
     runningRef.current = true
     setCurrentIdx(0)
 
+    // Load async outline dimensions once for all chapters
+    const loadedDims = activeProjectId && projectsBasePath
+      ? await loadOutlineDimensions(`${projectsBasePath}/${activeProjectId}`, outlineTabs)
+      : undefined
+
     let successCount = 0
     let errorCount = 0
 
@@ -135,11 +159,10 @@ export default function BatchGenerationModal({
       setCurrentIdx(i)
 
       try {
-        // Save current content first
         const ch = sortedChapters.find(c => c.id === item.chapterId)
         const chContent = ch ? await fileService.read(`${projectsBasePath}/${activeProjectId}/chapters/${item.chapterId}.txt`).catch(() => '') : ''
 
-        const prompt = await buildPromptForChapter(ch || sortedChapters[0])
+        const prompt = await buildPromptForChapter(ch || sortedChapters[0], loadedDims)
         const messages = [{ role: 'user' as const, content: prompt }]
 
         if (streamMode) {
@@ -160,7 +183,19 @@ export default function BatchGenerationModal({
                   promptContent: chapterPrompt?.content || '', generatedContent: data.text,
                   tokens: { input: data.usage?.prompt_tokens || 0, output: data.usage?.completion_tokens || 0, total: data.usage?.total_tokens || 0 },
                   cost: data.usage?.cost || 0, generatedAt: new Date().toISOString(),
-                  contextUsed: [useWorldbuilding ? 'worldbuilding' : '', useCharacters ? 'characters' : '', useOutline ? 'outline' : '', useDetailedOutline ? 'detailed_outline' : ''].filter(Boolean),
+                  contextUsed: [
+                    outlineTabs.plot ? 'outline_plot' : '', outlineTabs.worldbuilding ? 'outline_worldbuilding' : '',
+                    outlineTabs.characters ? 'outline_characters' : '',
+                    outlineTabs.items ? 'outline_items' : '', outlineTabs.locations ? 'outline_locations' : '',
+                    outlineTabs.factions ? 'outline_factions' : '', outlineTabs.powerSystem ? 'outline_powerSystem' : '',
+                    outlineTabs.foreshadowing ? 'outline_foreshadowing' : '', outlineTabs.emotion ? 'outline_emotion' : '',
+                    outlineTabs.plotThreads ? 'outline_plotThreads' : '',
+                    detailedOutlineFields.plotOverview ? 'detail_plotOverview' : '',
+                    detailedOutlineFields.chapterCharacters ? 'detail_characters' : '',
+                    detailedOutlineFields.location ? 'detail_location' : '',
+                    detailedOutlineFields.keyEvents ? 'detail_keyEvents' : '',
+                    detailedOutlineFields.eroticContent ? 'detail_eroticContent' : '',
+                  ].filter(Boolean),
                 }
                 if (activeProjectId && projectsBasePath) {
                   saveVersionRecord(`${projectsBasePath}/${activeProjectId}`, item.chapterId, versionRecord).then(() => onVersionSaved(versionRecord))
@@ -241,17 +276,55 @@ export default function BatchGenerationModal({
               ))}
             </div>
 
-            {/* Config */}
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid #f0ece8' }}>
-              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={useWorldbuilding} onChange={() => setUseWorldbuilding(!useWorldbuilding)} /> 世界观</label>
-              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={useCharacters} onChange={() => setUseCharacters(!useCharacters)} /> 角色</label>
-              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={useOutline} onChange={() => setUseOutline(!useOutline)} /> 大纲</label>
-              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={useDetailedOutline} onChange={() => setUseDetailedOutline(!useDetailedOutline)} /> 细纲</label>
-              <input type="number" min={500} max={50000} step={100} value={wordTarget} onChange={e => setWordTarget(Math.max(500, Math.min(50000, parseInt(e.target.value) || 500)))} style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }} />
-              <span style={{ fontSize: 10, color: '#9b8e84' }}>字/章</span>
-              <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}>
-                {configs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+            {/* Config — two-column dimension toggles */}
+            <div style={{ padding: '8px 0', borderTop: '1px solid #f0ece8' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>关联大纲和细纲</div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 3 }}>大纲维度</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                    {([
+                      ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
+                      ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
+                      ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
+                      ['plotThreads', '故事线'],
+                    ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
+                      <label key={key} style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, padding: '1px 5px', borderRadius: 4,
+                        background: outlineTabs[key] ? 'rgba(124,58,237,0.06)' : '#fff',
+                        border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.15)' : '1px solid rgba(0,0,0,0.06)', cursor: 'pointer',
+                      }}>
+                        <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={{ width: 12, height: 12 }} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 3 }}>细纲维度</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                    {([
+                      ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
+                      ['location', '场景地点'], ['keyEvents', '关键事件'],
+                      ['eroticContent', '情色剧情'],
+                    ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
+                      <label key={key} style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, padding: '1px 5px', borderRadius: 4,
+                        background: detailedOutlineFields[key] ? 'rgba(59,130,246,0.06)' : '#fff',
+                        border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.15)' : '1px solid rgba(0,0,0,0.06)', cursor: 'pointer',
+                      }}>
+                        <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={{ width: 12, height: 12 }} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
+                <input type="number" step={100} value={wordTarget} onChange={e => setWordTarget(parseInt(e.target.value) || 0)} onBlur={e => { const v = parseInt(e.target.value); if (v < 500 || v > 50000) setWordTarget(4000) }} style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }} />
+                <span style={{ fontSize: 10, color: '#9b8e84' }}>字/章</span>
+                <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}>
+                  {configs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
             </div>
           </>
         ) : (

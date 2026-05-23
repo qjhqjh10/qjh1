@@ -96,6 +96,7 @@ export const aiService = {
         toolCalls,
         finishReason: parsed.finish_reason || 'stop',
         images: Array.isArray(parsed.images) ? parsed.images : undefined,
+        reasoning_content: typeof parsed.reasoning_content === 'string' ? parsed.reasoning_content : undefined,
         usage: parsed.usage,
       }
     } catch (err) { logError('解析 chatWithTools 回复失败', err); return { text: raw, toolCalls: null, finishReason: 'stop' } }
@@ -121,11 +122,17 @@ export const aiService = {
 
     const abort = () => {
       e().ai.abortStream()
-      cleanupAll()
+      // Do NOT cleanupAll() here — let the backend's cancellation event
+      // trigger onCancelled/onError which will then cleanupAll().
+      // Cleaning up early would remove listeners before the event arrives,
+      // causing the UI overlay to freeze.
     }
 
     e().ai.chatStream(messages, configId, projectId)
     return { abort }
+  },
+  generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> => {
+    return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number }>
   },
 }
 
@@ -188,6 +195,7 @@ export const styleProjectService = {
 
 export const styleTemplateService = {
   list: () => e().styleTemplates.list(),
+  listProject: (projectPath: string) => e().styleTemplates.listProject(projectPath),
   read: (id: string) => e().styleTemplates.read(id),
   save: (template: any) => e().styleTemplates.save(template),
   delete: (id: string) => e().styleTemplates.delete(id),
@@ -195,6 +203,7 @@ export const styleTemplateService = {
 
 export const templateService = {
   list: () => e().templates.list(),
+  listProject: (projectPath: string) => e().templates.listProject(projectPath),
   save: (template: SceneTemplate) => e().templates.save(template),
   delete: (id: string) => e().templates.delete(id),
 }

@@ -255,7 +255,7 @@ export async function executeFileTool(
         if (!isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
         let entries: fs.Dirent[]
         try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch {
-          return { callId, toolName, status: 'error', summary: `目录不存在: ${args.dir_path || '(根目录)'}` }
+          return { callId, toolName, status: 'success', summary: '0 个项目', detail: '(目录不存在或为空)' }
         }
         const items = entries.map(e => {
           const prefix = e.isSymbolicLink() ? '[LINK]' : e.isDirectory() ? '[DIR] ' : '[FILE]'
@@ -527,9 +527,8 @@ export async function executeFileTool(
         for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
-        const emptyContent = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
-        await fsp.writeFile(path.join(pp, 'outline', 'outline.json'), emptyContent, 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.json'), emptyContent, 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'plot.json'), '', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.json'), '', 'utf-8')
         const novelCat = (args.novelCategory as string) || 'general'
         const projType = (args.type as string) === 'imitation' ? 'imitation' : (args.type as string) === 'continuation' ? 'continuation' : 'writing'
         await fsp.writeFile(path.join(pp, 'project.json'), JSON.stringify({ type: projType, novelCategory: novelCat }), 'utf-8')
@@ -550,9 +549,10 @@ export async function executeFileTool(
       case 'kb_index_file': {
         const fp = resolvePath('file_path')
         if (!fp || !isSafePath(fp, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        // Index is triggered by kbHandlers; here we just verify the file exists and is readable
+        // 架构限制: 此工具上下文无 configId/API key，无法直接调用 Embedding API。
+        // 完整的索引逻辑（分块+Embedding+写入index.json）在 kbHandlers.ts 的 kb:index handler 中，需通过知识库页面的"索引"按钮触发。
         try { await fsp.access(fp) } catch { return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` } }
-        return { callId, toolName, status: 'success', summary: `索引请求已提交: ${args.file_path}`, detail: '文件已验证存在。请前往知识库页面确认索引状态。' }
+        return { callId, toolName, status: 'success', summary: `文件已验证: ${args.file_path}`, detail: '文件已验证存在。请在知识库页面点击"索引"按钮来建立语义搜索索引（需要 API key 和 Embedding 模型配置）。' }
       }
 
       // ── 草稿笔记 ──
@@ -648,7 +648,7 @@ export async function executeFileTool(
           if (saved.length === 0) return { callId, toolName, status: 'success', summary: `未找到 "${query}" 相关图片`, detail: '[]' }
           return { callId, toolName, status: 'success', summary: `已保存 ${saved.length} 张 "${query}" 图片到项目 images/ 目录`, detail: JSON.stringify(saved) }
         } catch {
-          return { callId, toolName, status: 'error', summary: `图片搜索失败，请稍后重试` }
+          return { callId, toolName, status: 'error', summary: `图片搜索暂时不可用（Unsplash Demo Key 可能已限流，设置 UNSPLASH_ACCESS_KEY 环境变量可解除）` }
         }
       }
 

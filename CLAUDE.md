@@ -71,6 +71,11 @@ AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_dir
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
+| v4.11.0 | 2026-05-23 | 对话微信化(时间戳居中+智能折叠>550字+间距优化)+消息底部Token/花费/字数显示+字数双显(纯文字+含空格)+AI编辑自动应用无需确认+输出控制(编辑后只输出摘要)+buildContextPrefix精简 |
+| v4.9.0 | 2026-05-23 | AI图片生成(generate_image)+角色面板分组+卡片重设计+关系图重构+AI生成弹窗可拖拽+关联上下文重构+角色创建修复+代码审计修复 |
+| v4.8.0 | 2026-05-22 | 大纲Tab重命名+plot.json重命名+大纲/世界观纯文本重构+大纲数据加载修复+AI一键生成章节正文(【生成本章】)+章节生成设置持久化+角色智能过滤+温度控制+消息头像自定义+fileEditNotify持久化+大纲页面崩溃全面修复+系统提示词完整Schema+safeStr提取+代码注释安全标注+冗余清理 |
+| v4.7.0 | 2026-05-22 | 故事剧情Tab重命名(基础设定→故事剧情)+outline/outline.json→plot.json+编辑全线自动保存(细纲/章节)+AI创建内容实时显示修复(fileEditNotify持久化)+CharactersPanel/StyleWorkshop/SceneWorkshop/TemplateLibrary通知补全+工具消息中文显示+细纲撰写/删除按钮+代码注释+冗余清理 |
+| v4.6.0 | 2026-05-22 | AI对话上下文修复(historyMessages)+危险工具确认机制修复+工具操作通知补全+上下文用量修正+AIChatWindow增强(resize/滚动/停止/尺寸)+系统提示词增强(风格分析/场景模板/仿写细纲)+知识库弹窗+自动索引清理+summarizeFileOp补全+kb_webSearch修正+防护注释 |
 | v4.5.0 | 2026-05-21 | 大纲全Tab AI编辑+全局项目结构知识+细纲AI管理+知识库智能保存(kb:create/append)+AI主动服务(素材保存)+大纲/世界观/草稿AI弹窗+fileEditNotify关键修复(界面刷新)+文件拆分(CharactersPanel/SceneWorkshopPage) |
 | v4.4.0 | 2026-05-21 | 文件损坏全面修复: 上下文用量条动态模型切换(contextWindow可编辑)+ImageLightbox拖拽平移重置+AI角色图片自动搜索+编辑器图片resize持久化+恢复文件上传(TXT/MD)+恢复EPUB导出(UI完整打通)+软件说明弹窗 |
 | v4.3.0 | 2026-05-21 | 角色形象图(卡片大图+灯箱缩放)+AI生成角色卡片命令+编辑器图片resize/对齐+HomePage重设计v2(宽卡片+三栏统计)+EPUB导出(标准3.0+图片提取+XML转义)+AI图片上传+后端安全修复(isSafePath/error handler/常量)+Scratchpad升级为RichTextEditor |

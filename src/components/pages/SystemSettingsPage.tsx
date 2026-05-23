@@ -362,6 +362,8 @@ function ModelSettingsTab() {
                       step="0.1"
                       value={activeConfig.temperature}
                       onChange={e => updateConfig(activeConfig.id, { temperature: parseFloat(e.target.value) })}
+                      onMouseUp={() => settingsService.saveConfigs(useSettingsStore.getState().configs)}
+                      onTouchEnd={() => settingsService.saveConfigs(useSettingsStore.getState().configs)}
                       style={{ width: '100%', accentColor: '#7c3aed' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9b8e84' }}>
@@ -802,6 +804,40 @@ function AISettingsTab() {
               <input type="checkbox" checked={aiSettings.budgetWarning} onChange={e => update('budgetWarning', e.target.checked)} />
             </FormField>
           </div>
+        </div>
+
+        {/* Avatar Settings */}
+        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>会话头像</h4>
+          <div style={{ display: 'flex', gap: 24 }}>
+            {/* User Avatar */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: '#6b5e54' }}>你的头像</span>
+              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('userAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+                style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
+                {aiSettings.userAvatar
+                  ? <img src={aiSettings.userAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 22 }}>✍️</span>}
+              </div>
+              {aiSettings.userAvatar && (
+                <button onClick={() => update('userAvatar', '')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#ef4444', fontFamily: 'inherit' }}>清除</button>
+              )}
+            </div>
+            {/* Assistant Avatar */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: '#6b5e54' }}>AI 头像</span>
+              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('assistantAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+                style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
+                {aiSettings.assistantAvatar
+                  ? <img src={aiSettings.assistantAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 22 }}>📖</span>}
+              </div>
+              {aiSettings.assistantAvatar && (
+                <button onClick={() => update('assistantAvatar', '')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#ef4444', fontFamily: 'inherit' }}>清除</button>
+              )}
+            </div>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10, color: '#9b8e84' }}>点击头像可上传图片。上传后会话中的头像将替换为你的自定义图片。留空使用默认emoji。</div>
         </div>
       </div>
     </div>

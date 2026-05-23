@@ -37,6 +37,7 @@ export interface EmotionSegment {
   chapterStart: number
   chapterEnd: number
   dominantEmotion: string
+  description?: string
 }
 
 export interface EmotionData {
@@ -55,12 +56,3 @@ export interface OutlineFactionsData {
   factions: OutlineFaction[]
 }
 
-export interface OutlineContentData {
-  content: string
-  updatedAt: string
-}
-
-export interface WorldbuildingContentData {
-  content: string
-  updatedAt: string
-}

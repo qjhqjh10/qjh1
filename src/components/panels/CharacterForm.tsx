@@ -1,11 +1,11 @@
 import { fileService } from '@/services/fileService'
 import { CHARACTER_FIELDS, ROLES } from '@/services/characterService'
-import CharacterImage from './CharacterImage'
 import Button from '@/components/common/Button'
 import { inputStyle } from '@/components/common/styles'
 import { TagIcon } from '@heroicons/react/24/outline'
 import type { Character } from '@/types/character'
 import { RELATIONSHIP_TAGS } from '@/types/character'
+import { safeStr } from '@/utils/safeStr'
 
 const FIELD_TO_LABEL: Record<string, string> = Object.fromEntries(
   CHARACTER_FIELDS.map(f => [f.key as string, f.label])
@@ -24,8 +24,8 @@ interface Props {
 }
 
 export default function CharacterForm({ char, onChange, onSave, onClose, projectPath }: Props) {
+  const tags: string[] = (char.relationshipTags as string[]) || []
   const toggleTag = (tag: string) => {
-    const tags = char.relationshipTags as string[]
     if (tags.includes(tag)) {
       onChange({ ...char, relationshipTags: (tags.filter(t => t !== tag) as Character['relationshipTags']) })
     } else {
@@ -37,47 +37,34 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* 角色形象图 */}
-      <div>
-        <div style={labelStyle}>形象图</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {char.image ? (
-            <div style={{ position: 'relative', width: 80, height: 80, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.08)' }}>
-              <CharacterImage image={char.image} projectPath={projectPath} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            </div>
-          ) : (
-            <div style={{ width: 80, height: 80, borderRadius: 12, background: 'rgba(124,58,237,0.04)', border: '2px dashed rgba(124,58,237,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84', fontSize: 10 }}>
-              无形象
-            </div>
-          )}
-          <div>
-            <button onClick={() => {
-              const input = document.createElement('input')
-              input.type = 'file'; input.accept = 'image/*'
-              input.onchange = async () => {
-                const file = input.files?.[0]
-                if (!file) return
-                const reader = new FileReader()
-                reader.onload = async () => {
-                  try {
-                    const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
-                    if (fn) { set('image', fn); return }
-                  } catch { /* fallback to base64 */ }
-                  set('image', reader.result as string)
-                }
-                reader.readAsDataURL(file)
-              }
-              input.click()
-            }} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
-              {char.image ? '更换形象图' : '上传形象图'}
-            </button>
-            {char.image && (
-              <button onClick={() => set('image', undefined)} style={{ marginLeft: 8, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.04)', color: '#dc2626', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
-                移除
-              </button>
-            )}
-          </div>
-        </div>
+      {/* 形象图 — 上传入口（预览在卡片上） */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#9b8e84' }}>{char.image ? '已设置形象图' : '未设置形象图'}</span>
+        <button onClick={() => {
+          const input = document.createElement('input')
+          input.type = 'file'; input.accept = 'image/*'
+          input.onchange = async () => {
+            const file = input.files?.[0]
+            if (!file) return
+            const reader = new FileReader()
+            reader.onload = async () => {
+              try {
+                const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
+                if (fn) { set('image', fn); return }
+              } catch { /* fallback to base64 */ }
+              set('image', reader.result as string)
+            }
+            reader.readAsDataURL(file)
+          }
+          input.click()
+        }} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+          {char.image ? '更换' : '上传形象图'}
+        </button>
+        {char.image && (
+          <button onClick={() => set('image', undefined)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.04)', color: '#dc2626', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+            移除
+          </button>
+        )}
       </div>
 
       {/* Basic info row */}
@@ -118,7 +105,7 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
         <div key={k}>
           <label style={labelStyle}>{FIELD_TO_LABEL[k]}</label>
           <textarea
-            value={char[k] as string}
+            value={safeStr(char[k])}
             onChange={e => set(k, e.target.value)}
             style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
             placeholder={`${FIELD_TO_LABEL[k]}...`}
@@ -138,10 +125,10 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
               key={tag}
               onClick={() => toggleTag(tag)}
               style={{
-                padding: '3px 10px', borderRadius: 8, border: char.relationshipTags.includes(tag) ? '1px solid #7c3aed' : '1px solid #e5e0da',
-                background: char.relationshipTags.includes(tag) ? 'rgba(124,58,237,0.08)' : '#fff',
-                color: char.relationshipTags.includes(tag) ? '#7c3aed' : '#6b5e54',
-                fontSize: 11, cursor: 'pointer', fontWeight: char.relationshipTags.includes(tag) ? 600 : 400,
+                padding: '3px 10px', borderRadius: 8, border: tags.includes(tag) ? '1px solid #7c3aed' : '1px solid #e5e0da',
+                background: tags.includes(tag) ? 'rgba(124,58,237,0.08)' : '#fff',
+                color: tags.includes(tag) ? '#7c3aed' : '#6b5e54',
+                fontSize: 11, cursor: 'pointer', fontWeight: tags.includes(tag) ? 600 : 400,
                 transition: 'all 0.1s ease',
               }}
             >
@@ -149,9 +136,9 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
             </button>
           ))}
         </div>
-        {char.relationshipTags.length > 0 && (
+        {tags.length > 0 && (
           <div style={{ fontSize: 11, color: '#9b8e84' }}>
-            已选: {char.relationshipTags.join('、')}
+            已选: {tags.join('、')}
           </div>
         )}
       </div>

@@ -335,8 +335,8 @@ ${fields}
 2. 角色名使用文中原名称，保持一致性
 3. 等级术语不要翻译，保持原文用词
 4. 伏笔判断标准: 文中提到但未完全解释的信息=planted; 之前planted的信息在本章得到解释=resolved
-5. chapterSummary必须详细(150-300字)，包含本章的起因、经过、结果和情感转折，足够让没读过的人理解剧情
-6. events至少列出3-5个关键事件点`
+5. chapterSummary按实际内容长度撰写，包含起因/经过/结果/情感转折。章节内容越丰富摘要越详细，过渡章/短章可少于150字
+6. events按实际发生的事件列出，无显著事件填[]。过渡章/内心独白章可能只有1-2个事件`
 }
 
 // Parse AI reply into ChapterExtraction
@@ -457,7 +457,7 @@ export function buildStyleAnalyzePromptV3(dims: string[]): string {
 
   return `你是专业的文学风格分析师。请对以下章节进行深度写作风格分析。
 
-【启用的分析维度】
+【可选的分析维度（参考清单）】
 ${dimensionInstructions}
 
 【输出格式】
@@ -466,11 +466,6 @@ ${dimensionInstructions}
 === [维度key]: [中文标签] ===
 （200-400字深度分析。必须包含：具体描述 + 引用3个以上原文词句作为证据）
 ...分析内容...
-
-=== [下一个维度key]: [中文标签] ===
-...分析内容...
-
-（重复以上格式，为上面列出的每个维度写一段分析）
 
 ---VOCABULARY---
 ["原文词1","原文词2","原文词3",...]
@@ -481,14 +476,16 @@ ${dimensionInstructions}
 ---TONE---
 {"word":"基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严）"}
 
-【硬性要求】
-1. 每个维度分析必须 200-400 字，引用原文具体词汇/句子
-2. VOCABULARY 数组必须是原文中实际出现的词，禁止编造
-3. RULES 数组必须是可直接执行的写作指令（每条 15-50 字），不要写笼统建议
-4. TONE 中的基调词限 2-8 字
-5. 标记块（---XXX---）必须从行首开始，单独一行
-6. 数组和对象必须是合法 JSON（注意：字符串用双引号，不要尾部逗号）
-7. 不要用 \`\`\`json 代码块包裹任何内容`
+【关键规则——决定输出哪些维度】
+1. **有证据才写，没证据不写**。仅分析在原文中找到实际证据的维度。某维度在本章中完全没有体现（如纯对话章没有身体描写、普通章节没有情色内容），**直接跳过不写该维度**，不要输出空分析，不要写"[此维度在本章不适用]"之类的占位文字。
+2. 每个输出维度分析必须 200-400 字，引用原文具体词汇/句子
+3. VOCABULARY 数组必须是原文中实际出现的词，禁止编造
+4. RULES 数组必须是可直接执行的写作指令（每条 15-50 字），不要写笼统建议
+5. TONE 中的基调词限 2-8 字
+6. 标记块（---XXX---）必须从行首开始，单独一行
+7. 数组和对象必须是合法 JSON（注意：字符串用双引号，不要尾部逗号）
+8. 不要用 \`\`\`json 代码块包裹任何内容
+9. 宁可少分析几个维度，也不编造不存在的内容凑数`
 }
 
 // Parses V3 marked-block format into ChapterAnalysis
@@ -606,20 +603,15 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
     if (info?.description) descParts.push(`【${info.label}】${info.description.slice(0, 200)}`)
   }
 
-  // ── Step 5: Assemble ChapterAnalysis ──
+  // ── Step 5: Assemble ChapterAnalysis (only for dimensions AI actually reported) ──
   const dimAnalyses: Record<string, DimAnalysis> = {}
-  for (const dk of dims) {
-    const info = dimMap.get(dk)
-    const desc = info?.description || ''
-    // Distribute vocabulary to relevant dimensions based on keyword matching
+  for (const [dk, info] of dimMap) {
+    const desc = info.description || ''
+    if (!desc || desc.length < 10) continue // Skip truly empty/placeholder dimensions
     const dimVocab: string[] = []
     if (vocabularyList.length > 0) {
-      const keywords = [dk, DIMENSION_META[dk]?.label || '']
-      for (const v of vocabularyList) {
-        // Assign first 20 generic entries to body/sensory, rest by keyword
-        if (dk === 'bodyLanguageStyle' || dk === 'sensoryStyle' || dk === 'vocabularyStyle') {
-          dimVocab.push(v)
-        }
+      if (dk === 'bodyLanguageStyle' || dk === 'sensoryStyle' || dk === 'vocabularyStyle') {
+        dimVocab.push(...vocabularyList)
       }
     }
     const dimRules = dk === 'narrativeTone' && toneDesc
@@ -627,7 +619,7 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
       : writingRules.length > 0 ? writingRules.slice(0, 8) : []
 
     dimAnalyses[dk] = {
-      description: desc || `（见完整分析文本，共 ${freeText.length} 字）`,
+      description: desc,
       examples: [],
       writingRules: dimRules,
       vocabularyList: dimVocab.slice(0, 30),

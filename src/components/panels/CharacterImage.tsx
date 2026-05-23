@@ -17,7 +17,9 @@ export default function CharacterImage({ image, projectPath, alt, style, classNa
     if (!projectPath) return
     const ext = image.split('.').pop()?.toLowerCase() || 'png'
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
-    fileService.readBinary(`${projectPath}/${image}`).then(b64 => {
+    // saveImageUrl returns just filename, file is at images/ subdirectory
+    const imagePath = image.includes('/') ? image : `images/${image}`
+    fileService.readBinary(`${projectPath}/${imagePath}`).then(b64 => {
       if (b64) setSrc(`data:${mime};base64,${b64}`)
     }).catch(() => setSrc(''))
   }, [image, projectPath])

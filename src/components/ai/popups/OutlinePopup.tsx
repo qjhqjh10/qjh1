@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
-import RichTextEditor from '@/components/common/RichTextEditor'
 import { logError } from '@/utils/logger'
 
 interface Props {
@@ -20,19 +19,18 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
 
   const content = worldbuilding ? worldbuildingContent : outlineContent
   const setContent = worldbuilding ? setWorldbuildingContent : setOutlineContent
-  const fileName = worldbuilding ? 'worldbuilding.json' : 'outline.json'
+  const fileName = worldbuilding ? 'worldbuilding.json' : 'plot.json'
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
-  // Auto-save debounced
-  const handleChange = useCallback((html: string) => {
-    setContent(html)
+  // Auto-save debounced (plain text, no JSON wrapper)
+  const handleChange = useCallback((text: string) => {
+    setContent(text)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
       if (!activeProjectId || !projectsBasePath) return
       const pp = `${projectsBasePath}/${activeProjectId}`
       try {
-        const data = { content: html, updatedAt: new Date().toISOString() }
-        await fileService.write(`${pp}/outline/${fileName}`, JSON.stringify(data, null, 2))
+        await fileService.write(`${pp}/outline/${fileName}`, text)
       } catch (err) { logError(`保存${worldbuilding ? '世界观' : '大纲'}失败`, err) }
     }, 1000)
   }, [activeProjectId, projectsBasePath, fileName, setContent, worldbuilding])
@@ -43,17 +41,9 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
     const expectedPath = `${projectsBasePath}/${activeProjectId}/outline/${fileName}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
-        // Reload from disk
-        fileService.read(expectedPath).then(c => {
-          try { const data = JSON.parse(c); setContent(data.content || c) } catch { setContent(c) }
-        }).catch(() => {})
+        fileService.read(expectedPath).then(setContent).catch(() => {})
       } else {
-        try {
-          const data = JSON.parse(fileEditNotify.newContent)
-          setContent(data.content || fileEditNotify.newContent)
-        } catch {
-          setContent(fileEditNotify.newContent)
-        }
+        setContent(fileEditNotify.newContent)
       }
       setFileEditNotify(null)
     }
@@ -63,10 +53,11 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
   return (
-    <RichTextEditor
-      content={content}
-      onContentChange={handleChange}
-      placeholder={worldbuilding ? '在这里编写世界观设定...' : '在这里编写小说基础设定...'}
+    <textarea
+      value={content}
+      onChange={e => handleChange(e.target.value)}
+      placeholder={worldbuilding ? '在这里编写世界观设定...' : '在这里与AI讨论和记录故事剧情...'}
+      style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 16, fontSize: 13, lineHeight: 1.8, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
     />
   )
 }

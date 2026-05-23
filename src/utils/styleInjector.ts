@@ -47,6 +47,8 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     for (const dk of keyDims) {
       const da: DimAnalysis | undefined = dims[dk]
       if (!da) continue
+      // Skip dimensions with empty or placeholder descriptions
+      if (!da.description || da.description.startsWith('（见完整分析文本') || da.description === '[此维度在本章不适用]') continue
       if (da.vocabularyList?.length > 0) da.vocabularyList.forEach(w => vocabWords.add(w))
       if (da.writingRules?.length > 0) writingRules.push(...da.writingRules.map(r => `[${dk}] ${r}`))
     }

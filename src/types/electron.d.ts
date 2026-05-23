@@ -56,6 +56,7 @@ export interface AIAPI {
   onChatError: (callback: (data: { message: string }) => void) => () => void
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
   listModels: (configId: string) => Promise<string[]>
+  generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number }>
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
 }
@@ -189,8 +190,8 @@ export interface ElectronAPI {
   kb: KBAPI
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
-  styleTemplates: { list: () => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void> }
-  templates: { list: () => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
+  styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void> }
+  templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
   story: StoryAPI

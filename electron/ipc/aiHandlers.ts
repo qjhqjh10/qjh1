@@ -306,16 +306,17 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         ? { role: 'system' as const, content: config.systemPrompt }
         : null
 
-      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }> = [
+      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string }> = [
         ...(systemMessage ? [systemMessage] : []),
         ...messages.map(m => {
-          const msg: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string } = {
+          const msg: Record<string, unknown> = {
             role: validateRole(m.role),
             content: m.content,
           }
-          if (m.tool_calls) (msg as Record<string, unknown>).tool_calls = m.tool_calls
-          if (m.tool_call_id) (msg as Record<string, unknown>).tool_call_id = m.tool_call_id
-          return msg
+          if (m.tool_calls) msg.tool_calls = m.tool_calls
+          if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
+          if ((m as Record<string, unknown>).reasoning_content) msg.reasoning_content = (m as Record<string, unknown>).reasoning_content
+          return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }
         }),
       ]
 
@@ -352,11 +353,14 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
         const choice = completion.choices[0]
         const normalized = normalizeContent(choice?.message?.content)
+        // Preserve reasoning_content for thinking models (DeepSeek)
+        const reasoningContent = (choice?.message as unknown as Record<string, unknown>)?.reasoning_content as string | undefined
         return JSON.stringify({
           text: normalized.text,
           images: normalized.images.length > 0 ? normalized.images : undefined,
           tool_calls: choice?.message?.tool_calls || null,
           finish_reason: choice?.finish_reason || 'stop',
+          reasoning_content: reasoningContent || undefined,
           usage: usage ? {
             prompt_tokens: usage.prompt_tokens || 0,
             completion_tokens: usage.completion_tokens || 0,
@@ -367,6 +371,78 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       } catch (err) {
         throw new Error(categorizeError(err))
       }
+    })
+
+  // ── AI Image Generation ──
+
+  ipcMain.handle('ai:generateImage',
+    async (_event, prompt: string, configId: string, projectId?: string, size?: string, style?: string) => {
+      const store = await getConfigStore()
+      const configs = store.get('configs', []) as StoredConfig[]
+      const config = configs.find(c => c.id === configId)
+      if (!config) throw new Error('Model config not found')
+
+      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      const OpenAI = await getOpenAI()
+      const client = new OpenAI({
+        apiKey,
+        baseURL: config.apiUrl || undefined,
+        timeout: 180_000,
+        maxRetries: 2,
+      })
+
+      const imageSize = size || '1024x1024'
+      const imageStyle = style || 'vivid'
+      const imageModel = config.model || 'dall-e-3'
+
+      // Build generate params — size/style are DALL-E specific, omit for other models
+      const genParams: Record<string, unknown> = {
+        model: imageModel,
+        prompt,
+        n: 1,
+        response_format: 'url',
+      }
+      if (imageSize) genParams.size = imageSize
+      if (imageStyle && imageModel.includes('dall-e')) genParams.style = imageStyle
+
+      const response = await client.images.generate(genParams as any)
+
+      const imageUrl = response?.data?.[0]?.url
+      if (!imageUrl) throw new Error('图片生成返回空结果')
+
+      // Download image to project
+      const { join } = await import('path')
+      const { mkdir, writeFile } = await import('fs/promises')
+      const timestamp = Date.now().toString(36)
+      const fileName = `gen_${timestamp}.png`
+      const imagesDir = join(projectsPath || '', projectId || '', 'images')
+      await mkdir(imagesDir, { recursive: true })
+      const imagePath = join(imagesDir, fileName)
+
+      const imgRes = await fetch(imageUrl)
+      if (!imgRes.ok) throw new Error(`下载图片失败: HTTP ${imgRes.status}`)
+      const buf = Buffer.from(await imgRes.arrayBuffer())
+      await writeFile(imagePath, buf)
+
+      const relativePath = `images/${fileName}`
+      // Use config pricing or default estimate
+      const costPerImage = config.inputPricePerM > 0 ? config.inputPricePerM / 1000 : 0.04
+      const cost = config.currency === 'CNY' ? costPerImage * 7.2 : costPerImage
+
+      // Log token usage for stats
+      logTokenUsage({
+        timestamp: new Date().toISOString(),
+        projectId: projectId || '__global__',
+        configId: config.id,
+        configName: config.name || '',
+        model: config.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheHitTokens: 0,
+        cost,
+      })
+
+      return { path: relativePath, url: imageUrl, cost, prompt }
     })
 
   // ── Execute file tools on main process ──

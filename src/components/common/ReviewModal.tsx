@@ -29,7 +29,9 @@ const DEFAULT_REVIEW_PROMPT = `你是专业文学编辑，请对以下章节进�
 节奏: X/10 | <一句话评价>
 对白: X/10 | <一句话评价>
 描写: X/10 | <一句话评价>
-情节一致性: X/10 | <一句话评价>`
+情节一致性: X/10 | <一句话评价>
+
+注意: X 为 1-10 整数。如果某维度在此章不适用（如纯对话章无描写、纯内心独白章无对白），标注 "N/A" 并说明原因。总分仅对适用的维度取平均。`
 
 export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabel, chapterContent, projectId, configId }: Props) {
   const prompts = useSettingsStore(s => s.prompts)

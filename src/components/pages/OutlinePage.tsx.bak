@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
@@ -118,26 +118,17 @@ export default function OutlinePage() {
     await saveOutlineContent(projectPath, outlineContent)
   }, [projectPath, outlineContent])
 
-  // Auto-save on user edit (debounced 1s). Flag prevents saving during initial load.
-  const outlineDirty = useRef(false)
-  const handleOutlineChange = useCallback((text: string) => {
-    setOutlineContent(text)
-    outlineDirty.current = true
-  }, [])
+  // Auto-save outline content on change (debounced 1s)
   useEffect(() => {
-    if (!projectPath || !outlineDirty.current) return
-    const timer = setTimeout(() => { saveOutlineContent(projectPath, outlineContent); outlineDirty.current = false }, 1000)
+    if (!projectPath) return
+    const timer = setTimeout(() => { saveOutlineContent(projectPath, outlineContent) }, 1000)
     return () => clearTimeout(timer)
   }, [outlineContent, projectPath])
 
-  const wbDirty = useRef(false)
-  const handleWbChange = useCallback((text: string) => {
-    setWorldbuildingContent(text)
-    wbDirty.current = true
-  }, [])
+  // Auto-save worldbuilding content on change (debounced 1s)
   useEffect(() => {
-    if (!projectPath || !wbDirty.current) return
-    const timer = setTimeout(() => { saveWorldbuildingContent(projectPath, worldbuildingContent); wbDirty.current = false }, 1000)
+    if (!projectPath) return
+    const timer = setTimeout(() => { saveWorldbuildingContent(projectPath, worldbuildingContent) }, 1000)
     return () => clearTimeout(timer)
   }, [worldbuildingContent, projectPath])
 
@@ -324,25 +315,23 @@ export default function OutlinePage() {
     switch (activeTab) {
       case 'basic':
         return (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'hidden', padding: '0 16px' }}>
             <textarea
               value={outlineContent}
-              onChange={e => handleOutlineChange(e.target.value)}
-              placeholder="故事剧情协作空间。直接输入 Markdown，或让 AI 帮你整理。# 标题 ## 章节 - 列表"
-              className="custom-scrollbar"
-              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 20, fontSize: 14, lineHeight: 1.9, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
+              onChange={e => setOutlineContent(e.target.value)}
+              placeholder="这是你和 AI 写作助手的剧情协作空间。在这里记录核心主线、章节衔接、转折设计、结局走向... 每次与 AI 讨论剧情后，可以让 AI 帮你整理到此处。"
+              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 16, fontSize: 14, lineHeight: 1.8, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
             />
           </div>
         )
       case 'worldbuilding':
         return (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'hidden', padding: '0 16px' }}>
             <textarea
               value={worldbuildingContent}
-              onChange={e => handleWbChange(e.target.value)}
-              placeholder="世界观设定。直接输入 Markdown，或让 AI 帮你整理。# 世界名称 ## 力量体系 - 规则列表"
-              className="custom-scrollbar"
-              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 20, fontSize: 14, lineHeight: 1.9, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
+              onChange={e => setWorldbuildingContent(e.target.value)}
+              placeholder="在这里编写你的世界观设定..."
+              style={{ width: '100%', height: '100%', border: 'none', outline: 'none', resize: 'none', padding: 16, fontSize: 14, lineHeight: 1.8, color: '#2d2520', fontFamily: 'inherit', background: 'transparent' }}
             />
           </div>
         )
@@ -472,11 +461,11 @@ export default function OutlinePage() {
                     <span style={{ width: 10, height: 10, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', flex: 1 }}>{t.name}</span>
                     <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: t.color + '18', color: t.color, fontWeight: 600 }}>{THREAD_TYPES.find(tt => tt.value === t.type)?.label}</span>
-                    <span style={{ fontSize: 10, color: '#9b8e84' }}>{(t.chapterIds || []).length} 章</span>
+                    <span style={{ fontSize: 10, color: '#9b8e84' }}>{t.chapterIds.length} 章</span>
                     <button onClick={() => setEditingThread({ ...t })} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed' }}>编辑</button>
                     <button onClick={() => handleDeleteThread(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4' }}><TrashIcon style={{ width: 12, height: 12 }} /></button>
                   </div>
-                  {(t.chapterIds || []).length > 0 && (
+                  {t.chapterIds.length > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                       {(t.chapterIds || []).map(cid => { const ch = detailedChapters.find(d => d.id === cid); return <span key={cid} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'rgba(0,0,0,0.03)', color: '#6b5e54' }}>{ch?.title || cid}</span> })}
                     </div>
@@ -525,8 +514,8 @@ export default function OutlinePage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>{TAB_LABELS[activeTab]}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {activeTab === 'basic' && <WordCount text={outlineContent} />}
-              {activeTab === 'worldbuilding' && <WordCount text={worldbuildingContent} />}
+              {activeTab === 'basic' && <><WordCount text={outlineContent} /><Button variant="secondary" size="sm" onClick={async () => { setOutlineContent(''); if (projectPath) await saveOutlineContent(projectPath, '') }}>清空</Button><Button size="sm" onClick={saveOutline}>保存</Button></>}
+              {activeTab === 'worldbuilding' && <><WordCount text={worldbuildingContent} /><Button variant="secondary" size="sm" onClick={async () => { setWorldbuildingContent(''); if (projectPath) await saveWorldbuildingContent(projectPath, '') }}>清空</Button><Button size="sm" onClick={handleSaveWorldbuilding}>保存</Button></>}
             </div>
           </div>
           {renderMainContent()}
@@ -546,9 +535,9 @@ export default function OutlinePage() {
             <div style={{ flex: 1 }}><div style={fieldLabel}>颜色</div><div style={{ display: 'flex', gap: 4 }}>{THREAD_COLORS.map(c => <button key={c} onClick={() => setEditingThread({ ...editingThread, color: c })} style={{ width: 24, height: 24, borderRadius: '50%', background: c, border: editingThread.color === c ? '2px solid #2d2520' : '2px solid transparent', cursor: 'pointer' }} />)}</div></div>
           </div>
           <div><div style={fieldLabel}>关联章节</div>
-            <details><summary style={{ fontSize: 11, color: '#7c3aed', cursor: 'pointer' }}>已选 {(editingThread.chapterIds || []).length} 章</summary>
+            <details><summary style={{ fontSize: 11, color: '#7c3aed', cursor: 'pointer' }}>已选 {editingThread.chapterIds.length} 章</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4, maxHeight: 160, overflow: 'auto' }}>
-                {detailedChapters.map((ch, idx) => <label key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}><input type="checkbox" checked={(editingThread.chapterIds || []).includes(ch.id)} onChange={() => setEditingThread({ ...editingThread, chapterIds: (editingThread.chapterIds || []).includes(ch.id) ? (editingThread.chapterIds || []).filter(id => id !== ch.id) : [...(editingThread.chapterIds || []), ch.id] })} style={{ width: 12, height: 12, accentColor: '#7c3aed' }} />第{idx + 1}章: {ch.title || '未命名'}</label>)}
+                {detailedChapters.map((ch, idx) => <label key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}><input type="checkbox" checked={editingThread.chapterIds.includes(ch.id)} onChange={() => setEditingThread({ ...editingThread, chapterIds: editingThread.chapterIds.includes(ch.id) ? editingThread.chapterIds.filter(id => id !== ch.id) : [...editingThread.chapterIds, ch.id] })} style={{ width: 12, height: 12, accentColor: '#7c3aed' }} />第{idx + 1}章: {ch.title || '未命名'}</label>)}
               </div>
             </details>
           </div>

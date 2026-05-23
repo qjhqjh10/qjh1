@@ -3,6 +3,7 @@ import { useStore, useSettingsStore } from '@/store'
 import { styleProjectService, aiService, styleTemplateService } from '@/services/fileService'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import { getTemplateDims, BASE_DIMS, TYPE_EXTRA_DIMS } from '@/types/styleTemplate'
+import { NOVEL_TYPE_LABELS } from '@/types/story'
 import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
@@ -48,6 +49,9 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function StyleWorkshopPage() {
   const setActivePage = useStore(s => s.setActivePage)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const activeProjectId = useStore(s => s.activeProjectId)
+  const projectsBasePath = useStore(s => s.projectsBasePath)
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('archives')
   const [view, setView] = useState<ViewMode>('library')
   const [projects, setProjects] = useState<StyleProjectMeta[]>([])
@@ -62,7 +66,7 @@ export default function StyleWorkshopPage() {
   const [showDimConfig, setShowDimConfig] = useState(false)
   const [showDimDetail, setShowDimDetail] = useState(false)
   const [detailType, setDetailType] = useState('通用')
-  const [enabledDimensions, setEnabledDimensions] = useState<string[]>(Object.keys(DIMENSION_META))
+  const [enabledDimensions, setEnabledDimensions] = useState<string[]>(NOVEL_TYPE_DIMS['通用'] || [])
   const [showResult, setShowResult] = useState(false)
   const [resultTab, setResultTab] = useState<ResultTab>('chapters')
   const [summarizeLoading, setSummarizeLoading] = useState(false)
@@ -78,12 +82,28 @@ export default function StyleWorkshopPage() {
   const [aiGenLoading, setAiGenLoading] = useState(false)
 
   const loadTemplates = async () => {
-    try { setTemplates(await styleTemplateService.list()) } catch { setTemplates([]) }
+    try {
+      const globalList = await styleTemplateService.list() as any[]
+      let projectList: any[] = []
+      if (activeProjectId && projectsBasePath) {
+        try {
+          projectList = await styleTemplateService.listProject(`${projectsBasePath}/${activeProjectId}`) as any[]
+        } catch { /* project dir may not exist */ }
+      }
+      const seen = new Set(globalList.map(t => t.id))
+      const merged = [...globalList]
+      for (const t of projectList) { if (!seen.has(t.id)) { merged.push(t); seen.add(t.id) } }
+      setTemplates(merged)
+    } catch { setTemplates([]) }
   }
 
   useEffect(() => { setActivePage('style-workshop'); loadTemplates() }, [])
 
-  const NOVEL_TYPE_LABELS: Record<string, string> = { '普通小说': '普通', '情色小说': '情色', '都市小说': '都市', '修仙小说': '修仙', '武侠小说': '武侠', '恋爱小说': '恋爱', '古风小说': '古风', '悬疑小说': '悬疑', '历史小说': '历史', '科幻小说': '科幻', '穿越小说': '穿越' }
+  // Reload when AI creates style templates
+  useEffect(() => {
+    if (fileEditNotify?.filePath?.includes('style_templates')) loadTemplates()
+  }, [fileEditNotify])
+
   const filteredTemplates = templateTab === 'all' ? templates : templates.filter(t => t.type === templateTab)
   const styleAssignments = useSettingsStore(s => s.aiSettings.styleAssignments || {})
   const setStyleAssignments = useSettingsStore(s => s.setAISettings)
@@ -210,7 +230,28 @@ export default function StyleWorkshopPage() {
     try {
       const analyses = analyzedChapters.map(c => {
         const a = c.analysis!
-        return `[${c.title}]\n句式:${a.sentenceStyle} 词汇:${a.vocabularyStyle} 修辞:${a.rhetoricStyle} 节奏:${a.rhythmStyle} 对话:${a.dialogueStyle} 氛围:${a.moodStyle} 视角:${a.perspectiveStyle} 身体:${a.bodyLanguageStyle} 感官:${a.sensoryStyle} 张力:${a.tensionStyle} 暗示:${a.subtextStyle} 描写结构:${JSON.stringify(a.descriptionPattern)} 堕落弧线:${JSON.stringify(a.corruptionArc)} 仪式剧本:${JSON.stringify(a.degradationRitual)} 叙事声音:${JSON.stringify(a.narrativeVoice)} 场景装置:${JSON.stringify(a.sceneMechanics)} 躯体状态:${JSON.stringify(a.somaticTension)} 身份溶解:${JSON.stringify(a.identityDissolution)} 心理循环:${JSON.stringify(a.shameVoyeurLoop)}`
+        const parts: string[] = [`[${c.title}]`]
+        // Only include string fields that have actual content
+        if (a.sentenceStyle) parts.push(`句式:${a.sentenceStyle}`)
+        if (a.vocabularyStyle) parts.push(`词汇:${a.vocabularyStyle}`)
+        if (a.rhetoricStyle) parts.push(`修辞:${a.rhetoricStyle}`)
+        if (a.rhythmStyle) parts.push(`节奏:${a.rhythmStyle}`)
+        if (a.dialogueStyle) parts.push(`对话:${a.dialogueStyle}`)
+        if (a.moodStyle) parts.push(`氛围:${a.moodStyle}`)
+        if (a.perspectiveStyle) parts.push(`视角:${a.perspectiveStyle}`)
+        if (a.bodyLanguageStyle) parts.push(`身体:${a.bodyLanguageStyle}`)
+        if (a.sensoryStyle) parts.push(`感官:${a.sensoryStyle}`)
+        if (a.tensionStyle) parts.push(`张力:${a.tensionStyle}`)
+        if (a.subtextStyle) parts.push(`暗示:${a.subtextStyle}`)
+        if (a.descriptionPattern) parts.push(`描写结构:${JSON.stringify(a.descriptionPattern)}`)
+        if (a.corruptionArc) parts.push(`堕落弧线:${JSON.stringify(a.corruptionArc)}`)
+        if (a.degradationRitual) parts.push(`仪式剧本:${JSON.stringify(a.degradationRitual)}`)
+        if (a.narrativeVoice) parts.push(`叙事声音:${JSON.stringify(a.narrativeVoice)}`)
+        // Report which V3 dimensions were found
+        if (a.dimAnalyses && Object.keys(a.dimAnalyses).length > 0) {
+          parts.push(`V3维度:${Object.keys(a.dimAnalyses).join(',')}`)
+        }
+        return parts.join('\n')
       }).join('\n\n')
       const prompt = `汇总以下 ${analyzedChapters.length} 章的小说风格分析，生成一份完整的风格档案JSON（不要markdown）：\n{"sentenceStyle":"...","vocabularyStyle":"...","rhetoricStyle":"...","rhythmStyle":"...","dialogueStyle":"...","moodStyle":"...","perspectiveStyle":"...","bodyLanguageStyle":"...","sensoryStyle":"...","tensionStyle":"...","subtextStyle":"...","descriptionPattern":{"bodyOrder":["头发","脸","胸"...],"sections":[{"part":"...","sentenceCount":"1-2句","details":["..."],"order":1}],"stockingDetail":"...","characterVisualProfile":"...","detailFingerprints":["..."]},"excerpts":[{"text":"...","note":"..."}]}\n\n${analyses}`
       const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
@@ -536,7 +577,7 @@ export default function StyleWorkshopPage() {
                       {Object.entries(FEATURE_LABELS).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, label]) => (
                         <div key={k} style={{ fontSize: 11 }}>
                           <span style={{ fontWeight: 600, color: '#7c3aed' }}>{label}:</span>
-                          <span style={{ color: '#4a3f38' }}> {ch.analysis![k as keyof ChapterAnalysis] as string}</span>
+                          <span style={{ color: '#4a3f38' }}> {(ch.analysis![k as keyof ChapterAnalysis] as string) || '未检测到'}</span>
                         </div>
                       ))}
                     </div>
@@ -608,7 +649,7 @@ export default function StyleWorkshopPage() {
                     {Object.entries(selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
-                        <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{v as React.ReactNode}</div>
+                        <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{(v as string) || '未检测到'}</div>
                       </div>
                     ))}
                   </div>
@@ -778,16 +819,20 @@ export default function StyleWorkshopPage() {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>预设:</span>
             <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法','泛用技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
-            <button onClick={() => setEnabledDimensions(Object.keys(DIMENSION_META))} style={presetBtn}>🔞 情色全维</button>
+            <button onClick={() => setEnabledDimensions(NOVEL_TYPE_DIMS['情色'] || [])} style={presetBtn}>🔞 情色全维</button>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginLeft: 8 }}>类型:</span>
-            {['通用','都市','修仙','恋爱','古风','悬疑'].map(genre => (
+            {['通用','情色','玄幻','奇幻','灵异','游戏','末世','轻小说','都市','修仙','恋爱','古风','悬疑'].map(genre => (
               <button key={genre} onClick={() => {
                 let dims = enabledDimensions.filter(k => DIMENSION_META[k].category !== '类型专属')
-                if (genre === '通用') { setEnabledDimensions(dims) }
+                if (genre === '情色') { setEnabledDimensions(NOVEL_TYPE_DIMS['情色'] || []) }
+                else if (genre === '通用') { setEnabledDimensions(dims) }
                 else {
-                  const genreKeys = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && (k === ({'都市':'socialRealism','修仙':'cultivationCombat','恋爱':'romanceArc','古风':'archaicStyle','悬疑':'suspensePacing'}[genre])) )
-                  const others = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && !genreKeys.includes(k))
-                  setEnabledDimensions([...dims.filter(k => !others.includes(k)), ...genreKeys])
+                  const genreKeyMap: Record<string, string> = {'都市':'socialRealism','修仙':'cultivationCombat','恋爱':'romanceArc','古风':'archaicStyle','悬疑':'suspensePacing'}
+                  const genreKey = genreKeyMap[genre]
+                  if (genreKey) {
+                    const others = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && k !== genreKey)
+                    setEnabledDimensions([...dims.filter(k => !others.includes(k)), genreKey])
+                  }
                 }
               }} style={presetBtn}>{genre}</button>
             ))}

@@ -169,7 +169,10 @@ function CustomInput({ label, values, onAdd, onRemove, hideDisplay }: { label?: 
 
 export default function SceneWorkshopPage() {
   const characters = useStore(s => s.characters)
+  const activeProjectId = useStore(s => s.activeProjectId)
+  const projectsBasePath = useStore(s => s.projectsBasePath)
   const setActivePage = useStore(s => s.setActivePage)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
   const [editorType, setEditorType] = useState<EditorType>(null)
   const [templateType, setTemplateType] = useState<SceneTemplateType>('普通小说')
   const [templates, setTemplates] = useState<SceneTemplate[]>([])
@@ -184,14 +187,41 @@ export default function SceneWorkshopPage() {
   const [showNovelSectionModal, setShowNovelSectionModal] = useState(false)
   const [editingNovelSection, setEditingNovelSection] = useState<number | null>(null)
   const [editTagMode, setEditTagMode] = useState(false)
-  useEffect(() => { setActivePage('scene-workshop') }, [])
+  useEffect(() => { setActivePage('scene-workshop'); loadTemplates() }, [])
+
+  // Reload templates when AI creates scene templates
+  useEffect(() => {
+    if (fileEditNotify?.filePath?.includes('scene_templates')) loadTemplates()
+  }, [fileEditNotify])
 
   const toggleEroticAuto = (field: string, v: boolean) => setEroticConfig({ ...eroticConfig, autoFields: { ...eroticConfig.autoFields, [field]: v } })
   const toggleNovelAuto = (field: string, v: boolean) => setNovelConfig({ ...novelConfig, autoFields: { ...novelConfig.autoFields, [field]: v } })
 
   const loadTemplates = async () => {
-    try { const list = await templateService.list() as SceneTemplate[]; setTemplates(Array.isArray(list) ? list : []) }
-    catch { setTemplates([]) }
+    try {
+      const globalRaw = await templateService.list() as any[]
+      let projectRaw: any[] = []
+      if (activeProjectId && projectsBasePath) {
+        try {
+          projectRaw = await templateService.listProject(`${projectsBasePath}/${activeProjectId}`) as any[]
+        } catch { /* project dir may not exist */ }
+      }
+      // Normalize all templates to SceneTemplate shape (handle AI custom formats)
+      const normalize = (raw: any, fromProject: boolean): SceneTemplate => ({
+        id: raw.id || raw.templateId || `proj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,
+        name: raw.name || raw.templateName || '未命名模板',
+        type: raw.type || '普通小说',
+        config: raw.config || raw,
+        createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
+        _fromProject: fromProject,
+      } as SceneTemplate & { _fromProject?: boolean })
+      const globalList = globalRaw.map(t => normalize(t, false))
+      const projectList = projectRaw.map(t => normalize(t, true))
+      const seen = new Set(globalList.map(t => t.id))
+      const merged = [...globalList]
+      for (const t of projectList) { if (!seen.has(t.id)) { merged.push(t); seen.add(t.id) } }
+      setTemplates(merged)
+    } catch { setTemplates([]) }
   }
 
   const handleEnterType = (tmplType: SceneTemplateType) => {
@@ -207,15 +237,18 @@ export default function SceneWorkshopPage() {
   }
 
   const handleEditTemplate = (tpl: SceneTemplate) => {
+    const isErotic = tpl.type === '情色小说'
+    setEditorType(isErotic ? 'erotic' : 'novel')
+    setTemplateType(tpl.type || '普通小说')
     setEditingTemplate(tpl); setTemplateName(tpl.name)
-    if (tpl.type === '情色小说') {
-      const cfg = { ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig
-      if (Array.isArray(cfg.customPOVs)) cfg.customPOVs = (cfg.customPOVs as unknown as string[]).join(',')
+    if (isErotic) {
+      const cfg = { ...DEFAULT_EROTIC, ...(tpl.config || {}) } as EroticSceneConfig
+      if (Array.isArray((cfg as any).customPOVs)) (cfg as any).customPOVs = ((cfg as any).customPOVs as unknown as string[]).join(',')
       setEroticConfig(cfg)
     }
     else {
-      const cfg = { ...DEFAULT_NOVEL, ...tpl.config } as NovelSceneConfig
-      setNovelConfig(cfg); setNovelGenreType('都市')
+      const cfg = { ...DEFAULT_NOVEL, ...(tpl.config || {}) } as NovelSceneConfig
+      setNovelConfig(cfg)
     }
     setShowEditor(true)
   }
@@ -237,9 +270,12 @@ export default function SceneWorkshopPage() {
   }
 
   const handleDuplicateTemplate = (tpl: SceneTemplate) => {
+    const isErotic = tpl.type === '情色小说'
+    setEditorType(isErotic ? 'erotic' : 'novel')
+    setTemplateType(tpl.type || '普通小说')
     setEditingTemplate(null); setTemplateName(tpl.name + ' (副本)')
-    if (tpl.type === '情色小说') setEroticConfig({ ...DEFAULT_EROTIC, ...tpl.config } as EroticSceneConfig)
-    else setNovelConfig({ ...DEFAULT_NOVEL, ...tpl.config } as NovelSceneConfig)
+    if (isErotic) setEroticConfig({ ...DEFAULT_EROTIC, ...(tpl.config || {}) } as EroticSceneConfig)
+    else setNovelConfig({ ...DEFAULT_NOVEL, ...(tpl.config || {}) } as NovelSceneConfig)
     setShowEditor(true)
   }
 
@@ -673,62 +709,76 @@ export default function SceneWorkshopPage() {
     }
   }
 
-  if (!editorType) {
-    return (
-      <div className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 32 }}>
-        <div style={{ maxWidth: 700, margin: '0 auto', width: '100%' }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>场景工坊</h2>
-          <p style={{ fontSize: 13, color: '#9b8e84', marginBottom: 28 }}>创建可复用的场景模板，在AI生成章节时加载使用</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-            {(['普通小说','情色小说','都市小说','修仙小说','武侠小说','恋爱小说','古风小说','悬疑小说','历史小说','科幻小说','穿越小说'] as SceneTemplateType[]).map(type => {
-              const isErotic = type === '情色小说'
-              return (
-                <button key={type} onClick={() => handleEnterType(type)} style={{
-                  padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit',
-                  border: isErotic ? '1px solid rgba(220,38,38,0.15)' : '1px solid rgba(124,58,237,0.1)',
-                  background: isErotic ? 'rgba(220,38,38,0.03)' : 'rgba(124,58,237,0.02)',
-                }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#3b82f6', marginBottom: 4 }}>{type.replace('小说','')}</div>
-                  <div style={{ fontSize: 10, color: '#9b8e84' }}>{isErotic ? '26区块' : '10区块'}</div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    )
+  // Group templates by type
+  const groupedTemplates = templates.reduce((acc, tpl) => {
+    const type = tpl.type || '普通小说'
+    if (!acc[type]) acc[type] = []
+    acc[type].push(tpl)
+    return acc
+  }, {} as Record<string, SceneTemplate[]>)
+
+  const TYPE_COLORS: Record<string, string> = {
+    '情色小说': '#dc2626', '普通小说': '#3b82f6', '都市小说': '#06b6d4', '修仙小说': '#7c3aed',
+    '武侠小说': '#f59e0b', '恋爱小说': '#ec4899', '古风小说': '#8b5cf6', '悬疑小说': '#6366f1',
+    '历史小说': '#b45309', '科幻小说': '#10b981', '穿越小说': '#14b8a6',
   }
 
   return (
     <div className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header */}
       <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <Button variant="ghost" size="sm" onClick={() => setEditorType(null)}>← 返回</Button>
-        <h2 style={{ fontSize: 17, fontWeight: 700, color: editorType === 'erotic' ? '#dc2626' : '#3b82f6' }}>
-          {editorType === 'erotic' ? '🔥 情色场景模板' : '📖 普通场景模板'}
-        </h2>
+        {editorType ? (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setEditorType(null)}>← 返回</Button>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: editorType === 'erotic' ? '#dc2626' : '#3b82f6' }}>
+              {editorType === 'erotic' ? '🔥 情色场景模板' : '📖 普通场景模板'}
+            </h2>
+          </>
+        ) : (
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>场景工坊</h2>
+        )}
         <div style={{ flex: 1 }} />
         <Button size="sm" onClick={handleNewTemplate} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建模板</Button>
       </div>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ width: 300, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.3)' }}>
-          <div style={{ padding: '10px 14px', fontSize: 12, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            已保存模板 ({templates.length})
+        {/* Left: Template list (always visible, grouped by type) */}
+        <div style={{ width: 280, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
+          <div style={{ padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+            场景模板 ({templates.length})
           </div>
           <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
-            <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6  }}>
+            <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {templates.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>暂无模板</div>
               ) : (
-                templates.map(tpl => (
-                  <div key={tpl.id} style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid rgba(0,0,0,0.05)', fontSize: 13 }}>
-                    <div style={{ fontWeight: 600, color: '#2d2520', marginBottom: 4 }}>{tpl.name}</div>
-                    <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6 }}>{new Date(tpl.createdAt).toLocaleDateString()}</div>
-                    <div style={{ display: 'flex', gap: 4  }}>
-                      <Button size="sm" variant="ghost" onClick={() => handleEditTemplate(tpl)} icon={<PencilIcon style={{ width: 11, height: 11 }} />}>编辑</Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleDuplicateTemplate(tpl)}>复制</Button>
-                      <button onClick={() => handleDeleteTemplate(tpl.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#d4ccc4', marginLeft: 'auto' }}><TrashIcon style={{ width: 13, height: 13 }} /></button>
+                Object.entries(groupedTemplates).map(([type, tpls]) => (
+                  <div key={type}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 8px', marginBottom: 4,
+                      color: TYPE_COLORS[type] || '#6b7280',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span style={{ width: 3, height: 14, borderRadius: 2, background: TYPE_COLORS[type] || '#6b7280', display: 'inline-block' }} />
+                      {type} · {tpls.length}
                     </div>
+                    {tpls.map(tpl => (
+                      <div key={tpl.id} onClick={() => handleEditTemplate(tpl)} style={{
+                        padding: '8px 10px 8px 14px', borderRadius: 8, cursor: 'pointer',
+                        background: '#fff', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 3,
+                        fontSize: 12, transition: 'all 0.15s',
+                      }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.15)'; e.currentTarget.style.background = 'rgba(124,58,237,0.02)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.04)'; e.currentTarget.style.background = '#fff' }}>
+                        <div style={{ fontWeight: 600, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tpl.name}</div>
+                        <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>
+                          {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : ''}
+                          <span style={{ float: 'right', display: 'inline-flex', gap: 2 }}>
+                            <span onClick={e => { e.stopPropagation(); handleDuplicateTemplate(tpl) }} title="复制" style={{ cursor: 'pointer', color: '#9b8e84' }}>📋</span>
+                            <span onClick={e => { e.stopPropagation(); handleDeleteTemplate(tpl.id) }} title="删除" style={{ cursor: 'pointer', color: '#d4ccc4' }}>🗑</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))
               )}
@@ -736,8 +786,31 @@ export default function SceneWorkshopPage() {
           </ScrollArea>
         </div>
 
-        <div style={{ flex: 1, overflow: 'hidden'  }}>
-          {!showEditor ? (
+        {/* Right: Content area */}
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          {!editorType ? (
+            /* Type selection grid */
+            <div style={{ padding: 32, maxWidth: 700, margin: '0 auto' }}>
+              <p style={{ fontSize: 13, color: '#9b8e84', marginBottom: 20 }}>选择场景类型创建新模板，或从左侧选择已有模板编辑</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+                {(['普通小说','情色小说','玄幻小说','奇幻小说','灵异小说','游戏小说','末世小说','轻小说','都市小说','修仙小说','武侠小说','恋爱小说','古风小说','悬疑小说','历史小说','科幻小说','穿越小说'] as SceneTemplateType[]).map(type => {
+                  const isErotic = type === '情色小说'
+                  const count = groupedTemplates[type]?.length || 0
+                  return (
+                    <button key={type} onClick={() => handleEnterType(type)} style={{
+                      padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit',
+                      border: isErotic ? '1px solid rgba(220,38,38,0.15)' : '1px solid rgba(124,58,237,0.1)',
+                      background: isErotic ? 'rgba(220,38,38,0.03)' : 'rgba(124,58,237,0.02)',
+                      transition: 'all 0.15s',
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#3b82f6', marginBottom: 4 }}>{type.replace('小说','')}</div>
+                      <div style={{ fontSize: 10, color: '#9b8e84' }}>{isErotic ? '26区块' : '10区块'} · {count}个模板</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : !showEditor ? (
             <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}>
               <DocumentTextIcon style={{ width: 48, height: 48, margin: '0 auto 12px', opacity: 0.2 }} />
               <p style={{ fontSize: 14 }}>选择左侧模板编辑，或点击「新建模板」</p>

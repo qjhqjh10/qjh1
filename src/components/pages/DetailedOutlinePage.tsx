@@ -161,6 +161,16 @@ export default function DetailedOutlinePage() {
     setEditDraft({ ...editDraft, [field]: value })
   }
 
+  // Auto-save draft on change (debounced 1.5s)
+  useEffect(() => {
+    if (!editDraft || !editingChapter) return
+    const timer = setTimeout(() => {
+      updateDetailedChapter(editingChapter.id, editDraft)
+      handleSaveChapter(editingChapter.id)
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [editDraft])
+
   const modalSave = async () => {
     if (!editDraft || !editingChapter) return
     updateDetailedChapter(editingChapter.id, editDraft)
@@ -215,7 +225,7 @@ export default function DetailedOutlinePage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               {outlineContent && (
                 <div style={os}>
-                  <div style={ost}>基础设定</div>
+                  <div style={ost}>故事剧情</div>
                   <div style={osb}>{outlineContent.slice(0, 500)}{outlineContent.length > 500 ? '...' : ''}</div>
                 </div>
               )}
@@ -321,7 +331,26 @@ export default function DetailedOutlinePage() {
                       }}>
                         {ch.title || '(未命名)'}
                       </span>
-                      <PencilIcon style={{ width: 13, height: 13, color: '#9b8e84', flexShrink: 0 }} />
+                      {/* Action buttons */}
+                      <button onClick={e => { e.stopPropagation(); navigate(`/chapter/${ch.id}`) }}
+                        title="撰写本章" style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 2,
+                          padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.2)',
+                          background: 'rgba(124,58,237,0.04)', cursor: 'pointer',
+                          fontFamily: 'inherit', fontSize: 10, fontWeight: 600, color: '#7c3aed',
+                          flexShrink: 0, transition: 'all 0.1s',
+                        }}>
+                        <PencilIcon style={{ width: 11, height: 11 }} /> 撰写
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); handleDeleteChapter(ch) }}
+                        title="删除本章细纲" style={{
+                          display: 'inline-flex', alignItems: 'center',
+                          padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)',
+                          background: 'transparent', cursor: 'pointer',
+                          flexShrink: 0, transition: 'all 0.1s',
+                        }}>
+                        <TrashIcon style={{ width: 13, height: 13, color: '#ef4444' }} />
+                      </button>
                     </div>
 
                     {/* Content preview */}

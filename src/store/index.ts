@@ -4,15 +4,15 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
+import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
+import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS, DEFAULT_OUTLINE_TABS, DEFAULT_DETAILED_OUTLINE_TOGGLES } from '@/types/settings'
 
 export interface PopupWindow {
   id: string
-  type: 'outline' | 'worldbuilding' | 'draft'
+  type: 'outline' | 'worldbuilding' | 'draft' | 'kb'
   title: string
   documentKey?: string
 }
-import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings } from '@/types/settings'
-import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS } from '@/types/settings'
 
 // ---- App Store ----
 
@@ -51,6 +51,10 @@ export interface AppState {
   replaceAction: { chapterId: string; content: string } | null
   fileEditNotify: { filePath: string; newContent: string } | null
   rewriteContent: string
+
+  // AI → 章节生成触发
+  chapterGenTrigger: string | null
+  setChapterGenTrigger: (chapterId: string | null) => void
 
   // Popup windows
   popupWindows: PopupWindow[]
@@ -114,6 +118,7 @@ const initialProjectState = {
   fileEditNotify: null as { filePath: string; newContent: string } | null,
   rewriteContent: '',
   popupWindows: [],
+  chapterGenTrigger: null as string | null,
 }
 
 export const useStore = create<AppState>()(
@@ -124,16 +129,11 @@ export const useStore = create<AppState>()(
     projectsBasePath: '',
     ...initialProjectState,
     activePage: 'home',
+    chapterGenTrigger: null as string | null,
     isAIChatOpen: false,
     sidebarCollapsed: false,
     connectionStatus: 'checking',
     connectedModel: '',
-    insertionAction: null,
-  replaceAction: null,
-  fileEditNotify: null,
-  rewriteContent: '',
-  popupWindows: [],
-
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setProjects: (projects) => set(s => {
       // Preserve non-writing projects that are in the store but not on disk
@@ -212,6 +212,7 @@ export const useStore = create<AppState>()(
     closePopup: (id) => set(s => { s.popupWindows = s.popupWindows.filter(p => p.id !== id) }),
     setFileEditNotify: (notify) => set({ fileEditNotify: notify }),
     setRewriteContent: (content: string) => set({ rewriteContent: content }),
+    setChapterGenTrigger: (chapterId) => set({ chapterGenTrigger: chapterId }),
 
     resetProjectState: () => set(s => { Object.assign(s, initialProjectState) }),
   }))
@@ -271,7 +272,7 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'novel-writer-settings',
-      version: 1,
+      version: 2,
       partialize: (state) => ({
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '' })),
@@ -286,6 +287,44 @@ export const useSettingsStore = create<SettingsState>()(
               ? p.prompts : DEFAULT_PROMPTS,
             aiSettings: { ...DEFAULT_AI_SETTINGS, ...(p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings as Partial<AIAssistantSettings> : {}) },
             displaySettings: { ...DEFAULT_DISPLAY_SETTINGS, ...(p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings as Partial<DisplaySettings> : {}) },
+          }
+        }
+        if (version < 2) {
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          const aiSettings = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+          const oldCG = (aiSettings.chapterGen && typeof aiSettings.chapterGen === 'object' ? aiSettings.chapterGen : {}) as Record<string, unknown>
+
+          const migrateOutlineTabs = (): OutlineTabToggles => ({
+            ...DEFAULT_OUTLINE_TABS,
+            plot: oldCG.useOutline === true,
+            worldbuilding: oldCG.useWorldbuilding === true,
+            characters: oldCG.useCharacters === true,
+          })
+
+          const migrateDetailedToggles = (): DetailedOutlineToggles => ({
+            ...DEFAULT_DETAILED_OUTLINE_TOGGLES,
+            plotOverview: oldCG.useDetailedOutline === true,
+            chapterCharacters: oldCG.useDetailedOutline === true,
+            location: oldCG.useDetailedOutline === true,
+            keyEvents: oldCG.useDetailedOutline === true,
+          })
+
+          const newChapterGen: ChapterGenSettings = {
+            outlineTabs: migrateOutlineTabs(),
+            detailedOutlineFields: migrateDetailedToggles(),
+            wordTarget: typeof oldCG.wordTarget === 'number' ? oldCG.wordTarget : 4000,
+            streamMode: oldCG.streamMode === true,
+            replaceMode: oldCG.replaceMode !== false,
+            selectedSceneId: typeof oldCG.selectedSceneId === 'string' ? oldCG.selectedSceneId : '',
+            selectedStyleTemplateId: typeof oldCG.selectedStyleTemplateId === 'string' ? oldCG.selectedStyleTemplateId : '',
+            selectedCharacterIds: Array.isArray(oldCG.selectedCharacterIds) ? oldCG.selectedCharacterIds : [],
+            selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
+            selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
+          }
+
+          return {
+            ...p,
+            aiSettings: { ...aiSettings, chapterGen: newChapterGen },
           }
         }
         return persisted

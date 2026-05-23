@@ -57,6 +57,8 @@ const api = {
       ipcRenderer.invoke('ai:chat', messages, configId, projectId),
     chatStream: (messages: { role: string; content: string }[], configId: string, projectId?: string): Promise<void> =>
       ipcRenderer.invoke('ai:chat-stream', messages, configId, projectId),
+    generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> =>
+      ipcRenderer.invoke('ai:generateImage', prompt, configId, projectId, size, style),
     abortStream: (): void => { ipcRenderer.send('ai:abort-stream') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
@@ -148,12 +150,14 @@ const api = {
   },
   styleTemplates: {
     list: (): Promise<any[]> => ipcRenderer.invoke('styleTemplate:list'),
+    listProject: (projectPath: string): Promise<any[]> => ipcRenderer.invoke('styleTemplate:listProject', projectPath),
     read: (id: string): Promise<any> => ipcRenderer.invoke('styleTemplate:read', id),
     save: (template: any): Promise<any> => ipcRenderer.invoke('styleTemplate:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:delete', id),
   },
   templates: {
     list: (): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:list'),
+    listProject: (projectPath: string): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:listProject', projectPath),
     save: (template: SceneTemplate): Promise<void> => ipcRenderer.invoke('template:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
   },

@@ -285,7 +285,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       id, name: safeName, originalName: name.endsWith('.md') ? name : `${name}.md`,
       type: 'md', size: Buffer.byteLength(content, 'utf-8'), chunkCount: 0,
       projects: projectId ? [projectId] : [],
-      source: 'ai' as any,
+      source: 'ai',
       uploadedAt: new Date().toISOString(),
     }
     meta.files.push(newFile)

@@ -56,8 +56,8 @@ export const DIM_LABELS: Record<string, string> = {
 
 export function normalizeRole(role: string): string {
   const r = (role || '').trim()
-  if (['男主','女主','男配','女配','反派'].includes(r)) return r
-  if (r.includes('男主') || r === '主角') return '男主'
+  if (['男主','女主','男配','女配','反派','其他'].includes(r)) return r
+  if (r.includes('男主')) return '男主'
   if (r.includes('女主')) return '女主'
   if (r.includes('男配') || r.includes('兄弟') || r.includes('朋友')) return '男配'
   if (r.includes('女配') || r.includes('姐妹')) return '女配'

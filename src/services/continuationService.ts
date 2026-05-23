@@ -24,13 +24,13 @@ export function buildChapterAnalysisPrompt(
   if (has('chapterRole')) jsonFields.push(`  "chapterRole": "setup|development|climax|resolution|transition"`)
   if (has('unresolvedQuestions')) jsonFields.push(`  "unresolvedQuestions": ["本章提出但未解答的问题"]`)
   // Snapshots always included if any character/item/faction dimension is enabled
-  if (has('charactersAppeared')) jsonFields.push(`  "characterSnapshots": [{"name":"角色名","alive":true,"powerLevel":"当前等级(无则'')","location":"所在位置"}]`)
+  if (has('charactersAppeared')) jsonFields.push(`  "characterSnapshots": [{"name":"角色名","alive":true,"powerLevel":"当前等级(无则'')","location":"所在位置"}] // alive默认true，仅确认死亡时写false；无状态信息的不输出该角色的snapshot`)
   if (has('itemsMentioned')) jsonFields.push(`  "itemSnapshots": [{"name":"道具名","status":"完好|损坏|丢失|传承|毁灭","owner":"持有者"}]`)
   if (has('factionsMentioned')) jsonFields.push(`  "factionSnapshots": [{"name":"势力名","status":"活跃|削弱|覆灭|转型","leader":"首领(无则'')}"}]`)
   if (has('locationsMentioned')) jsonFields.push(`  "locationSnapshots": [{"name":"地点名","status":"存在|毁灭|废弃","significance":"重要性"}]`)
 
   const requirements: string[] = []
-  if (has('plotEvents')) requirements.push('1. plotEvents 至少列出3-8个关键事件，按重要性排序')
+  if (has('plotEvents')) requirements.push('1. plotEvents 按实际发生的事件列出（过渡章/内心独白章可能仅1-2个事件甚至为空）')
   if (has('charactersAppeared')) requirements.push('2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50')
   if (has('charactersAppeared')) requirements.push('3. characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级')
   if (has('itemsMentioned')) requirements.push('4. itemSnapshots: 本章出现或提及的所有道具,标注当前状态')
@@ -75,8 +75,9 @@ export function buildAggregationPrompt(chapterAnalyses: string[], totalChapters:
 }
 
 【逐章分析摘要】
-${chapterAnalyses.join('\n\n')}`
-}
+${chapterAnalyses.join('\n\n')}
+
+要求: 只基于以上摘要中明确存在的信息填写。对于没有数据的字段（如原文无明确势力/道具/地点等），返回空数组[]。不要编造不存在的信息。`}
 
 // Batch aggregation: summarize a group of up to 50 chapters
 export function buildBatchSummaryPrompt(
@@ -106,8 +107,9 @@ export function buildBatchSummaryPrompt(
 
 ${prevEndingState ? `【前一批次结束时的角色状态】\n${prevEndingState}\n` : ''}
 【第${firstChapter}-${lastChapter}章逐章摘要】
-${chapterSummaries.join('\n\n')}`
-}
+${chapterSummaries.join('\n\n')}
+
+要求: 只基于摘要中明确存在的信息填写。对于没有数据的字段（如无道具/势力/地点变化），返回空数组[]。不要编造。`}
 
 // Global aggregation: synthesize all batch summaries + deep-dive last 20 chapters
 export function buildGlobalAggregationPrompt(

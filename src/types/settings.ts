@@ -47,6 +47,74 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
 
 export type ContextPriority = 'balanced' | 'kb-first' | 'model-first'
 
+export interface OutlineTabToggles {
+  plot: boolean
+  worldbuilding: boolean
+  characters: boolean
+  items: boolean
+  locations: boolean
+  factions: boolean
+  powerSystem: boolean
+  foreshadowing: boolean
+  emotion: boolean
+  plotThreads: boolean
+}
+
+export interface DetailedOutlineToggles {
+  plotOverview: boolean
+  chapterCharacters: boolean
+  location: boolean
+  keyEvents: boolean
+  eroticContent: boolean
+}
+
+export interface ChapterGenSettings {
+  outlineTabs: OutlineTabToggles
+  detailedOutlineFields: DetailedOutlineToggles
+  wordTarget: number
+  streamMode: boolean
+  replaceMode: boolean
+  selectedSceneId: string
+  selectedStyleTemplateId: string
+  selectedCharacterIds: string[]
+  selectedSummaryIds: string[]
+  selectedKbFileIds: string[]
+}
+
+export const DEFAULT_OUTLINE_TABS: OutlineTabToggles = {
+  plot: true,
+  worldbuilding: true,
+  characters: true,
+  items: false,
+  locations: false,
+  factions: false,
+  powerSystem: false,
+  foreshadowing: false,
+  emotion: false,
+  plotThreads: false,
+}
+
+export const DEFAULT_DETAILED_OUTLINE_TOGGLES: DetailedOutlineToggles = {
+  plotOverview: true,
+  chapterCharacters: true,
+  location: true,
+  keyEvents: true,
+  eroticContent: false,
+}
+
+export const DEFAULT_CHAPTER_GEN: ChapterGenSettings = {
+  outlineTabs: { ...DEFAULT_OUTLINE_TABS },
+  detailedOutlineFields: { ...DEFAULT_DETAILED_OUTLINE_TOGGLES },
+  wordTarget: 4000,
+  streamMode: false,
+  replaceMode: true,
+  selectedSceneId: '',
+  selectedStyleTemplateId: '',
+  selectedCharacterIds: [],
+  selectedSummaryIds: [],
+  selectedKbFileIds: [],
+}
+
 export interface AIAssistantSettings {
   defaultRole: string
   responseStyle: 'concise' | 'normal' | 'detailed'
@@ -62,6 +130,9 @@ export interface AIAssistantSettings {
   customRoles: { id: string; name: string; prompt: string }[]
   styleAssignments: Record<string, string>  // targetProjectId → styleProjectId
   workMode: 'plan' | 'action'               // Plan=只读分析 Action=全部工具
+  userAvatar: string                         // 用户头像 base64 data URI (空字符串=默认emoji)
+  assistantAvatar: string                    // AI助手头像 base64 data URI (空字符串=默认emoji)
+  chapterGen: ChapterGenSettings
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -78,6 +149,9 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   kbFileSelections: {},
   styleAssignments: {},
   workMode: 'action',
+  userAvatar: '',
+  assistantAvatar: '',
+  chapterGen: DEFAULT_CHAPTER_GEN,
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },
@@ -114,7 +188,7 @@ export const DEFAULT_PROMPTS: PromptTemplate[] = [
     id: 'default_chapter',
     title: '默认章节模板',
     type: '章节',
-    content: '根据以上设定和细纲，写出一章完整的小说正文。注意人物性格一致性，对话符合角色身份，描写生动具体，情节推进自然。正文用空行分隔自然段，根据内容需要自由决定段落长度，禁止全文一堆到底。',
+    content: '根据以上设定和细纲，写出一章完整的小说正文。注意人物性格一致性，对话符合角色身份，描写生动具体，情节推进自然。\n\n格式要求：每个自然段之间必须用空行分隔（两个换行），段落不宜过长（3-8行）。角色切换、场景转换时必须另起一段。禁止全文一堆到底。',
     enabled: true,
   },
   {

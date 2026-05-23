@@ -84,4 +84,19 @@ export function registerStyleTemplateHandlers(ipcMain: IpcMain, basePath: string
   ipcMain.handle('styleTemplate:delete', async (_event, id: string) => {
     await deleteTemplate(id)
   })
+
+  ipcMain.handle('styleTemplate:listProject', async (_event, projectPath: string) => {
+    const dir = path.join(projectPath, 'style_templates')
+    const templates: StyleTemplate[] = []
+    try {
+      const files = await fs.readdir(dir)
+      for (const f of files) {
+        if (!f.endsWith('.json')) continue
+        try {
+          templates.push(JSON.parse(await fs.readFile(path.join(dir, f), 'utf-8')))
+        } catch { /* skip invalid */ }
+      }
+    } catch { /* dir doesn't exist */ }
+    return templates.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  })
 }

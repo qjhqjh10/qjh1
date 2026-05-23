@@ -124,9 +124,7 @@ export default function ScratchpadPage() {
     try {
       const c = await fileService.read(oldPath)
       await fileService.write(newPath, c)
-      await fileService.deleteFile!(oldPath) // may not exist in service
-      // Alternative: write new + overwrite old with empty won't work. Let's just create new and note the old remains.
-      // For simplicity, just create a new file with the new name
+      await fileService.deleteFile(oldPath)
       await loadNotes()
       const project = projects.find(p => p.id === selectedNote.projectId)
       setSelectedNote({ name: newName, projectId: selectedNote.projectId, projectName: project?.name || '' })
@@ -139,12 +137,7 @@ export default function ScratchpadPage() {
     if (!confirm(`确定删除草稿「${title}」？此操作不可恢复。`)) return
     const pp = `${projectsBasePath}/${selectedNote.projectId}`
     try {
-      await fileService.write(`${pp}/notes/${selectedNote.name}`, '') // can't delete via fileService, overwrite instead
-      // Actually, let's try to use the electron API directly
-      const fs = (window as any).electron?.files
-      if (fs?.deleteFile) {
-        await fs.deleteFile(`${pp}/notes/${selectedNote.name}`)
-      }
+      await fileService.deleteFile(`${pp}/notes/${selectedNote.name}`)
       await loadNotes()
       setSelectedNote(null)
     } catch { /* delete failed */ }

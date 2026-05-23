@@ -6,7 +6,7 @@ import { DIM_LABELS } from '../constants'
 function normalizeRole(role?: string): string {
   if (!role) return '其他'
   if (['男主', '女主', '男配', '女配', '反派', '其他'].includes(role)) return role
-  if (/男主|男一|主角/.test(role)) return '男主'
+  if (/男主|男一/.test(role)) return '男主'
   if (/女主|女一|女主角/.test(role)) return '女主'
   if (/男配|男二/.test(role)) return '男配'
   if (/女配|女二/.test(role)) return '女配'

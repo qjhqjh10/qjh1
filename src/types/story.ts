@@ -201,17 +201,17 @@ export interface DimAnalysis {
 }
 
 export interface ChapterAnalysis {
-  sentenceStyle: string
-  vocabularyStyle: string
-  rhetoricStyle: string
-  rhythmStyle: string
-  dialogueStyle: string
-  moodStyle: string
-  perspectiveStyle: string     // 视角距离
-  bodyLanguageStyle: string    // 生理反应/身体描写
-  sensoryStyle: string         // 感官侧重
-  tensionStyle: string         // 心理张力/冲突手法
-  subtextStyle: string         // 暗示/留白技巧
+  sentenceStyle?: string
+  vocabularyStyle?: string
+  rhetoricStyle?: string
+  rhythmStyle?: string
+  dialogueStyle?: string
+  moodStyle?: string
+  perspectiveStyle?: string     // 视角距离
+  bodyLanguageStyle?: string    // 生理反应/身体描写
+  sensoryStyle?: string         // 感官侧重
+  tensionStyle?: string         // 心理张力/冲突手法
+  subtextStyle?: string         // 暗示/留白技巧
   descriptionPattern: DescriptionPattern | null  // 描写结构模板
   corruptionArc: CorruptionArc | null           // 堕落弧线
   degradationRitual: DegradationRitual | null    // 仪式剧本
@@ -240,17 +240,17 @@ export interface StyleChapter {
 
 export interface StyleProfile {
   features: {
-    sentenceStyle: string
-    vocabularyStyle: string
-    rhetoricStyle: string
-    rhythmStyle: string
-    dialogueStyle: string
-    moodStyle: string
-    perspectiveStyle: string
-    bodyLanguageStyle: string
-    sensoryStyle: string
-    tensionStyle: string
-    subtextStyle: string
+    sentenceStyle?: string
+    vocabularyStyle?: string
+    rhetoricStyle?: string
+    rhythmStyle?: string
+    dialogueStyle?: string
+    moodStyle?: string
+    perspectiveStyle?: string
+    bodyLanguageStyle?: string
+    sensoryStyle?: string
+    tensionStyle?: string
+    subtextStyle?: string
     descriptionPattern: DescriptionPattern | null
     corruptionArc: CorruptionArc | null
     degradationRitual: DegradationRitual | null
@@ -397,7 +397,14 @@ export interface StyleProjectMeta {
   createdAt: string; novelType: string
 }
 
-export const NOVEL_TYPES = ['通用','都市','修仙','武侠','恋爱','古风','悬疑','历史','穿越','科幻','情色','自定义']
+export const NOVEL_TYPES = ['通用','都市','修仙','武侠','恋爱','古风','悬疑','历史','穿越','科幻','玄幻','奇幻','灵异','游戏','末世','轻小说','情色','自定义']
+
+export const NOVEL_TYPE_LABELS: Record<string, string> = {
+  '普通小说': '普通', '情色小说': '情色', '玄幻小说': '玄幻', '奇幻小说': '奇幻', '灵异小说': '灵异',
+  '游戏小说': '游戏', '末世小说': '末世', '轻小说': '轻小说', '都市小说': '都市', '修仙小说': '修仙',
+  '武侠小说': '武侠', '恋爱小说': '恋爱', '古风小说': '古风', '悬疑小说': '悬疑', '历史小说': '历史',
+  '科幻小说': '科幻', '穿越小说': '穿越',
+}
 
 export const NOVEL_TYPE_DIMS: Record<string, string[]> = {
   '通用': ['narrativeTone','sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','compoundWordPattern','onomatopoeiaSystem','sensoryPackFormula','bodyMindBetrayal','humiliationTemplate'],
@@ -410,6 +417,12 @@ export const NOVEL_TYPE_DIMS: Record<string, string[]> = {
   '历史': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','archaicStyle','socialRealism'],
   '穿越': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism','cultivationCombat'],
   '科幻': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism'],
+  '玄幻': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','cultivationCombat','archaicStyle','compoundWordPattern','onomatopoeiaSystem'],
+  '奇幻': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism','cultivationCombat','compoundWordPattern'],
+  '灵异': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','suspensePacing','onomatopoeiaSystem'],
+  '游戏': ['sentenceStyle','vocabularyStyle','rhetoricStyle','moodStyle','dialogueStyle','perspectiveStyle','tensionStyle','descriptionPattern','suspensePacing'],
+  '末世': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','socialRealism','suspensePacing','compoundWordPattern'],
+  '轻小说': ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','compoundWordPattern','onomatopoeiaSystem'],
   '情色': ['narrativeTone','sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','compoundWordPattern','onomatopoeiaSystem','sensoryPackFormula','bodyMindBetrayal','humiliationTemplate'],
 }
 

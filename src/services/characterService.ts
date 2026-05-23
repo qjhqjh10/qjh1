@@ -5,6 +5,20 @@ import { EMPTY_CHARACTER } from '@/types/character'
 
 export const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
 
+export function normalizeRole(raw: string): CharacterRole {
+  if (!raw) return '其他'
+  const r = raw.trim()
+  // Exact match first
+  if ((ROLES as string[]).includes(r)) return r as CharacterRole
+  // Fuzzy matching — map free-form AI output to standard values
+  if (/男主|男一|主角/.test(r)) return '男主'
+  if (/女主|女一/.test(r)) return '女主'
+  if (/男配/.test(r)) return '男配'
+  if (/女配/.test(r)) return '女配'
+  if (/反派|敌人|boss/.test(r)) return '反派'
+  return '其他'
+}
+
 export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?: boolean }[] = [
   { key: 'name', label: '姓名' },
   { key: 'role', label: '角色类型' },
@@ -49,6 +63,8 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
       try {
         const content = await fileService.read(`${projectPath}/characters/${file}`)
         const char = JSON.parse(content) as Character
+        // Normalize role — AI may write free-form values like "重要女配"
+        char.role = normalizeRole(char.role as string)
         chars.push(char)
         seenIds.add(file.replace('.json', ''))
       } catch (err) { logError(`跳过无效角色文件: ${file}`, err) }
@@ -108,9 +124,7 @@ export function parseCharacterFromAI(text: string): Partial<Character> {
         if (field.key === 'relationshipTags') {
           char.relationshipTags = rawValue.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) as Character['relationshipTags']
         } else if (field.key === 'role') {
-          const matchRole = ROLES.find(r => r === rawValue)
-          if (matchRole) char.role = matchRole
-          else char.role = '其他'
+          char.role = normalizeRole(rawValue)
         } else if (field.isNumber) {
           Object.assign(char, { [field.key]: parseInt(rawValue, 10) || 0 })
         } else {

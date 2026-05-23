@@ -2,11 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService, templateService, styleTemplateService } from '@/services/fileService'
 import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
+import { loadOutlineDimensions } from '@/utils/outlineData'
+import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import Modal from './Modal'
-import Button from './Button'
 import { SparklesIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import type { SceneTemplate, EroticSceneConfig, NovelSceneConfig } from '@/types/story'
+import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
 
 interface Props {
@@ -63,26 +65,51 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const configs = useSettingsStore(s => s.configs)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const prompts = useSettingsStore(s => s.prompts)
+  const updatePromptStore = useSettingsStore(s => s.updatePrompt)
+  const aiSettings = useSettingsStore(s => s.aiSettings)
+  const setAISettings = useSettingsStore(s => s.setAISettings)
 
   const currentChapter = detailedChapters.find(c => c.id === chapterId)
   const prevChapters = detailedChapters.filter(c => c.order < (currentChapter?.order ?? 0)).sort((a, b) => a.order - b.order)
 
-  // Section states
-  const [useWorldbuilding, setUseWorldbuilding] = useState(true)
-  const [useCharacters, setUseCharacters] = useState(true)
-  const [useOutline, setUseOutline] = useState(true)
-  const [useDetailedOutline, setUseDetailedOutline] = useState(true)
+  // Section states — load from persisted settings
+  const cg = aiSettings.chapterGen
+  const updateCg = (patch: Partial<typeof cg>) => setAISettings({ chapterGen: { ...cg, ...patch } })
 
-  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set())
-  const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<string>>(new Set())
-  const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set())
+  const [outlineTabs, setOutlineTabs] = useState<OutlineTabToggles>(cg.outlineTabs)
+  const [detailedOutlineFields, setDetailedOutlineFields] = useState<DetailedOutlineToggles>(cg.detailedOutlineFields)
+
+  const toggleOutlineTab = (key: keyof OutlineTabToggles) => {
+    setOutlineTabs(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+  const toggleDetailedField = (key: keyof DetailedOutlineToggles) => {
+    setDetailedOutlineFields(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+  const setAllOutlineTabs = (val: boolean) => {
+    setOutlineTabs(prev => {
+      const next = { ...prev }
+      for (const k of Object.keys(next) as (keyof OutlineTabToggles)[]) next[k] = val
+      return next
+    })
+  }
+  const setAllDetailedFields = (val: boolean) => {
+    setDetailedOutlineFields(prev => {
+      const next = { ...prev }
+      for (const k of Object.keys(next) as (keyof DetailedOutlineToggles)[]) next[k] = val
+      return next
+    })
+  }
+
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set(cg.selectedCharacterIds || []))
+  const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<string>>(new Set(cg.selectedSummaryIds || []))
+  const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set(cg.selectedKbFileIds || []))
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
   const [kbLoaded, setKbLoaded] = useState(false)
 
   const [genConfigId, setGenConfigId] = useState(activeConfigId || '')
-  const [wordTarget, setWordTarget] = useState(2000)
-  const [streamMode, setStreamMode] = useState(false)
-  const [replaceMode, setReplaceMode] = useState(true)
+  const [wordTarget, setWordTarget] = useState(cg.wordTarget)
+  const [streamMode, setStreamMode] = useState(cg.streamMode)
+  const [replaceMode, setReplaceMode] = useState(cg.replaceMode)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -94,11 +121,17 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
   // Scene template injection
   const [sceneTemplates, setSceneTemplates] = useState<SceneTemplate[]>([])
-  const [selectedSceneId, setSelectedSceneId] = useState('')
+  const [selectedSceneId, setSelectedSceneId] = useState(cg.selectedSceneId)
   const [sceneFilterType, setSceneFilterType] = useState<'all' | '情色小说' | '普通小说'>('all')
   const [styleTemplates, setStyleTemplates] = useState<any[]>([])
-  const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState('')
+  const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState(cg.selectedStyleTemplateId)
   const selectedStyleTemplate = selectedStyleTemplateId ? styleTemplates.find((t: any) => t.id === selectedStyleTemplateId) : null
+
+  // Persist settings whenever user changes them
+  useEffect(() => { updateCg({ outlineTabs, detailedOutlineFields }) }, [outlineTabs, detailedOutlineFields])
+  useEffect(() => { updateCg({ wordTarget, streamMode, replaceMode }) }, [wordTarget, streamMode, replaceMode])
+  useEffect(() => { updateCg({ selectedCharacterIds: [...selectedCharacterIds], selectedSummaryIds: [...selectedSummaryIds], selectedKbFileIds: [...selectedKbFileIds] }) }, [selectedCharacterIds, selectedSummaryIds, selectedKbFileIds])
+  useEffect(() => { updateCg({ selectedSceneId, selectedStyleTemplateId }) }, [selectedSceneId, selectedStyleTemplateId])
 
   useEffect(() => {
     if (isOpen) {
@@ -109,8 +142,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }, [isOpen])
 
   const selectedScene = selectedSceneId ? sceneTemplates.find(t => t.id === selectedSceneId) : null
-
-  const ROLE_LABELS: Record<string, string> = { dom: '主导', sub: '服从', switch: 'Switch', observer: '旁观' }
 
   const buildScenePrompt = (tpl: SceneTemplate): string => {
     const auto = tpl.config.autoFields || {}
@@ -205,7 +236,16 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     return () => { abortRef.current?.(); if (externalAbortRef) externalAbortRef.current = null }
   }, [])
 
-  const chapterPrompt = prompts.find(p => p.type === '章节' && p.enabled)
+  const chapterPrompts = prompts.filter(p => p.type === '章节')
+  const chapterPrompt = chapterPrompts.find(p => p.enabled) || chapterPrompts[0]
+
+  const handleSwitchChapterPrompt = (promptId: string) => {
+    // Disable all chapter prompts, then enable selected one
+    for (const p of chapterPrompts) {
+      if (p.id !== promptId && p.enabled) updatePromptStore(p.id, { enabled: false })
+    }
+    updatePromptStore(promptId, { enabled: true })
+  }
 
   // Typing-safe helpers
   const toggleId = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
@@ -227,27 +267,69 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     } catch (e) { logError('加载知识库文件列表失败 (章节生成)', e); return [] }
   }
 
-  const buildPrompt = () => {
+  const buildPrompt = (loadedDims?: { items: string; locations: string; factions: string; powerSystem: string; emotion: string; foreshadowing: string; plotThreads: string }) => {
     const parts: string[] = []
 
-    if (useWorldbuilding && worldbuildingContent) {
+    // Outline tab dimensions (sync from store)
+    if (outlineTabs.plot && outlineContent) {
+      parts.push(`【故事剧情】\n${outlineContent.slice(0, 15000)}\n`)
+    }
+    if (outlineTabs.worldbuilding && worldbuildingContent) {
       parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}\n`)
     }
-    if (useOutline && outlineContent) {
-      parts.push(`【小说大纲】\n${outlineContent.slice(0, 15000)}\n`)
-    }
-    if (useDetailedOutline && currentChapter?.description) {
-      parts.push(`【本章细纲】\n${currentChapter.description}\n`)
-    }
-    if (useCharacters && selectedCharacterIds.size > 0) {
+    if (outlineTabs.characters && selectedCharacterIds.size > 0) {
+      const chapterCharNames: string[] = []
+      if (currentChapter?.characters) {
+        currentChapter.characters.split('\n').forEach(line => {
+          const name = line.trim().split(/（|\(|：|:/)[0]?.trim()
+          if (name) chapterCharNames.push(name)
+        })
+      }
       const selected = characters.filter(c => selectedCharacterIds.has(c.id))
-      const charDescs = selected.map(c => {
-        const fields = [c.name, c.role, c.gender, c.age, c.occupation, c.personality, c.appearance, c.abilities, c.relationships].filter(Boolean)
-        return fields.join('，')
-      })
-      parts.push(`【本章出场角色】\n${charDescs.join('\n\n')}\n`)
-      parts.push('请根据以上角色的性格特点，写出符合各自设定的对白、行为和心理活动。')
+      const inChapter = selected.filter(c => chapterCharNames.some(n => c.name.includes(n) || n.includes(c.name)))
+      const notInChapter = selected.filter(c => !inChapter.includes(c))
+
+      if (inChapter.length > 0) {
+        const charDescs = inChapter.map(c => {
+          const fields = [c.name, c.role, c.gender, c.age, c.occupation, c.personality, c.appearance, c.abilities, c.relationships].filter(Boolean)
+          return fields.join('，')
+        })
+        parts.push(`【本章出场角色】\n${charDescs.join('\n\n')}\n`)
+        parts.push('请根据以上角色的性格特点，写出符合各自设定的对白、行为和心理活动。')
+      }
+      if (notInChapter.length > 0) {
+        parts.push(`【本章未出场角色 — 其本人不会出现在本章场景中，但可以被出场角色提及名字、回忆事迹、夸赞、辱骂、讨论其影响、揣测其意图等】\n${notInChapter.map(c => c.name).join('、')}`)
+      }
     }
+
+    // Async outline dimensions (loaded from disk)
+    if (loadedDims) {
+      if (loadedDims.items) parts.push(loadedDims.items)
+      if (loadedDims.locations) parts.push(loadedDims.locations)
+      if (loadedDims.factions) parts.push(loadedDims.factions)
+      if (loadedDims.powerSystem) parts.push(loadedDims.powerSystem)
+      if (loadedDims.emotion) parts.push(loadedDims.emotion)
+      if (loadedDims.foreshadowing) parts.push(loadedDims.foreshadowing)
+      if (loadedDims.plotThreads) parts.push(loadedDims.plotThreads)
+    }
+
+    // Detailed outline field dimensions
+    if (detailedOutlineFields.plotOverview && currentChapter?.plotOverview) {
+      parts.push(`【本章剧情概述】\n${currentChapter.plotOverview}\n`)
+    }
+    if (detailedOutlineFields.chapterCharacters && currentChapter?.characters) {
+      parts.push(`【本章出场角色列表】\n${currentChapter.characters}\n`)
+    }
+    if (detailedOutlineFields.location && currentChapter?.location) {
+      parts.push(`【场景地点】\n${currentChapter.location}\n`)
+    }
+    if (detailedOutlineFields.keyEvents && currentChapter?.keyEvents) {
+      parts.push(`【关键事件】\n${currentChapter.keyEvents}\n`)
+    }
+    if (detailedOutlineFields.eroticContent && currentChapter?.eroticContent) {
+      parts.push(`【情色剧情要求】\n${currentChapter.eroticContent}\n`)
+    }
+
     if (selectedSummaryIds.size > 0) {
       const summaries = prevChapters.filter(c => selectedSummaryIds.has(c.id)).map(c => `第${c.order + 1}章 ${c.title}: ${c.summary || '无摘要'}`)
       parts.push(`【前文章节摘要】\n${summaries.join('\n')}\n`)
@@ -271,9 +353,53 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     }
 
     const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。正文用空行分隔自然段，禁止全文一堆到底。'
-    parts.push(`【创作要求】\n${template}\n\n字数目标: ${wordTarget}字\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}`)
+    parts.push(`【创作要求】\n${template}\n\n字数目标: ${wordTarget}字\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}\n\n重要格式要求:\n- 每个自然段之间必须用空行分隔（即两个换行），不得所有文字连成一片\n- 对话密集处适当分段，同一角色的连续对白可合为一段，角色切换或场景转换必须另起一段\n- 段落不宜过长，一般3-8行为宜，避免超过15行的超大段落`)
 
     return parts.join('\n\n---\n\n')
+  }
+
+  // Force paragraph separation: ensure blank lines between paragraphs
+  const normalizeParagraphs = (text: string): string => {
+    if (!text) return text
+    // Step 1: Already has double+ newlines — split and clean
+    if (/\n{2,}/.test(text)) {
+      return text.split(/\n{2,}/).filter(b => b.trim()).map(b => b.trim()).join('\n\n')
+    }
+    // Step 2: Has single newlines — split into lines, group into paragraphs by sentence-ending punctuation
+    const lines = text.split(/\n/).filter(l => l.trim())
+    if (lines.length > 1) {
+      const paragraphs: string[] = []
+      let current = ''
+      for (const line of lines) {
+        const t = line.trim()
+        if (current && /[。！？…"」\)]$/.test(current)) {
+          paragraphs.push(current)
+          current = t
+        } else {
+          current = current ? current + t : t
+        }
+      }
+      if (current) paragraphs.push(current)
+      return paragraphs.join('\n\n')
+    }
+    // Step 3: One continuous block, no newlines — force split on sentence-ending punctuation approximately every 3-5 sentences
+    const singleBlock = lines[0] || text
+    if (singleBlock.length < 200) return singleBlock
+    const parts = singleBlock.split(/(?<=[。！？…])(?=[^」\)\]）])/g)
+    const result: string[] = []
+    let chunk = ''
+    let sentenceCount = 0
+    for (const part of parts) {
+      chunk += part
+      sentenceCount++
+      if (sentenceCount >= 4 && part.trim()) {
+        result.push(chunk.trim())
+        chunk = ''
+        sentenceCount = 0
+      }
+    }
+    if (chunk.trim()) result.push(chunk.trim())
+    return result.join('\n\n')
   }
 
   const injectKBContents = async (prompt: string): Promise<string> => {
@@ -311,7 +437,12 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         await fileService.write(`${projectsBasePath}/${activeProjectId}/chapters/${chapterId}.txt`, currentContent)
       }
 
-      let prompt = buildPrompt()
+      // Load async outline dimensions (items, locations, factions, etc.)
+      const loadedDims = activeProjectId && projectsBasePath
+        ? await loadOutlineDimensions(`${projectsBasePath}/${activeProjectId}`, outlineTabs)
+        : undefined
+
+      let prompt = buildPrompt(loadedDims)
       prompt = await injectKBContents(prompt)
 
       const messages = [{ role: 'user' as const, content: prompt }]
@@ -337,6 +468,10 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             if (externalAbortRef) externalAbortRef.current = null
             setStreamDone(true)
             setStreamUsage(data.usage)
+            // Normalize paragraph breaks in final result
+            const normalized = normalizeParagraphs(data.text)
+            const finalContent = replaceMode ? normalized : (currentContent ? currentContent + '\n\n' + normalized : normalized)
+            onApply(finalContent)
             saveVersion({
               config, reply: data.text,
               usage: data.usage ? { input: data.usage.prompt_tokens, output: data.usage.completion_tokens, total: data.usage.total_tokens } : { input: 0, output: 0, total: 0 },
@@ -346,7 +481,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             onGenDone?.()
           },
           (err) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setError(err.message); setLoading(false); onGenError?.(err.message) },
-          (data) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setError(data.message); setLoading(false); onGenError?.(data.message) },
+          (data) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setLoading(false); onGenError?.(data.message) },
         )
         abortRef.current = streamHandle.abort
         if (externalAbortRef) externalAbortRef.current = streamHandle.abort
@@ -354,7 +489,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         // Abort any previous stream, switch to traditional mode
         abortRef.current?.()
         const { text: reply, usage: genUsage } = await aiService.chatWithUsage(messages, genConfigId, activeProjectId || undefined)
-        const finalContent = replaceMode ? reply : (currentContent ? currentContent + '\n\n' + reply : reply)
+        const normalized = normalizeParagraphs(reply)
+        const finalContent = replaceMode ? normalized : (currentContent ? currentContent + '\n\n' + normalized : normalized)
         onApply(finalContent)
         saveVersion({
           config, reply,
@@ -384,8 +520,21 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       cost: opts.cost,
       generatedAt: new Date().toISOString(),
       contextUsed: [
-        useWorldbuilding ? 'worldbuilding' : '', useCharacters ? 'characters' : '',
-        useOutline ? 'outline' : '', useDetailedOutline ? 'detailed_outline' : '',
+        outlineTabs.plot ? 'outline_plot' : '',
+        outlineTabs.worldbuilding ? 'outline_worldbuilding' : '',
+        outlineTabs.characters ? 'outline_characters' : '',
+        outlineTabs.items ? 'outline_items' : '',
+        outlineTabs.locations ? 'outline_locations' : '',
+        outlineTabs.factions ? 'outline_factions' : '',
+        outlineTabs.powerSystem ? 'outline_powerSystem' : '',
+        outlineTabs.foreshadowing ? 'outline_foreshadowing' : '',
+        outlineTabs.emotion ? 'outline_emotion' : '',
+        outlineTabs.plotThreads ? 'outline_plotThreads' : '',
+        detailedOutlineFields.plotOverview ? 'detail_plotOverview' : '',
+        detailedOutlineFields.chapterCharacters ? 'detail_characters' : '',
+        detailedOutlineFields.location ? 'detail_location' : '',
+        detailedOutlineFields.keyEvents ? 'detail_keyEvents' : '',
+        detailedOutlineFields.eroticContent ? 'detail_eroticContent' : '',
         selectedKbFileIds.size > 0 ? 'kb_files' : '',
       ].filter(Boolean),
     }
@@ -423,197 +572,325 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="AI 生成章节" width={680}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* A: Context toggles */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>A. 关联上下文</div>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <label style={checkLabel}><input type="checkbox" checked={useWorldbuilding} onChange={() => setUseWorldbuilding(!useWorldbuilding)} style={checkInput} /> 世界观</label>
-            <label style={checkLabel}><input type="checkbox" checked={useCharacters} onChange={() => setUseCharacters(!useCharacters)} style={checkInput} /> 角色</label>
-            <label style={checkLabel}><input type="checkbox" checked={useOutline} onChange={() => setUseOutline(!useOutline)} style={checkInput} /> 大纲</label>
-            <label style={checkLabel}><input type="checkbox" checked={useDetailedOutline} onChange={() => setUseDetailedOutline(!useDetailedOutline)} style={checkInput} /> 细纲</label>
-          </div>
-        </div>
-
-        {/* B: Character selector */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>B. 角色库 ({selectedCharacterIds.size})</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={autoDetectCharacters} style={actionLink}>自动检测</button>
-              <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={actionLink}>清空</button>
+    <Modal isOpen={isOpen} onClose={onClose} title="" width={1200} maxHeight="100vh" closeOnBackdropClick={false} draggable>
+      <style>{`
+        @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
+        .gen-btn { transition: all 0.25s ease; }
+        .gen-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,58,237,0.3); }
+        .gen-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+        .chip-check { transition: all 0.2s ease; }
+        .chip-check:hover { transform: translateY(-1px); }
+        .section-card { transition: box-shadow 0.2s ease; }
+        .section-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+      `}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Header — clean title */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 12,
+              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+            }}>
+              <SparklesIcon style={{ width: 18, height: 18, color: '#fff' }} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e1b2e', margin: 0, lineHeight: 1.2 }}>AI 生成章节</h2>
+              <p style={{ fontSize: 11, color: '#9b8e84', margin: 0 }}>{currentChapter?.title || '未命名章节'}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 120, overflowY: 'auto' }} className="custom-scrollbar">
-            {characters.map(c => (
-              <label key={c.id} style={{ ...checkLabel, padding: '2px 8px', borderRadius: 6, background: selectedCharacterIds.has(c.id) ? 'rgba(124,58,237,0.06)' : 'transparent', border: selectedCharacterIds.has(c.id) ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)' }}>
-                <input type="checkbox" checked={selectedCharacterIds.has(c.id)} onChange={() => toggleId(setSelectedCharacterIds, c.id)} style={checkInput} />
-                {c.name} <span style={{ fontSize: 9, color: '#9b8e84' }}>{c.role}</span>
-              </label>
-            ))}
-            {characters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>暂无角色</span>}
-          </div>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)',
+            background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#9b8e84', fontSize: 16,
+          }}>×</button>
         </div>
 
-        {/* C: Chapter summaries */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>C. 章节摘要参考 ({selectedSummaryIds.size}/5)</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={smartSelectSummaries} style={actionLink}>智能选择前五章</button>
-              <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={actionLink}>清空选择</button>
+        {/* === SECTION 1: Dimensions (combined: outline + detailed) === */}
+        <div className="section-card" style={{ padding: '14px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 4, height: 14, borderRadius: 2, background: '#7c3aed' }} />
+            关联大纲和细纲
+          </div>
+          {/* Outline tabs — all on one line */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#6b5e54' }}>大纲</span>
+              <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
+              <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
             </div>
-          </div>
-          <div className="custom-scrollbar" style={{ maxHeight: 140, overflowY: 'auto' }}>
-            {prevChapters.map(c => (
-              <label key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '4px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
-                <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5} style={checkInput} />
-                <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>第{c.order + 1}章</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-                <span style={{ fontSize: 9, color: '#9b8e84', whiteSpace: 'nowrap' }}>{STATUS_LABELS[c.status || 'outline']}</span>
-              </label>
-            ))}
-            {prevChapters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>无前序章节</span>}
-          </div>
-        </div>
-
-        {/* D: KB files */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>D. 知识库注入 ({selectedKbFileIds.size})</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={actionLink}>全选</button>
-              <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={actionLink}>清空</button>
-            </div>
-          </div>
-          <button onClick={loadKBFiles} style={{ ...actionLink, marginBottom: kbLoaded ? 6 : 0 }}>
-            <BookOpenIcon style={{ width: 11, height: 11, marginRight: 3 }} />
-            {kbLoaded ? `已加载 ${kbFiles.length} 个文件` : '点击加载知识库文件'}
-          </button>
-          {kbLoaded && kbFiles.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 100, overflowY: 'auto' }} className="custom-scrollbar">
-              {kbFiles.map(f => (
-                <label key={f.id} style={{ ...checkLabel, padding: '2px 8px', borderRadius: 6, background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff', border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)', fontSize: 10 }}>
-                  <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
-                  {f.originalName}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {([
+                ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
+                ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
+                ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
+                ['plotThreads', '故事线'],
+              ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
+                <label key={key} className="chip-check" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 9px', borderRadius: 7,
+                  fontSize: 11, cursor: 'pointer',
+                  background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
+                  border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                  color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
+                  fontWeight: outlineTabs[key] ? 600 : 400,
+                }}>
+                  <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={checkInput} />
+                  {label}
                 </label>
               ))}
             </div>
-          )}
-        </div>
-
-        {/* E: Template */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>E. 生成模板</div>
-          {chapterPrompt ? (
-            <div style={{ fontSize: 11, color: '#7c3aed', padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.04)' }}>
-              已启用: {chapterPrompt.title} — {chapterPrompt.content.slice(0, 80)}...
-            </div>
-          ) : (
-            <div style={{ fontSize: 11, color: '#9b8e84' }}>未启用"章节"提示词，将使用默认模板</div>
-          )}
-        </div>
-
-        {/* F: Scene template injection */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>F. 场景注入</div>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            {(['all', '情色小说', '普通小说'] as const).map(t => (
-              <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
-                padding: '3px 8px', borderRadius: 6, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.08)',
-                background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#fff', cursor: 'pointer', fontSize: 10,
-                color: sceneFilterType === t ? '#7c3aed' : '#6b5e54',
-              }}>{t === 'all' ? '全部' : t === '情色小说' ? '情色' : '普通'}</button>
-            ))}
           </div>
-          <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
-            <option value="">-- 不注入场景模板 --</option>
-            {sceneTemplates.filter(t => sceneFilterType === 'all' || t.type === sceneFilterType).map(t => (
-              <option key={t.id} value={t.id}>{t.name} ({t.type === '情色小说' ? '情色' : '普通'})</option>
-            ))}
-          </select>
-          {selectedScene && (
-            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 10, maxHeight: 200, overflow: 'auto', color: '#4a3f38', whiteSpace: 'pre-wrap' }}>
-              {buildScenePrompt(selectedScene)}
+          {/* Detailed outline fields */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#6b5e54' }}>细纲</span>
+              <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
+              <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
             </div>
-          )}
-        </div>
-
-        {/* G: Style template injection */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>G. 风格模板</div>
-          <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
-            <option value="">-- 不注入风格模板 --</option>
-            {styleTemplates.map((t: any) => (
-              <option key={t.id} value={t.id}>{t.name || '未命名'} ({t.type === '情色小说' ? '情色' : '普通'} · {Object.keys(t.dimensions || {}).length}维)</option>
-            ))}
-          </select>
-          {selectedStyleTemplate && (
-            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.08)', fontSize: 10, maxHeight: 120, overflow: 'auto', color: '#4a3f38' }}>
-              <span style={{ fontWeight: 600 }}>{selectedStyleTemplate.tone?.word && `基调: ${selectedStyleTemplate.tone.word} | `}</span>
-              {selectedStyleTemplate.description || selectedStyleTemplate.fullDescription?.slice(0, 120) || '已加载风格模板'}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {([
+                ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
+                ['location', '场景地点'], ['keyEvents', '关键事件'],
+                ['eroticContent', '情色剧情'],
+              ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
+                <label key={key} className="chip-check" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 9px', borderRadius: 7,
+                  fontSize: 11, cursor: 'pointer',
+                  background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
+                  border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                  color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
+                  fontWeight: detailedOutlineFields[key] ? 600 : 400,
+                }}>
+                  <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={checkInput} />
+                  {label}
+                </label>
+              ))}
             </div>
-          )}
+          </div>
         </div>
 
-        {/* H: Word target */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>H. 字数目标</div>
-          <input type="number" min={500} max={50000} step={100} value={wordTarget} onChange={e => setWordTarget(Math.max(500, Math.min(50000, parseInt(e.target.value) || 500)))} style={{ width: 120, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, fontFamily: 'inherit' }} />
-          <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 8 }}>字 (500-50000)</span>
+        {/* === SECTION 2: Two-column layout (characters+summary+kb | template+scene+style) === */}
+        <div style={{ display: 'flex', gap: 14 }}>
+          {/* Left column */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+            {/* Characters */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>角色库 · {selectedCharacterIds.size} 个</div>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                <button onClick={() => selectIds(setSelectedCharacterIds, characters.map(c => c.id))} style={miniActionLink}>全选</button>
+                <button onClick={autoDetectCharacters} style={miniActionLink}>自动检测</button>
+                <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={miniActionLink}>清空</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 100, overflowY: 'auto' }} className="custom-scrollbar">
+                {characters.map(c => (
+                  <label key={c.id} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                    background: selectedCharacterIds.has(c.id) ? 'rgba(124,58,237,0.06)' : 'transparent',
+                    border: selectedCharacterIds.has(c.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
+                  }}>
+                    <input type="checkbox" checked={selectedCharacterIds.has(c.id)} onChange={() => toggleId(setSelectedCharacterIds, c.id)} style={checkInput} />
+                    {c.name}<span style={{ fontSize: 9, color: '#9b8e84', marginLeft: 2 }}>{c.role}</span>
+                  </label>
+                ))}
+                {characters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>暂无角色</span>}
+              </div>
+            </div>
+
+            {/* Chapter summaries */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>前文摘要 · {selectedSummaryIds.size}/5</div>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                <button onClick={smartSelectSummaries} style={miniActionLink}>最近五章</button>
+                <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={miniActionLink}>清空</button>
+              </div>
+              <div className="custom-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                {prevChapters.map(c => (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
+                    <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5} style={checkInput} />
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>第{c.order + 1}章</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                    <span style={{ fontSize: 9, color: '#9b8e84', whiteSpace: 'nowrap' }}>{STATUS_LABELS[c.status || 'incomplete']}</span>
+                  </label>
+                ))}
+                {prevChapters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>无前序章节</span>}
+              </div>
+            </div>
+
+            {/* Knowledge base */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>知识库注入 · {selectedKbFileIds.size} 个</div>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={miniActionLink}>全选</button>
+                <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
+                <button onClick={loadKBFiles} style={{ ...miniActionLink, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <BookOpenIcon style={{ width: 10, height: 10 }} />
+                  {kbLoaded ? `已加载 ${kbFiles.length}` : '加载'}
+                </button>
+              </div>
+              {kbLoaded && kbFiles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, overflowY: 'auto' }} className="custom-scrollbar">
+                  {kbFiles.map(f => (
+                    <label key={f.id} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer',
+                      background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff',
+                      border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
+                    }}>
+                      <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
+                      {f.originalName.slice(0, 20)}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+            {/* Template */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>生成模板</div>
+              {chapterPrompts.length > 1 && (
+                <select value={chapterPrompt?.id || ''} onChange={e => handleSwitchChapterPrompt(e.target.value)}
+                  style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 10, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+                  {chapterPrompts.map(p => (
+                    <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
+                  ))}
+                </select>
+              )}
+              {chapterPrompt ? (
+                <div style={{ fontSize: 11, color: '#7c3aed', padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', lineHeight: 1.5 }}>
+                  <span style={{ fontWeight: 600 }}>{chapterPrompt.title}</span> — {chapterPrompt.content.slice(0, 70)}...
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>使用默认模板</div>
+              )}
+            </div>
+
+            {/* Scene injection */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>场景注入</div>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                {(['all', '情色小说', '普通小说'] as const).map(t => (
+                  <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
+                    padding: '2px 8px', borderRadius: 5, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.05)',
+                    background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#f8f7f5', cursor: 'pointer', fontSize: 10,
+                    color: sceneFilterType === t ? '#7c3aed' : '#6b5e54', fontFamily: 'inherit',
+                  }}>{t === 'all' ? '全部' : t === '情色小说' ? '情色' : '普通'}</button>
+                ))}
+              </div>
+              <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+                <option value="">— 不注入 —</option>
+                {sceneTemplates.filter(t => sceneFilterType === 'all' || t.type === sceneFilterType).map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {selectedScene && (
+                <div style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.02)', border: '1px solid rgba(124,58,237,0.06)', fontSize: 10, maxHeight: 140, overflow: 'auto', color: '#4a3f38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                  {buildScenePrompt(selectedScene)}
+                </div>
+              )}
+            </div>
+
+            {/* Style template */}
+            <div className="section-card" style={cardStyle}>
+              <div style={cardHeaderStyle}>风格模板</div>
+              <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', background: '#faf9f8' }}>
+                <option value="">— 不注入 —</option>
+                {styleTemplates.map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name || '未命名'}</option>
+                ))}
+              </select>
+              {selectedStyleTemplate && (
+                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, maxHeight: 80, overflow: 'auto', color: '#4a3f38', lineHeight: 1.5 }}>
+                  <span style={{ fontWeight: 600 }}>{selectedStyleTemplate.tone?.word && `基调: ${selectedStyleTemplate.tone.word} | `}</span>
+                  {selectedStyleTemplate.description?.slice(0, 100) || '已加载'}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* I: Output mode + config */}
-        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>I. 输出模式与配置</div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={checkLabel}><input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={checkInput} /> 流式输出</label>
-            <label style={checkLabel}><input type="checkbox" checked={replaceMode} onChange={() => setReplaceMode(!replaceMode)} style={checkInput} /> 替换正文（关闭=追加）</label>
-            <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit' }}>
+        {/* === SECTION 3: Output settings (compact row) === */}
+        <div className="section-card" style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(0,0,0,0.01), rgba(0,0,0,0.02))', border: '1px solid rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            {/* Word target */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>目标字数</span>
+              <input type="number" step={100} value={wordTarget} onChange={e => setWordTarget(parseInt(e.target.value) || 0)}
+                onBlur={e => { const v = parseInt(e.target.value); if (v < 500 || v > 50000) setWordTarget(4000) }}
+                style={{ width: 80, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit', textAlign: 'center' }} />
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>字</span>
+            </div>
+            <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
+            {/* Output mode */}
+            <label style={{ ...checkLabel, fontSize: 11, gap: 3 }}><input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={checkInput} /> 流式</label>
+            <label style={{ ...checkLabel, fontSize: 11, gap: 3 }}><input type="checkbox" checked={replaceMode} onChange={() => setReplaceMode(!replaceMode)} style={checkInput} /> 替换正文</label>
+            <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
+            {/* Model selector */}
+            <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', maxWidth: 200 }}>
               {configs.map(c => <option key={c.id} value={c.id}>{c.name} ({c.model})</option>)}
             </select>
           </div>
-          {streamMode && (
-            <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a' }}>流式输出已启用 — 内容将逐字显示</div>
-          )}
+          {streamMode && <div style={{ marginTop: 6, fontSize: 10, color: '#16a34a' }}>流式输出已启用 — 内容将逐字输出到编辑器</div>}
         </div>
 
         {/* Streaming progress */}
-        {streamMode && loading && !streamContent && (
-          <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f5f3ff', border: '1px solid rgba(124,58,237,0.12)', textAlign: 'center', fontSize: 12, color: '#7c3aed' }}>
-            等待 AI 响应...
-          </div>
-        )}
-        {streamMode && loading && streamContent && (
-          <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f5f3ff', border: '1px solid rgba(124,58,237,0.12)' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 4 }}>
-              流式生成中... {streamChars.toLocaleString()} 字
-              {streamDone && ' ✓ 完成'}
-            </div>
-            <div style={{ fontSize: 12, lineHeight: 1.6, color: '#4a3f38', whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto' }} className="custom-scrollbar">
-              {streamContent.slice(-500)}
-            </div>
-            {streamDone && streamUsage && (
-              <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>
-                Token: 入{streamUsage.prompt_tokens} 出{streamUsage.completion_tokens} 总{streamUsage.total_tokens} | 花费 {useSettingsStore.getState().configs.find(c => c.id === genConfigId)?.currency === 'CNY' ? '¥' : '$'}{streamUsage.cost.toFixed(4)}
+        {loading && streamMode && (
+          <div style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.03), rgba(168,85,247,0.05))', border: '1px solid rgba(124,58,237,0.1)' }}>
+            {!streamContent ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.15)', borderTopColor: '#7c3aed', animation: 'spin 0.7s linear infinite' }} />
+                <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>等待 AI 响应...</span>
               </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>
+                  生成中 · {streamChars.toLocaleString()} 字 {streamDone && '✓ 完成'}
+                </div>
+                <div style={{ fontSize: 12, lineHeight: 1.6, color: '#4a3f38', whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto' }} className="custom-scrollbar">
+                  {streamContent.slice(-500)}
+                </div>
+                {streamDone && streamUsage && (
+                  <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>
+                    Token: 入{streamUsage.prompt_tokens} 出{streamUsage.completion_tokens} 总{streamUsage.total_tokens} | 花费 {useSettingsStore.getState().configs.find(c => c.id === genConfigId)?.currency === 'CNY' ? '¥' : '$'}{streamUsage.cost.toFixed(4)}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {error && (
-          <div style={{ padding: '8px 12px', borderRadius: 8, background: '#fee2e2', color: '#dc2626', fontSize: 12 }}>{error}</div>
+          <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.12)', color: '#dc2626', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
-          <Button variant="secondary" onClick={onClose} disabled={loading && !streamDone}>取消</Button>
+        {/* Footer */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 6, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+          <button onClick={onClose} disabled={loading && !streamDone} style={{
+            padding: '8px 22px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
+            background: '#fff', cursor: loading && !streamDone ? 'not-allowed' : 'pointer',
+            fontSize: 13, fontWeight: 600, color: '#6b5e54', fontFamily: 'inherit',
+          }}>取消</button>
           {loading && streamMode && !streamDone ? (
-            <Button variant="danger" onClick={handleCancelStream}>停止生成</Button>
+            <button onClick={handleCancelStream} style={{
+              padding: '8px 22px', borderRadius: 10, border: 'none',
+              background: 'linear-gradient(135deg, #ef4444, #dc2626)', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: 'inherit',
+            }}>停止生成</button>
           ) : (
-            <Button onClick={handleGenerate} disabled={loading || !genConfigId} icon={<SparklesIcon style={{ width: 16, height: 16 }} />}>
-              {loading ? '生成中...' : `生成章节 (~${wordTarget}字)`}
-            </Button>
+            <button className="gen-btn" onClick={handleGenerate} disabled={loading || !genConfigId} style={{
+              padding: '8px 28px', borderRadius: 10, border: 'none',
+              background: loading || !genConfigId ? 'linear-gradient(135deg, #c4b5e3, #d4c4f3)' : 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              cursor: loading || !genConfigId ? 'not-allowed' : 'pointer',
+              fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 6,
+              animation: loading || !genConfigId ? 'none' : 'glow-pulse 2.5s ease-in-out infinite',
+              opacity: loading || !genConfigId ? 0.6 : 1,
+            }}>
+              <SparklesIcon style={{ width: 15, height: 15 }} />
+              {loading ? '生成中...' : `生成 (~${wordTarget}字)`}
+            </button>
           )}
         </div>
       </div>
@@ -623,4 +900,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
 const checkLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', color: '#4a3f38' }
 const checkInput: React.CSSProperties = { width: 14, height: 14, accentColor: '#7c3aed', cursor: 'pointer' }
-const actionLink: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed', padding: 0, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center' }
+const miniActionLink: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed', padding: '1px 4px', fontFamily: 'inherit', borderRadius: 4 }
+const cardStyle: React.CSSProperties = { padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(0,0,0,0.05)' }
+const cardHeaderStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#4a3f38', marginBottom: 6 }

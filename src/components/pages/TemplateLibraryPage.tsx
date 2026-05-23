@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useStore } from '@/store'
 import { styleTemplateService } from '@/services/fileService'
 import type { StyleTemplate, StyleTemplateType } from '@/types/styleTemplate'
 import { getTemplateDims, createEmptyTemplate } from '@/types/styleTemplate'
@@ -9,14 +10,14 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { inputStyle } from '@/components/common/styles'
+import { NOVEL_TYPE_LABELS } from '@/types/story'
 import { logError } from '@/utils/logger'
 import {
   PlusIcon, TrashIcon, DocumentTextIcon,
   SparklesIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
 
-const TYPE_LABELS: Record<string, string> = { '普通小说': '普通', '情色小说': '情色', '都市小说': '都市', '修仙小说': '修仙', '武侠小说': '武侠', '恋爱小说': '恋爱', '古风小说': '古风', '悬疑小说': '悬疑', '历史小说': '历史', '科幻小说': '科幻', '穿越小说': '穿越' }
-const ALL_TYPES = Object.keys(TYPE_LABELS)
+const ALL_TYPES = Object.keys(NOVEL_TYPE_LABELS)
 
 export default function TemplateLibraryPage() {
   const navigate = useNavigate()
@@ -25,10 +26,31 @@ export default function TemplateLibraryPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const activeProjectId = useStore(s => s.activeProjectId)
+  const projectsBasePath = useStore(s => s.projectsBasePath)
+
   useEffect(() => { loadTemplates() }, [])
 
+  // Reload when AI creates style templates
+  useEffect(() => {
+    if (fileEditNotify?.filePath?.includes('style_templates')) loadTemplates()
+  }, [fileEditNotify])
+
   const loadTemplates = async () => {
-    try { setTemplates(await styleTemplateService.list() as StyleTemplate[]) } catch { /* */ }
+    try {
+      const globalList = await styleTemplateService.list() as any[]
+      let projectList: any[] = []
+      if (activeProjectId && projectsBasePath) {
+        try {
+          projectList = await styleTemplateService.listProject(`${projectsBasePath}/${activeProjectId}`) as any[]
+        } catch { /* project dir may not exist */ }
+      }
+      const seen = new Set(globalList.map(t => t.id))
+      const merged = [...globalList]
+      for (const t of projectList) { if (!seen.has(t.id)) { merged.push(t); seen.add(t.id) } }
+      setTemplates(merged as StyleTemplate[])
+    } catch { /* */ }
   }
 
   const handleCreate = async (type: StyleTemplateType) => {
@@ -194,7 +216,7 @@ export default function TemplateLibraryPage() {
                 border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
                 background: isErotic ? 'rgba(239,68,68,0.02)' : 'rgba(124,58,237,0.02)',
               }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 2 }}>{TYPE_LABELS[type]}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#7c3aed', marginBottom: 2 }}>{NOVEL_TYPE_LABELS[type]}</div>
                 <div style={{ fontSize: 10, color: '#9b8e84' }}>{dimCount}维</div>
               </button>
             )

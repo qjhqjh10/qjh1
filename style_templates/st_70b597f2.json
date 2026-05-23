@@ -1,0 +1,230 @@
+{
+  "id": "st_70b597f2",
+  "name": "123456",
+  "type": "情色小说",
+  "worldType": "古代",
+  "description": "测试",
+  "fullDescription": "",
+  "dimensions": {
+    "narrativeTone": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "sentenceStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "vocabularyStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "dialogueStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "rhythmStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "rhetoricStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "moodStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "perspectiveStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "bodyLanguageStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "sensoryStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "tensionStyle": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "descriptionPattern": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "compoundWordPattern": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "onomatopoeiaSystem": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "sensoryPackFormula": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "bodyMindBetrayal": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "humiliationTemplate": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "corruptionArc": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "degradationRitual": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "narrativeVoice": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    },
+    "shameVoyeurLoop": {
+      "description": "测试",
+      "examples": [],
+      "writingRules": [
+        "测试"
+      ],
+      "vocabularyList": [
+        "测试"
+      ]
+    }
+  },
+  "vocabularyList": [],
+  "writingRules": [],
+  "tone": {
+    "word": "冷酷复仇的性支配",
+    "description": "测试",
+    "attitude": "欣赏把玩"
+  },
+  "source": "manual",
+  "createdAt": "2026-05-23T01:39:09.291Z",
+  "updatedAt": "2026-05-23T01:42:07.525Z"
+}

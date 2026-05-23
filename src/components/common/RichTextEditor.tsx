@@ -77,7 +77,15 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       prevContentRef.current = content
       const currentHtml = editor.getHTML()
       if (currentHtml !== content) {
-        try { editor.commands.setContent(content) } catch { /* ignore */ }
+        try {
+          // Convert plain text paragraphs to HTML: \n\n → </p><p>, single \n → <br>
+          const htmlContent = content
+            .split(/\n{2,}/)
+            .map(p => p.trim() ? `<p>${p.replace(/\n/g, '<br>')}</p>` : '')
+            .filter(Boolean)
+            .join('')
+          editor.commands.setContent(htmlContent)
+        } catch { /* ignore */ }
       }
     }
   }, [content, editor])
@@ -191,6 +199,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   return (
     <>
       <style>{`
+        .rich-editor-content p { margin: 0 0 1em 0; }
         .rich-editor-content img {
           max-width: 100%;
           height: auto;

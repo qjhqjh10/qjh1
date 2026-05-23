@@ -35,4 +35,19 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
     if (!id) return
     await fs.unlink(path.join(basePath, `${sanitizeId(id)}.json`)).catch(() => {})
   })
+
+  ipcMain.handle('template:listProject', async (_e, projectPath: string) => {
+    const dir = path.join(projectPath, 'scene_templates')
+    const templates: SceneTemplate[] = []
+    try {
+      const files = await fs.readdir(dir)
+      for (const f of files) {
+        if (!f.endsWith('.json')) continue
+        try {
+          templates.push(JSON.parse(await fs.readFile(path.join(dir, f), 'utf-8')))
+        } catch { /* skip invalid */ }
+      }
+    } catch { /* dir doesn't exist */ }
+    return templates
+  })
 }

@@ -3,6 +3,7 @@ import { useStore } from '@/store'
 import type { PopupWindow as PopupWindowData } from '@/store'
 import { OutlinePopup } from './popups/OutlinePopup'
 import { DraftPopup } from './popups/DraftPopup'
+import { KbPopup } from './popups/KbPopup'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 
 interface Props {
@@ -28,10 +29,18 @@ export default function PopupWindow({ popup, zIndex, onFocus }: Props) {
       const { startX, startY, startW, startH, startR, startB, corner } = resizeRef.current
       const dx = ev.clientX - startX; const dy = ev.clientY - startY
       let w = startW, h = startH, r = startR, b = startB
-      if (corner.includes('right')) { w = Math.max(320, Math.min(900, startW + dx)); r = startR - dx }
-      if (corner.includes('left')) { w = Math.max(320, Math.min(900, startW - dx)) }
-      if (corner.includes('bottom')) { h = Math.max(240, Math.min(800, startH + dy)); b = startB - dy }
-      if (corner.includes('top')) { h = Math.max(240, Math.min(800, startH - dy)) }
+      const isEdge = /^(top|bottom|left|right)$/.test(corner)
+      if (isEdge) {
+        if (corner === 'right')  { w = Math.max(320, Math.min(900, startW + dx)); r = startR - dx }
+        if (corner === 'left')   { w = Math.max(320, Math.min(900, startW - dx)) }
+        if (corner === 'bottom') { h = Math.max(240, Math.min(800, startH + dy)); b = startB - dy }
+        if (corner === 'top')    { h = Math.max(240, Math.min(800, startH - dy)) }
+      } else {
+        if (corner.includes('right'))  { w = Math.max(320, Math.min(900, startW + dx)) }
+        if (corner.includes('left'))   { w = Math.max(320, Math.min(900, startW - dx)); r = startR + dx }
+        if (corner.includes('bottom')) { h = Math.max(240, Math.min(800, startH + dy)) }
+        if (corner.includes('top'))    { h = Math.max(240, Math.min(800, startH - dy)); b = startB + dy }
+      }
       setSize({ width: w, height: h })
       setPos({ right: Math.max(0, r), bottom: Math.max(0, b) })
     }
@@ -65,6 +74,8 @@ export default function PopupWindow({ popup, zIndex, onFocus }: Props) {
         return <OutlinePopup worldbuilding />
       case 'draft':
         return <DraftPopup documentKey={popup.documentKey || ''} />
+      case 'kb':
+        return <KbPopup />
       default:
         return <div style={{ padding: 20, color: '#9b8e84' }}>未知弹窗类型</div>
     }
@@ -83,7 +94,6 @@ export default function PopupWindow({ popup, zIndex, onFocus }: Props) {
         overflow: 'hidden',
       }}
     >
-      {/* Title bar (draggable) */}
       <div
         onMouseDown={handleDragStart}
         style={{
@@ -93,34 +103,31 @@ export default function PopupWindow({ popup, zIndex, onFocus }: Props) {
         }}
       >
         <span style={{ fontSize: 12, fontWeight: 600, color: '#2d2520' }}>{popup.title}</span>
-        <button
-          onClick={() => closePopup(popup.id)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2, display: 'flex' }}
-        >
+        <button onClick={() => closePopup(popup.id)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2, display: 'flex' }}>
           <XMarkIcon style={{ width: 16, height: 16 }} />
         </button>
       </div>
-
-      {/* Content */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
         {renderContent()}
       </div>
-
-      {/* 4-corner resize handles */}
-      {(['top-left','top-right','bottom-left','bottom-right'] as const).map(corner => (
+      {(['top','bottom','left','right','top-left','top-right','bottom-left','bottom-right'] as const).map(corner => {
+        const isEdge = corner === 'top' || corner === 'bottom' || corner === 'left' || corner === 'right'
+        return (
         <div key={corner} onMouseDown={handleResizeStart(corner)} style={{
           position: 'absolute',
-          top: corner.includes('top') ? 0 : undefined,
-          bottom: corner.includes('bottom') ? 0 : undefined,
-          left: corner.includes('left') ? 0 : undefined,
-          right: corner.includes('right') ? 0 : undefined,
-          width: 14, height: 14,
-          cursor: corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
-          opacity: 0.3,
+          top: corner.includes('top') ? 0 : undefined, bottom: corner.includes('bottom') ? 0 : undefined,
+          left: corner.includes('left') ? 0 : undefined, right: corner.includes('right') ? 0 : undefined,
+          width: isEdge ? (corner === 'top' || corner === 'bottom' ? '100%' : 8) : 14,
+          height: isEdge ? (corner === 'left' || corner === 'right' ? '100%' : 8) : 14,
+          cursor: corner === 'top' || corner === 'bottom' ? 'ns-resize'
+            : corner === 'left' || corner === 'right' ? 'ew-resize'
+            : corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
+          zIndex: 10,
         }}>
-          <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84"/><path d="M0 14L14 0H11L0 11V14Z" fill="#9b8e84"/></svg>
+          {!isEdge && <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84" opacity="0.3"/></svg>}
         </div>
-      ))}
+      )})}
     </div>
   )
 }

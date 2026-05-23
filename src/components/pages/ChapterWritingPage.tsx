@@ -28,7 +28,7 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/outline'
 import type { DetailedChapter } from '@/types/chapter'
-import { countChineseWords, formatWordCount } from '@/utils/textUtils'
+import { countChineseWords, formatWordCount, stripHtml } from '@/utils/textUtils'
 import { logError } from '@/utils/logger'
 
 export default function ChapterWritingPage() {
@@ -70,6 +70,8 @@ export default function ChapterWritingPage() {
   const [showReview, setShowReview] = useState(false)
   const [showReviewResults, setShowReviewResults] = useState(false)
   const [showBatchGen, setShowBatchGen] = useState(false)
+  const chapterGenTrigger = useStore(s => s.chapterGenTrigger)
+  const setChapterGenTrigger = useStore(s => s.setChapterGenTrigger)
   const [showVersions, setShowVersions] = useState(false)
   const [versionHistory, setVersionHistory] = useState<VersionRecord[]>([])
   const [chapterSceneConfig, setChapterSceneConfig] = useState<ChapterSceneConfig | null>(null)
@@ -159,6 +161,13 @@ export default function ChapterWritingPage() {
     setInsertionAction(null)
   }, [insertionAction, setInsertionAction, content, projectPath as string, chapterId, detailedChapter])
 
+  // Auto-save chapter content on change (debounced 2s)
+  useEffect(() => {
+    if (!content || !projectPath || !chapterId) return
+    const timer = setTimeout(() => { handleSave() }, 2000)
+    return () => clearTimeout(timer)
+  }, [content])
+
   // Handle replace action from AI assistant (apply to editor + save)
   useEffect(() => {
     if (!replaceAction || replaceAction.chapterId !== chapterId) return
@@ -167,13 +176,27 @@ export default function ChapterWritingPage() {
     setReplaceAction(null)
   }, [replaceAction])
 
-  // AI direct edit via edit_file → reload editor with clean content
+  // AI triggered chapter generation via 【生成本章】command
+  useEffect(() => {
+    if (!chapterGenTrigger || !chapterId) return
+    // Match: same chapter ID, or AI said "生成本章" (__current__) while user is on this chapter
+    if (chapterGenTrigger === chapterId || chapterGenTrigger === '__current__') {
+      setShowAIGen(true)
+      setChapterGenTrigger(null)
+    }
+  }, [chapterGenTrigger, chapterId])
+
+  // AI direct edit via edit_file → reload editor from disk
   useEffect(() => {
     if (!fileEditNotify || !chapterId || !projectPath) return
     const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/')
-    if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
-      setContent(fileEditNotify.newContent)
-      handleSave(fileEditNotify.newContent).catch(err => logError('fileEditNotify自动保存失败', err))
+    const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/')
+    if (notifyPath === expectedPath || notifyPath.includes(`/chapters/${chapterId}.txt`)) {
+      // Reload content from disk — __AI_EDITED__ sentinel means AI modified the file
+      fileService.read(expectedPath).then(c => {
+        setContent(c)
+        handleSave(c).catch(err => logError('fileEditNotify自动保存失败', err))
+      }).catch(() => {})
       setFileEditNotify(null)
     }
     return () => { setFileEditNotify(null) }
@@ -446,7 +469,10 @@ export default function ChapterWritingPage() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: '#9b8e84' }}>{formatWordCount(chapterWordCount)}字</span>
+            <span style={{ fontSize: 12, color: '#9b8e84' }}>
+              {formatWordCount(chapterWordCount)}字
+              <span style={{ color: '#c4bdb4', fontSize: 11 }}>（含空格{formatWordCount(stripHtml(content).length)}）</span>
+            </span>
             <Button variant="secondary" size="sm" onClick={async () => { setContent(''); if (projectPath && chapterId) await fileService.write(`${projectPath}/chapters/${chapterId}.txt`, '') }}>清空正文</Button>
             <Button variant="secondary" size="sm" onClick={handleSave}>保存</Button>
             <Button size="sm" onClick={handleExportTXT} icon={<DocumentArrowDownIcon style={{ width: 14, height: 14 }} />}>
@@ -561,9 +587,7 @@ export default function ChapterWritingPage() {
         worldbuildingContent={worldbuildingContent}
         characters={characters}
         outlineContent={outlineContent}
-        currentChapterId={chapterId}
         onVersionSaved={(v) => setVersionHistory(prev => [v, ...prev])}
-        genOverlay={genOverlay}
         onGenStart={() => { setGenOverlay(true); setGenWordCount(0) }}
         onGenChunk={(data) => { setGenWordCount(data.charCount) }}
         onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
@@ -615,7 +639,7 @@ export default function ChapterWritingPage() {
               <span style={{ fontSize: 13, fontWeight: 400, color: '#9b8e84', marginLeft: 4 }}>字</span>
             </div>
             <button
-              onClick={() => genAbortRef.current?.()}
+              onClick={() => { genAbortRef.current?.(); setGenOverlay(false); genAbortRef.current = null }}
               style={{
                 padding: '6px 20px', borderRadius: 10, border: '1px solid rgba(220,38,38,0.2)',
                 background: 'rgba(220,38,38,0.05)', color: '#dc2626', fontSize: 12, fontWeight: 600,

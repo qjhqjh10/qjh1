@@ -21,6 +21,7 @@ import { logError } from '@/utils/logger'
 export default function KnowledgeBasePage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projects = useStore(s => s.projects)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
 
@@ -42,6 +43,13 @@ export default function KnowledgeBasePage() {
   useEffect(() => {
     loadFiles()
   }, [])
+
+  // Reload file list when AI modifies KB files
+  useEffect(() => {
+    if (fileEditNotify?.filePath?.includes('knowledge_base')) {
+      loadFiles()
+    }
+  }, [fileEditNotify])
 
   const loadFiles = async () => {
     const meta = await kbService.list()

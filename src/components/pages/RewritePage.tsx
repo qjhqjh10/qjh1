@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService } from '@/services/fileService'
+import { aiService, rewriteService, extractionService } from '@/services/fileService'
+// 注意: rewriteService 和 extractionService 来自 @/services/fileService 封装层，不是 window.electron 直接调用。
+// Service 层提供了完整的类型安全和错误处理，请勿改为 (window as any).electron?.xxx 的访问方式。
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import { buildRewriteAnalysisPrompt } from '@/services/continuationService'
 import Button from '@/components/common/Button'
@@ -8,9 +10,6 @@ import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
-
-const rewriteApi = (window as any).electron?.rewrite
-const extractionService = (window as any).electron?.extractions
 
 interface RewriteProject { id: string; name: string; chapterCount: number; charCount: number; analyzedCount: number; createdAt: string; updatedAt: string }
 interface Chapter { id: string; chapterNumber: number; title: string; content: string }
@@ -62,15 +61,15 @@ export default function RewritePage() {
     setInsertionAction(null)
   }, [insertionAction])
 
-  useEffect(() => { if (rewriteApi) loadProjects() }, [])
+  useEffect(() => { if (rewriteService) loadProjects() }, [])
 
   const loadProjects = async () => {
-    const list = await rewriteApi.list()
+    const list = await rewriteService.list()
     setProjects(list)
   }
 
   const loadProject = async (id: string) => {
-    const meta = await rewriteApi.readMeta(id)
+    const meta = await rewriteService.readMeta(id)
     setProject(meta)
     setProjectId(id)
     // Load chapters + analyses
@@ -78,9 +77,9 @@ export default function RewritePage() {
     const ans: Record<string, ChapterAnalysis> = {}
     for (let i = 1; i <= (meta.chapterCount || 0); i++) {
       const cid = `ch_${i}`
-      const content = await rewriteApi.readChapter(id, cid)
+      const content = await rewriteService.readChapter(id, cid)
       chs.push({ id: cid, chapterNumber: i, title: `第${i}章`, content })
-      const raw = await rewriteApi.readAnalysis(id, cid)
+      const raw = await rewriteService.readAnalysis(id, cid)
       if (raw) { try { ans[cid] = JSON.parse(raw) } catch (err) { logError(`解析章节${i}分析数据失败`, err) } }
     }
     setChapters(chs)
@@ -92,7 +91,7 @@ export default function RewritePage() {
 
   const handleDeleteProject = async (p: RewriteProject) => {
     if (!confirm(`删除项目「${p.name}」？`)) return
-    await rewriteApi.delete(p.id)
+    await rewriteService.delete(p.id)
     if (projectId === p.id) { setProjectId(''); setProject(null); setChapters([]) }
     loadProjects()
   }
@@ -104,11 +103,11 @@ export default function RewritePage() {
       const result = await extractionService.importFile() as { name: string; content: string } | null
       if (!result) { setImporting(false); return }
       const split = splitChaptersByHeadings(result.content)
-      const proj = await rewriteApi.create(result.name.replace(/\.txt$/i, ''))
+      const proj = await rewriteService.create(result.name.replace(/\.txt$/i, ''))
       for (let i = 0; i < split.length; i++) {
-        await rewriteApi.writeChapter(proj.id, `ch_${i + 1}`, split[i].content)
+        await rewriteService.writeChapter(proj.id, `ch_${i + 1}`, split[i].content)
       }
-      await rewriteApi.saveMeta(proj.id, { ...proj, chapterCount: split.length, charCount: split.reduce((s: number, c: any) => s + c.content.length, 0) })
+      await rewriteService.saveMeta(proj.id, { ...proj, chapterCount: split.length, charCount: split.reduce((s: number, c: any) => s + c.content.length, 0) })
       loadProjects()
       loadProject(proj.id)
     } catch (err) { logError('导入失败', err); alert('导入失败') }
@@ -117,7 +116,7 @@ export default function RewritePage() {
 
   const handleSaveContent = async () => {
     if (!projectId || !chapters[selectedChIdx]) return
-    await rewriteApi.writeChapter(projectId, chapters[selectedChIdx].id, chapterContent)
+    await rewriteService.writeChapter(projectId, chapters[selectedChIdx].id, chapterContent)
   }
 
   const handleAnalyzeAll = async () => {
@@ -134,12 +133,12 @@ export default function RewritePage() {
         if (m) {
           const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
           ans[ch.id] = data
-          await rewriteApi.writeAnalysis(projectId, ch.id, JSON.stringify(data))
+          await rewriteService.writeAnalysis(projectId, ch.id, JSON.stringify(data))
         }
       } catch (err) { logError(`分析第${ch.chapterNumber}章失败`, err) }
     }
     setAnalyses(ans)
-    if (project) await rewriteApi.saveMeta(projectId, { ...project, analyzedCount: Object.keys(ans).length })
+    if (project) await rewriteService.saveMeta(projectId, { ...project, analyzedCount: Object.keys(ans).length })
     setAnalyzing(false)
   }
 

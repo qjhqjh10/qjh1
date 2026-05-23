@@ -38,7 +38,8 @@ export function registerFileHandlers(
     pendingSaves.set(normalizedPath, true)
     await fs.writeFile(filePath, content, 'utf-8')
     setTimeout(() => pendingSaves.delete(normalizedPath), 500)
-    // Emit event for KB auto-index (debounced per file)
+    // onFileWrite callback is intentionally null (v3.1.0+ removed KB auto-indexing)
+    // Knowledge base indexing is manual-only via KnowledgeBasePage "索引" button
     onFileWrite?.(filePath, content)
   })
 

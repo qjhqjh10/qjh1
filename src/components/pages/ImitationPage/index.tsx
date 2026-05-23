@@ -729,7 +729,7 @@ ${summaryParts.join('\n')}
     if (erotic) wbContent += '\n## 情色设定\n\n' + erotic + '\n'
     if (wbContent) { await saveWorldbuildingContent(pp, wbContent); setWorldbuildingContent(wbContent); imported.push('世界观') }
 
-    // 3. Outline → outline.json (from all dimension results as a combined view)
+    // 3. Outline → outline/plot.json (from all dimension results as a combined view)
     const outlineParts: string[] = []
     if (or.characters) outlineParts.push('## 角色\n\n' + or.characters)
     if (or.worldbuilding) outlineParts.push('## 世界观\n\n' + or.worldbuilding)

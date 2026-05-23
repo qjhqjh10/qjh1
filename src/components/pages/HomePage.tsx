@@ -25,6 +25,7 @@ export default function HomePage() {
   const projects = useStore(s => s.projects)
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
   const setProjects = useStore(s => s.setProjects)
   const addProject = useStore(s => s.addProject)
   const removeProject = useStore(s => s.removeProject)
@@ -45,6 +46,7 @@ export default function HomePage() {
       const projList: Project[] = []
       for (const name of names) {
         const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
+        if ((meta as Record<string, unknown>).hidden) continue
         const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
 projList.push({ id: name, ...meta, type: pt })
       }
@@ -59,6 +61,17 @@ projList.push({ id: name, ...meta, type: pt })
   useEffect(() => {
     loadProjects()
   }, [loadProjects])
+
+  // Reload projects when AI creates/deletes/modifies project files
+  useEffect(() => {
+    if (fileEditNotify) {
+      const p = fileEditNotify.filePath.replace(/\\/g, '/')
+      // Project-level changes or any file edit in projects dir should refresh list
+      if (p.includes('/projects/') || p === fileEditNotify.filePath) {
+        loadProjects()
+      }
+    }
+  }, [fileEditNotify, loadProjects])
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || !projectsBasePath) return

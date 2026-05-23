@@ -42,6 +42,7 @@ export function registerRewriteHandlers(ipcMain: IpcMain) {
     const dir = path.join(basePath, id)
     await fs.mkdir(dir, { recursive: true })
     await fs.mkdir(path.join(dir, 'chapters'), { recursive: true })
+    await fs.mkdir(path.join(dir, 'analysis'), { recursive: true })
     const meta = { name, chapterCount: 0, charCount: 0, analyzedCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     await fs.writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2))
     return { id, ...meta }

@@ -1,7 +1,125 @@
 {
-  "currentVersion": "4.5.0",
-  "currentDate": "2026-05-21",
+  "currentVersion": "4.11.0",
+  "currentDate": "2026-05-23",
   "history": [
+    {
+      "version": "4.11.0",
+      "date": "2026-05-23",
+      "features": [
+        "对话微信化: 消息时间戳居中显示+智能折叠(>550字展开/收起)+间距优化",
+        "消息底部显示Token花费和输出字数",
+        "字数双显: 纯文字+（含空格）括号注明",
+        "AI编辑自动应用: edit_file直接执行无需确认, fileEditNotify通知编辑器刷新",
+        "输出控制: 减少冗余内容输出到对话框,编辑后只输出摘要",
+        "buildContextPrefix精简: 不再注入完整章节正文"
+      ]
+    },
+    {
+      "date": "2026-05-23",
+      "features": [
+        "AI提示词库管理: list_prompts/toggle_prompt/update_prompt工具,系统消息注入,AI生成弹窗可切换章节模板",
+        "场景模板工具增强: 35字段完整维度,autoFields自动标记未填字段,AI自动同步项目模板到全局",
+        "风格分析维度可选化: 有证据才分析,无则跳过,提示词+解析器+类型+汇总全链路改造",
+        "场景工坊左栏常驻: 按类型分组模板列表,点击编辑/复制/删除,新增6种小说类型",
+        "章节分段强制后处理: normalizeParagraphs三段式兜底,TipTap编辑器纯文本→HTML段落转换",
+        "AI生成流取消修复: abort()不再提前删监听器,取消按钮直接关闭overlay",
+        "角色选择持久化: selectedCharacterIds/SummaryIds/KbFileIds存入chapterGen设置",
+        "代码审计清理: 5未用导入+3死代码+标签映射去重"
+      ]
+    },
+    {
+      "version": "4.9.0",
+      "date": "2026-05-23",
+      "features": [
+        "AI图片生成+角色面板分组+卡片重设计+关系图重构",
+        "AI生成弹窗可拖拽+大纲细纲维度拆分+关联上下文重构",
+        "角色创建系统修复+场景模板增强+风格分析维度可选化",
+        "代码审计5Bug+4死代码修复"
+      ]
+    },
+    {
+      "version": "4.8.0",
+      "date": "2026-05-22",
+      "features": [
+        "大纲Tab重命名: 基础设定→故事剧情(plot.json)+世界观→世界观（设定）(worldbuilding.json),系统提示词强化AI协作习惯",
+        "outline/outline.json→outline/plot.json重命名: 8文件同步+loadOutlineContent自动迁移旧文件",
+        "大纲/世界观纯文本重构: 移除JSON包装,textare编辑器,auto-save仅用户输入时触发(useRef guard防覆盖)",
+        "大纲页数据加载修复: Promise.all确保全部数据到齐才停止loading",
+        "AI一键生成章节正文: 【生成本章】/【生成第X章】命令→store trigger→ChapterGenerationModal自动执行",
+        "章节生成设置持久化: AIAssistantSettings.chapterGen自动保存,应用到所有章节",
+        "章节生成角色智能过滤: 全选角色后仅注入本章细纲出场角色,未出场角色可被提及但不出场",
+        "温度控制: AI工具栏±按钮(步长0.1)+设置页滑块,自动保存到electron-store",
+        "消息头像自定义: 用户/AI头像可上传替换,设置页配置,40×40px",
+        "fileEditNotify持久化: 通知不再100ms自动清除,改为handleSend开头清除,解决AI创建文件后前端不显示",
+        "大纲页面崩溃全面修复: 所有.map()/.length加||[]保护,auto-save防覆盖,CharacterForm关系标签空值保护",
+        "系统提示词完整Schema: 全部9种JSON文件含完整字段和枚举值,防止AI创建缺失字段的文件",
+        "safeStr工具函数提取: CharactersPanel+CharacterForm共享,防AI生成的object字段导致React崩溃",
+        "代码注释+安全标注: AIChatWindow工具分发架构注释,API调用安全上下文标注"
+      ],
+      "fixes": [
+        "修复大纲页面崩溃: chapterIds/relationshipTags/abilities等字段undefined导致.length崩溃",
+        "修复auto-save在页面加载时覆盖AI写入的文件内容(useRef跳过首次挂载)",
+        "修复大纲页数据加载竞态(setLoading(false)在Promise.all之前执行)",
+        "修复系统提示词schema不完整导致AI创建文件缺字段(plotThreads无chapterIds等)",
+        "修复温度设置未导入settingsService",
+        "清理冗余: CharactersPanel未使用import+重复safeStr+justText死代码"
+      ]
+    },
+    {
+      "version": "4.7.0",
+      "date": "2026-05-22",
+      "features": [
+        "故事剧情Tab重命名: 基础设定→故事剧情(plot),系统提示词强化AI协作习惯(5条规则),占位文本改为协作引导风格",
+        "outline/outline.json→outline/plot.json重命名: 8文件同步+loadOutlineContent自动迁移旧文件+fileEditNotify向后兼容",
+        "编辑全线自动保存: 细纲弹窗1.5s debounce+章节写作2s debounce(大纲/世界观已有1s debounce)",
+        "AI创建内容实时显示修复: fileEditNotify不再100ms自动清除→handleSend开头统一清除,通知持续存活直到用户查看",
+        "CharactersPanel新增fileEditNotify监听: /characters/路径变化自动重载角色列表",
+        "StyleWorkshopPage/TemplateLibraryPage/SceneWorkshopPage新增fileEditNotify: 风格模板/场景模板创建后自动刷新",
+        "search_images通知: 图片保存后通知项目目录刷新",
+        "工具消息中文显示: tool消息JSON→中文摘要+工具名标签,空tool_calls→紫色工具名标签",
+        "细纲卡片新增按钮: 撰写本章(跳转章节创作)+删除(垃圾桶图标)",
+        "AIChatWindow工具分发代码完整注释: 3条路由架构(A知识库/B模板/C项目IPC)+通知机制路径映射表",
+        "kb_index_file前端分发: AI可直接调用kbService.index建立语义索引,参数从file_path→file_id",
+        "上下文用量持久化: lastPromptTokens存入Conversation,对话切换自动恢复,不再每次清零",
+        "知识库+模板工具通知: kb_create_file/kb_append_file/create_style_template/create_scene_template执行后触发fileEditNotify"
+      ],
+      "fixes": [
+        "修复AI创建角色/细纲后不显示(通知100ms过期→持久通知+页面双重加载保障)",
+        "修复知识库metadata.json中3条幽灵记录(文件已删除但元数据残留)",
+        "修复系统提示词kb:webSearch误导AI调用不存在的工具",
+        "修复代码冗余: UserIcon未使用import/store.ts import位置异常/ScratchpadPage非空断言"
+      ]
+    },
+    {
+      "version": "4.6.0",
+      "date": "2026-05-22",
+      "features": [
+        "AI对话上下文修复: historyMessages传入API(关键Bug-每次对话都是全新对话)+tool_calls持久化到对话历史+对话切换lastPromptTokens清零",
+        "危险工具确认机制修复: 前端分发层对6个危险工具自动设置confirmed标记,create_file/delete_file/rename_file/restore_backup/create_project/delete_project正常可用",
+        "AI工具操作通知补全: create_project/delete_project触发项目级通知+write_note/append_note/delete_note触发草稿页刷新",
+        "AI窗口上下文用量显示修复: tool回环中sessionTokens从+=改为=避免重复计数+lastPromptTokens独立追踪实际上下文占用",
+        "AI窗口打开自动滚动到最新消息: isOpen加入useEffect依赖数组",
+        "AI窗口Resize优化: 边缘手柄缩进calc(100%-16px)避开滚动条+边缘z-index降为1不影响滚动交互+尺寸限制放宽至360-1200×360-(窗口高-60)",
+        "AI窗口停止生成按钮: abortRef中断while循环+消息列表底部醒目停止按钮替代AI思考中文字",
+        "系统提示词增强: 26维风格分析完整指南+细纲→场景模板创建指引+4步仿写→细纲生成工作流",
+        "知识库弹窗: 新增KbPopup组件(文件列表+搜索+内容查看+删除/下载)+PopupWindow支持kb类型+AI回复【打开知识库】自动弹出",
+        "知识库自动索引清理: 确认v3.1.0已禁用+清理误导注释+metadata.json清理3条幽灵记录",
+        "summarizeFileOp补全: create_style_template/create_scene_template中文摘要",
+        "kb_webSearch提示词修正: 明确联网搜索为系统自动非工具调用,避免AI误调用",
+        "RewritePage防护注释: 标注service层来源,防止未来误改为window.electron直接访问"
+      ],
+      "fixes": [
+        "修复AI对话上下文完全丢失(historyMessages构建但未传入messagesForApi-每次对话都是无记忆的独立会话)",
+        "修复危险工具(create/delete/rename/restore/project)全部被后端拦截(call.confirmed永远undefined)",
+        "修复工具回环sessionTokens重复累加(+=改为=)",
+        "修复AI窗口resize手柄覆盖滚动条(width:100%+z-index:10阻塞滚动)",
+        "修复窗口打开时不滚动到最新消息(isOpen不在useEffect依赖)",
+        "修复对话切换时lastPromptTokens残留上一对话的旧值(0→切换时同步重置)",
+        "修复Edit/Delete/Restore等工具误删配置代码",
+        "修复summarizeFileOp缺少create_style_template/create_scene_template条目",
+        "修复系统提示词误导AI调用不存在的kb_webSearch工具"
+      ]
+    },
     {
       "version": "4.5.0",
       "date": "2026-05-21",

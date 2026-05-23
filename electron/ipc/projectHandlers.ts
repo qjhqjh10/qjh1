@@ -1,5 +1,7 @@
 import { IpcMain } from 'electron'
 import * as fs from 'fs/promises'
+import * as fsSync from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { isSafePath } from './utils'
 import { logError } from './logger'
@@ -31,10 +33,9 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     for (const dir of PROJECT_DIRS) {
       await fs.mkdir(path.join(projectPath, dir), { recursive: true })
     }
-    const emptyOutline = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
-    const emptyWorldbuilding = JSON.stringify({ content: '', updatedAt: new Date().toISOString() }, null, 2)
-    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.json'), emptyWorldbuilding, 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'outline.json'), emptyOutline, 'utf-8')
+    // Plain text files (no JSON wrapper) — AI can edit directly
+    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.json'), '', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'plot.json'), '', 'utf-8')
     // Persist project type metadata
     const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
     await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType, novelCategory: 'general' }), 'utf-8')
@@ -96,7 +97,7 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
   ipcMain.handle('project:listProjects', async (_event, _basePath: string) => {
     try {
       const entries = await fs.readdir(projectsBasePath, { withFileTypes: true })
-      return entries.filter(e => e.isDirectory()).map(e => e.name)
+      return entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name)
     } catch {
       return []
     }
@@ -114,9 +115,8 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
   // ====================== Project Import ======================
 
   ipcMain.handle('project:import', async (_event, zipPath: string) => {
-    const fsSync = require('fs')
-    const unzipper = require('unzipper')
-    const os = require('os')
+    const u = await import('unzipper')
+    const unzipper = (u as any).default || u
 
     if (!fsSync.existsSync(zipPath)) throw new Error('文件不存在')
 
@@ -190,8 +190,6 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
 }
 
 async function copyDir(src: string, dest: string): Promise<void> {
-  const fs = await import('fs/promises')
-  const path = await import('path')
   await fs.mkdir(dest, { recursive: true })
   const entries = await fs.readdir(src, { withFileTypes: true })
   for (const e of entries) {

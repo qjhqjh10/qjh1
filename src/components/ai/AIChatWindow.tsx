@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, fileService } from '@/services/fileService'
+import { aiService, kbService, fileService, styleTemplateService, templateService, settingsService } from '@/services/fileService'
 import {
-  XMarkIcon, PaperAirplaneIcon, UserIcon, SparklesIcon,
+  XMarkIcon, PaperAirplaneIcon, SparklesIcon,
   ArrowDownTrayIcon, BookOpenIcon, GlobeAltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
@@ -13,20 +13,29 @@ import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { getStyleInjection } from '@/utils/styleInjector'
-import { FILE_TOOLS, READ_ONLY_TOOLS } from '@/types/fileOps'
+import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS } from '@/types/fileOps'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
-import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY } from '@/components/ai/chatConstants'
+import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
+import ImageLightbox from '@/components/common/ImageLightbox'
 
 function makeConversation(id: string, title: string): Conversation {
-  return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now() }
+  return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now(), totalTokens: 0, lastPromptTokens: 0 }
 }
 
-function parsePopupCommand(text: string): { text: string; popup?: { type: 'outline' | 'worldbuilding' | 'draft'; title: string; documentKey?: string } } {
-  const patterns: { pattern: RegExp; type: 'outline' | 'worldbuilding' | 'draft'; title: string; documentKey?: string }[] = [
+function parsePopupCommand(text: string): { text: string; popup?: { type: 'outline' | 'worldbuilding' | 'draft' | 'kb'; title: string; documentKey?: string }; genTrigger?: string } {
+  // Check for chapter gen trigger first
+  const genMatch = text.match(/【生成(?:第(\S+?)章|本章)】/)
+  if (genMatch) {
+    const chapId = genMatch[1] // undefined for "生成本章" (current chapter)
+    return { text: text.replace(genMatch[0], '').trim(), genTrigger: chapId || '__current__' }
+  }
+
+  const patterns: { pattern: RegExp; type: 'outline' | 'worldbuilding' | 'draft' | 'kb'; title: string; documentKey?: string }[] = [
     { pattern: /【打开大纲】/, type: 'outline', title: '大纲' },
     { pattern: /【打开世界观】/, type: 'worldbuilding', title: '世界观' },
     { pattern: /【打开草稿(?:[：:]\s*(.+?))?】/, type: 'draft', title: '草稿本', documentKey: '草稿本.md' },
+    { pattern: /【打开知识库】/, type: 'kb', title: '知识库' },
   ]
   for (const p of patterns) {
     const match = text.match(p.pattern)
@@ -96,6 +105,9 @@ export default function AIChatWindow() {
   const activeConfig = configs.find(c => c.id === activeConfigId)
 
   // Search toggles
+  const prompts = useSettingsStore(s => s.prompts)
+  const updatePromptStore = useSettingsStore(s => s.updatePrompt)
+  const setPrompts = useSettingsStore(s => s.setPrompts)
   const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
   const [kbEnabled, setKbEnabled] = useState(true)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
@@ -118,6 +130,13 @@ export default function AIChatWindow() {
     } catch (e) { logError('加载知识库文件列表失败', e); setKbFiles([]) }
   }
 
+  // Auto-switch to Plan when leaving a project (no project = no Action)
+  useEffect(() => {
+    if (!activeProjectId && aiSettings.workMode === 'action') {
+      useSettingsStore.getState().setAISettings({ workMode: 'plan' })
+    }
+  }, [activeProjectId])
+
   const toggleKBFile = (fileId: string) => {
     const cur = currentSelections[activePage] || []
     const next = cur.includes(fileId) ? cur.filter(id => id !== fileId) : [...cur, fileId]
@@ -129,8 +148,17 @@ export default function AIChatWindow() {
   }
 
   // Window position + size
-  const [winSize, setWinSize] = useState({ width: 460, height: 600 })
-  const [winPos, setWinPos] = useState({ right: 28, bottom: 96 })
+  const [winSize, setWinSize] = useState(() => {
+    try { const s = localStorage.getItem(WINDOW_KEY + '-size'); if (s) return JSON.parse(s) } catch {}
+    return { width: 500, height: 700 }
+  })
+  const [winPos, setWinPos] = useState(() => {
+    try { const s = localStorage.getItem(WINDOW_KEY + '-pos'); if (s) return JSON.parse(s) } catch {}
+    return { right: 28, bottom: 96 }
+  })
+  // Persist window position/size
+  useEffect(() => { try { localStorage.setItem(WINDOW_KEY + '-size', JSON.stringify(winSize)) } catch {} }, [winSize])
+  useEffect(() => { try { localStorage.setItem(WINDOW_KEY + '-pos', JSON.stringify(winPos)) } catch {} }, [winPos])
   const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startR: 0, startB: 0, corner: '' })
   const dragRef = useRef({ startX: 0, startY: 0, startR: 0, startB: 0 })
   const cleanupDragRef = useRef<(() => void) | null>(null)
@@ -141,6 +169,7 @@ export default function AIChatWindow() {
   }, [])
 
   const [cumulativeTokens, setCumulativeTokens] = useState(0)
+  const [lastPromptTokens, setLastPromptTokens] = useState(0)
 
   const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -149,10 +178,21 @@ export default function AIChatWindow() {
       const { startX, startY, startW, startH, startR, startB, corner } = resizeRef.current
       const dx = ev.clientX - startX; const dy = ev.clientY - startY
       let w = startW, h = startH, r = startR, b = startB
-      if (corner.includes('right')) { w = Math.max(380, Math.min(800, startW + dx)) }
-      if (corner.includes('left')) { w = Math.max(380, Math.min(800, startW - dx)); r = startR + dx }
-      if (corner.includes('bottom')) { h = Math.max(400, Math.min(window.innerHeight - 100, startH + dy)) }
-      if (corner.includes('top')) { h = Math.max(400, Math.min(window.innerHeight - 100, startH - dy)); b = startB + dy }
+      const isEdge = /^(top|bottom|left|right)$/.test(corner)
+      // Edge resize: dragged edge follows mouse, opposite edge stays fixed
+      // Corner resize: anchored at opposite corner
+      if (isEdge) {
+        if (corner === 'right')  { w = Math.max(360, Math.min(1200, startW + dx)); r = startR - dx }
+        if (corner === 'left')   { w = Math.max(360, Math.min(1200, startW - dx)) }
+        if (corner === 'bottom') { h = Math.max(360, Math.min(window.innerHeight - 60, startH + dy)); b = startB - dy }
+        if (corner === 'top')    { h = Math.max(360, Math.min(window.innerHeight - 60, startH - dy)) }
+      } else {
+        // Corner: anchor at bottom-right
+        if (corner.includes('right'))  { w = Math.max(360, Math.min(1200, startW + dx)) }
+        if (corner.includes('left'))   { w = Math.max(360, Math.min(1200, startW - dx)); r = startR + dx }
+        if (corner.includes('bottom')) { h = Math.max(360, Math.min(window.innerHeight - 60, startH + dy)) }
+        if (corner.includes('top'))    { h = Math.max(360, Math.min(window.innerHeight - 60, startH - dy)); b = startB + dy }
+      }
       setWinSize({ width: w, height: h })
       setWinPos({ right: Math.max(0, r), bottom: Math.max(0, b) })
     }
@@ -176,20 +216,43 @@ export default function AIChatWindow() {
     window.addEventListener('mousemove', handleMove); window.addEventListener('mouseup', handleUp)
   }
 
+  // Load conversations and set active to newest in one shot
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) return p } } catch (e) { logError('加载对话历史失败', e) }
     return [makeConversation('default', '新对话')]
   })
   const [activeConversationId, setActiveConversationId] = useState(() => {
-    try { const la = localStorage.getItem(LAST_ACTIVE_KEY); const s = localStorage.getItem(STORAGE_KEY); if (s && la) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.find(c => c.id === la)) return la } } catch (e) { logError('加载活动对话ID失败', e) }
+    try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) {
+      const newest = p[p.length - 1]
+      if (newest && newest.id !== 'default') return newest.id
+    } } } catch {}
+    try { const la = localStorage.getItem(LAST_ACTIVE_KEY); if (la && la !== 'default') return la } catch {}
     return 'default'
   })
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)) } catch (e) { logError('保存对话历史失败', e) } }, [conversations])
   useEffect(() => { try { localStorage.setItem(LAST_ACTIVE_KEY, activeConversationId) } catch (e) { logError('保存活动对话ID失败', e) } }, [activeConversationId])
+  // Restore token counts from persisted conversation on mount/switch
+  useEffect(() => {
+    const conv = conversations.find(c => c.id === activeConversationId)
+    setCumulativeTokens(conv?.totalTokens || 0)
+    setLastPromptTokens(conv?.lastPromptTokens || 0)
+  }, [activeConversationId])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const abortRef = useRef(false)
   const [showConvList, setShowConvList] = useState(false)
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set())
+  const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const toggleSelectMsg = (id: string) => setSelectedMsgIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const deleteSelectedMsgs = () => {
+    setMessages(prev => prev.filter(m => !selectedMsgIds.has(m.id)))
+    setSelectedMsgIds(new Set())
+  }
 
   const activeConversation = conversations.find(c => c.id === activeConversationId) || conversations[0]
   const messages = activeConversation.messages
@@ -208,15 +271,22 @@ export default function AIChatWindow() {
     return firstUser ? firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '') : '新对话'
   }
 
-  const abortToolLoop = () => { setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId); setCumulativeTokens(0) } }
-  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setCumulativeTokens(0); setShowConvList(false) }
-  const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0) }
-  const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }); setCumulativeTokens(0) }
+  const abortToolLoop = () => { abortRef.current = true; setLoading(false) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId) } }
+  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false) }
+  const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0); setLastPromptTokens(0); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0 } : c)) }
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
+  // Scroll to bottom when messages change, conversation switches, or window opens
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages])
+    if (!isOpen) return
+    // Double rAF ensures DOM layout is complete before measuring scrollHeight
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      })
+    })
+  }, [messages, isOpen])
 
   const contextPriority = aiSettings.contextPriority
 
@@ -224,47 +294,53 @@ export default function AIChatWindow() {
   const customRole = (aiSettings.customRoles || []).find(r => r.id === aiSettings.defaultRole)
 
   const buildContextPrefix = (kbContext: string, webContext: string): string => {
+    const cg = aiSettings.chapterGen
     const parts: string[] = []
     if (customRole?.prompt) {
       parts.push(`[AI角色: ${customRole.name}]\n${customRole.prompt}`)
     }
 
     if (activePage === 'chapter' && currentChapter) {
-      parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}]`)
+      parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}，${currentChapter.content?.length || 0}字]`)
+      if (currentDetailedChapter?.plotOverview) parts.push(`[本章剧情概述:\n${currentDetailedChapter.plotOverview.slice(0, 5000)}]`)
       if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
-      if (currentChapter.content) parts.push(`[当前章节正文:\n${currentChapter.content.slice(0, 20000)}]`)
+      // Do NOT inject full chapter body — read_file if user asks to see/edit it
       parts.push(`
-如果用户要求生成新内容，请用以下格式：
-【插入参考】
-原文关键词: <引述原文中要插入位置的上下文句子>
-建议位置: 该段之后
+当用户要求修改章节某段/某句/某词时 → read_file 找到原文 → edit_file 精确替换
+**禁止将完整章节内容输出到对话框**，只输出简短摘要（如"已将第3段修改为..."）
+用户明确要求"查看""显示""输出"完整内容时才输出全文
 
-【生成内容】
-<你的创作内容>
-
-如果用户要求改写润色某段文字，请用以下格式（原文将被标红，改写将被标蓝插入其后，由使用者手动替换）：
-【改写参考】
-原文: <需要改写的原文句子（尽量完整引用）>
-
-【改写内容】
-<改写后的文字>`)
+**章节生成设置** (用户已在"AI生成"按钮中配置，生成章节正文时使用):
+- 字数目标: ${cg.wordTarget}字
+- 输出模式: ${cg.replaceMode ? '替换当前正文' : '追加到末尾'}
+- 关联上下文: ${[
+    cg.outlineTabs.plot && '故事剧情', cg.outlineTabs.worldbuilding && '世界观', cg.outlineTabs.characters && '角色',
+    cg.outlineTabs.items && '道具', cg.outlineTabs.locations && '地点', cg.outlineTabs.factions && '势力',
+    cg.outlineTabs.powerSystem && '等级', cg.outlineTabs.foreshadowing && '伏笔', cg.outlineTabs.emotion && '情绪',
+    cg.outlineTabs.plotThreads && '故事线',
+    cg.detailedOutlineFields.plotOverview && '本章剧情概述', cg.detailedOutlineFields.chapterCharacters && '出现角色',
+    cg.detailedOutlineFields.location && '场景地点', cg.detailedOutlineFields.keyEvents && '关键事件',
+    cg.detailedOutlineFields.eroticContent && '情色剧情',
+  ].filter(Boolean).join('、') || '无'}`)
     }
 
     if (activePage === 'outline' && outlineContent) {
-      parts.push(`[当前大纲/基础设定:\n${outlineContent.slice(0, 8000)}]`)
+      parts.push(`[当前故事剧情记录:\n${outlineContent.slice(0, 8000)}]`)
       parts.push(`用户正在大纲页面。大纲包含10个Tab，你可通过 edit_file 编辑对应的JSON文件来修改各个Tab的数据。
 
-**大纲各Tab与对应文件：**
-- 基础设定 → outline/outline.json (JSON: {content, updatedAt})
-- 世界观 → outline/worldbuilding.json (JSON: {content, updatedAt})
-- 角色 → characters/*.json (每个角色一个文件)
-- 道具 → outline/items.json (JSON: {items: [{id,name,type,grade,ability,owner,description}]})
-- 地点 → outline/locations.json (JSON: {locations: [{id,name,description,type}]})
-- 势力 → outline/factions.json (JSON: {factions: [{id,name,description,type}]})
-- 等级 → outline/power_system.json (JSON: {name,levels:[{name,description}],description})
-- 伏笔 → outline/outline_meta.json (foreshadowing数组: [{id,description,status}])
-- 情绪 → outline/emotion.json (JSON: {segments:[{chapterStart,chapterEnd,dominantEmotion}]})
-- 故事线 → outline/outline_meta.json (plotThreads数组: [{id,name,type,color}])
+**核心Tab — 故事剧情 (outline/plot.json) 和 世界观（设定） (outline/worldbuilding.json):**
+纯文本文件，用 Markdown 格式 (# 标题, - 列表)。写入: read_file 确认内容 → edit_file(old_string="原文", new_string="原文\n新增")。若文件为空则 old_string=""。绝不写JSON。
+
+**其他大纲Tab与对应文件（完整字段，创建时必须全部包含）：**
+- 世界观（设定） → outline/worldbuilding.json（纯文本，同故事剧情）
+- 角色 → characters/{nanoid}.json（创建时 generate_nanoid:true）字段: id,name,role(必须是:男主|女主|男配|女配|反派|其他之一),gender,age,occupation(必填,职业/身份/社会地位,不可为空),background,appearance,personality,**abilities(纯文本字符串,不可为对象!)**,weaknesses,relationships,relationshipTags(字符串数组),arc,importance(1-100),image
+- 道具 → outline/items.json: {"items":[{"id":"nanoid","name":"","type":"武器|法宝|丹药|功法|道具|其他","grade":"","ability":"","owner":"","description":""}]}
+- 地点 → outline/locations.json: {"locations":[{"id":"nanoid","name":"","description":"","type":"门派|城池|秘境|自然|其他"}]}
+- 势力 → outline/factions.json: {"factions":[{"id":"nanoid","name":"","description":"","type":"正道|邪道|中立|皇朝|其他"}]}
+- 等级 → outline/power_system.json: {"name":"","levels":[{"name":"","description":""}],"description":""}
+- 伏笔 → outline/outline_meta.json foreshadowing: [{"id":"nanoid","description":"","plantChapterId":"","payoffChapterId":"","status":"planted|resolved"}]
+- 情绪 → outline/emotion.json: {"segments":[{"chapterStart":1,"chapterEnd":1,"dominantEmotion":""}]}
+- 故事线 → outline/outline_meta.json plotThreads: [{"id":"nanoid","name":"","type":"main|sub|hidden","color":"#7c3aed","**chapterIds**:[]"}] ← chapterIds 必须存在,至少是空数组[]!
 
 修改文件后界面会自动刷新。用 read_file 查看当前数据，edit_file 精确修改。分析建议和文本改写可直接在聊天中输出。`)
     }
@@ -314,7 +390,8 @@ export default function AIChatWindow() {
 2. 修改细纲：先用 read_file 查看该章JSON，给出分析建议，用户确认后用 edit_file 修改。
 3. 新建细纲：用 create_file 创建 detailed_outline/{新id}.json，然后问用户要填什么内容（剧情概述/角色/地点/事件）。
 4. 删除细纲：用 delete_file 删除对应JSON文件（需用户确认）。
-5. 一次只操作一个章节的细纲，不要把全部细纲内容一起读出来。`)
+5. 一次只操作一个章节的细纲，不要把全部细纲内容一起读出来。
+6. 创建场景模板：如果用户要求根据某章细纲创建场景模板，先 read_file 读该章JSON，分析剧情概述/角色/地点/事件/情绪基调，然后调用 create_scene_template 工具保存。`)
     }
 
     if (activePage === 'characters' && characters.length > 0) {
@@ -355,7 +432,9 @@ export default function AIChatWindow() {
 
   const handleSend = async () => {
     if (!input.trim() || !activeConfigId || loading) return
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input.trim() }
+    // Clear stale notifications from previous AI operations before starting new ones
+    setFileEditNotify(null)
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input.trim(), timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
@@ -415,14 +494,18 @@ export default function AIChatWindow() {
       const stylePrefix = styleInjection ? styleInjection + '\n\n---\n\n' : ''
 
       // System messages
+      const promptStatus = prompts.map(p =>
+        `  [${p.enabled ? '✓' : ' '}] ${p.id}: ${p.title} (${p.type})${p.enabled ? ' ← 当前使用' : ''}`
+      ).join('\n')
       const systemMessages: Array<{ role: string; content: string }> = [
         { role: 'system', content: FILE_OP_SYSTEM_PROMPT },
         { role: 'system', content: aiSettings.workMode === 'plan'
           ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content/list_backups + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
           : `[Action执行模式] 全部工具可用。` },
+        { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
       ]
 
-      // History with tool support
+      // History with tool support — maps stored UI messages back to API format
       const historyMessages = messages
         .filter(m => !m.id.startsWith('welcome') && String(m.role) !== 'system')
         .map(m => ({
@@ -431,24 +514,30 @@ export default function AIChatWindow() {
           ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
         }))
 
+      // Build the full message array: system prompts + conversation history + current user message
+      const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
+        ...systemMessages,
+        ...historyMessages,
+        { role: 'user' as const, content: stylePrefix + contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
+      ]
+
       // Tools
       const activeTools = aiSettings.workMode === 'plan'
         ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
         : FILE_TOOLS
       const toolsForApi = activeProjectId ? activeTools : activeTools.filter((t: any) => !['list_notes','read_note','write_note','append_note','delete_note'].includes(t.function.name))
 
-      const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
-        ...systemMessages,
-        { role: 'user' as const, content: stylePrefix + contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
-      ]
-
       let iteration = 0; const MAX_ITER = 8; let isDone = false
-      let sessionTokens = 0
-      while (iteration < MAX_ITER && !isDone) {
+      let sessionTokens = 0; let lastPrompt = 0
+      abortRef.current = false
+      while (iteration < MAX_ITER && !isDone && !abortRef.current) {
         iteration++
+        // AI chat with tools. In Action mode, the AI can call file operations; in Plan mode, only read-only tools.
+        // Safety: backend enforces path isolation (isSafePath), file size limits, and dangerous tool confirmation.
         const response = await aiService.chatWithTools(messagesForApi, activeConfigId!, activeProjectId || undefined, toolsForApi)
-        const { text, toolCalls, finishReason, images, usage } = response
-        sessionTokens += usage?.total_tokens || 0
+        const { text, toolCalls, finishReason, images, usage, reasoning_content } = response
+        sessionTokens = usage?.total_tokens || sessionTokens
+        if (usage?.prompt_tokens) { lastPrompt = usage.prompt_tokens; setLastPromptTokens(usage.prompt_tokens) }
 
         if (!toolCalls || toolCalls.length === 0) {
           const popupParsed = parsePopupCommand(text)
@@ -459,52 +548,377 @@ export default function AIChatWindow() {
             const id = Date.now().toString()
             openPopup({ id: `ai_${id}`, type: popupParsed.popup.type, title: popupParsed.popup.title, documentKey: popupParsed.popup.documentKey })
           }
+          // Trigger chapter generation via store if AI included 【生成本章】or【生成第X章】
+          if (popupParsed.genTrigger) {
+            const targetId = popupParsed.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed.genTrigger
+            if (targetId) useStore.getState().setChapterGenTrigger(targetId)
+          }
           const assistantMsg: Message = {
-            id: Date.now().toString() + '_r', role: 'assistant', content: plainText || displayText, insertion,
+            id: Date.now().toString() + '_r', role: 'assistant', content: plainText || displayText, timestamp: Date.now(), insertion,
+            usage: usage ? { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, total_tokens: usage.total_tokens, cost: usage.cost } : undefined,
+            wordCount: plainText ? plainText.replace(/\s/g, '').length : 0,
             sources: { kb: kbSources, web: webSources }, images,
           }
           setMessages(prev => [...prev, assistantMsg])
           isDone = true
         } else {
           // Process tool calls
-          messagesForApi.push({ role: 'assistant', content: text || '', tool_calls: toolCalls })
+          const assistantMsgForApi: Record<string, unknown> = { role: 'assistant', content: text || '', tool_calls: toolCalls }
+          if (reasoning_content) assistantMsgForApi.reasoning_content = reasoning_content
+          messagesForApi.push(assistantMsgForApi as any)
+          // Persist assistant message with tool_calls so conversation history retains context
+          setMessages(prev => [...prev, {
+            id: `${Date.now()}_tc`, role: 'assistant' as const, content: text || '', timestamp: Date.now(),
+            tool_calls: toolCalls,
+          }])
           const resultMsgs: Message[] = []
           for (const tc of toolCalls) {
             try {
               const args = JSON.parse(tc.function.arguments)
-              let r: { status: string; summary: string; detail?: string } | undefined
-              // Route KB creation/append tools to kbService directly
-              if (tc.function.name === 'kb_create_file') {
+              let r: { status: string; summary: string; detail?: string; confirmArgs?: Record<string, unknown> } | undefined
+
+              // ══════════════════════════════════════════════════════════════
+              // 工具分发架构 (Tool Dispatch Architecture)
+              // ══════════════════════════════════════════════════════════════
+              //
+              // AI 返回的 tool_calls 按以下 3 条路由分发执行:
+              //
+              // 路由A: 知识库专用工具 (前端直接调用 kbService)
+              //   kb_list / kb_create_file / kb_index_file / kb_append_file
+              //   原因: KB 文件在 knowledge_base/ 目录，不在项目目录内，
+              //         无法通过 executeFileTools(projectPath) 访问
+              //
+              // 路由B: 前端直接调用的工具 (模板创建 / 图片生成)
+              //   create_style_template → styleTemplateService → 风格工坊+模板库
+              //   create_scene_template  → templateService      → 场景工坊
+              //   generate_image        → aiService            → DALL-E API
+              //   原因: 需要构建完整对象或调用特定 API，逻辑在前端更合适
+              //
+              // 路由C: 项目文件工具 (IPC 后端 executeFileTools)
+              //   其余22个工具 → aiService.executeFileTools() → electron/ipc/
+              //   原因: 需要访问项目目录+安全验证+备份管理，必须在主进程执行
+              // ══════════════════════════════════════════════════════════════
+
+              // ── 路由A: 知识库工具 ──
+              // 知识库文件存储在 knowledge_base/files/，与项目目录隔离
+              // 这些工具直接调用 kbService，成功后会触 fileEditNotify 让 KB 页刷新
+
+              // kb_list: 列出知识库所有文件 → 连接 KnowledgeBasePage / KbPopup
+              if (tc.function.name === 'kb_list') {
+                try {
+                  const meta = await kbService.list() as { files: { id: string; originalName: string; type: string }[] }
+                  const fileList = meta.files.map(f => `${f.originalName} (id: ${f.id}, 类型: ${f.type})`).join('\n')
+                  r = { status: 'success', summary: `${meta.files.length} 个文件`, detail: fileList || '(知识库为空)' }
+                } catch (e: any) { r = { status: 'error', summary: `列出失败: ${e.message}` } }
+
+              // kb_create_file: 创建知识库文件 → 连接 KnowledgeBasePage
+              } else if (tc.function.name === 'kb_create_file') {
                 try {
                   const result = await kbService.create(args.name || '未命名.md', args.content || '', activeProjectId || undefined)
                   r = { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}\n可在知识库页面查看和索引。` }
+                  // 通知 KnowledgeBasePage + KbPopup 刷新文件列表
+                  setFileEditNotify({ filePath: 'knowledge_base/metadata.json', newContent: '__AI_EDITED__' })
                 } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
+
+              // kb_index_file: 对KB文件建立embedding语义索引 → 连接 KnowledgeBasePage
+              } else if (tc.function.name === 'kb_index_file') {
+                try {
+                  const fileId = String(args.file_id || '')
+                  if (!fileId) throw new Error('缺少 file_id 参数')
+                  const result = await kbService.index(fileId, activeConfigId!)
+                  r = { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段`, detail: `文件已被索引，支持语义搜索。` }
+                } catch (e: any) { r = { status: 'error', summary: `索引失败: ${e.message}` } }
+
+              // kb_append_file: 追加内容到KB文件 → 连接 KnowledgeBasePage
               } else if (tc.function.name === 'kb_append_file') {
                 try {
                   await kbService.append(args.file_id, args.content || '')
                   r = { status: 'success', summary: '已追加到知识库文件', detail: '内容已追加。可在知识库页面查看。' }
+                  // 通知 KnowledgeBasePage + KbPopup 刷新
+                  setFileEditNotify({ filePath: 'knowledge_base/metadata.json', newContent: '__AI_EDITED__' })
                 } catch (e: any) { r = { status: 'error', summary: `追加失败: ${e.message}` } }
+
+              // ── 路由B: 模板创建工具 ──
+              // 这些工具构建完整模板对象后调用 service 保存
+
+              // create_style_template: 创建风格模板 → 连接 StyleWorkshopPage + TemplateLibraryPage
+              } else if (tc.function.name === 'create_style_template') {
+                try {
+                  const tmpl: any = {
+                    name: args.name || '未命名模板', type: args.type || '普通小说',
+                    worldType: args.worldType || '', description: args.description || '',
+                    dimensions: args.dimensions || {}, vocabularyList: args.vocabularyList || [],
+                    writingRules: args.writingRules || [], tone: args.tone || {},
+                    source: 'ai-generated', createdAt: '', updatedAt: '', id: '',
+                  }
+                  const saved = await styleTemplateService.save(tmpl) as any
+                  r = { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}\n可在风格工坊→模板库查看和编辑。` }
+                  // 通知风格工坊+模板库刷新
+                  setFileEditNotify({ filePath: 'style_templates/updated', newContent: '__AI_EDITED__' })
+                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
+
+              // create_scene_template: 创建场景模板 → 连接 SceneWorkshopPage
+              } else if (tc.function.name === 'create_scene_template') {
+                try {
+                  const isErotic = String(args.type || '').includes('情色')
+
+                  // Build characters array
+                  const charLines = String(args.characters || '').split('\n').filter(Boolean)
+                  const charObjs = charLines.map((line: string) => {
+                    const parts = line.split(/[-—–·]/)
+                    return { characterId: '', characterName: parts[0]?.trim() || line.trim(), emotion: parts[1]?.trim() || '' }
+                  })
+
+                  // Track which fields AI explicitly provided (non-empty, non-default)
+                  const aiProvided = new Set<string>()
+                  const argKeys = Object.keys(args).filter(k => k !== 'name' && k !== 'type' && k !== 'autoFields')
+                  for (const k of argKeys) {
+                    const v = args[k]
+                    if (v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)) {
+                      aiProvided.add(k)
+                    }
+                  }
+                  // Also add explicit autoFields entries
+                  if (Array.isArray(args.autoFields)) args.autoFields.forEach((f: string) => aiProvided.add(f))
+
+                  const allFieldKeys = [
+                    'sceneType','scenePurpose','conflictType','characters','location','time','weather','atmosphere',
+                    'senses','dialogueRatio','subtextLevel','sentenceStyle','paragraphDensity',
+                    'wordTarget','narrativePOV','narrativeStyle','timeCompression','introspection',
+                    'emotionStart','emotionEnd','dominantEmotion','pacing','foreshadowUse','sceneTurningPoint',
+                  ]
+                  // Auto-set all fields AI didn't provide
+                  const autoFields: Record<string, boolean> = {}
+                  for (const fk of allFieldKeys) {
+                    if (!aiProvided.has(fk)) autoFields[fk] = true
+                  }
+
+                  const config: any = {
+                    sceneType: args.sceneType || '日常',
+                    scenePurpose: Array.isArray(args.scenePurpose) ? args.scenePurpose : ['推进剧情'],
+                    conflictType: args.conflictType || '无冲突',
+                    povCharacterId: '', povCharacterName: '',
+                    characters: charObjs,
+                    location: args.location || '',
+                    time: args.time || '不限',
+                    weather: args.weather || '不限',
+                    atmosphere: args.atmosphere || '不限',
+                    senses: Array.isArray(args.senses) ? args.senses : ['视觉'],
+                    dialogueRatio: args.dialogueRatio || '适量(30%)',
+                    subtextLevel: args.subtextLevel || '一般',
+                    sentenceStyle: args.sentenceStyle || '混合',
+                    paragraphDensity: args.paragraphDensity || '适中',
+                    wordTarget: args.wordTarget || 3000,
+                    narrativePOV: args.narrativePOV || '第三人称',
+                    narrativeStyle: args.narrativeStyle || '沉浸式长镜',
+                    timeCompression: args.timeCompression || '实时',
+                    introspection: args.introspection || '中',
+                    emotionStart: args.emotionStart || '',
+                    emotionEnd: args.emotionEnd || '',
+                    dominantEmotion: args.dominantEmotion || '',
+                    pacing: args.pacing || '渐进',
+                    props: '', appearance: '', bodyLanguage: '',
+                    foreshadowUse: args.foreshadowUse || '无',
+                    sceneTurningPoint: args.sceneTurningPoint || '',
+                    intensity: args.eroticIntensity || 3,
+                    selectedKinks: Array.isArray(args.selectedKinks) ? args.selectedKinks : [],
+                    opening: Array.isArray(args.opening) ? args.opening : [],
+                    mainPose: args.mainPose || '无偏好',
+                    mainRhythm: '无偏好', poseChanges: '2-3次转换',
+                    climax: Array.isArray(args.climax) ? args.climax : [],
+                    aftermath: Array.isArray(args.aftermath) ? args.aftermath : [],
+                    soundDensity: '中等', moanStyle: '含蓄',
+                    degradeLangs: [], bannedWords: '',
+                    consentDynamic: '默认', aftercareDetail: '',
+                    worldRules: '', propList: '', costumeList: '',
+                    plotOverview: args.plotOverview || '',
+                    detail: args.detail || '',
+                    extraNote: args.extraNote || '',
+                    autoFields,
+                    useStyleProfile: true,
+                    useChapterOutline: true,
+                  }
+
+                  const tmpl: any = {
+                    id: `ai_${Date.now().toString(36)}`,
+                    name: args.name || '场景模板',
+                    type: isErotic ? '情色小说' : (args.type || '普通小说'),
+                    config,
+                    createdAt: new Date().toISOString(),
+                  }
+                  await templateService.save(tmpl)
+                  const autoCount = Object.keys(autoFields).length
+                  r = { status: 'success', summary: `已创建场景模板: ${tmpl.name}${autoCount > 0 ? ` (${autoCount}项AI自动)` : ''}`, detail: `模板ID: ${tmpl.id}\n可在场景工坊查看和编辑。` }
+                  setFileEditNotify({ filePath: 'scene_templates/updated', newContent: '__AI_EDITED__' })
+                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
+
+              // ── generate_image: AI 图片生成 ──
+              } else if (tc.function.name === 'generate_image') {
+                try {
+                  const prompt = String(args.prompt || '').slice(0, 1000)
+                  if (!prompt) throw new Error('图片描述不能为空')
+                  const size = String(args.size || '1024x1024')
+                  const style = String(args.style || 'vivid')
+                  const result = await aiService.generateImage(prompt, activeConfigId!, activeProjectId || undefined, size, style)
+                  r = { status: 'success', summary: '已生成图片', detail: `图片路径: ${result.path}\n提示词: ${prompt}\n花费: ${activeConfig?.currency === 'CNY' ? '¥' : '$'}${result.cost.toFixed(2)}` }
+                  // Load image binary and convert to data URL for display
+                  let imgSrc = ''
+                  if (activeProjectId) {
+                    try {
+                      const proj = useStore.getState().projects.find(p => p.id === activeProjectId)
+                      if (proj?.path) {
+                        const imgPath = `${proj.path}/${result.path}`.replace(/\\/g, '/')
+                        const b64 = await fileService.readBinary(imgPath)
+                        const ext = result.path.split('.').pop()?.toLowerCase() || 'png'
+                        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png'
+                        if (b64) imgSrc = `data:${mime};base64,${b64}`
+                      }
+                    } catch { /* fallback to path */ }
+                  }
+                  if (!imgSrc) imgSrc = result.path
+                  // Add image to current message for display
+                  setMessages(prev => {
+                    const last = prev[prev.length - 1]
+                    if (last && last.role === 'assistant') {
+                      return [...prev.slice(0, -1), { ...last, images: [...(last.images || []), imgSrc] }]
+                    }
+                    return prev
+                  })
+                } catch (e: any) { r = { status: 'error', summary: `图片生成失败: ${e.message}` } }
+
+              // ── list_prompts: 列出提示词库 ──
+              } else if (tc.function.name === 'list_prompts') {
+                const lines = prompts.map(p => `[${p.enabled ? '✓启用' : '  关闭'}] ${p.id} | ${p.title} | 类型:${p.type}`)
+                const detail = lines.join('\n')
+                r = { status: 'success', summary: `${prompts.length} 个提示词模板`, detail }
+
+              // ── toggle_prompt: 切换提示词启用状态 ──
+              } else if (tc.function.name === 'toggle_prompt') {
+                const pid = String(args.prompt_id || '')
+                const enable = args.enabled !== false
+                const target = prompts.find(p => p.id === pid)
+                if (!target) { r = { status: 'error', summary: `未找到提示词: ${pid}` } }
+                else if (enable) {
+                  // Disable other enabled prompts of same type
+                  const sameType = prompts.filter(p => p.type === target.type && p.id !== pid && p.enabled)
+                  for (const p of sameType) updatePromptStore(p.id, { enabled: false })
+                  updatePromptStore(pid, { enabled: true })
+                  const disabled = sameType.map(p => p.title).join('、')
+                  r = { status: 'success', summary: `已启用「${target.title}」${disabled ? `（自动关闭: ${disabled})` : ''}`, detail: `${target.type}类型现在使用「${target.title}」模板。` }
+                } else {
+                  updatePromptStore(pid, { enabled: false })
+                  r = { status: 'success', summary: `已关闭「${target.title}」`, detail: `${target.type}类型现在没有启用的模板，将使用默认格式。` }
+                }
+
+              // ── update_prompt: 修改提示词 ──
+              } else if (tc.function.name === 'update_prompt') {
+                const pid = String(args.prompt_id || '')
+                const updates: Record<string, any> = {}
+                if (args.title) updates.title = String(args.title)
+                if (args.content) updates.content = String(args.content)
+                if (args.type) updates.type = String(args.type)
+                if (Object.keys(updates).length === 0) { r = { status: 'error', summary: '没有提供要修改的字段' } }
+                else {
+                  updatePromptStore(pid, updates)
+                  const fields = Object.keys(updates).map(k => k === 'title' ? '标题' : k === 'content' ? '内容' : k === 'type' ? '类型' : k).join('、')
+                  r = { status: 'success', summary: `已更新提示词 ${fields}`, detail: `模板ID: ${pid}` }
+                }
+
+              // ── 路由C: 项目文件工具 (IPC 后端) ──
+              // 所有对项目目录内文件的 CRUD 操作，通过 executeFileTools 发送到主进程
+              // 后端 handler: electron/ipc/fileToolHandlers.ts 的 executeFileTool()
+              // 支持的工具: list_directory, read_file, search_files, search_content,
+              //   edit_file, create_file, delete_file, rename_file, restore_backup,
+              //   list_backups, create_project, delete_project,
+              //   list_notes, read_note, write_note, append_note, delete_note,
+              //   search_images, kb_index_file 等
+              // edit_file: auto-apply directly (auto-backup in backend)
+              } else if (tc.function.name === 'edit_file') {
+                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: { ...args, _confirmed: true } }])
+                r = results[0]
+              // create/delete dangerous tools: auto-confirmed
+              } else if (DANGEROUS_TOOLS.has(tc.function.name)) {
+                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args, confirmed: true }])
+                r = results[0]
               } else {
                 const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args }])
                 r = results[0]
               }
               const content = JSON.stringify({ status: r?.status || 'error', summary: r?.summary || '', detail: r?.detail || '' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
-              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id })
-              // Notify components when files are modified by AI tools
-              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'restore_backup']
-              if (fileModifyingTools.includes(tc.function.name) && r?.status === 'success' && args.file_path && activeProjectId) {
+              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
+              // ══════════════════════════════════════════════════════════════
+              // 界面刷新通知机制 (fileEditNotify)
+              // ══════════════════════════════════════════════════════════════
+              //
+              // 每次 AI 工具成功执行后，设置 fileEditNotify 通知相关页面刷新。
+              // 通知路径决定哪些页面会响应:
+              //   {projectPath}/outline/*.json  → OutlinePage, OutlinePopup
+              //   {projectPath}/detailed_outline/* → DetailedOutlinePage
+              //   {projectPath}/chapters/*.txt  → ChapterWritingPage
+              //   {projectPath}/characters/*.json → CharactersPanel
+              //   {projectPath}/notes/*.md       → ScratchpadPage, DraftPopup
+              //   {projectPath}                   → HomePage (项目级变更)
+              //   knowledge_base/*               → KnowledgeBasePage, KbPopup
+              //   style_templates/*              → StyleWorkshopPage, TemplateLibraryPage
+              //   scene_templates/*              → SceneWorkshopPage
+              //
+              // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存
+              // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）
+              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'restore_backup', 'create_project', 'delete_project']
+              const noteModifyingTools = ['write_note', 'append_note', 'delete_note']
+              if (r?.status === 'success' && activeProjectId) {
                 const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
                 if (pp) {
-                  const absPath = `${pp}/${String(args.file_path).replace(/\\/g, '/')}`.replace(/\\/g, '/')
-                  setFileEditNotify({ filePath: absPath, newContent: '__AI_EDITED__' })
-                  setTimeout(() => setFileEditNotify(null), 100)
+                  let targetPath: string
+                  if (tc.function.name === 'create_project' || tc.function.name === 'delete_project') {
+                    targetPath = pp
+                  } else if (noteModifyingTools.includes(tc.function.name)) {
+                    targetPath = `${pp}/notes/${String(args.note_name || '')}`.replace(/\\/g, '/')
+                  } else if (fileModifyingTools.includes(tc.function.name)) {
+                    targetPath = `${pp}/${String(args.file_path || '').replace(/\\/g, '/')}`.replace(/\\/g, '/')
+                  } else if (tc.function.name === 'search_images') {
+                    targetPath = `${pp}/images/`  // 图片保存目录
+                  } else {
+                    targetPath = ''
+                  }
+                  if (targetPath) {
+                    setFileEditNotify({ filePath: targetPath, newContent: '__AI_EDITED__' })
+                    // Auto-promote project scene/style templates to global dir
+                    if (tc.function.name === 'create_file' || tc.function.name === 'edit_file') {
+                      const tgt = targetPath.replace(/\\/g, '/')
+                      if (tgt.includes('/scene_templates/') && tgt.endsWith('.json')) {
+                        try {
+                          const raw = await fileService.read(targetPath)
+                          const obj = JSON.parse(raw) as any
+                          // Normalize to SceneTemplate format: ensure id/name/type/config exist
+                          const tpl: any = {
+                            id: obj.id || `proj_${Date.now().toString(36)}`,
+                            name: obj.name || obj.templateName || '未命名模板',
+                            type: obj.type || '普通小说',
+                            createdAt: obj.createdAt || obj.created_at || new Date().toISOString(),
+                            // Wrap all AI output as config so editor can read it
+                            config: obj.config || obj,
+                          }
+                          await templateService.save(tpl)
+                        } catch { /* best-effort */ }
+                      }
+                      if (tgt.includes('/style_templates/') && tgt.endsWith('.json')) {
+                        try {
+                          const raw = await fileService.read(targetPath)
+                          const tpl = JSON.parse(raw) as any
+                          if (!tpl.id) tpl.id = `proj_${Date.now().toString(36)}`
+                          await styleTemplateService.save(tpl)
+                        } catch { /* best-effort */ }
+                      }
+                    }
+                  }
                 }
               }
             } catch {
               const content = JSON.stringify({ status: 'error', summary: '工具执行异常' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
-              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id })
+              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
             }
           }
           // Store tool results in conversation history
@@ -512,7 +926,9 @@ export default function AIChatWindow() {
           if (finishReason !== 'tool_calls') isDone = true
         }
       }
-      setCumulativeTokens(prev => prev + sessionTokens)
+      const newTotal = cumulativeTokens + sessionTokens
+      setCumulativeTokens(newTotal)
+      setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: lastPrompt || c.lastPromptTokens } : c))
       setLoading(false)
     } catch (err) {
       const errMsg = parseAiErrorMessage(err)
@@ -595,6 +1011,7 @@ export default function AIChatWindow() {
   const canApply = ['worldbuilding', 'outline', 'detailed-outline', 'chapter'].includes(activePage)
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -624,7 +1041,7 @@ export default function AIChatWindow() {
           </div>
 
           {/* Conversation management */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.01)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.1)' }}>
             {/* Conversation selector */}
             <div style={{ flex: 1, position: 'relative' }}>
               <button onClick={() => setShowConvList(!showConvList)} style={{
@@ -646,8 +1063,8 @@ export default function AIChatWindow() {
                     boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
                   }}
                 >
-                  {conversations.map(conv => (
-                    <div key={conv.id} onClick={(e) => { e.stopPropagation(); setActiveConversationId(conv.id) }} style={{
+                  {[...conversations].reverse().map(conv => (
+                    <div key={conv.id} onClick={(e) => { e.stopPropagation(); switchConversation(conv.id) }} style={{
                       display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
                       cursor: 'pointer', fontSize: 11, color: conv.id === activeConversationId ? '#7c3aed' : '#2d2520',
                       background: conv.id === activeConversationId ? 'rgba(124,58,237,0.04)' : 'transparent',
@@ -677,7 +1094,7 @@ export default function AIChatWindow() {
           </div>
 
           {/* Source toggles */}
-          <div style={{ display: 'flex', gap: 6, padding: '8px 18px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.01)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, padding: '8px 18px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.1)', flexWrap: 'wrap', alignItems: 'center' }}>
             <ToggleButton icon={<BookOpenIcon style={{ width: 12, height: 12 }} />} label="知识库" active={kbEnabled} onClick={() => setKbEnabled(!kbEnabled)} />
             {kbEnabled && (
               <div style={{ position: 'relative' }}>
@@ -707,42 +1124,182 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
-            {/* Plan/Action toggle */}
-            <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-              <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'plan' })} style={{ padding: '4px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
-              <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#9b8e84', fontFamily: 'inherit' }}>Action</button>
+            {/* Plan/Action toggle — Action requires entering a project first */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}
+                title={activeProjectId ? '' : '请先进入一个项目，才能使用 Action 模式'}>
+                <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'plan' })} style={{ padding: '4px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
+                <button onClick={() => { if (activeProjectId) useSettingsStore.getState().setAISettings({ workMode: 'action' }) }} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: activeProjectId ? 'pointer' : 'not-allowed', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit', opacity: activeProjectId ? 1 : 0.5 }}>Action</button>
+              </div>
+              {!activeProjectId && (
+                <span style={{ fontSize: 9, color: '#d97706', fontWeight: 600 }}>进入项目后可用</span>
+              )}
+            </div>
+            {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff' }}
+              title={`温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 越高回复越随机/有创意，越低越确定/保守`}>
+              <button onClick={async () => {
+                if (!activeConfig) return
+                const newTemp = Math.max(0, +(activeConfig.temperature || 0.8).toFixed(1) - 0.1)
+                useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
+                await settingsService.saveConfigs(useSettingsStore.getState().configs) // API keys encrypted via safeStorage before disk write
+              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
+              <span style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', minWidth: 36, textAlign: 'center', cursor: 'default' }}>
+                {activeConfig?.temperature?.toFixed(1) ?? '0.8'}°C
+              </span>
+              <button onClick={async () => {
+                if (!activeConfig) return
+                const newTemp = Math.min(2, +(activeConfig.temperature || 0.8).toFixed(1) + 0.1)
+                useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
+                await settingsService.saveConfigs(useSettingsStore.getState().configs) // API keys encrypted via safeStorage before disk write
+              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
             {/* Upload file (TXT/MD) */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const text = r.result as string; if (text.trim()) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传文件: ${f.name}]\n\n${text.slice(0, 50000)}` }]); setTimeout(() => handleSend(), 100) } }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
             {/* Upload image */}
             <button onClick={() => { if (!activeProjectId) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path; if (!pp) return; try { const fn = await fileService.saveImageUrl(r.result as string, pp); if (fn) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传图片: images/${fn}]` }]); setTimeout(() => handleSend(), 100) } } catch {} }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
-            {kbEnabled && (
-              <span style={{ fontSize: 10, color: '#ca8a04', marginLeft: 4 }} title="知识库内容可能触发AI内容安全策略，如遇拦截请关闭此开关">
-                含敏感内容时建议关闭
-              </span>
-            )}
+            {/* Model switcher */}
+            <select
+              value={activeConfigId || ''}
+              onChange={e => {
+                const newId = e.target.value
+                if (newId) useSettingsStore.getState().setActiveConfig(newId)
+              }}
+              style={{
+                padding: '3px 6px', borderRadius: 6,
+                border: '1px solid rgba(0,0,0,0.1)', fontSize: 10,
+                color: '#4a3f38', background: '#fff', cursor: 'pointer',
+                fontFamily: 'inherit', maxWidth: 150,
+              }}
+              title="切换模型配置"
+            >
+              {configs.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.model}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <ContextUsageBar usedTokens={cumulativeTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
+          <ContextUsageBar usedTokens={lastPromptTokens || cumulativeTokens} contextWindow={activeConfig?.contextWindow ?? 128000} />
+
+          {/* Delete bar */}
+          {selectedMsgIds.size > 0 && (
+            <div style={{ padding: '4px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.04)' }}>
+              <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>已选 {selectedMsgIds.size} 条</span>
+              <button onClick={deleteSelectedMsgs} style={{ padding: '3px 12px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.2)', background: '#fff', color: '#dc2626', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>删除选中</button>
+              <button onClick={() => setSelectedMsgIds(new Set())} style={{ padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: '#9b8e84', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>取消</button>
+            </div>
+          )}
 
           {/* Messages */}
           <div ref={scrollRef} className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
-            {messages.map(msg => (
-              <div key={msg.id}>
-                {/* Regular message bubble */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: msg.role === 'assistant' ? 4 : 14, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: msg.role === 'user' ? 'rgba(124,58,237,0.1)' : 'rgba(139,92,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {msg.role === 'user' ? <UserIcon style={{ width: 14, height: 14, color: '#7c3aed' }} /> : <SparklesIcon style={{ width: 14, height: 14, color: '#8b5cf6' }} />}
+            {messages.map((msg, i) => {
+              // WeChat-style time separator
+              const prevMsg = i > 0 ? messages[i - 1] : null
+              const isFirst = i === 0
+              const hasGap = msg.timestamp && prevMsg?.timestamp && (msg.timestamp - prevMsg.timestamp > 3 * 60 * 1000)
+              const showTime = msg.timestamp && (isFirst || hasGap)
+              const fmtTime = (ts: number) => {
+                const d = new Date(ts)
+                const now = new Date()
+                const timeStr = d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })
+                if (d.toDateString() === now.toDateString()) return timeStr
+                const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
+                if (d.toDateString() === yesterday.toDateString()) return `昨天 ${timeStr}`
+                return `${d.getMonth() + 1}月${d.getDate()}日 ${timeStr}`
+              }
+              const timeSep = showTime ? (
+                <div key={`t_${msg.id}`} style={{ textAlign: 'center', padding: '14px 0 10px', fontSize: 12, color: '#b0a89e', letterSpacing: 0.5 }}>
+                  {fmtTime(msg.timestamp!)}
+                </div>
+              ) : null
+
+              // Format tool messages as Chinese summary instead of raw JSON
+              let displayContent = msg.content
+              const toolLabel = (msg as any).toolName || ''
+              if (msg.role === 'tool') {
+                try {
+                  const parsed = JSON.parse(msg.content)
+                  const statusIcon = parsed.status === 'error' ? '✗' : '✓'
+                  displayContent = `${statusIcon} [${toolLabel}] ${parsed.summary || '操作完成'}`
+                  if (parsed.detail) displayContent += `\n${parsed.detail}`
+                } catch { /* keep raw content if not valid JSON */ }
+              }
+              // Show tool call names for assistant messages that only contain tool_calls
+              const isToolCallOnly = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0 && !msg.content?.trim()
+
+              return (
+              <div key={`w_${msg.id}`}>
+                {timeSep}
+              <div onContextMenu={e => { e.preventDefault(); toggleSelectMsg(msg.id) }}
+                style={{ background: selectedMsgIds.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8, transition: 'background 0.15s' }}>
+                {/* Tool call indicator for assistant messages with tool_calls but no text */}
+                {isToolCallOnly && (
+                  <div style={{ padding: '4px 0 4px 36px' }}>
+                    {msg.tool_calls!.map((tc: any, i: number) => (
+                      <span key={i} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 6, marginBottom: 4,
+                        padding: '3px 10px', borderRadius: 12, fontSize: 10, fontWeight: 600,
+                        background: 'rgba(124,58,237,0.06)', color: '#7c3aed', border: '1px solid rgba(124,58,237,0.12)',
+                      }}>🔧 {tc.function?.name || '工具调用'}</span>
+                    ))}
                   </div>
-                  <div style={{ maxWidth: '82%', padding: '10px 14px', borderRadius: 16, background: msg.role === 'user' ? 'rgba(124,58,237,0.08)' : 'rgba(0,0,0,0.03)', fontSize: 13, lineHeight: 1.6, color: '#2d2520', whiteSpace: 'pre-wrap' }}>
-                    {msg.content}
+                )}
+
+                {/* Regular message bubble (hide for tool-call-only assistant msgs) */}
+                {!isToolCallOnly && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: msg.role === 'assistant' ? 4 : 14, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>
+                    {msg.role === 'user'
+                      ? (aiSettings.userAvatar ? <img src={aiSettings.userAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '✍️')
+                      : msg.role === 'tool' ? '🔧'
+                      : (aiSettings.assistantAvatar ? <img src={aiSettings.assistantAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '📖')
+                    }
+                  </div>
+                  <div style={{
+                    maxWidth: '82%', padding: '10px 14px', borderRadius: 16,
+                    background: msg.role === 'user' ? 'rgba(124,58,237,0.08)'
+                      : msg.role === 'tool' ? 'rgba(22,163,74,0.04)'
+                      : 'rgba(0,0,0,0.03)',
+                    border: msg.role === 'tool' ? '1px solid rgba(22,163,74,0.1)' : undefined,
+                    fontSize: msg.role === 'tool' ? 11 : 13, lineHeight: 1.6, color: '#2d2520', whiteSpace: 'pre-wrap',
+                  }}>
+                    {/* Collapsible long content */}
+                    {(() => {
+                      const isLong = msg.role === 'assistant' && !msg.tool_calls && displayContent.length > 550
+                      if (!isLong) return displayContent
+                      const isExpanded = expandedMsgs.has(msg.id)
+                      return (
+                        <div>
+                          <div style={{ marginBottom: isExpanded ? 8 : 0 }}>{isExpanded ? displayContent : displayContent.slice(0, 380) + '...'}</div>
+                          <button onClick={() => toggleExpand(msg.id)} style={{
+                            background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#7c3aed', fontWeight: 600,
+                            padding: '2px 0', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
+                          }}>
+                            {isExpanded ? '收起 ▲' : '展开全文 ▼'}
+                          </button>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
+                )}
+                {/* Usage footer — only on assistant messages */}
+                {msg.role === 'assistant' && msg.usage && (
+                  <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84' }}>
+                    <span>Token: {msg.usage.total_tokens.toLocaleString()}</span>
+                    {msg.usage.cost > 0 && <span>花费 {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
+                    {msg.wordCount && msg.wordCount > 0 && <span>{msg.wordCount.toLocaleString()} 字</span>}
+                  </div>
+                )}
                 {/* Images */}
                 {msg.images && msg.images.map((img: string, i: number) => (
                   <div key={i} style={{ marginLeft: 36, marginTop: 4, marginBottom: 4 }}>
-                    <img src={img} alt={`AI图片${i+1}`} style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)' }} />
+                    <img src={img} alt={`AI图片${i+1}`}
+                      onClick={() => setLightboxImage(img)}
+                      style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)', cursor: 'pointer' }} />
                   </div>
                 ))}
                 {/* Plan reminder banner */}
@@ -808,8 +1365,21 @@ export default function AIChatWindow() {
                   </div>
                 )}
               </div>
-            ))}
-            {loading && <div style={{ textAlign: 'center', color: '#9b8e84', fontSize: 12, padding: 8 }}>AI思考中...</div>}
+              </div>
+            )})}
+            {loading && (
+              <div style={{ textAlign: 'center', padding: 6 }}>
+                <button onClick={abortToolLoop} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px',
+                  borderRadius: 20, border: '1px solid rgba(220,38,38,0.25)', background: '#fff',
+                  color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: 'inherit', transition: 'all 0.15s',
+                }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#dc2626' }} />
+                  停止生成
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Input */}
@@ -872,27 +1442,34 @@ export default function AIChatWindow() {
               请先在系统设置中配置AI模型
             </div>
           )}
-          {/* 4-corner resize handles */}
-          {(['top-left','top-right','bottom-left','bottom-right'] as const).map(corner => (
+          {/* 4 edges + 4 corners resize handles */}
+          {(['top','bottom','left','right','top-left','top-right','bottom-left','bottom-right'] as const).map(corner => {
+            const isEdge = corner === 'top' || corner === 'bottom' || corner === 'left' || corner === 'right'
+            return (
             <div key={corner} onMouseDown={handleResizeStart(corner)} style={{
               position: 'absolute',
               top: corner.includes('top') ? 0 : undefined,
               bottom: corner.includes('bottom') ? 0 : undefined,
               left: corner.includes('left') ? 0 : undefined,
-              right: corner.includes('right') ? 0 : undefined,
-              width: 16, height: 16,
-              cursor: corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
-              opacity: 0.3, display: 'flex', alignItems: corner.includes('bottom') ? 'flex-end' : 'flex-start',
-              justifyContent: corner.includes('right') ? 'flex-end' : 'flex-start',
-              flexDirection: corner.includes('bottom') ? 'row' : 'row-reverse',
-              transform: corner.includes('left') ? 'scaleX(-1)' : 'none',
+              right: corner.includes('right') ? 6 : undefined,
+              // Edge handles don't cover scrollbar area (right side 6px offset for scrollbar)
+              width: isEdge ? (corner === 'top' || corner === 'bottom' ? 'calc(100% - 16px)' : (corner === 'right' ? 4 : 8)) : 16,
+              height: isEdge ? (corner === 'left' || corner === 'right' ? 'calc(100% - 16px)' : (corner === 'bottom' ? 4 : 8)) : 16,
+              marginTop: (corner === 'left' || corner === 'right') ? 8 : 0,
+              cursor: corner === 'top' || corner === 'bottom' ? 'ns-resize'
+                : corner === 'left' || corner === 'right' ? 'ew-resize'
+                : corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
+              // Edge handles low z-index to not block scrollbar; corners high for grip indicator
+              zIndex: isEdge ? 1 : 10,
             }}>
-              <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84"/><path d="M0 14L14 0H11L0 11V14Z" fill="#9b8e84"/></svg>
+              {!isEdge && <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84" opacity="0.3"/></svg>}
             </div>
-          ))}
+          )})}
         </motion.div>
       )}
     </AnimatePresence>
+    {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
+    </>
   )
 }
 
