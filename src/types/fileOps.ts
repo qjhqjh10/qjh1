@@ -519,7 +519,7 @@ export const FILE_TOOLS = [
           dominantEmotion: { type: 'string', description: '主导情绪' },
           pacing: { type: 'string', description: '节奏: 舒缓/渐进/紧凑/急促/爆发' },
           // 情色专属字段
-          eroticIntensity: { type: 'number', description: '情色浓度 1-5。仅情色类型需填' },
+          eroticIntensity: { type: 'number', description: '情色浓度 1-5。仅情色类型。也可用 intensity' },
           selectedKinks: { type: 'array', items: { type: 'string' }, description: '性癖/玩法标签。仅情色类型' },
           opening: { type: 'array', items: { type: 'string' }, description: '起始方式。仅情色类型' },
           mainPose: { type: 'string', description: '主体位。仅情色类型' },
@@ -566,6 +566,12 @@ export const FILE_TOOLS = [
 // Tools that require user confirmation
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']) as ReadonlySet<string>
 export const PREVIEW_TOOLS = new Set(['edit_file']) as ReadonlySet<string>
+// Plan 模式工具集。名称保留 "READ_ONLY" 为历史兼容，实际允许以下写操作（设计意图）：
+// - write_note/append_note/delete_note: 草稿笔记管理，Plan 模式下仍需正常使用
+// - generate_image/search_images: 只生成/搜索不修改文件，视为安全操作
+// - create_style_template/create_scene_template: 模板创建写入独立全局目录，不修改项目文件
+// - kb_create_file/kb_append_file: 知识库写入独立目录，不修改项目文件
+// - list_prompts/toggle_prompt/update_prompt: 提示词库管理，不影响项目文件
 export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs

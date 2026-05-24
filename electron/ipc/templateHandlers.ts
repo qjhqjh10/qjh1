@@ -28,11 +28,17 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
 
   ipcMain.handle('template:save', async (_e, template: SceneTemplate) => {
     if (!template.id) template.id = (template as any).name || `sc_${Date.now().toString(36)}`
-    // Deduplicate filename
+    // Dedup: find a free filename. If current file IS this template (same id), overwrite.
     const baseId = template.id
-    let counter = 0
-    while (true) {
-      try { await fs.access(path.join(basePath, `${sanitizeId(template.id)}.json`)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+    const currentPath = path.join(basePath, `${sanitizeId(baseId)}.json`)
+    const existing = await fs.access(currentPath).then(async () => {
+      try { const raw = await fs.readFile(currentPath, 'utf-8'); const t = JSON.parse(raw); return t.id === template.id } catch { return false }
+    }).catch(() => false)
+    if (!existing) {
+      let counter = 0
+      while (true) {
+        try { await fs.access(path.join(basePath, `${sanitizeId(template.id)}.json`)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+      }
     }
     await fs.mkdir(basePath, { recursive: true })
     await fs.writeFile(path.join(basePath, `${sanitizeId(template.id)}.json`), JSON.stringify(template, null, 2), 'utf-8')

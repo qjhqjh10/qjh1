@@ -74,12 +74,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       maxRetries: 1,
     })
 
-    const systemMessage = config.systemPrompt
-      ? { role: 'system' as const, content: config.systemPrompt }
-      : null
-
     const apiMessages = [
-      ...(systemMessage ? [systemMessage] : []),
       ...messages.map(m => ({ role: validateRole(m.role) as 'user' | 'assistant', content: m.content })),
     ]
 
@@ -141,12 +136,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const OpenAI = await getOpenAI()
     const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
 
-    const systemMessage = config.systemPrompt
-      ? { role: 'system' as const, content: config.systemPrompt }
-      : null
-
     const apiMessages = [
-      ...(systemMessage ? [systemMessage] : []),
       ...messages.map(m => ({ role: validateRole(m.role) as 'user' | 'assistant', content: m.content })),
     ]
 
@@ -317,12 +307,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         toolChatAbortHandlers.delete(wcId)
       })
 
-      const systemMessage = config.systemPrompt
-        ? { role: 'system' as const, content: config.systemPrompt }
-        : null
-
       const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string }> = [
-        ...(systemMessage ? [systemMessage] : []),
         ...messages.map(m => {
           const msg: Record<string, unknown> = {
             role: validateRole(m.role),

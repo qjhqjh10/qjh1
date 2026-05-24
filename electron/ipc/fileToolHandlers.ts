@@ -223,7 +223,7 @@ export async function executeFileTool(
         const fp = await safeResolve('file_path', args, projectPath)
         // Global uploads fallback: always try basename in global uploads/
         const globalUploads = path.join(path.dirname(projectPath), 'uploads')
-        const uploadsFp = path.join(globalUploads, path.basename(args.file_path as string))
+        const uploadsFp = path.join(globalUploads, path.basename(String(args.file_path || '')))
         // Try: project path → global uploads
         let content: string
         try { content = await readFileWithEncoding(fp || uploadsFp) } catch {

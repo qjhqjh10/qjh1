@@ -1,7 +1,31 @@
 {
-  "currentVersion": "5.3.0",
+  "currentVersion": "5.4.1",
   "currentDate": "2026-05-24",
   "history": [
+    {
+      "version": "5.4.1",
+      "date": "2026-05-24",
+      "features": [
+        "Token优化3: config.systemPrompt从后端每API调用注入改为前端仅首条发送(与FILE_OP_SYSTEM_PROMPT同行), 节省工具循环中重复消耗",
+        "死代码清理: 删除buildContextPrefix(112行)+contextPriority+customRole等未使用变量, 删除setWritingChapter死变量",
+        "模板去重修复: AI创建同名模板不再覆盖(读取文件比对id判断是否同模板), 去重逻辑从'不存在才跳号'改为'同id覆盖+不同id跳号'",
+        "场景模板参数修复: intensity字段同时接受intensity和eroticIntensity两个参数名, path.basename(undefined)崩溃修复",
+        "代码注释增强: 工具按需选择/对话历史精简/scene_template_handler/fileEditNotify/文件上传三入口添加详细设计意图注释",
+        "READ_ONLY_TOOLS添加设计注释(解释写入工具的放行理由), 工具关键词新增生成/添加/整理"
+      ]
+    },
+    {
+      "version": "5.4.0",
+      "date": "2026-05-24",
+      "features": [
+        "欢迎信息全面升级: WELCOME_MSG详细覆盖19个功能模块(写作/文件/大纲/细纲/角色/风格工坊/场景工坊/草稿/知识库/图片/仿写/故事脉络/上传/PlanAction/设置/对话/弹窗/语音/导出), 系统设置新增'显示新会话欢迎信息'开关",
+        "系统提示词补全: 新增角色管理(16字段Schema)/风格工坊/场景工坊/知识库/草稿笔记/图片功能等完整操作指南, 与WELCOME_MSG功能对齐",
+        "场景模板修复: bodyFluidFocus/bodyPartFocus/tactileFocus/sensoryAnchors/emotionCurveInput/triggerWords从undefined改为正确写入config, isEmpty()增强(空数组/空对象视为未提供自动标autoFields)",
+        "模板去重修复: 编辑现有模板保存时不再生成副本(文件已存在直接覆盖, 文件不存在才去重跳号), 风格模板和场景模板同步修复",
+        "场景模板卡片AI自动标识: SectionCard/NovelSectionCard新增isAuto prop, 自动模式显示紫色卡片+🤖标签+特殊边框背景, sectionIsAuto/novelSectionIsAuto判断函数(区块关键字段全部标记自动才算自动)",
+        "全代码审计完成: 识别21个问题(2高/9中/10低), 确认无阻断性bug/数据丢失/安全漏洞"
+      ]
+    },
     {
       "version": "5.3.0",
       "date": "2026-05-24",

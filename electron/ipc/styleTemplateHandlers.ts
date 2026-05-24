@@ -51,19 +51,20 @@ async function readTemplate(id: string): Promise<StyleTemplate | null> {
 async function saveTemplate(template: StyleTemplate): Promise<StyleTemplate> {
   await ensureDir()
   if (!template.id) template.id = template.name || `st_${crypto.randomUUID().slice(0, 8)}`
-  // Deduplicate filename
+  // Dedup: existing file with same id → overwrite; different id → find free name
   const baseId = template.id
-  let counter = 0
-  while (true) {
-    try { await fs.access(safeTemplatePath(template.id)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+  const existsSameId = await fs.access(safeTemplatePath(baseId)).then(async () => {
+    try { const raw = await fs.readFile(safeTemplatePath(baseId), 'utf-8'); return JSON.parse(raw).id === template.id } catch { return false }
+  }).catch(() => false)
+  if (!existsSameId) {
+    let counter = 0
+    while (true) {
+      try { await fs.access(safeTemplatePath(template.id)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+    }
   }
   template.updatedAt = new Date().toISOString()
   if (!template.createdAt) template.createdAt = template.updatedAt
-  await fs.writeFile(
-    safeTemplatePath(template.id),
-    JSON.stringify(template, null, 2),
-    'utf-8',
-  )
+  await fs.writeFile(safeTemplatePath(template.id), JSON.stringify(template, null, 2), 'utf-8')
   return template
 }
 

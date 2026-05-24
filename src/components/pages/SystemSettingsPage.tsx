@@ -742,7 +742,14 @@ function AISettingsTab() {
 
         {/* Web Search */}
         <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>联网搜索设置</h4>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>界面设置</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <FormField label="显示新会话欢迎信息">
+              <input type="checkbox" checked={aiSettings.showWelcome !== false} onChange={e => update('showWelcome', e.target.checked)} />
+            </FormField>
+          </div>
+
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, marginTop: 24, color: '#2d2520' }}>联网搜索设置</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label="默认开启联网搜索">
               <input type="checkbox" checked={aiSettings.webSearchDefault} onChange={e => update('webSearchDefault', e.target.checked)} />

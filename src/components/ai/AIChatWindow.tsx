@@ -20,7 +20,8 @@ import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 
 function makeConversation(id: string, title: string): Conversation {
-  return { id, title, messages: [{ ...WELCOME_MSG, id: `welcome_${id}` }], createdAt: Date.now(), totalTokens: 0, lastPromptTokens: 0 }
+  const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false
+  return { id, title, messages: showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${id}` }] : [], createdAt: Date.now(), totalTokens: 0, lastPromptTokens: 0 }
 }
 
 function parsePopupCommand(text: string): { text: string; popup?: { type: 'outline' | 'worldbuilding' | 'draft' | 'kb'; title: string; documentKey?: string }; genTrigger?: string } {
@@ -97,7 +98,7 @@ export default function AIChatWindow() {
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
   const setOutlineContent = useStore(s => s.setOutlineContent)
   const updateDetailedChapter = useStore(s => s.updateDetailedChapter)
-  const setWritingChapter = useStore(s => s.setWritingChapter)
+
 
   const currentChapter = currentChapterId ? writingChapters[currentChapterId] : null
   const currentDetailedChapter = currentChapterId ? detailedChapters.find(c => c.id === currentChapterId) : null
@@ -325,7 +326,7 @@ export default function AIChatWindow() {
   const abortToolLoop = () => { abortRef.current = true; aiService.abortStream(); setLoading(false) }
   const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId) } }
   const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false) }
-  const handleClearConversation = () => { abortToolLoop(); setMessages([{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }]); setCumulativeTokens(0); setLastPromptTokens(0); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0 } : c)) }
+  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); setCumulativeTokens(0); setLastPromptTokens(0); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
   // Dismiss context menu on click outside
@@ -347,119 +348,25 @@ export default function AIChatWindow() {
     })
   }, [messages, isOpen])
 
-  const contextPriority = aiSettings.contextPriority
 
-  // Inject custom AI role if matching
-  const customRole = (aiSettings.customRoles || []).find(r => r.id === aiSettings.defaultRole)
-
-  const buildContextPrefix = (kbContext: string, webContext: string): string => {
-    const cg = aiSettings.chapterGen
-    const parts: string[] = []
-    if (customRole?.prompt) {
-      parts.push(`[AI角色: ${customRole.name}]\n${customRole.prompt}`)
-    }
-
-    if (activePage === 'chapter' && currentChapter) {
-      parts.push(`[当前章节: ${currentDetailedChapter?.title || '未命名'}，${currentChapter.content?.length || 0}字。用 read_file("chapters/${currentChapter.id || '?'}.txt") 查看正文，用 read_file 查看细纲。修改某段→read_file→edit_file精确替换。生成设置: ${cg.wordTarget}字/${cg.replaceMode ? '替换' : '追加'}]`)
-    }
-
-    if (activePage === 'outline' && outlineContent) {
-      parts.push(`用户正在大纲页面（故事剧情：${outlineContent.length}字符）。如需查看内容请 read_file("outline/plot.md")，修改用 edit_file。不要自动读取文件。大纲包含10个Tab：
-
-**核心Tab — 故事剧情 (outline/plot.md) 和 世界观（设定） (outline/worldbuilding.md):**
-HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原文 → edit_file(old_string="原文", new_string="原文\n新增")。若文件为空（内容为" "或空）则 old_string="" 配合 create_file 写入初始HTML。支持HTML标签、图片、链接。
-
-**其他大纲Tab与对应文件（完整字段，创建时必须全部包含）：**
-- 世界观（设定） → outline/worldbuilding.md（HTML富文本，同故事剧情）
-- 角色 → characters/{nanoid}.json（创建时 generate_nanoid:true）字段: id,name,role(必须是:男主|女主|男配|女配|反派|其他之一),gender,age,occupation(必填,职业/身份/社会地位,不可为空),background,appearance,personality,**abilities(纯文本字符串,不可为对象!)**,weaknesses,relationships,relationshipTags(字符串数组),arc,importance(1-100),image
-- 道具 → outline/items.json: {"items":[{"id":"nanoid","name":"","type":"武器|法宝|丹药|功法|道具|其他","grade":"","ability":"","owner":"","description":""}]}
-- 地点 → outline/locations.json: {"locations":[{"id":"nanoid","name":"","description":"","type":"门派|城池|秘境|自然|其他"}]}
-- 势力 → outline/factions.json: {"factions":[{"id":"nanoid","name":"","description":"","type":"正道|邪道|中立|皇朝|其他"}]}
-- 等级 → outline/power_system.json: {"name":"","levels":[{"name":"","description":""}],"description":""}
-- 伏笔 → outline/outline_meta.json foreshadowing: [{"id":"nanoid","description":"","plantChapterId":"","payoffChapterId":"","status":"planted|resolved"}]
-- 情绪 → outline/emotion.json: {"segments":[{"chapterStart":1,"chapterEnd":1,"dominantEmotion":""}]}
-- 故事线 → outline/outline_meta.json plotThreads: [{"id":"nanoid","name":"","type":"main|sub|hidden","color":"#7c3aed","**chapterIds**:[]"}] ← chapterIds 必须存在,至少是空数组[]!
-
-修改文件后界面会自动刷新。用 read_file 查看当前数据，edit_file 精确修改。分析建议和文本改写可直接在聊天中输出。`)
-    }
-
-    if (activePage === 'worldbuilding' && worldbuildingContent) {
-      parts.push(`用户正在世界观设定页面（内容：${worldbuildingContent.length}字符）。如需查看用 read_file("outline/worldbuilding.md")，修改用 edit_file。不要自动读取文件。`)
-    }
-
-    if (activePage === 'rewrite' && rewriteContent) {
-      parts.push(`用户正在剧情改写页面（章节正文：${rewriteContent.length}字符）。不要自动读取文件。用户要求修改时再 read_file 查看原文，用 edit_file 精确替换。`)
-    }
-
-    if (activePage === 'style-workshop') {
-      parts.push('用户正在风格工坊分析文风。你可帮助分析 26 维文风特征、总结风格档案、填充风格模板。风格数据存储在 style_projects/ 目录。')
-    }
-
-    if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
-      const chapterList = detailedChapters.map(c => `[${c.status === 'completed' ? '✓' : '○'}] ${c.title} (id: ${c.id})`).join('\n')
-      parts.push(`[当前细纲列表(${detailedChapters.length}章):\n${chapterList}]`)
-      parts.push(`用户正在细纲页面。细纲的每个章节是独立的JSON文件，存储在 detailed_outline/{id}.json。
-
-**字段结构:**
-- id: 唯一标识
-- title: 章节标题（如"章节 3"）
-- order: 排序序号
-- status: 'incomplete' | 'completed'
-- plotOverview: 剧情概述（150-250字）
-- characters: 出场角色（每行一个角色名）
-- location: 场景地点
-- keyEvents: 关键事件（每行一个）
-- eroticContent: 情色内容（仅情色小说）
-
-**操作规则（重要）:**
-1. 查看细纲：用户需指定具体章节（如"查看章节3的细纲"）。如果没说哪一章，提醒用户选择。
-2. 修改细纲：先用 read_file 查看该章JSON，给出分析建议，用户确认后用 edit_file 修改。
-3. 新建细纲：用 create_file 创建 detailed_outline/{新id}.json，然后问用户要填什么内容（剧情概述/角色/地点/事件）。
-4. 删除细纲：用 delete_file 删除对应JSON文件（需用户确认）。
-5. 一次只操作一个章节的细纲，不要把全部细纲内容一起读出来。
-6. 创建场景模板：如果用户要求根据某章细纲创建场景模板，先 read_file 读该章JSON，分析剧情概述/角色/地点/事件/情绪基调，然后调用 create_scene_template 工具保存。`)
-    }
-
-    if (activePage === 'characters' && characters.length > 0) {
-      const cs = characters.map(c => `${c.name}(${c.role || '未分类'}): ${c.personality?.slice(0, 200) || ''}`).join('\n')
-      parts.push(`[角色列表(${characters.length}个):\n${cs}]\n角色数据存储在 characters/*.json，你可读取/编辑角色文件。`)
-    }
-
-    if (activePage === 'scene-workshop') {
-      parts.push('用户正在场景工坊配置场景参数。你可帮助分析场景结构、推荐配置、优化叙事技法和情绪设计。')
-    }
-
-    if (activePage === 'continuation-workspace' || activePage === 'continuation-writing') {
-      parts.push('用户正在进行小说续写。你可帮助分析原文、提取角色和设定、规划剧情走向、生成续写大纲和细纲。续写数据存储在 continuation_projects/ 目录。')
-    }
-
-    if (activePage === 'story-map') {
-      parts.push('用户正在故事脉络页面分析小说结构。你可帮助分析时间线、检测设定冲突、解读情绪曲线和节奏。故事数据存储在 story_workspace/ 目录。')
-    }
-
-    if (activePage === 'scratchpad') {
-      parts.push('用户正在草稿本。草稿全局存储，不绑定项目。你可使用 read_note/write_note/append_note 操作草稿。')
-    }
-
-    if (activePage === 'style-workshop') {
-      parts.push('用户正在风格工坊分析文风。你可帮助分析 26 维文风特征、总结风格档案、填充风格模板。风格数据存储在 style_projects/ 目录。')
-    }
-
-    if (activePage === 'imitation') {
-      parts.push('用户正在进行小说仿写。你可帮助提取原作特征、生成模仿大纲和细纲。仿写数据存储在项目 extraction.json 文件中。')
-    }
-
-    const priorityInstruction = contextPriority === 'kb-first'
-      ? '\n优先参考以上知识库信息进行回答，知识库内容具有最高参考权重。'
-      : contextPriority === 'model-first'
-        ? '\n以上知识库信息仅供参考，请以你的模型知识为主要依据进行回答。'
-        : ''
-
-    if (kbContext) parts.push(kbContext + priorityInstruction)
-    if (webContext) parts.push(webContext)
-    return parts.join('\n\n')
-  }
-
+  // ══════════════════════════════════════════════════════════════════
+  // 文件上传系统 (三入口·一流程)
+  // ══════════════════════════════════════════════════════════════════
+  //
+  // 三处入口看似重复，实为三种交互路径，共用一个 attachment 状态：
+  //   1. handleDrop     — 拖拽文件/图片到输入框
+  //   2. 文件按钮点击   — 点击"文件"按钮选择 TXT/MD
+  //   3. 图片按钮点击   — 点击"图片"按钮选择图片
+  //
+  // 三者分别实现 Reader 逻辑是因为：拖拽的 file 对象来自 dataTransfer，
+  // 按钮的 file 对象来自 input.files，API 不同但最终都设 attachment state。
+  // 图片需额外 writeBinary 写 base64 到磁盘，文件直接写文本。
+  // 合并为一个函数需处理两种来源×两种类型=4个分支，反而更乱。
+  //
+  // 附件存储流程（handleSend 中）：
+  //   attachment.content → prepended to user message (发给 API)
+  //   attachment.name   → preserved in message history summary only
+  //   发送后 setAttachment(null) 清空
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
@@ -581,6 +488,9 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       const systemMessages: Array<{ role: string; content: string }> = []
       if (isFirstMessage) {
         systemMessages.push({ role: 'system', content: FILE_OP_SYSTEM_PROMPT })
+        // config.systemPrompt now sent once with FILE_OP_SYSTEM_PROMPT instead of every API call
+        const cfgSysPrompt = activeConfig?.systemPrompt
+        if (cfgSysPrompt) systemMessages.push({ role: 'system', content: cfgSysPrompt })
         systemMessages.push(
           { role: 'system', content: aiSettings.workMode === 'plan'
             ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
@@ -589,9 +499,23 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         )
       }
 
-      // History — tool calls/results do NOT carry across rounds.
-      // Only user/assistant text content is preserved. AI reads files on demand.
-      // Limit to last 20 messages to prevent token bloat from long conversations.
+      // ══════════════════════════════════════════════════════════════════
+      // 对话历史精简 (History Pruning)
+      // ══════════════════════════════════════════════════════════════════
+      //
+      // 设计意图：工具调用/结果仅当前轮有效，不跨轮携带。避免 create_file
+      // 的完整 JSON 参数和 read_file 的完整文件内容在多轮对话中反复出现。
+      //
+      // 过滤规则：
+      //   1. 排除 welcome 消息（本地 UI 展示用，不发给 AI）
+      //   2. 排除 system 消息（每次重建，不存旧轮的系统提示词）
+      //   3. 排除 tool 消息（工具结果用完即弃，AI 需要时再 read_file）
+      //   4. 排除 compressedSummary（压缩摘要另行注入为 system 消息）
+      //   5. 去掉 assistant 消息中的 tool_calls 参数（工具调用参数不跨轮）
+      //   6. 限制最近 20 条消息，防止长对话 token 膨胀
+      //
+      // 注意：当前轮的工具循环不受影响。工具调用/结果在 while 循环内通过
+      // messagesForApi 正常传递。此处仅限制跨轮历史。
       const MAX_HISTORY = 20
       const compressedMsgs = messages.filter(m => m.compressedSummary)
       const filteredMessages = messages.filter(m =>
@@ -614,13 +538,24 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + fullContent },
       ]
 
-      // Tools — smart selection: only send tools relevant to user's intent.
-      // Avoids wasting ~5k tokens on tool definitions the AI won't use.
+      // ══════════════════════════════════════════════════════════════════
+      // 工具按需选择 (Smart Tool Selection)
+      // ══════════════════════════════════════════════════════════════════
+      //
+      // 设计意图：28个工具的完整 JSON Schema 约消耗 5,000 tokens/轮。
+      // 闲聊（"你好"）不需要任何工具，任务型对话也只需相关子集。
+      //
+      // 三级策略：
+      //   纯闲聊 → toolsForApi = undefined → 省 ~5,000 tokens
+      //   普通任务 → 仅核心8个文件工具 → ~1,500 tokens
+      //   特定领域 → 核心+领域工具 → ~2,000-3,000 tokens
+      //
+      // 关键词匹配用于判断领域，所有工具通过 FILE_TOOLS 注册的真实函数名筛选。
+      // Plan 模式下进一步限制为 READ_ONLY_TOOLS 子集。
       const allTools = aiSettings.workMode === 'plan'
         ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
         : FILE_TOOLS
-      // Tool groups for domain-specific selection
-      const isFileTask   = /(大纲|细纲|章|角色|世界观|文件|道具|地点|势力|等级|伏笔|故事线|情绪|场景|统计|导出|配置|创建|新建|修改|编辑|删除|读取|帮|改|写|读|删|加|换|设定)/i.test(userMsg.content)
+      const isFileTask   = /(大纲|细纲|章|角色|世界观|文件|道具|地点|势力|等级|伏笔|故事线|情绪|场景|统计|导出|配置|创建|新建|修改|编辑|删除|读取|帮|改|写|读|删|加|换|设定|生成|添加|整理)/i.test(userMsg.content)
       const isNoteTask   = /(笔记|草稿|记下来|灵感|想法|保存)/i.test(userMsg.content)
       const isKbTask     = /(知识库|资料库|索引|语义|搜索)/i.test(userMsg.content)
       const isImageTask  = /(图片|生成.*图|插图|配图|形象图)/i.test(userMsg.content)
@@ -664,9 +599,6 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       if (webContext) breakdown.push({ label: '网络搜索上下文', chars: webContext.length })
       if (refContext) breakdown.push({ label: '引用文件', chars: refContext.length })
       breakdown.push({ label: '用户输入', chars: userMsg.content.length + 11 })  // +11 for \n\n[用户输入]\n prefix
-      // config.systemPrompt injected by backend every call
-      const cfgSysPrompt = activeConfig?.systemPrompt || ''
-      if (cfgSysPrompt) breakdown.push({ label: '模型配置系统提示词', chars: cfgSysPrompt.length })
       // Tools definition (sent every API call, often the hidden token hog)
       if (toolsForApi) {
         const toolsJson = JSON.stringify(toolsForApi)
@@ -826,7 +758,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     worldType: args.worldType || '', description: args.description || '',
                     dimensions: dims, vocabularyList: args.vocabularyList || [],
                     writingRules: rules, tone,
-                    source: 'ai-generated', createdAt: '', updatedAt: '', id: args.name || '',
+                    source: 'ai-generated', createdAt: '', updatedAt: '', id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,
                   }
                   const saved = await styleTemplateService.save(tmpl) as any
                   r = { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}\n可在风格工坊→模板库查看和编辑。` }
@@ -834,26 +766,36 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                   setFileEditNotify({ filePath: 'style_templates/updated', newContent: '__AI_EDITED__' })
                 } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
 
-              // create_scene_template: 创建场景模板 → 连接 SceneWorkshopPage
+              // ══════════════════════════════════════════════════════════════
+              // create_scene_template: 创建场景模板 (Route B — 前端直调)
+              // ══════════════════════════════════════════════════════════════
+              //
+              // AI 通过工具参数传入各字段值。Handler 负责：
+              //   1. 解析 AI 传入的参数（字符串→数组、角色行解析等）
+              //   2. 区分"AI 已提供"和"AI 未提供"的字段
+              //   3. 未提供字段自动标记为 autoFields（生成时 AI 自主决定）
+              //   4. 构建标准 SceneTemplate JSON 并写入 scene_templates/
+              //
+              // 注意：isEmpty() 函数将空数组 []、空对象 {}、空字符串 "" 均视为未提供。
+              // 这避免了 AI 传 `bodyFluidFocus: []` 时被错误当作"已提供"的 bug。
               } else if (tc.function.name === 'create_scene_template') {
                 try {
                   const isErotic = String(args.type || '').includes('情色')
 
-                  // Build characters array
+                  // Parse characters from "角色名-情绪" lines
                   const charLines = String(args.characters || '').split('\n').filter(Boolean)
                   const charObjs = charLines.map((line: string) => {
                     const parts = line.split(/[-—–·]/)
                     return { characterId: '', characterName: parts[0]?.trim() || line.trim(), emotion: parts[1]?.trim() || '' }
                   })
 
-                  // Track which fields AI explicitly provided (non-empty, non-default)
+                  // Track which fields AI explicitly provided with actual content.
+                  // Empty strings and empty arrays count as NOT provided → auto.
                   const aiProvided = new Set<string>()
+                  const isEmpty = (v: any) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)
                   const argKeys = Object.keys(args).filter(k => k !== 'name' && k !== 'type' && k !== 'autoFields')
                   for (const k of argKeys) {
-                    const v = args[k]
-                    if (v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)) {
-                      aiProvided.add(k)
-                    }
+                    if (!isEmpty(args[k])) aiProvided.add(k)
                   }
                   // Also add explicit autoFields entries
                   if (Array.isArray(args.autoFields)) args.autoFields.forEach((f: string) => aiProvided.add(f))
@@ -905,7 +847,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     props: args.props || '', appearance: args.appearance || '', bodyLanguage: args.bodyLanguage || '',
                     foreshadowUse: args.foreshadowUse || '无',
                     sceneTurningPoint: args.sceneTurningPoint || '',
-                    intensity: args.eroticIntensity || 3,
+                    intensity: args.eroticIntensity || args.intensity || 3,  // accept both param names
                     selectedKinks: Array.isArray(args.selectedKinks) ? args.selectedKinks : [],
                     opening: Array.isArray(args.opening) ? args.opening : [],
                     mainPose: args.mainPose || '无偏好',
@@ -916,6 +858,12 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     degradeLangs: Array.isArray(args.degradeLangs) ? args.degradeLangs : [], bannedWords: args.bannedWords || '',
                     consentDynamic: args.consentDynamic || '默认', aftercareDetail: args.aftercareDetail || '',
                     worldRules: args.worldRules || '', propList: args.propList || '', costumeList: args.costumeList || '',
+                    // Body focus & sensory (commonly missed)
+                    bodyFluidFocus: Array.isArray(args.bodyFluidFocus) ? args.bodyFluidFocus : [],
+                    bodyPartFocus: Array.isArray(args.bodyPartFocus) ? args.bodyPartFocus : [],
+                    tactileFocus: Array.isArray(args.tactileFocus) ? args.tactileFocus : [],
+                    sensoryAnchors: args.sensoryAnchors || '',
+                    emotionCurveInput: args.emotionCurveInput || '', triggerWords: args.triggerWords || '',
                     plotOverview: args.plotOverview || '',
                     detail: args.detail || '',
                     extraNote: args.extraNote || '',
@@ -925,7 +873,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                   }
 
                   const tmpl: any = {
-                    id: args.name || `sc_${Date.now().toString(36)}`,
+                    id: `sc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,
                     name: args.name || '场景模板',
                     type: isErotic ? '情色小说' : (args.type || '普通小说'),
                     config,
@@ -1102,8 +1050,13 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
               //   style_templates/*              → StyleWorkshopPage（风格模板Tab）
               //   scene_templates/*              → SceneWorkshopPage
               //
-              // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存
-              // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）
+              // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存。
+              // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）。
+              //
+              // 消费者注意（各页面 fileEditNotify handler）：
+              //   1. 路径比较前务必 .toLowerCase() — Windows 路径大小写不敏感但字符串比较敏感
+              //   2. setFileEditNotify(null) 只在匹配成功时调用 — 不匹配就不要清除
+              //   3. 遵循 handled 标志模式 — 多个 if/else 分支中只有命中的才 setFileEditNotify(null)
               const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']
               if (r?.status === 'success' && activeProjectId) {
                 const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
@@ -1394,9 +1347,9 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
-            {/* Upload file (TXT/MD) */}
+            {/* 上传入口②：按钮 → 文本文件。流程同 handleDrop 的文件分支，见上方注释 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); await fileService.write(`${uploadsDir}/${f.name}`, text.slice(0, 50000)) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text.slice(0, 50000) }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
-            {/* Upload image */}
+            {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {/* Model switcher */}
             <select

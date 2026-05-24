@@ -133,6 +133,7 @@ export interface AIAssistantSettings {
   userAvatar: string                         // 用户头像 base64 data URI (空字符串=默认emoji)
   assistantAvatar: string                    // AI助手头像 base64 data URI (空字符串=默认emoji)
   chapterGen: ChapterGenSettings
+  showWelcome: boolean                        // 是否显示新会话欢迎信息
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -152,6 +153,7 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   userAvatar: '',
   assistantAvatar: '',
   chapterGen: DEFAULT_CHAPTER_GEN,
+  showWelcome: true,
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },
