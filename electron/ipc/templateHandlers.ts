@@ -6,7 +6,8 @@ import type { SceneTemplate } from '../../src/types/story'
 let basePath = ''
 
 function sanitizeId(id: string): string {
-  return path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '_')
+  // Keep Chinese, letters, digits, spaces, common punct. Strip path-dangerous chars only.
+  return path.basename(id).replace(/[\\/:*?"<>|]/g, '_')
 }
 
 export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string) {
@@ -26,7 +27,13 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
   })
 
   ipcMain.handle('template:save', async (_e, template: SceneTemplate) => {
-    if (!template.id) throw new Error('Template ID is required')
+    if (!template.id) template.id = (template as any).name || `sc_${Date.now().toString(36)}`
+    // Deduplicate filename
+    const baseId = template.id
+    let counter = 0
+    while (true) {
+      try { await fs.access(path.join(basePath, `${sanitizeId(template.id)}.json`)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+    }
     await fs.mkdir(basePath, { recursive: true })
     await fs.writeFile(path.join(basePath, `${sanitizeId(template.id)}.json`), JSON.stringify(template, null, 2), 'utf-8')
   })

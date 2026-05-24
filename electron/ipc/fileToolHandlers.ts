@@ -202,20 +202,34 @@ export async function executeFileTool(
         try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch {
           return { callId, toolName, status: 'success', summary: '0 个项目', detail: '(目录不存在或为空)' }
         }
+        // Also include global uploads when listing project root
+        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
+        let uploadEntries: string[] = []
+        if (dir === projectPath) {
+          try { uploadEntries = await fsp.readdir(globalUploads) } catch { /* no uploads dir */ }
+        }
         const items = entries.map(e => {
           const prefix = e.isSymbolicLink() ? '[LINK]' : e.isDirectory() ? '[DIR] ' : '[FILE]'
           return `${prefix} ${e.name}${e.isDirectory() && !e.isSymbolicLink() ? '/' : ''}`
         })
+        for (const ue of uploadEntries) {
+          items.push(`[UPLOAD] ${ue}`)
+        }
         const detail = items.length > 0 ? items.join('\n') : '(空目录)'
-        return { callId, toolName, status: 'success', summary: `${entries.length} 个项目`, detail }
+        return { callId, toolName, status: 'success', summary: `${items.length} 个项目`, detail }
       }
 
       case 'read_file': {
         const fp = await safeResolve('file_path', args, projectPath)
-        if (!fp) return deny(callId, toolName, '路径不在项目目录内')
+        // Global uploads fallback: always try basename in global uploads/
+        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
+        const uploadsFp = path.join(globalUploads, path.basename(args.file_path as string))
+        // Try: project path → global uploads
         let content: string
-        try { content = await readFileWithEncoding(fp) } catch {
-          return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+        try { content = await readFileWithEncoding(fp || uploadsFp) } catch {
+          try { content = await readFileWithEncoding(uploadsFp) } catch {
+            return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+          }
         }
         const truncated = content.length > MAX_READ_CHARS
           ? content.slice(0, MAX_READ_CHARS) + `\n\n... (内容过长，已截断至 ${MAX_READ_CHARS} 字符)`
@@ -232,9 +246,20 @@ export async function executeFileTool(
         await safeWalk(dir, projectPath, async (fullPath, entry) => {
           if (!entry.isDirectory() && entry.name.toLowerCase().includes(keyword)) {
             results.push(path.relative(projectPath, fullPath).replace(/\\/g, '/'))
-            if (results.length >= MAX_SEARCH_RESULTS) return true // stop
+            if (results.length >= MAX_SEARCH_RESULTS) return true
           }
         })
+        // Also search global uploads
+        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
+        try {
+          const uploadFiles = await fsp.readdir(globalUploads)
+          for (const uf of uploadFiles) {
+            if (uf.toLowerCase().includes(keyword)) {
+              results.push(`[UPLOAD] ${uf}`)
+              if (results.length >= MAX_SEARCH_RESULTS) break
+            }
+          }
+        } catch { /* no uploads dir */ }
         const detail = results.length > 0 ? results.join('\n') : '未找到匹配文件'
         return { callId, toolName, status: 'success', summary: `${results.length} 个匹配文件`, detail }
       }

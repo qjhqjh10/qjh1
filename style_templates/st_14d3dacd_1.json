@@ -1,230 +1,230 @@
 {
-  "id": "st_70b597f2",
-  "name": "123456",
+  "id": "st_14d3dacd_1",
+  "name": "新模板",
   "type": "情色小说",
   "worldType": "古代",
-  "description": "测试",
+  "description": "1",
   "fullDescription": "",
   "dimensions": {
     "narrativeTone": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "sentenceStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "vocabularyStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
-      ]
-    },
-    "dialogueStyle": {
-      "description": "测试",
-      "examples": [],
-      "writingRules": [
-        "测试"
-      ],
-      "vocabularyList": [
-        "测试"
-      ]
-    },
-    "rhythmStyle": {
-      "description": "测试",
-      "examples": [],
-      "writingRules": [
-        "测试"
-      ],
-      "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "rhetoricStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
+      ]
+    },
+    "rhythmStyle": {
+      "description": "1",
+      "examples": [],
+      "writingRules": [
+        "1"
+      ],
+      "vocabularyList": [
+        "1"
+      ]
+    },
+    "dialogueStyle": {
+      "description": "1",
+      "examples": [],
+      "writingRules": [
+        "1"
+      ],
+      "vocabularyList": [
+        "1"
       ]
     },
     "moodStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "perspectiveStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "bodyLanguageStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "sensoryStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "tensionStyle": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "descriptionPattern": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
-      ]
-    },
-    "compoundWordPattern": {
-      "description": "测试",
-      "examples": [],
-      "writingRules": [
-        "测试"
-      ],
-      "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "onomatopoeiaSystem": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
+      ]
+    },
+    "compoundWordPattern": {
+      "description": "1",
+      "examples": [],
+      "writingRules": [
+        "1"
+      ],
+      "vocabularyList": [
+        "1"
       ]
     },
     "sensoryPackFormula": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "bodyMindBetrayal": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "humiliationTemplate": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "corruptionArc": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "degradationRitual": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "narrativeVoice": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     },
     "shameVoyeurLoop": {
-      "description": "测试",
+      "description": "1",
       "examples": [],
       "writingRules": [
-        "测试"
+        "1"
       ],
       "vocabularyList": [
-        "测试"
+        "1"
       ]
     }
   },
   "vocabularyList": [],
   "writingRules": [],
   "tone": {
-    "word": "冷酷复仇的性支配",
-    "description": "测试",
-    "attitude": "欣赏把玩"
+    "word": "1",
+    "description": "1",
+    "attitude": "冷漠旁观"
   },
   "source": "manual",
-  "createdAt": "2026-05-23T01:39:09.291Z",
-  "updatedAt": "2026-05-23T01:42:07.525Z"
+  "createdAt": "2026-05-24T11:52:01.933Z",
+  "updatedAt": "2026-05-24T12:01:43.988Z"
 }

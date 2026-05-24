@@ -235,6 +235,8 @@ export default function AIChatWindow() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(false)
+  const [attachment, setAttachment] = useState<{ type: 'file' | 'image'; name: string; content: string; previewUrl?: string } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
 
 
   const [showConvList, setShowConvList] = useState(false)
@@ -242,7 +244,7 @@ export default function AIChatWindow() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
-  const [breakdownModal, setBreakdownModal] = useState<{ label: string; chars: number }[] | null>(null)
+  const [breakdownModal, setBreakdownModal] = useState<{ breakdown: { label: string; chars: number }[]; completionTokens?: number } | null>(null)
   const [compressing, setCompressing] = useState(false)
   const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -458,13 +460,61 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
     return parts.join('\n\n')
   }
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (!file) return
+    if (file.type.startsWith('image/')) {
+      const r = new FileReader()
+      r.onload = async () => {
+        const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
+        const uploadsDir = `${base}/uploads`
+        try {
+          await fileService.ensureDir(uploadsDir)
+          const base64 = (r.result as string).split(',')[1] || r.result as string
+          const ext = file.name.includes('.') ? file.name.split('.').pop()! : 'png'
+          const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`
+          await fileService.writeBinary(`${uploadsDir}/${fn}`, base64)
+          setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string })
+        } catch (e) { console.error('上传图片失败', e) }
+      }
+      r.readAsDataURL(file)
+    } else {
+      // Text file — save to global uploads/ so AI can search and read_file
+      const r = new FileReader()
+      r.onload = async () => {
+        const text = r.result as string
+        if (!text.trim()) return
+        const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
+        const uploadsDir = `${base}/uploads`
+        try { await fileService.ensureDir(uploadsDir); await fileService.write(`${uploadsDir}/${file.name}`, text.slice(0, 50000)) } catch (e) { console.error('上传文件失败', e) }
+        setAttachment({ type: 'file', name: file.name, content: text.slice(0, 50000) })
+      }
+      r.readAsText(file, 'UTF-8')
+    }
+  }
+
   const handleSend = async () => {
     if (!input.trim() || !activeConfigId || loading) return
     // Clear stale notifications from previous AI operations before starting new ones
     setFileEditNotify(null)
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input.trim(), timestamp: Date.now() }
+    // Attach pending file/image if any.
+    // File saved to uploads/, AI reads it via read_file on demand.
+    // Image saved to images/, reference sent inline.
+    let attachText = ''
+    if (attachment) {
+      if (attachment.type === 'file') {
+        attachText = `[上传文件: ${attachment.name}]\n文件已保存到全局 uploads 目录。如需读取内容，请用 read_file("${attachment.name}")。`
+      } else {
+        attachText = attachment.content
+      }
+    }
+    const fullContent = attachText ? `${attachText}\n\n${input.trim()}` : input.trim()
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
+    setAttachment(null)
     setLoading(true)
 
     try {
@@ -561,7 +611,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
         ...systemMessages,
         ...historyMessages,
-        { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + userMsg.content },
+        { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + fullContent },
       ]
 
       // Tools — smart selection: only send tools relevant to user's intent.
@@ -574,7 +624,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       const isNoteTask   = /(笔记|草稿|记下来|灵感|想法|保存)/i.test(userMsg.content)
       const isKbTask     = /(知识库|资料库|索引|语义|搜索)/i.test(userMsg.content)
       const isImageTask  = /(图片|生成.*图|插图|配图|形象图)/i.test(userMsg.content)
-      const isTmplTask   = /(模板|风格工坊|场景工坊|风格分析)/i.test(userMsg.content)
+      const isTmplTask   = /(模板|风格工坊|场景工坊|风格分析|场景模板|场景编排)/i.test(userMsg.content)
       const isPromptTask = /(提示词|prompt|模板.*格式)/i.test(userMsg.content)
       const isProjTask   = /(创建.*项目|新建.*项目|删除.*项目)/i.test(userMsg.content)
       const anyTask = isFileTask || isNoteTask || isKbTask || isImageTask || isTmplTask || isPromptTask || isProjTask
@@ -764,12 +814,19 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
               // create_style_template: 创建风格模板 → 连接 StyleWorkshopPage（风格模板Tab）
               } else if (tc.function.name === 'create_style_template') {
                 try {
+                  // Fix AI double-stringifying dimensions/tone — parse if string
+                  let dims = args.dimensions || {}
+                  if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { /* keep as-is */ } }
+                  let tone = args.tone || {}
+                  if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { /* keep as-is */ } }
+                  // Fix writingRules items that are accidentally arrays instead of strings
+                  const rules = (args.writingRules || []).map((r: any) => Array.isArray(r) ? r[0] || '' : String(r))
                   const tmpl: any = {
                     name: args.name || '未命名模板', type: args.type || '普通小说',
                     worldType: args.worldType || '', description: args.description || '',
-                    dimensions: args.dimensions || {}, vocabularyList: args.vocabularyList || [],
-                    writingRules: args.writingRules || [], tone: args.tone || {},
-                    source: 'ai-generated', createdAt: '', updatedAt: '', id: '',
+                    dimensions: dims, vocabularyList: args.vocabularyList || [],
+                    writingRules: rules, tone,
+                    source: 'ai-generated', createdAt: '', updatedAt: '', id: args.name || '',
                   }
                   const saved = await styleTemplateService.save(tmpl) as any
                   r = { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}\n可在风格工坊→模板库查看和编辑。` }
@@ -806,6 +863,14 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     'senses','dialogueRatio','subtextLevel','sentenceStyle','paragraphDensity',
                     'wordTarget','narrativePOV','narrativeStyle','timeCompression','introspection',
                     'emotionStart','emotionEnd','dominantEmotion','pacing','foreshadowUse','sceneTurningPoint',
+                    'props','appearance','bodyLanguage','propList','worldRules','costumeList','sensoryAnchors',
+                    // Erotic-specific fields
+                    'intensity','selectedKinks','opening','mainPose','mainRhythm','poseChanges',
+                    'climax','aftermath','soundDensity','moanStyle','degradeLangs','bannedWords',
+                    'consentDynamic','aftercareDetail',
+                    // Extra
+                    'detail','extraNote','plotOverview','kinkNote','publicity',
+                    'bodyFluidFocus','bodyPartFocus','tactileFocus','emotionCurveInput','triggerWords',
                   ]
                   // Auto-set all fields AI didn't provide
                   const autoFields: Record<string, boolean> = {}
@@ -837,7 +902,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     emotionEnd: args.emotionEnd || '',
                     dominantEmotion: args.dominantEmotion || '',
                     pacing: args.pacing || '渐进',
-                    props: '', appearance: '', bodyLanguage: '',
+                    props: args.props || '', appearance: args.appearance || '', bodyLanguage: args.bodyLanguage || '',
                     foreshadowUse: args.foreshadowUse || '无',
                     sceneTurningPoint: args.sceneTurningPoint || '',
                     intensity: args.eroticIntensity || 3,
@@ -847,10 +912,10 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                     mainRhythm: '无偏好', poseChanges: '2-3次转换',
                     climax: Array.isArray(args.climax) ? args.climax : [],
                     aftermath: Array.isArray(args.aftermath) ? args.aftermath : [],
-                    soundDensity: '中等', moanStyle: '含蓄',
-                    degradeLangs: [], bannedWords: '',
-                    consentDynamic: '默认', aftercareDetail: '',
-                    worldRules: '', propList: '', costumeList: '',
+                    soundDensity: args.soundDensity || '中等', moanStyle: args.moanStyle || '含蓄',
+                    degradeLangs: Array.isArray(args.degradeLangs) ? args.degradeLangs : [], bannedWords: args.bannedWords || '',
+                    consentDynamic: args.consentDynamic || '默认', aftercareDetail: args.aftercareDetail || '',
+                    worldRules: args.worldRules || '', propList: args.propList || '', costumeList: args.costumeList || '',
                     plotOverview: args.plotOverview || '',
                     detail: args.detail || '',
                     extraNote: args.extraNote || '',
@@ -860,7 +925,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                   }
 
                   const tmpl: any = {
-                    id: `ai_${Date.now().toString(36)}`,
+                    id: args.name || `sc_${Date.now().toString(36)}`,
                     name: args.name || '场景模板',
                     type: isErotic ? '情色小说' : (args.type || '普通小说'),
                     config,
@@ -1330,9 +1395,9 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
             {/* Upload file (TXT/MD) */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const text = r.result as string; if (text.trim()) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传文件: ${f.name}]\n\n${text.slice(0, 50000)}` }]); setTimeout(() => handleSend(), 100) } }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); await fileService.write(`${uploadsDir}/${f.name}`, text.slice(0, 50000)) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text.slice(0, 50000) }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
             {/* Upload image */}
-            <button onClick={() => { if (!activeProjectId) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path; if (!pp) return; try { const fn = await fileService.saveImageUrl(r.result as string, pp); if (fn) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: `[上传图片: images/${fn}]` }]); setTimeout(() => handleSend(), 100) } } catch {} }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {/* Model switcher */}
             <select
               value={activeConfigId || ''}
@@ -1618,7 +1683,26 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
                 ))}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+            {attachment && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 12, background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', fontSize: 12, color: '#7c3aed' }}>
+                {attachment.previewUrl
+                  ? <img src={attachment.previewUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                  : (attachment.type === 'file' ? <DocumentTextIcon style={{ width: 14, height: 14 }} /> : <PhotoIcon style={{ width: 14, height: 14 }} />)
+                }
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{attachment.name}</span>
+                <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, position: 'relative' }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+            >
+              {dragOver && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 5, borderRadius: 14, border: '2px dashed #7c3aed', background: 'rgba(124,58,237,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7c3aed', fontWeight: 600, pointerEvents: 'none' }}>
+                  松手以上传文件或图片
+                </div>
+              )}
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
@@ -1700,9 +1784,9 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             <h3 style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>Prompt Token 分解</h3>
             <button onClick={() => setBreakdownModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
           </div>
-          {breakdownModal.map((b, i) => {
+          {breakdownModal.breakdown.map((b, i) => {
             const est = Math.round(b.chars / 2)
-            const pct = breakdownModal.reduce((s, x) => s + Math.round(x.chars / 2), 0)
+            const pct = breakdownModal.breakdown.reduce((s, x) => s + Math.round(x.chars / 2), 0)
             const barW = pct > 0 ? Math.max(2, (est / pct) * 100) : 0
             return (
               <div key={i} style={{ marginBottom: 8 }}>
@@ -1717,9 +1801,15 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             )
           })}
           <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 12, paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
-            <span>合计（估算）</span>
-            <span>~{breakdownModal.reduce((s, b) => s + Math.round(b.chars / 2), 0).toLocaleString()} tokens</span>
+            <span>输入 Prompt（估算）</span>
+            <span>~{breakdownModal.breakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0).toLocaleString()} tokens</span>
           </div>
+          {breakdownModal.completionTokens !== undefined && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginTop: 4 }}>
+              <span style={{ color: '#16a34a' }}>输出 Completion</span>
+              <span style={{ color: '#16a34a' }}>{breakdownModal.completionTokens.toLocaleString()} tokens</span>
+            </div>
+          )}
           <div style={{ marginTop: 8, fontSize: 10, color: '#9b8e84' }}>估算公式: 字符数 ÷ 2 ≈ tokens。实际以 API 返回为准。</div>
         </div>
       </div>
@@ -1742,7 +1832,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.breakdown) {
-            return <button onClick={() => { setBreakdownModal(msg.breakdown!); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setBreakdownModal({ breakdown: msg.breakdown!, completionTokens: msg.usage?.completion_tokens }); setContextMenu(null) }} style={ctxMenuBtn}>
               <MagnifyingGlassIcon style={{ width: 13, height: 13 }} /> 查看Token分解
             </button>
           }

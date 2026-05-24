@@ -85,10 +85,12 @@ export const FILE_OP_SYSTEM_PROMPT = `你是 AI 小说写作助手，陪伴用�
 - detailed_outline/*.json — 章节细纲（严格JSON格式，**绝对禁止**创建.md文件！） ({"id":"唯一ID","title":"章名","order":序号,"status":"incomplete|completed","plotOverview":"150-300字剧情概述","characters":"出场角色(每行一个)","location":"场景地点","keyEvents":"关键事件(每行一个,通常5-7个)","eroticContent":"情色内容(仅情色类型,否则空字符串)"})
 - chapters/*.txt — 章节正文
 - chapters/{id}_versions/ — 章节版本历史
+- uploads/* — 用户上传的文件（TXT/MD等，全局存储，不绑定项目）。使用 read_file("文件名") 读取（仅文件名，无需路径）
+- images/* — 用户上传的图片文件
 - notes/*.md — 草稿笔记（全局存储，不绑定项目）
 - knowledge_base/files/ — 知识库文件
-- style_templates/ — 风格模板（通过 create_style_template 工具创建）
-- scene_templates/ — 场景模板（通过 create_scene_template 工具创建）
+- style_templates/ — 风格模板（全局存储）。每个模板一个.json文件。**必须用 create_style_template 工具创建，禁止用 create_file 手动写JSON！** 创建后前端自动刷新。
+- scene_templates/ — 场景模板（全局存储）。每个模板一个.json文件。**必须用 create_scene_template 工具创建，禁止用 create_file 手动写JSON！**
 
 用户可能在任何页面提出跨模块请求（如在章节页要求增加道具、在仿写页要求修改角色），你知道文件位置后直接用 read_file 查看、edit_file 修改即可。修改后对应页面会自动刷新。
 
@@ -158,7 +160,7 @@ socialRealism — 社会现实与阶层标记（都市/历史/科幻/穿越）
 **调用 create_style_template 时填写：**
 - name: "《源文件名》风格模板"
 - type: 小说类型
-- dimensions: 必须包含以上全部 26 维，每个含 {description, examples, writingRules, vocabularyList}。有则分析，无则留空
+- dimensions: **必须逐维度分析填写！** 格式为对象，key=维度名，value={description:"分析描述", examples:["例句1","例句2"], writingRules:["规则1"], vocabularyList:["词1","词2"]}。以上26维逐个检查原文信号: 有信号→详填；无信号→跳过。**严禁直接传{}！**
 - vocabularyList: 从有信号的维度中汇总（去重，最多 80 个）
 - writingRules: 从有信号的维度中汇总（去重，最多 30 条）
 - worldType: 世界观类型，必填。从以下预设中选择最匹配的: "古代"、"现代"、"西幻"、"日系"、"末日"、"科幻"、"灵异"、"架空历史"、"玄幻"、"游戏"、"混合"。若预设都不匹配，可自定义（如"赛博朋克修仙"）。根据文本内容推断最接近的一个
@@ -189,19 +191,38 @@ socialRealism — 社会现实与阶层标记（都市/历史/科幻/穿越）
    - foreshadowUse(伏笔: 无/埋伏笔/回收伏笔/两者都有) / sceneTurningPoint(转折点)
 
    **情色类型额外参数：**
-   - eroticIntensity(情色浓度1-5) / selectedKinks(玩法标签数组)
-   - opening(起始方式数组) / mainPose(主体位) / climax(高潮方式数组) / aftermath(余韵数组)
+   - eroticIntensity(情色浓度1-5) / selectedKinks(玩法标签数组) / kinkNote(性癖备注) / degradeLangs(羞辱语言数组)
+   - opening(起始方式数组) / mainPose(主体位) / mainRhythm(节奏) / poseChanges(姿势转换)
+   - climax(高潮方式数组) / aftermath(余韵数组) / extraPhases(额外阶段数组)
+   - soundDensity(声音密度) / moanStyle(呻吟风格) / bannedWords(禁用词)
+   - publicity(公开度) / bodyFluidFocus(体液焦点数组) / bodyPartFocus(身体部位数组) / tactileFocus(触觉焦点数组)
+   - propList(道具清单，逗号分隔) / costumeList(服装清单，逗号分隔) / worldRules(世界规则)
+   - sensoryAnchors(感官锚点) / emotionCurveInput(情绪曲线) / triggerWords(触发词)
+   - pacing(节奏) / bodyLanguage(肢体语言) / consentDynamic(同意动态) / aftercareDetail(事后关怀)
 
-   **不确定的字段：**
-   - autoFields: 无法从细纲推断的字段名列表，如["senses","time","introspection"]。这些字段生成章节时AI根据上下文自主决定。
+   **普通小说额外参数：**
+   - props(关键道具) / appearance(外观) / bodyLanguage(肢体语言)
+   - sensoryAnchors(感官锚点) / emotionCurveInput(情绪曲线) / subtextLevel(潜台词)
+   - sceneTurningPoint(转折点) / genreElements(类型元素数组)
 
-   **丰富内容：**
-   - detail: Markdown格式的详细场景配置（分幕结构、写作要点等）
-   - extraNote: 额外要求
-
-   **禁止用 create_file 替代此工具**
+   **填充原则（严格执行）：**
+   - **能推断 → 必须填。** 从细纲/原文/风格模板中能提取到的信息，绝对不允许标记为 autoFields。
+   - **不确定 → 才标记自动。** 只有完全无法从现有材料推断的字段，才列入 autoFields。
+   - **autoFields 数量硬上限**：每次调用 create_scene_template，autoFields 数组中的字段**不得超过 10 个**。超过则说明你偷懒没分析——必须返回去多填一些。
+   - **严禁全部标记自动**：绝对不能把所有字段丢进 autoFields 然后传空 config。宁可有推断依据的字段填满、不确定的才自动。
+   - **复杂字段也要填**：characters(角色)、selectedKinks(玩法)、opening/climax/aftermath(流程)等数组字段，即使只能推断部分内容也要填。
 
 用户只说"创建场景模板"未指定章节时，先确定用户在细纲页面的当前章节，再读取对应JSON。
+
+### 根据上传文件和风格分析创建场景模板
+
+当用户上传了 TXT 文件、或已创建风格模板之后，要求"生成场景模板"时，**必须先读文件再分析，严禁跳过读取直接编造！**
+
+1. **第一步 — 必须读取原文**：用户消息中如果有 [上传文件: 文件名] 标记，说明文件刚上传，你已知道文件名。**立即**用 read_file("文件名") 读取该文件（全局 uploads/ 目录）。**绝对不可跳过！** 历史消息中也有 [上传文件: 文件名 (XX字，已处理)] 的记录可确认文件名。如果没有找到任何上传标记→反问用户文件名，不准编造。
+2. **第二步 — 参考风格模板**：如果用户已创建风格模板，从其 dimensions 中提取叙事风格数据。
+3. **第三步 — 基于原文逐字段填写**：每个字段的值必须能从原文中找到**具体依据**。原文中找不到依据 → 列入 autoFields。
+4. **调用 create_scene_template**：将分析结果填入 config。
+5. **如果既没有上传文件也没有风格模板**：拒绝创建，让用户先提供原文或风格参考。**严禁在无参考材料的情况下编造场景模板。**
 
 ### 仿写→生成新细纲（完整工作流）
 

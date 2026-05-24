@@ -17,9 +17,10 @@ export function registerFileHandlers(
   if (basePath) projectsBasePath = basePath
   const globalNotesPath = path.join(path.dirname(projectsBasePath), 'notes')
 
-  // Allow paths within projects dir OR global notes dir
+  // Allow paths within projects dir, global notes dir, or global uploads dir
+  const globalUploadsPath = path.join(path.dirname(projectsBasePath), 'uploads')
   const isAllowedPath = (filePath: string) =>
-    isSafePath(filePath, projectsBasePath) || isSafePath(filePath, globalNotesPath)
+    isSafePath(filePath, projectsBasePath) || isSafePath(filePath, globalNotesPath) || isSafePath(filePath, globalUploadsPath)
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 

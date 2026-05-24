@@ -11,8 +11,9 @@ function getTemplatesPath(): string {
 }
 
 function safeTemplatePath(id: string): string {
-  const safe = path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
-  if (!safe) throw new Error('Invalid style template ID')
+  // Keep Chinese, letters, digits, spaces, and common punct. Strip path-dangerous chars only.
+  const safe = path.basename(id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64)
+  if (!safe.trim()) throw new Error('Invalid style template ID')
   return path.join(getTemplatesPath(), `${safe}.json`)
 }
 
@@ -49,7 +50,13 @@ async function readTemplate(id: string): Promise<StyleTemplate | null> {
 
 async function saveTemplate(template: StyleTemplate): Promise<StyleTemplate> {
   await ensureDir()
-  if (!template.id) template.id = `st_${crypto.randomUUID().slice(0, 8)}`
+  if (!template.id) template.id = template.name || `st_${crypto.randomUUID().slice(0, 8)}`
+  // Deduplicate filename
+  const baseId = template.id
+  let counter = 0
+  while (true) {
+    try { await fs.access(safeTemplatePath(template.id)); counter++; template.id = `${baseId}_${counter}` } catch { break }
+  }
   template.updatedAt = new Date().toISOString()
   if (!template.createdAt) template.createdAt = template.updatedAt
   await fs.writeFile(

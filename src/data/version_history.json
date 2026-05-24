@@ -1,7 +1,22 @@
 {
-  "currentVersion": "5.2.0",
+  "currentVersion": "5.3.0",
   "currentDate": "2026-05-24",
   "history": [
+    {
+      "version": "5.3.0",
+      "date": "2026-05-24",
+      "features": [
+        "场景模板系统重构: 26维度+10维度卡片重设计(悬浮特效/彩色编号/AI自动紫色标识), 所有维度预设扩充2-3倍(14场景类型/8冲突/14天气/8节奏/14情绪等), 新增15个工具参数字段(声音/羞辱语言/同意动态/事后关怀/体液焦点/身体部分/触感等)",
+        "场景模板AI生成强化: 系统提示词6步硬约束(必须读取原文/逐字段填写/autoFields上限10个/自检防编造), 新增'根据上传文件创建场景模板'完整工作流",
+        "文件上传系统: 全局uploads目录+拖拽上传+附件模式(暂存输入框等消息一起发送), 文件和图片统一存全局uploads/, AI通过read_file按需读取",
+        "模板文件命名: 风格模板和场景模板文件名改为模板名(支持中文), 重名自动追加_1_2后缀去重",
+        "风格模板创建修复: dimensions/tone自动解析JSON字符串(修复双重编码), writingRules数组项转字符串, dimensions标记为必填参数",
+        "场景模板道具/服装等字段修复: propList/props/worldRules/costumeList从硬编码空字符串改为从AI参数读取, 补齐allFieldKeys",
+        "风格分析强化: dimensions必填+格式精确说明+逐维度检查严禁传{}",
+        "upload/notes全局目录支持: list_directory根目录显示[UPLOAD]标记, search_files搜索全局uploads, read_file失败时回退全局uploads",
+        "Token调试增强: 右键消息查看该条Prompt分解(含输出token), 消息结构开销统计, user message前缀计入"
+      ]
+    },
     {
       "version": "5.2.0",
       "date": "2026-05-24",

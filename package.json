@@ -1,6 +1,6 @@
 {
   "name": "novel-writing-app",
-  "version": "5.2.0",
+  "version": "5.3.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {
