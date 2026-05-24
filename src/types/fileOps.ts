@@ -144,39 +144,6 @@ export const FILE_TOOLS = [
     },
   },
 
-  // ── 备份管理 ──
-
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_backups',
-      description: '列出文件的备份版本。每文件最多保留10份。不传参数列出所有备份；传 file_path 查看指定文件的备份。',
-      parameters: {
-        type: 'object',
-        properties: {
-          file_path: { type: 'string', description: '可选，指定要查看备份的文件路径。不填列出全部。' },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'restore_backup',
-      description: '从备份恢复文件（覆盖当前内容）。需要用户确认。备份路径从 list_backups 获取。',
-      parameters: {
-        type: 'object',
-        properties: {
-          backup_path: { type: 'string', description: '备份文件路径，如 ".ai_backups/20260521_143025___chapter1.txt"' },
-          target_path: { type: 'string', description: '恢复目标路径，不填恢复到原位置' },
-          reason: { type: 'string', description: '恢复原因' },
-        },
-        required: ['backup_path', 'reason'],
-      },
-    },
-  },
-
   // ── 危险操作（需用户确认）──
 
   {
@@ -573,9 +540,9 @@ export const FILE_TOOLS = [
 ]
 
 // Tools that require user confirmation
-export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project']) as ReadonlySet<string>
+export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']) as ReadonlySet<string>
 export const PREVIEW_TOOLS = new Set(['edit_file']) as ReadonlySet<string>
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_backups', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -590,8 +557,6 @@ export function summarizeFileOp(
     case 'create_file': return `创建: ${args.file_path}`
     case 'edit_file': return `编辑: ${args.file_path}`
     case 'delete_file': return `删除: ${args.file_path}`
-    case 'list_backups': return `列出备份: ${args.file_path || '(全部)'}`
-    case 'restore_backup': return `恢复备份: ${args.backup_path}`
     case 'rename_file': return `重命名: ${args.file_path} → ${args.new_path}`
     case 'create_project': return `创建项目: ${args.name}`
     case 'delete_project': return `删除项目: ${args.project_name}`

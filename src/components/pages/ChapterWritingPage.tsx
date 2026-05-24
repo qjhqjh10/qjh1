@@ -189,8 +189,8 @@ export default function ChapterWritingPage() {
   // AI direct edit via edit_file → reload editor from disk
   useEffect(() => {
     if (!fileEditNotify || !chapterId || !projectPath) return
-    const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/')
-    const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/')
+    const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/').toLowerCase()
+    const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
     if (notifyPath === expectedPath || notifyPath.includes(`/chapters/${chapterId}.txt`)) {
       fileService.read(expectedPath).then(c => {
         setContent(c)
@@ -493,7 +493,7 @@ export default function ChapterWritingPage() {
       </div>
 
       {/* Summary Template Selection Modal */}
-      <Modal isOpen={showSummaryTemplate} onClose={() => setShowSummaryTemplate(false)} title="选择摘要模板" width={500}>
+      <Modal isOpen={showSummaryTemplate} onClose={() => setShowSummaryTemplate(false)} title="选择摘要模板" width={500} draggable>
         <p style={{ fontSize: 12, color: '#9b8e84', marginBottom: 12 }}>
           选择提示词库中的"摘要"类型模板（启用后用于AI提取摘要）：
         </p>

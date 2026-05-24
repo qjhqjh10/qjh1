@@ -59,6 +59,7 @@ export interface AppState {
   // Popup windows
   popupWindows: PopupWindow[]
   openPopup: (popup: PopupWindow) => void
+  focusPopup: (popup: PopupWindow) => void
   closePopup: (id: string) => void
 
   // Actions - Project
@@ -208,7 +209,8 @@ export const useStore = create<AppState>()(
     setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
     setReplaceAction: (action: { chapterId: string; content: string } | null) => set({ replaceAction: action }),
-    openPopup: (popup) => set(s => { s.popupWindows.push(popup) }),
+    openPopup: (popup) => set(s => { s.popupWindows = [...s.popupWindows.filter(p => p.id !== popup.id), popup] }),
+    focusPopup: (popup) => set(s => { const idx = s.popupWindows.findIndex(p => p.id === popup.id); if (idx >= 0) { s.popupWindows = [...s.popupWindows.slice(0, idx), ...s.popupWindows.slice(idx + 1), s.popupWindows[idx]] } }),
     closePopup: (id) => set(s => { s.popupWindows = s.popupWindows.filter(p => p.id !== id) }),
     setFileEditNotify: (notify) => set({ fileEditNotify: notify }),
     setRewriteContent: (content: string) => set({ rewriteContent: content }),

@@ -709,7 +709,7 @@ export default function ContinuationWorkspacePage() {
       </div>
 
       {/* 维度选择弹窗 */}
-      <Modal isOpen={showDimDialog} onClose={() => setShowDimDialog(false)} title="选择分析维度" width={520}>
+      <Modal isOpen={showDimDialog} onClose={() => setShowDimDialog(false)} title="选择分析维度" width={520} draggable>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
             <button onClick={() => setEnabledDims(new Set(CONTINUATION_DIMS.map(d => d.key)))} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>全选</button>

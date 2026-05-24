@@ -67,7 +67,7 @@ export default function ReviewResultsModal({ isOpen, onClose }: Props) {
   const scores = selectedReview ? parseScores(selectedReview.content) : []
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="审稿结果" width={selectedReview ? 760 : 560}>
+    <Modal isOpen={isOpen} onClose={onClose} title="审稿结果" width={selectedReview ? 760 : 560} draggable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {selectedReview ? (
           <>

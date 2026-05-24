@@ -51,8 +51,8 @@ export function stripHtml(html: string): string {
 // Count all non-whitespace characters (Chinese convention: each character = 1 word)
 export function countChineseWords(text: string): number {
   if (!text) return 0
-  // Strip HTML tags before counting to avoid counting markup
-  const clean = text.replace(stripHtmlRegex, '').replace(/\s/g, '')
+  // Strip HTML and decode entities before counting
+  const clean = stripHtml(text).replace(/\s/g, '')
   return clean.length
 }
 

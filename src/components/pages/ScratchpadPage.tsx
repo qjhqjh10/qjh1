@@ -4,6 +4,8 @@ import { fileService } from '@/services/fileService'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import { PlusIcon, TrashIcon, MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
+import WordCount from '@/components/common/WordCount'
+import { htmlToMarkdown } from '@/utils/markdownConverter'
 
 export default function ScratchpadPage() {
   const projectsBasePath = useStore(s => s.projectsBasePath)
@@ -14,6 +16,7 @@ export default function ScratchpadPage() {
   const [notes, setNotes] = useState<string[]>([])
   const [selectedNote, setSelectedNote] = useState<string | null>(null)
   const [content, setContent] = useState('')
+  const [rawContent, setRawContent] = useState('')
   const [title, setTitle] = useState('')
   const [search, setSearch] = useState('')
   const [showFind, setShowFind] = useState(false)
@@ -39,6 +42,10 @@ export default function ScratchpadPage() {
   }, [notesDir])
 
   useEffect(() => { loadNotes() }, [loadNotes])
+  // Sync raw content for character count (content may be HTML from RichTextEditor)
+  useEffect(() => {
+    if (/<[a-zA-Z][^>]*>/.test(content)) setRawContent(htmlToMarkdown(content))
+  }, [content])
 
   // Auto-refresh when AI edits a note
   useEffect(() => {
@@ -46,9 +53,10 @@ export default function ScratchpadPage() {
     const expectedPath = notePath(selectedNote)
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(expectedPath).then(c => setContent(c)).catch(() => {})
+        fileService.read(expectedPath).then(c => { setContent(c); setRawContent(c) }).catch(() => {})
       } else {
         setContent(fileEditNotify.newContent)
+        setRawContent(fileEditNotify.newContent)
       }
       setFileEditNotify(null)
     }
@@ -61,6 +69,7 @@ export default function ScratchpadPage() {
     const pp = notePath(selectedNote)
     fileService.read(pp).then(c => {
       setContent(c)
+      setRawContent(c)
       setTitle(selectedNote.replace(/\.md$/, ''))
       setLastSaved(null)
     }).catch(() => { setContent(''); setTitle(selectedNote.replace(/\.md$/, '')) })
@@ -227,7 +236,8 @@ export default function ScratchpadPage() {
                 />
               </div>
 
-              <div style={{ padding: '8px 20px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: 10, color: '#9b8e84', display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ padding: '8px 20px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: 10, color: '#9b8e84', display: 'flex', justifyContent: 'space-between' }}>
+                <WordCount text={content} rawText={rawContent} />
                 <span>{saving ? '保存中...' : lastSaved ? `已保存 ${lastSaved}` : ''}</span>
               </div>
             </>

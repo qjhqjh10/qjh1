@@ -6,6 +6,30 @@ function jsonPath(projectPath: string, id: string) {
   return `${projectPath}/detailed_outline/${id}.json`
 }
 
+/** Fix unescaped newlines inside JSON string values. */
+function fixJsonNewlines(json: string): string {
+  let result = ''
+  let inString = false
+  let i = 0
+  while (i < json.length) {
+    const ch = json[i]
+    if (ch === '"' && (i === 0 || json[i - 1] !== '\\')) {
+      inString = !inString
+      result += ch
+    } else if (inString && ch === '\n') {
+      result += '\\n'
+    } else if (inString && ch === '\r') {
+      result += '\\r'
+    } else if (inString && ch === '\t') {
+      result += '\\t'
+    } else {
+      result += ch
+    }
+    i++
+  }
+  return result
+}
+
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
   try {
     await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
@@ -25,10 +49,23 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
     const jsonFiles = files.filter(f => f.endsWith('.json'))
     for (const file of jsonFiles) {
       try {
-        const content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
+        let content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
+        // Handle AI wrapping JSON in markdown code fences
+        const fenceMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/)
+        if (fenceMatch) content = fenceMatch[1].trim()
+        // Strip any leading/trailing non-JSON text
+        const jsonStart = content.indexOf('{')
+        const jsonEnd = content.lastIndexOf('}')
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          content = content.slice(jsonStart, jsonEnd + 1)
+        }
+        // Fix unescaped newlines inside JSON string values (AI may write multi-line strings)
+        content = fixJsonNewlines(content)
         const ch = JSON.parse(content) as DetailedChapter
+        if (!ch.id) ch.id = file.replace('.json', '')
+        if (!ch.title) ch.title = file.replace('.json', '')
         chapters.push(ch)
-        seenIds.add(file.replace('.json', ''))
+        seenIds.add(ch.id || file.replace('.json', ''))
       } catch (e) {
         logError(`解析细纲JSON文件失败: ${file}`, e)
       }
@@ -72,6 +109,33 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
       } catch (e) {
         logError(`解析细纲TXT文件失败: ${file}`, e)
         chapters.push({ id: file.replace('.txt', ''), title: '', description: '', summary: '', order: 0, status: 'incomplete' })
+      }
+    }
+
+    // Fallback: .md files (AI may have created before format fix)
+    const mdFiles = files.filter(f => {
+      if (!f.endsWith('.md')) return false
+      const id = f.replace('.md', '')
+      return !seenIds.has(id)
+    })
+
+    for (const file of mdFiles) {
+      try {
+        const content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
+        const id = file.replace('.md', '')
+        // Parse Markdown: first # heading is title, rest is plotOverview
+        const lines = content.split('\n')
+        const titleMatch = content.match(/^#\s+(.+)$/m)
+        const title = titleMatch ? titleMatch[1].trim() : file.replace('.md', '')
+        const body = content.replace(/^#\s+.+\n*/m, '').trim()
+        chapters.push({
+          id, title, order: 0, status: 'incomplete',
+          description: body, summary: '',
+          plotOverview: body.slice(0, 500),
+        })
+        seenIds.add(id)
+      } catch (e) {
+        logError(`解析细纲MD文件失败: ${file}`, e)
       }
     }
 

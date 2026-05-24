@@ -1,7 +1,26 @@
 {
-  "currentVersion": "5.0.0",
+  "currentVersion": "5.1.0",
   "currentDate": "2026-05-24",
   "history": [
+    {
+      "version": "5.1.0",
+      "date": "2026-05-24",
+      "features": [
+        "大纲/世界观存储格式改为Markdown: plot.md/worldbuilding.md从HTML改为标准MD, 存取边界自动转换, AI编辑纯文本精确可靠",
+        "AI对话Token大幅优化: 移除buildContextPrefix每轮自动注入(~100-1200 tokens), KB搜索默认关闭, 页面上下文仅首轮",
+        "fileEditNotify全面修复: 路径比较大小写兼容(.toLowerCase), 通知条件清除(仅匹配时清除, 不再误吞其他页面通知), 修正6个组件",
+        "细纲系统重构: 加载兼容MD文件+代码块剥离+JSON内真实换行自动转义, 新增customContent字段, 系统提示词完整规则+JSON格式强制要求+禁止MD",
+        "RichTextEditor修复: 外部HTML内容更新时先检测格式再决定转换策略, 避免HTML被当作纯文本破坏结构",
+        "WordCount双计数: 字数=纯文字(中文/英文/数字), 字符=原始文件总字符数(直接读取文件), 大纲/草稿/草稿弹窗统一显示",
+        "备份功能完全关闭: backupFile()空函数, 移除list_backups/restore_backup工具定义+系统提示词, 前端UI同步清理",
+        "Modal全站可拖拽: 17个Modal弹窗增加draggable属性, AI聊天窗口z-index提升至101避免被弹窗遮挡",
+        "细纲左栏滚动修复: overflow:hidden, 参考大纲HTML标签剥离",
+        "细纲弹窗解析增强: 支持代码块包裹+真实换行修复, 新建规则严格JSON+纯JSON字符串要求",
+        "全局大纲参考面板显示纯文本(去HTML标签)",
+        "DraftPopup/OutlinePopup存取同步格式转换",
+        "CharactersPanel/ChapterWritingPage路径大小写兼容"
+      ]
+    },
     {
       "version": "5.0.0",
       "date": "2026-05-24",

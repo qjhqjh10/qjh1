@@ -219,7 +219,7 @@ export default function App() {
 
 function PopupWindowsLayer() {
   const popupWindows = useStore(s => s.popupWindows)
-  const focusPopup = useStore(s => s.openPopup)
+  const focusPopup = useStore(s => s.focusPopup)
 
   if (popupWindows.length === 0) return null
 

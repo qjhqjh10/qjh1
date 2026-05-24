@@ -72,7 +72,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`AI 审稿 — ${chapterTitle}`} width={680}>
+    <Modal isOpen={isOpen} onClose={onClose} title={`AI 审稿 — ${chapterTitle}`} width={680} draggable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ fontSize: 11, color: reviewPrompt ? '#7c3aed' : '#9b8e84', padding: '6px 10px', borderRadius: 6, background: reviewPrompt ? 'rgba(124,58,237,0.04)' : '#faf9f8' }}>
           {reviewPrompt ? `审稿提示词: ${reviewPrompt.title}` : '使用默认审稿提示词（可在提示词库中自定义）'}

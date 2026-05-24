@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
+import { htmlToMarkdown, markdownToHtml } from '@/utils/markdownConverter'
 
 interface Props {
   worldbuilding?: boolean
@@ -30,7 +31,7 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
       if (!activeProjectId || !projectsBasePath) return
       const pp = `${projectsBasePath}/${activeProjectId}`
       try {
-        await fileService.write(`${pp}/outline/${fileName}`, text)
+        await fileService.write(`${pp}/outline/${fileName}`, htmlToMarkdown(text))
       } catch (err) { logError(`保存${worldbuilding ? '世界观' : '大纲'}失败`, err) }
     }, 1000)
   }, [activeProjectId, projectsBasePath, fileName, setContent, worldbuilding])
@@ -41,9 +42,9 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
     const expectedPath = `${projectsBasePath}/${activeProjectId}/outline/${fileName}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(expectedPath).then(setContent).catch(() => {})
+        fileService.read(expectedPath).then(c => setContent(markdownToHtml(c))).catch(() => {})
       } else {
-        setContent(fileEditNotify.newContent)
+        setContent(markdownToHtml(fileEditNotify.newContent))
       }
       setFileEditNotify(null)
     }

@@ -175,7 +175,7 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="情色场景编排" width={720}>
+    <Modal isOpen={isOpen} onClose={onClose} title="情色场景编排" width={720} draggable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <ScrollArea maxHeight="60vh">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingRight: 8 }}>

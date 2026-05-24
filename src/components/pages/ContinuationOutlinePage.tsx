@@ -291,7 +291,7 @@ export default function ContinuationOutlinePage() {
       </ScrollArea>
 
       {/* Edit Modal */}
-      <Modal isOpen={editTarget !== null} onClose={() => setEditTarget(null)} title={editTarget?.type === 'story' ? '编辑原作理解' : editTarget?.type === 'segment' ? `编辑 ${(editTarget.data as PlotDirectionSegment)?.label}` : '编辑大纲融合'} width={700}>
+      <Modal isOpen={editTarget !== null} onClose={() => setEditTarget(null)} title={editTarget?.type === 'story' ? '编辑原作理解' : editTarget?.type === 'segment' ? `编辑 ${(editTarget.data as PlotDirectionSegment)?.label}` : '编辑大纲融合'} width={700} draggable>
         {editTarget?.type === 'story' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '60vh', overflow: 'auto' }} className="custom-scrollbar">
             <div><div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>主线</div><textarea value={editTarget.data.mainPlot} onChange={e => setEditTarget({ type: 'story', data: { ...editTarget.data, mainPlot: e.target.value } })} rows={2} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit' }} /></div>

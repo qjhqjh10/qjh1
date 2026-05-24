@@ -617,10 +617,10 @@ function AISettingsTab() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {[
                 { n: 'list_directory', t: '只读' }, { n: 'read_file', t: '只读' }, { n: 'search_files', t: '只读' },
-                { n: 'search_content', t: '只读' }, { n: 'list_backups', t: '只读' },
+                { n: 'search_content', t: '只读' },
                 { n: 'edit_file', t: '预览确认' },
                 { n: 'create_file', t: '需确认' }, { n: 'delete_file', t: '需确认' },
-                { n: 'rename_file', t: '需确认' }, { n: 'restore_backup', t: '需确认' },
+                { n: 'rename_file', t: '需确认' },
                 { n: 'create_project', t: '需确认' }, { n: 'delete_project', t: '需确认' },
                 { n: 'kb_index_file', t: '自动' },
               ].map(t => (

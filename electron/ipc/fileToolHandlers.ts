@@ -142,64 +142,9 @@ async function listBackupsForFile(
 /**
  * Smart backup with dedup, retention, and file-level locking (Issues #7 #12).
  */
-async function backupFile(filePath: string, projectPath: string): Promise<string> {
-  // File-level lock to prevent race conditions (Issue #7)
-  const lockKey = path.resolve(filePath)
-  const prevLock = backupLocks.get(lockKey)
-  if (prevLock) await prevLock.catch(() => {})
-
-  let releaseLock: () => void
-  const lock = new Promise<void>(resolve => { releaseLock = resolve })
-  backupLocks.set(lockKey, lock)
-
-  try {
-    const backupDir = path.join(projectPath, BACKUP_DIR)
-    await fsp.mkdir(backupDir, { recursive: true })
-
-    // Size check (Issue #12)
-    const stat = await fsp.stat(filePath)
-    if (stat.size > MAX_FILE_SIZE) {
-      throw new Error(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB，上限 10MB)，无法创建备份`)
-    }
-
-    const currentContent = await readFileWithEncoding(filePath)
-
-    // Dedup: skip if identical to latest backup
-    const existing = await listBackupsForFile(filePath, projectPath)
-    if (existing.length > 0) {
-      const latest = existing[existing.length - 1]
-      try {
-        const latestContent = await readFileWithEncoding(latest.fullPath)
-        if (latestContent === currentContent) {
-          return latest.relativePath
-        }
-      } catch { /* unreadable, create new */ }
-    }
-
-    const backupName = makeBackupName(path.basename(filePath))
-    const backupPath = path.join(backupDir, backupName)
-    await fsp.copyFile(filePath, backupPath)
-
-    const relPath = `${BACKUP_DIR}/${backupName}`
-
-    // Prune old backups beyond limit
-    const afterPrune = [...existing, {
-      fullPath: backupPath, relativePath: relPath,
-      timestamp: timestamp(), originalName: path.basename(filePath),
-    }]
-    afterPrune.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-    if (afterPrune.length > MAX_BACKUPS_PER_FILE) {
-      const toDelete = afterPrune.slice(0, afterPrune.length - MAX_BACKUPS_PER_FILE)
-      for (const old of toDelete) {
-        await fsp.unlink(old.fullPath).catch(() => {})
-      }
-    }
-
-    return relPath
-  } finally {
-    releaseLock!()
-    backupLocks.delete(lockKey)
-  }
+// Backup disabled — returns empty string immediately
+async function backupFile(_filePath: string, _projectPath: string): Promise<string> {
+  return ''
 }
 
 // ── Safe recursive walk (Issue #5: symlink + safe-path checks) ──
@@ -451,32 +396,31 @@ export async function executeFileTool(
           }
         }
 
-        // Confirmed: execute with backup (use correct base for notes vs project files)
+        // Confirmed: execute
         const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
         const backupBase = fp.startsWith(globalNotesDir) ? globalNotesDir : projectPath
-        const backupRelPath = await backupFile(fp, backupBase)
+        await backupFile(fp, backupBase)
         await fsp.writeFile(fp, newContent, 'utf-8')
         const replaced = replaceAll ? occurrenceCount : 1
         return {
           callId, toolName, status: 'success',
-          summary: `已替换 ${replaced} 处 (备份: ${backupRelPath})`,
-          detail: `文件: ${args.file_path}\n备份: ${backupRelPath}\n提示: 可在对话中说"查看备份"来列出所有备份`,
+          summary: `已替换 ${replaced} 处`,
+          detail: `文件: ${args.file_path}`,
         }
       }
 
       case 'delete_file': {
         const fp = await safeResolve('file_path', args, projectPath)
         if (!fp) return deny(callId, toolName, '路径不在项目目录内')
-        // Issue #16: Create final backup before deletion
-        let backupInfo = ''
-        try { backupInfo = await backupFile(fp, projectPath) } catch { /* proceed even if backup fails */ }
+        // Issue #16: Final backup (disabled)
+        try { await backupFile(fp, projectPath) } catch { /* ignore */ }
         try { await fsp.unlink(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
         }
         return {
           callId, toolName, status: 'success',
           summary: '已删除',
-          detail: `文件: ${args.file_path}${backupInfo ? `\n最终备份: ${backupInfo}` : ''}`,
+          detail: `文件: ${args.file_path}`,
         }
       }
 

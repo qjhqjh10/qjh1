@@ -15,6 +15,7 @@ import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
 import { loadOutlineContent } from '@/services/outlineService'
 import { logError } from '@/utils/logger'
+import { stripHtml } from '@/utils/textUtils'
 
 export default function DetailedOutlinePage() {
   const navigate = useNavigate()
@@ -70,12 +71,12 @@ export default function DetailedOutlinePage() {
   // AI file edit → auto-refresh
   useEffect(() => {
     if (!fileEditNotify || !projectPath) return
-    const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
-    const pp = projectPath.replace(/\\/g, '/')
+    const normalized = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    const pp = projectPath.replace(/\\/g, '/').toLowerCase()
     if (normalized.includes('/detailed_outline/') && normalized.startsWith(pp)) {
       loadDetailedChapters(projectPath).then(setDetailedChapters)
+      setFileEditNotify(null)
     }
-    setFileEditNotify(null)
   }, [fileEditNotify])
 
   const saveDetailedChapterToFile = async (ch: DetailedChapter) => {
@@ -94,6 +95,7 @@ export default function DetailedOutlinePage() {
       characters: '',
       location: '',
       keyEvents: '',
+      customContent: '',
       eroticContent: '',
     }
     addDetailedChapter(newCh)
@@ -131,6 +133,7 @@ export default function DetailedOutlinePage() {
         if (ch.characters) content += `角色: ${ch.characters}\n`
         if (ch.location) content += `场景: ${ch.location}\n`
         if (ch.keyEvents) content += `关键事件:\n${ch.keyEvents.split('\n').map(l => `  · ${l}`).join('\n')}\n`
+        if (ch.customContent) content += `自定义内容:\n${ch.customContent}\n`
         if (ch.eroticContent) content += `情色剧情: ${ch.eroticContent}\n`
         content += '\n'
       }
@@ -214,6 +217,7 @@ export default function DetailedOutlinePage() {
         borderRight: '1px solid rgba(0,0,0,0.05)',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}>
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>全局大纲参考</h3>
@@ -226,13 +230,13 @@ export default function DetailedOutlinePage() {
               {outlineContent && (
                 <div style={os}>
                   <div style={ost}>故事剧情</div>
-                  <div style={osb}>{outlineContent.slice(0, 500)}{outlineContent.length > 500 ? '...' : ''}</div>
+                  <div style={osb}>{stripHtml(outlineContent).slice(0, 500)}{stripHtml(outlineContent).length > 500 ? '...' : ''}</div>
                 </div>
               )}
               {worldbuildingContent && (
                 <div style={os}>
                   <div style={ost}>世界观</div>
-                  <div style={osb}>{worldbuildingContent.slice(0, 500)}{worldbuildingContent.length > 500 ? '...' : ''}</div>
+                  <div style={osb}>{stripHtml(worldbuildingContent).slice(0, 500)}{stripHtml(worldbuildingContent).length > 500 ? '...' : ''}</div>
                 </div>
               )}
               {characters.length > 0 && (
@@ -397,6 +401,7 @@ export default function DetailedOutlinePage() {
         onClose={closeEditor}
         title={editDraft ? `编辑细纲 — ${editDraft.title || '未命名'}` : ''}
         width={800}
+        draggable
       >
         {editDraft && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -518,6 +523,29 @@ export default function DetailedOutlinePage() {
 主角抵达星际港口，发现货物被调包
 在酒吧与线人接头，获得走私路线图
 遭遇星际巡警突击检查，被迫逃亡`}
+              />
+            </div>
+
+            {/* 自定义内容 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#2d2520', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                自定义内容
+                <span style={{ fontWeight: 400, fontSize: 10, color: '#9b8e84' }}>
+                  （AI可自由添加伏笔、节奏、情绪、世界观关联等额外信息）
+                </span>
+              </label>
+              <textarea
+                value={editDraft.customContent || ''}
+                onChange={e => updateDraft('customContent', e.target.value)}
+                className="custom-scrollbar"
+                style={{
+                  width: '100%', border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 10, outline: 'none', resize: 'vertical',
+                  fontSize: 13, lineHeight: 1.7, fontFamily: 'inherit',
+                  color: '#4a3f38', background: '#faf9f8', padding: '10px 14px',
+                  minHeight: 60, maxHeight: 160,
+                }}
+                placeholder="自定义额外内容，如伏笔线索、节奏控制、情绪基调、世界观关联等…"
               />
             </div>
 

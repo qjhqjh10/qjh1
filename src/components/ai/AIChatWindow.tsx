@@ -108,7 +108,7 @@ export default function AIChatWindow() {
   const prompts = useSettingsStore(s => s.prompts)
   const updatePromptStore = useSettingsStore(s => s.updatePrompt)
   const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
-  const [kbEnabled, setKbEnabled] = useState(true)
+  const [kbEnabled, setKbEnabled] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
 
   const [showAtRef, setShowAtRef] = useState(false)
@@ -236,6 +236,7 @@ export default function AIChatWindow() {
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(false)
   const systemPromptSentRef = useRef(false)
+
   const [showConvList, setShowConvList] = useState(false)
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
@@ -356,32 +357,11 @@ export default function AIChatWindow() {
     }
 
     if (activePage === 'chapter' && currentChapter) {
-      parts.push(`[当前章节标题: ${currentDetailedChapter?.title || '未命名'}，${currentChapter.content?.length || 0}字]`)
-      if (currentDetailedChapter?.plotOverview) parts.push(`[本章剧情概述:\n${currentDetailedChapter.plotOverview.slice(0, 5000)}]`)
-      if (currentDetailedChapter?.description) parts.push(`[本章细纲:\n${currentDetailedChapter.description.slice(0, 5000)}]`)
-      // Do NOT inject full chapter body — read_file if user asks to see/edit it
-      parts.push(`
-当用户要求修改章节某段/某句/某词时 → read_file 找到原文 → edit_file 精确替换
-**禁止将完整章节内容输出到对话框**，只输出简短摘要（如"已将第3段修改为..."）
-用户明确要求"查看""显示""输出"完整内容时才输出全文
-
-**章节生成设置** (用户已在"AI生成"按钮中配置，生成章节正文时使用):
-- 字数目标: ${cg.wordTarget}字
-- 输出模式: ${cg.replaceMode ? '替换当前正文' : '追加到末尾'}
-- 关联上下文: ${[
-    cg.outlineTabs.plot && '故事剧情', cg.outlineTabs.worldbuilding && '世界观', cg.outlineTabs.characters && '角色',
-    cg.outlineTabs.items && '道具', cg.outlineTabs.locations && '地点', cg.outlineTabs.factions && '势力',
-    cg.outlineTabs.powerSystem && '等级', cg.outlineTabs.foreshadowing && '伏笔', cg.outlineTabs.emotion && '情绪',
-    cg.outlineTabs.plotThreads && '故事线',
-    cg.detailedOutlineFields.plotOverview && '本章剧情概述', cg.detailedOutlineFields.chapterCharacters && '出现角色',
-    cg.detailedOutlineFields.location && '场景地点', cg.detailedOutlineFields.keyEvents && '关键事件',
-    cg.detailedOutlineFields.eroticContent && '情色剧情',
-  ].filter(Boolean).join('、') || '无'}`)
+      parts.push(`[当前章节: ${currentDetailedChapter?.title || '未命名'}，${currentChapter.content?.length || 0}字。用 read_file("chapters/${currentChapter.id || '?'}.txt") 查看正文，用 read_file 查看细纲。修改某段→read_file→edit_file精确替换。生成设置: ${cg.wordTarget}字/${cg.replaceMode ? '替换' : '追加'}]`)
     }
 
     if (activePage === 'outline' && outlineContent) {
-      parts.push(`[当前故事剧情记录:\n${outlineContent.slice(0, 8000)}]`)
-      parts.push(`用户正在大纲页面。大纲包含10个Tab，你可通过 edit_file 编辑对应的JSON文件来修改各个Tab的数据。
+      parts.push(`用户正在大纲页面（故事剧情：${outlineContent.length}字符）。如需查看内容请 read_file("outline/plot.md")，修改用 edit_file。不要自动读取文件。大纲包含10个Tab：
 
 **核心Tab — 故事剧情 (outline/plot.md) 和 世界观（设定） (outline/worldbuilding.md):**
 HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原文 → edit_file(old_string="原文", new_string="原文\n新增")。若文件为空（内容为" "或空）则 old_string="" 配合 create_file 写入初始HTML。支持HTML标签、图片、链接。
@@ -401,27 +381,15 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
     }
 
     if (activePage === 'worldbuilding' && worldbuildingContent) {
-      parts.push(`[当前世界观设定:\n${worldbuildingContent.slice(0, 10000)}]`)
-      parts.push('用户正在编辑世界观设定。你可以分析世界观逻辑一致性、设定漏洞，提出扩展建议。如果用户要求改写，直接输出内容。')
+      parts.push(`用户正在世界观设定页面（内容：${worldbuildingContent.length}字符）。如需查看用 read_file("outline/worldbuilding.md")，修改用 edit_file。不要自动读取文件。`)
     }
 
     if (activePage === 'rewrite' && rewriteContent) {
-      parts.push(`[当前章节正文(剧情改写):\n${rewriteContent.slice(0, 20000)}]`)
-      parts.push(`
-如果用户要求改写润色，请用以下格式（原文将被标红，改写将被标蓝插入其后，由使用者手动替换）：
-【改写参考】
-原文: <需要改写的原文句子（尽量完整引用）>
+      parts.push(`用户正在剧情改写页面（章节正文：${rewriteContent.length}字符）。不要自动读取文件。用户要求修改时再 read_file 查看原文，用 edit_file 精确替换。`)
+    }
 
-【改写内容】
-<改写后的文字>
-
-如果用户要求生成新内容，请用以下格式：
-【插入参考】
-原文关键词: <引述原文中要插入位置的上下文句子>
-建议位置: 该段之后
-
-【生成内容】
-<你的创作内容>`)
+    if (activePage === 'style-workshop') {
+      parts.push('用户正在风格工坊分析文风。你可帮助分析 26 维文风特征、总结风格档案、填充风格模板。风格数据存储在 style_projects/ 目录。')
     }
 
     if (activePage === 'detailed-outline' && detailedChapters.length > 0) {
@@ -545,7 +513,8 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       }
       setSelectedRefs([])
 
-      const contextPrefix = buildContextPrefix(kbContext, webContext) + refContext
+      // Page context: no longer auto-injected. AI reads files on demand via tools.
+
 
       // Style injection: only when user explicitly requests chapter generation, not just chatting.
       // The AI can read style templates via read_file if needed. Removed automatic injection.
@@ -559,7 +528,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         systemMessages.push({ role: 'system', content: FILE_OP_SYSTEM_PROMPT })
         systemMessages.push(
           { role: 'system', content: aiSettings.workMode === 'plan'
-            ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content/list_backups + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
+            ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
             : `[Action执行模式] 全部工具可用。` },
           { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
         )
@@ -599,7 +568,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
         ...systemMessages,
         ...historyMessages,
-        { role: 'user' as const, content: contextPrefix + '\n\n[用户输入]\n' + userMsg.content },
+        { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + userMsg.content },
       ]
 
       // Tools
@@ -644,7 +613,18 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
           isDone = true
         } else {
           // Process tool calls
-          const assistantMsgForApi: Record<string, unknown> = { role: 'assistant', content: text || '', tool_calls: toolCalls }
+          // Also parse popup commands from text (may be mixed with tool calls)
+          const popupParsed2 = parsePopupCommand(text || '')
+          const displayText2 = popupParsed2.popup ? popupParsed2.text : (text || '')
+          if (popupParsed2.popup) {
+            const pid = Date.now().toString()
+            openPopup({ id: `ai_${pid}`, type: popupParsed2.popup.type, title: popupParsed2.popup.title, documentKey: popupParsed2.popup.documentKey })
+          }
+          if (popupParsed2.genTrigger) {
+            const targetId = popupParsed2.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed2.genTrigger
+            if (targetId) useStore.getState().setChapterGenTrigger(targetId)
+          }
+          const assistantMsgForApi: Record<string, unknown> = { role: 'assistant', content: displayText2, tool_calls: toolCalls }
           if (reasoning_content) assistantMsgForApi.reasoning_content = reasoning_content
           messagesForApi.push(assistantMsgForApi as any)
           // Persist assistant message with tool_calls. Strip note content to save tokens.
@@ -657,7 +637,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             return tc
           })
           setMessages(prev => [...prev, {
-            id: `${Date.now()}_tc`, role: 'assistant' as const, content: text || '', timestamp: Date.now(),
+            id: `${Date.now()}_tc`, role: 'assistant' as const, content: displayText2, timestamp: Date.now(),
             tool_calls: strippedCalls,
           }])
           const resultMsgs: Message[] = []
@@ -1008,7 +988,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
               //
               // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存
               // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）
-              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'restore_backup', 'create_project', 'delete_project']
+              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']
               if (r?.status === 'success' && activeProjectId) {
                 const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
                 if (pp) {
@@ -1168,7 +1148,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             position: 'fixed', bottom: winPos.bottom, right: winPos.right, width: winSize.width, height: winSize.height,
             borderRadius: 24, background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(24px)',
             border: '1px solid rgba(255,255,255,0.6)', boxShadow: '0 16px 64px rgba(0,0,0,0.12)',
-            display: 'flex', flexDirection: 'column', zIndex: 49, overflow: 'hidden',
+            display: 'flex', flexDirection: 'column', zIndex: 101, overflow: 'hidden',
           }}
         >
           {/* Header (draggable) */}

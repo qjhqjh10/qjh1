@@ -82,13 +82,19 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       const currentHtml = editor.getHTML()
       if (currentHtml !== content) {
         try {
-          // Convert plain text paragraphs to HTML: \n\n → </p><p>, single \n → <br>
-          const htmlContent = content
-            .split(/\n{2,}/)
-            .map(p => p.trim() ? `<p>${p.replace(/\n/g, '<br>')}</p>` : '')
-            .filter(Boolean)
-            .join('')
-          editor.commands.setContent(htmlContent)
+          // Detect if content is already HTML (from RichTextEditor or AI edits)
+          const looksLikeHtml = /<[a-zA-Z][^>]*>/.test(content)
+          if (looksLikeHtml) {
+            editor.commands.setContent(content)
+          } else {
+            // Convert plain text paragraphs to HTML: \n\n → </p><p>, single \n → <br>
+            const htmlContent = content
+              .split(/\n{2,}/)
+              .map(p => p.trim() ? `<p>${p.replace(/\n/g, '<br>')}</p>` : '')
+              .filter(Boolean)
+              .join('')
+            editor.commands.setContent(htmlContent)
+          }
         } catch { /* ignore */ }
       }
     }

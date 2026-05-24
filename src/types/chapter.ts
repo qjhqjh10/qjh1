@@ -12,6 +12,7 @@ export interface DetailedChapter {
   characters?: string            // 出现的角色 (姓名、性别、特征等)
   location?: string              // 场景地点
   keyEvents?: string             // 关键事件 (多条，每行一个)
+  customContent?: string         // 自定义内容（AI可自由添加额外信息，如伏笔、节奏、情绪等）
   eroticContent?: string         // 情色剧情 (仅情色小说类型启用)
 }
 

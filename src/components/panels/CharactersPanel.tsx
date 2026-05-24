@@ -289,7 +289,7 @@ ${JSON.stringify(charList, null, 2)}
 
   // Reload characters when AI creates/edits/deletes character files
   useEffect(() => {
-    const p = fileEditNotify?.filePath?.replace(/\\/g, '/') || ''
+    const p = (fileEditNotify?.filePath || '').replace(/\\/g, '/').toLowerCase()
     if (p.includes('/characters/') && activeProjectId) {
       const pp = `${projectsBasePath}/${activeProjectId}`
       loadCharacters(pp).then(setCharacters)
@@ -577,7 +577,7 @@ ${JSON.stringify(charList, null, 2)}
       </div>
 
       {/* Character Edit Modal */}
-      <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingChar(null) }} title="角色详情" width={760}>
+      <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingChar(null) }} title="角色详情" width={760} draggable>
         {editingChar && <CharacterForm char={editingChar} onChange={setEditingChar} onSave={handleSave} onClose={() => { setShowModal(false); setEditingChar(null) }} projectPath={projectPath} />}
       </Modal>
 
@@ -601,7 +601,7 @@ ${JSON.stringify(charList, null, 2)}
       />
 
       {/* AI Generate Modal */}
-      <Modal isOpen={showAIGen} onClose={() => setShowAIGen(false)} title="AI 生成角色" width={560}>
+      <Modal isOpen={showAIGen} onClose={() => setShowAIGen(false)} title="AI 生成角色" width={560} draggable>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#2d2520', marginBottom: 6 }}>

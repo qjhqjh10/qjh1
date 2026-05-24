@@ -186,7 +186,7 @@ const SECTIONS: Section[] = [
 
 export default function SoftwareGuideModal({ isOpen, onClose }: Props) {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="软件功能说明" width={700}>
+    <Modal isOpen={isOpen} onClose={onClose} title="软件功能说明" width={700} draggable>
       <ScrollArea maxHeight="70vh" style={{ paddingRight: 8 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {SECTIONS.map((section, si) => (

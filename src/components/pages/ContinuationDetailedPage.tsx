@@ -261,7 +261,7 @@ export default function ContinuationDetailedPage() {
       </div>
 
       {/* Edit Segment Modal */}
-      <Modal isOpen={editSegment !== null} onClose={() => setEditSegment(null)} title={`编辑 ${editSegment?.label || ''}`} width={700}>
+      <Modal isOpen={editSegment !== null} onClose={() => setEditSegment(null)} title={`编辑 ${editSegment?.label || ''}`} width={700} draggable>
         {editSegment && (
           <>
             <textarea value={editSegment.content} onChange={e => setEditSegment({ ...editSegment, content: e.target.value })} rows={20} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, lineHeight: 1.8, fontFamily: 'inherit', resize: 'vertical' }} />

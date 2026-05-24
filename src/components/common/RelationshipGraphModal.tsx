@@ -84,7 +84,7 @@ export default function RelationshipGraphModal({
   }, [isOpen])
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} width="95vw" closeOnBackdropClick={false}>
+    <Modal isOpen={isOpen} onClose={onClose} width="95vw" closeOnBackdropClick={false} draggable>
       <div style={{ height: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{

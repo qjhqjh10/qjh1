@@ -5,6 +5,7 @@ import { fileService } from '@/services/fileService'
 import { sceneService } from '@/services/sceneService'
 import { loadCharacters } from '@/services/characterService'
 import { loadOutlineContent, saveOutlineContent, loadWorldbuildingContent, saveWorldbuildingContent } from '@/services/outlineService'
+import { htmlToMarkdown } from '@/utils/markdownConverter'
 import { nanoid } from 'nanoid'
 import WordCount from '@/components/common/WordCount'
 import Button from '@/components/common/Button'
@@ -86,6 +87,8 @@ export default function OutlinePage() {
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const [projectPath, setProjectPath] = useState('')
+  const [rawOutline, setRawOutline] = useState('')
+  const [rawWorldbuilding, setRawWorldbuilding] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const tab = searchParams.get('tab')
     if (tab && TABS.some(t => t.key === tab)) return tab as Tab
@@ -142,6 +145,10 @@ export default function OutlinePage() {
     return () => clearTimeout(timer)
   }, [worldbuildingContent, projectPath])
 
+  // Sync raw content when user edits (for character count)
+  useEffect(() => { setRawOutline(htmlToMarkdown(outlineContent)) }, [outlineContent])
+  useEffect(() => { setRawWorldbuilding(htmlToMarkdown(worldbuildingContent)) }, [worldbuildingContent])
+
   // Let AI assistant know which page we're on
   useEffect(() => { setActivePage(activeTab === 'worldbuilding' ? 'worldbuilding' : activeTab === 'characters' ? 'characters' : 'outline') }, [activeTab])
 
@@ -166,6 +173,8 @@ export default function OutlinePage() {
     Promise.all([
       loadOutlineContent(pp).then(c => { setOutlineContent(c) }),
       loadWorldbuildingContent(pp).then(c => { setWorldbuildingContent(c) }),
+      fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => setRawOutline('')),
+      fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => setRawWorldbuilding('')),
       loadCharacters(pp).then(chars => { useStore.getState().setCharacters(chars) }),
       fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
         try { setMeta(JSON.parse(c) as OutlineMeta) } catch { setMeta(DEFAULT_OUTLINE_META) }
@@ -193,8 +202,8 @@ export default function OutlinePage() {
   // AI direct edit via edit_file → reload editor with clean content
   useEffect(() => {
     if (!fileEditNotify || !projectPath) return
-    const normalized = fileEditNotify.filePath.replace(/\\/g, '/')
-    const pp = projectPath.replace(/\\/g, '/')
+    const normalized = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    const pp = projectPath.replace(/\\/g, '/').toLowerCase()
     const outlinePath = `${pp}/outline/plot.md`
     const outlineJsonPath = `${pp}/outline/plot.json` // backward compat
     const outlineLegacyPath = `${pp}/outline/outline.json` // backward compat
@@ -207,19 +216,25 @@ export default function OutlinePage() {
     const powerPath = `${pp}/outline/power_system.json`
     const emotionPath = `${pp}/outline/emotion.json`
 
+    let handled = false
     if (normalized === outlinePath || normalized === outlineJsonPath || normalized === outlineLegacyPath) {
+      handled = true
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         loadOutlineContent(projectPath).then(setOutlineContent)
+        fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => {})
       } else {
         setOutlineContent(fileEditNotify.newContent)
       }
     } else if (normalized === wbPath || normalized === wbJsonPath) {
+      handled = true
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
+        fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => {})
       } else {
         setWorldbuildingContent(fileEditNotify.newContent)
       }
     } else if (normalized === metaPath) {
+      handled = true
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
           try { setMeta(JSON.parse(c) as OutlineMeta) } catch {}
@@ -228,19 +243,24 @@ export default function OutlinePage() {
         try { setMeta(JSON.parse(fileEditNotify.newContent) as OutlineMeta) } catch {}
       }
     } else if (normalized === itemsPath) {
+      handled = true
       loadOutlineData<OutlineItemsData>(projectPath, 'items.json', { items: [] }).then(d => setItems(d.items))
     } else if (normalized === locationsPath) {
+      handled = true
       loadOutlineData<OutlineLocationsData>(projectPath, 'locations.json', { locations: [] }).then(d => setLocations(d.locations))
     } else if (normalized === factionsPath) {
+      handled = true
       loadOutlineData<OutlineFactionsData>(projectPath, 'factions.json', { factions: [] }).then(d => setFactions(d.factions))
     } else if (normalized === powerPath) {
+      handled = true
       loadOutlineData<PowerSystem>(projectPath, 'power_system.json', { name: '', levels: [], description: '' }).then(d => {
         setPowerSystem({ ...d, levels: (d.levels || []).map(l => typeof l === 'string' ? { name: l as unknown as string, description: '' } : l) })
       })
     } else if (normalized === emotionPath) {
+      handled = true
       loadOutlineData<EmotionData>(projectPath, 'emotion.json', { segments: [] }).then(setEmotionData)
     }
-    setFileEditNotify(null)
+    if (handled) setFileEditNotify(null)
   }, [fileEditNotify])
 
   const handleSaveWorldbuilding = useCallback(async () => {
@@ -524,8 +544,8 @@ export default function OutlinePage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>{TAB_LABELS[activeTab]}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {activeTab === 'basic' && <WordCount text={outlineContent} />}
-              {activeTab === 'worldbuilding' && <WordCount text={worldbuildingContent} />}
+              {activeTab === 'basic' && <WordCount text={outlineContent} rawText={rawOutline} />}
+              {activeTab === 'worldbuilding' && <WordCount text={worldbuildingContent} rawText={rawWorldbuilding} />}
             </div>
           </div>
           {renderMainContent()}
