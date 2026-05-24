@@ -22,6 +22,7 @@ export interface Message {
   compressedSummary?: boolean
   compressedCount?: number
   compressedTokens?: number
+  breakdown?: { label: string; chars: number }[]  // prompt token breakdown for this message
 }
 
 export interface Conversation {

@@ -242,6 +242,7 @@ export default function AIChatWindow() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
+  const [breakdownModal, setBreakdownModal] = useState<{ label: string; chars: number }[] | null>(null)
   const [compressing, setCompressing] = useState(false)
   const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -612,7 +613,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       if (kbContext) breakdown.push({ label: '知识库上下文', chars: kbContext.length })
       if (webContext) breakdown.push({ label: '网络搜索上下文', chars: webContext.length })
       if (refContext) breakdown.push({ label: '引用文件', chars: refContext.length })
-      breakdown.push({ label: '用户输入', chars: userMsg.content.length })
+      breakdown.push({ label: '用户输入', chars: userMsg.content.length + 11 })  // +11 for \n\n[用户输入]\n prefix
       // config.systemPrompt injected by backend every call
       const cfgSysPrompt = activeConfig?.systemPrompt || ''
       if (cfgSysPrompt) breakdown.push({ label: '模型配置系统提示词', chars: cfgSysPrompt.length })
@@ -621,6 +622,9 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         const toolsJson = JSON.stringify(toolsForApi)
         breakdown.push({ label: `工具定义 (${toolsForApi.length}个)`, chars: toolsJson.length })
       }
+      // JSON structure overhead: role/content keys, brackets, quotes (~25 chars per message)
+      const structOverhead = (systemMessages.length + historyMessages.length + 1) * 25
+      breakdown.push({ label: `消息结构开销 (${systemMessages.length + historyMessages.length + 1}条)`, chars: structOverhead })
       setTokenBreakdown(breakdown)
 
       let iteration = 0; const MAX_ITER = 8; let isDone = false
@@ -653,6 +657,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             id: Date.now().toString() + '_r', role: 'assistant', content: plainText || displayText, timestamp: Date.now(), insertion,
             usage: usage ? { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, total_tokens: usage.total_tokens, cost: usage.cost } : undefined,
             wordCount: plainText ? plainText.replace(/\s/g, '').length : 0,
+            breakdown,
             sources: { kb: kbSources, web: webSources }, images,
           }
           setMessages(prev => [...prev, assistantMsg])
@@ -1682,6 +1687,43 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
     </AnimatePresence>
     {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
     {/* Right-click context menu */}
+    {breakdownModal && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(2px)',
+      }} onClick={() => setBreakdownModal(null)}>
+        <div style={{
+          background: '#fff', borderRadius: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.15)',
+          padding: 24, maxWidth: 420, width: '90vw', maxHeight: '70vh', overflow: 'auto',
+        }} onClick={e => e.stopPropagation()} className="custom-scrollbar">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>Prompt Token 分解</h3>
+            <button onClick={() => setBreakdownModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+          </div>
+          {breakdownModal.map((b, i) => {
+            const est = Math.round(b.chars / 2)
+            const pct = breakdownModal.reduce((s, x) => s + Math.round(x.chars / 2), 0)
+            const barW = pct > 0 ? Math.max(2, (est / pct) * 100) : 0
+            return (
+              <div key={i} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+                  <span style={{ color: '#4a3f38' }}>{b.label}</span>
+                  <span style={{ fontWeight: 600, color: '#2d2520' }}>~{est.toLocaleString()} tokens</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${barW}%`, borderRadius: 2, background: i === 0 ? '#7c3aed' : i === 1 ? '#16a34a' : i === 2 ? '#d97706' : '#6b5e54', transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            )
+          })}
+          <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 12, paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+            <span>合计（估算）</span>
+            <span>~{breakdownModal.reduce((s, b) => s + Math.round(b.chars / 2), 0).toLocaleString()} tokens</span>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 10, color: '#9b8e84' }}>估算公式: 字符数 ÷ 2 ≈ tokens。实际以 API 返回为准。</div>
+        </div>
+      </div>
+    )}
     {contextMenu && (
       <div style={{
         position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 200,
@@ -1697,6 +1739,15 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         <button onClick={() => { toggleSelectMsg(contextMenu.msgId); setContextMenu(null) }} style={ctxMenuBtn}>
           <Square2StackIcon style={{ width: 13, height: 13 }} /> 选择消息
         </button>
+        {(() => {
+          const msg = messages.find(m => m.id === contextMenu.msgId)
+          if (msg?.breakdown) {
+            return <button onClick={() => { setBreakdownModal(msg.breakdown!); setContextMenu(null) }} style={ctxMenuBtn}>
+              <MagnifyingGlassIcon style={{ width: 13, height: 13 }} /> 查看Token分解
+            </button>
+          }
+          return null
+        })()}
       </div>
     )}
     </>
