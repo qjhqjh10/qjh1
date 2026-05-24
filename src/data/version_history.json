@@ -1,7 +1,17 @@
 {
-  "currentVersion": "5.1.0",
+  "currentVersion": "5.2.0",
   "currentDate": "2026-05-24",
   "history": [
+    {
+      "version": "5.2.0",
+      "date": "2026-05-24",
+      "features": [
+        "Token深度优化2: 工具调用/结果不跨轮传递(仅保留user/assistant纯文本), 对话历史限制最近20条, FILE_OP_SYSTEM_PROMPT改用消息计数判断(修复第二条仍发送14k的bug), 工具按需选择(闲聊0个/普通任务8个/特定领域动态添加,替代码全量28个全发)",
+        "Token调试面板: ContextUsageBar新增可展开分解视图, 点击'用量▸'显示系统提示词/历史/上下文/工具定义等各组件字符数和估算tokens",
+        "系统提示词强化: 新增'使用工具前先思考'行为规则(先分析意图→最少工具→一步到位→禁止验证读→不兜圈)",
+        "前端工具选择器: 6组领域关键词(file/note/kb/image/template/prompt/project)匹配→动态组合工具集"
+      ]
+    },
     {
       "version": "5.1.0",
       "date": "2026-05-24",

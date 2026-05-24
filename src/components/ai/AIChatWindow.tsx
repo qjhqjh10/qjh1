@@ -164,6 +164,7 @@ export default function AIChatWindow() {
 
   const [cumulativeTokens, setCumulativeTokens] = useState(0)
   const [lastPromptTokens, setLastPromptTokens] = useState(0)
+  const [tokenBreakdown, setTokenBreakdown] = useState<{ label: string; chars: number }[]>([])
 
   const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -230,12 +231,11 @@ export default function AIChatWindow() {
     const conv = conversations.find(c => c.id === activeConversationId)
     setCumulativeTokens(conv?.totalTokens || 0)
     setLastPromptTokens(conv?.lastPromptTokens || 0)
-    systemPromptSentRef.current = false
   }, [activeConversationId])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(false)
-  const systemPromptSentRef = useRef(false)
+
 
   const [showConvList, setShowConvList] = useState(false)
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
@@ -519,12 +519,16 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
       // Style injection: only when user explicitly requests chapter generation, not just chatting.
       // The AI can read style templates via read_file if needed. Removed automatic injection.
 
-      // System messages — FILE_OP_SYSTEM_PROMPT only on first call of conversation
+      // System messages — FILE_OP_SYSTEM_PROMPT only on first call of conversation.
+      // Check actual message count, not just ref (more robust against remounts).
+      // setMessages is async — current msg not in state yet. 0 = no prior user msgs = first send.
+      const existingUserMsgs = messages.filter(m => m.role === 'user').length
+      const isFirstMessage = existingUserMsgs === 0
       const promptStatus = prompts.map(p =>
         `  [${p.enabled ? '✓' : ' '}] ${p.id}: ${p.title} (${p.type})${p.enabled ? ' ← 当前使用' : ''}`
       ).join('\n')
       const systemMessages: Array<{ role: string; content: string }> = []
-      if (!systemPromptSentRef.current) {
+      if (isFirstMessage) {
         systemMessages.push({ role: 'system', content: FILE_OP_SYSTEM_PROMPT })
         systemMessages.push(
           { role: 'system', content: aiSettings.workMode === 'plan'
@@ -532,33 +536,21 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
             : `[Action执行模式] 全部工具可用。` },
           { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
         )
-        systemPromptSentRef.current = true
       }
 
-      // History with tool support — keep last 3 tool results in full, compress older ones.
-      // Compressed summary messages are extracted and injected as separate system messages.
-      const TOOL_HISTORY_LIMIT = 3
-      // Extract compressed summaries BEFORE system-role filter (they have role='system')
+      // History — tool calls/results do NOT carry across rounds.
+      // Only user/assistant text content is preserved. AI reads files on demand.
+      // Limit to last 20 messages to prevent token bloat from long conversations.
+      const MAX_HISTORY = 20
       const compressedMsgs = messages.filter(m => m.compressedSummary)
-      const allFiltered = messages.filter(m => !m.id.startsWith('welcome') && String(m.role) !== 'system' && !m.compressedSummary)
-      const filteredMessages = allFiltered
-      // Find indices of the last N tool messages
-      const toolIndices: number[] = []
-      for (let i = filteredMessages.length - 1; i >= 0; i--) {
-        if (filteredMessages[i].role === 'tool') toolIndices.unshift(i)
-      }
-      const keepTools = new Set(toolIndices.slice(-TOOL_HISTORY_LIMIT))
-      const historyMessages = filteredMessages.map((m, idx) => {
-        const isTool = m.role === 'tool'
-        const content = isTool && !keepTools.has(idx)
-          ? JSON.stringify({ status: 'success', summary: '早期工具调用结果已省略' })
-          : m.content
-        return {
-          role: m.role as string, content,
-          ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
-          ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-        }
-      })
+      const filteredMessages = messages.filter(m =>
+        !m.id.startsWith('welcome') && String(m.role) !== 'system' && !m.compressedSummary && m.role !== 'tool',
+      )
+      const recentMessages = filteredMessages.slice(-MAX_HISTORY)
+      const historyMessages = recentMessages.map(m => ({
+        role: m.role as string,
+        content: m.content,
+      }))
       // Inject compressed summaries as extra system messages
       for (const cm of compressedMsgs) {
         systemMessages.push({ role: 'system', content: `[对话历史摘要 — ${cm.compressedCount || '?'}条消息已压缩]\n${cm.content}` })
@@ -571,11 +563,65 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
         { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + userMsg.content },
       ]
 
-      // Tools
-      const activeTools = aiSettings.workMode === 'plan'
+      // Tools — smart selection: only send tools relevant to user's intent.
+      // Avoids wasting ~5k tokens on tool definitions the AI won't use.
+      const allTools = aiSettings.workMode === 'plan'
         ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
         : FILE_TOOLS
-      const toolsForApi = activeTools
+      // Tool groups for domain-specific selection
+      const isFileTask   = /(大纲|细纲|章|角色|世界观|文件|道具|地点|势力|等级|伏笔|故事线|情绪|场景|统计|导出|配置|创建|新建|修改|编辑|删除|读取|帮|改|写|读|删|加|换|设定)/i.test(userMsg.content)
+      const isNoteTask   = /(笔记|草稿|记下来|灵感|想法|保存)/i.test(userMsg.content)
+      const isKbTask     = /(知识库|资料库|索引|语义|搜索)/i.test(userMsg.content)
+      const isImageTask  = /(图片|生成.*图|插图|配图|形象图)/i.test(userMsg.content)
+      const isTmplTask   = /(模板|风格工坊|场景工坊|风格分析)/i.test(userMsg.content)
+      const isPromptTask = /(提示词|prompt|模板.*格式)/i.test(userMsg.content)
+      const isProjTask   = /(创建.*项目|新建.*项目|删除.*项目)/i.test(userMsg.content)
+      const anyTask = isFileTask || isNoteTask || isKbTask || isImageTask || isTmplTask || isPromptTask || isProjTask
+
+      let toolsForApi: unknown[] | undefined
+      if (!anyTask) {
+        toolsForApi = undefined // pure chat — no tools
+      } else {
+        // Core file tools (always included for any task)
+        const core = ['list_directory','read_file','search_files','search_content','edit_file','create_file','delete_file','rename_file']
+        // Domain tools — only added when user mentions relevant keywords
+        const noteTools   = ['list_notes','read_note','write_note','append_note','delete_note']
+        const kbTools     = ['kb_list','kb_create_file','kb_append_file','kb_index_file']
+        const imageTools  = ['search_images','generate_image']
+        const promptTools = ['list_prompts','toggle_prompt','update_prompt']
+        const tmplTools   = ['create_style_template','create_scene_template']
+        const projTools   = ['create_project','delete_project']
+
+        const needed = new Set(core)
+        if (isNoteTask)   noteTools.forEach(t => needed.add(t))
+        if (isKbTask)     kbTools.forEach(t => needed.add(t))
+        if (isImageTask)  imageTools.forEach(t => needed.add(t))
+        if (isTmplTask)   tmplTools.forEach(t => needed.add(t))
+        if (isPromptTask) promptTools.forEach(t => needed.add(t))
+        if (isProjTask)   projTools.forEach(t => needed.add(t))
+
+        toolsForApi = allTools.filter((t: any) => needed.has(t.function.name))
+      }
+
+      // Token breakdown for debugging
+      const breakdown: { label: string; chars: number }[] = []
+      let sysChars = 0; for (const sm of systemMessages) sysChars += (sm.content || '').length
+      if (sysChars > 0) breakdown.push({ label: '系统提示词', chars: sysChars })
+      let histChars = 0; for (const hm of historyMessages) histChars += (hm.content || '').length
+      if (histChars > 0) breakdown.push({ label: `对话历史 (${historyMessages.length}条)`, chars: histChars })
+      if (kbContext) breakdown.push({ label: '知识库上下文', chars: kbContext.length })
+      if (webContext) breakdown.push({ label: '网络搜索上下文', chars: webContext.length })
+      if (refContext) breakdown.push({ label: '引用文件', chars: refContext.length })
+      breakdown.push({ label: '用户输入', chars: userMsg.content.length })
+      // config.systemPrompt injected by backend every call
+      const cfgSysPrompt = activeConfig?.systemPrompt || ''
+      if (cfgSysPrompt) breakdown.push({ label: '模型配置系统提示词', chars: cfgSysPrompt.length })
+      // Tools definition (sent every API call, often the hidden token hog)
+      if (toolsForApi) {
+        const toolsJson = JSON.stringify(toolsForApi)
+        breakdown.push({ label: `工具定义 (${toolsForApi.length}个)`, chars: toolsJson.length })
+      }
+      setTokenBreakdown(breakdown)
 
       let iteration = 0; const MAX_ITER = 8; let isDone = false
       let sessionTokens = 0; let lastPrompt = 0
@@ -1308,6 +1354,7 @@ HTML富文本文件（RichTextEditor编辑）。写入: read_file 确认HTML原�
           <ContextUsageBar
             usedTokens={lastPromptTokens}
             contextWindow={activeConfig?.contextWindow ?? 128000}
+            breakdown={tokenBreakdown}
             onCompress={() => {
               // Compress oldest messages, keeping last 20
               const msgs = activeConversation.messages

@@ -71,6 +71,7 @@ AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_dir
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
+| v5.2.0 | 2026-05-24 | Token深度优化3(工具调用不跨轮+历史限20条+首条消息计数判断修复14k重复发送)+工具按需选择(闲聊0个/任务8个/特定领域动态添加)+Token调试面板(用量展开显示构成明细)+系统提示词强化(用工具前先思考:最少工具+一步到位+禁止验证读) |
 | v5.1.0 | 2026-05-24 | Markdown存储迁移(HTML→MD存取自动转换)+Token优化2(contextPrefix移除+KB默认关闭)+fileEditNotify全面修复(大小写+条件清除6组件)+细纲重构(JSON解析增强+MD兼容+customContent字段+系统提示词补全)+RichTextEditor修复(HTML检测)+WordCount双计数(纯文字+原始文件)+备份关闭(backupFile空函数+2工具移除)+Modal全站可拖拽(17个)+左栏滚动修复+路径大小写兼容 |
 | v5.0.0 | 2026-05-24 | Token优化(系统提示词/工作模式仅首条+风格注入移除+工具结果仅保留3条+write_note内容剥离)+智能压缩对话(右键压缩+70%警告)+草稿本全局化+大纲编辑升级(RichTextEditor+.json→.md)+AI写作助手修复(edit_file路径回退+trim匹配+通知修复)+查找替换增强+系统提示词优化(HTML富文本+角色16字段schema)+后端修复(全局notes白名单+AbortController分离+死代码清理) |
 | v4.12.0 | 2026-05-23 | 风格工坊+模板库合并(双Tab重设计+FramerMotion+进度条+全部展开/折叠)+AI写作助手全面诊断修复(V2/V3统一+错误隔离+AbortController+维度检查)+草稿本全局化(移除项目绑定+扁平列表+Route D)+模板创建修复(worldType/attitude扩充11/9项+自定义)+AI工具权限修复(READ_ONLY_TOOLS补全)+项目列表过滤+删除确认弹窗+悬浮按钮位置记忆+死代码清理+Abort通道分离 |
