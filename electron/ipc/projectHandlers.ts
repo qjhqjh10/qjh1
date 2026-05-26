@@ -6,7 +6,7 @@ import * as path from 'path'
 import { isSafePath } from './utils'
 import { logError } from './logger'
 
-const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images']
+const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images', 'summaries']
 
 let projectsBasePath = ''
 

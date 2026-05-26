@@ -1,5 +1,6 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
+import { repairJson } from '@/services/chapterService'
 import type { ChapterSceneConfig } from '@/types/story'
 
 const SCENES_DIR = 'scenes'
@@ -12,7 +13,8 @@ export const sceneService = {
   async loadChapterSceneConfig(projectPath: string, chapterId: string): Promise<ChapterSceneConfig | null> {
     try {
       const raw = await fileService.read(sceneFilePath(projectPath, chapterId))
-      return JSON.parse(raw) as ChapterSceneConfig
+      const repaired = repairJson(raw)
+      return repaired ? JSON.parse(repaired) as ChapterSceneConfig : null
     } catch (e) {
       logError(`加载场景配置失败: ${chapterId}`, e)
       return null
@@ -47,7 +49,8 @@ export const sceneService = {
         if (!file.endsWith('.json')) continue
         try {
           const raw = await fileService.read(`${projectPath}/${SCENES_DIR}/${file}`)
-          configs.push(JSON.parse(raw) as ChapterSceneConfig)
+          const repaired = repairJson(raw)
+          if (repaired) configs.push(JSON.parse(repaired) as ChapterSceneConfig)
         } catch (err) { logError(`跳过无效场景配置: ${file}`, err) }
       }
       return configs

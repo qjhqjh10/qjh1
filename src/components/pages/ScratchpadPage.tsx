@@ -51,7 +51,7 @@ export default function ScratchpadPage() {
   useEffect(() => {
     if (!fileEditNotify || !selectedNote) return
     const expectedPath = notePath(selectedNote)
-    if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
+    if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase() === expectedPath.toLowerCase()) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         fileService.read(expectedPath).then(c => { setContent(c); setRawContent(c) }).catch(() => {})
       } else {
@@ -60,7 +60,6 @@ export default function ScratchpadPage() {
       }
       setFileEditNotify(null)
     }
-    return () => { setFileEditNotify(null) }
   }, [fileEditNotify, selectedNote, notePath, setFileEditNotify])
 
   // Load content when selected note changes

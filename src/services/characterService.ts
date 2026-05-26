@@ -1,6 +1,102 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
+import { repairJson } from '@/services/chapterService'
 import type { Character, CharacterRole } from '@/types/character'
+
+/**
+ * Normalize a character object from non-standard formats to the canonical
+ * 16-field flat schema. Handles the nested-object anti-pattern that AI
+ * sometimes produces (basicInfo/appearance/personality sub-objects).
+ */
+function normalizeCharacter(raw: Record<string, unknown>): Character {
+  // If already flat format, just sanitize
+  if (typeof raw.role === 'string' && typeof raw.gender === 'string') {
+    return {
+      id: String(raw.id || ''),
+      name: String(raw.name || ''),
+      role: normalizeRole(String(raw.role || '其他')),
+      gender: String(raw.gender || '未知'),
+      age: String(raw.age || '未知'),
+      occupation: String(raw.occupation || ''),
+      background: String(raw.background || ''),
+      appearance: String(raw.appearance || ''),
+      personality: String(raw.personality || ''),
+      abilities: String(raw.abilities || ''),
+      weaknesses: String(raw.weaknesses || ''),
+      relationships: String(raw.relationships || ''),
+      relationshipTags: Array.isArray(raw.relationshipTags)
+        ? (raw.relationshipTags.map(t => String(t)) as Character['relationshipTags'])
+        : [],
+      arc: String(raw.arc || ''),
+      importance: typeof raw.importance === 'number' ? raw.importance : 50,
+      image: String(raw.image || ''),
+    }
+  }
+
+  // Nested format: extract from sub-objects
+  const bi = (raw.basicInfo || {}) as Record<string, unknown>
+  const app = (raw.appearance || {}) as Record<string, unknown>
+  const pers = (raw.personality || {}) as Record<string, unknown>
+
+  const appearanceParts = [
+    app.height, app.build, app.hair,
+    typeof app.face === 'string' ? app.face : '',
+    app.chest ? '胸围' + app.chest : '',
+    app.distinguishingFeatures,
+    app.typicalOutfit ? '常穿' + app.typicalOutfit : '',
+  ].filter(Boolean)
+
+  const persParts = [
+    pers.type ? '性格类型:' + pers.type : '',
+    Array.isArray(pers.traits) ? '特征:' + (pers.traits as string[]).join('、') : '',
+    Array.isArray(pers.likes) ? '喜好:' + (pers.likes as string[]).join('、') : '',
+    Array.isArray(pers.dislikes) ? '讨厌:' + (pers.dislikes as string[]).join('、') : '',
+    pers.quirks,
+  ].filter(Boolean)
+
+  // Build comprehensive background from status + notes
+  const status = (raw.status || {}) as Record<string, unknown>
+  const backgroundParts = [
+    status.positionWhenFrozen ? '在时间静止发生时' + status.positionWhenFrozen : '',
+    bi.grade ? bi.grade + '学生' : '',
+    bi.dorm ? '住' + bi.dorm : '',
+    raw.notes || '',
+    bi.background || '',
+  ].filter(p => p && String(p).trim())
+
+  // Build relationships from relationshipWithMC + testingNotes
+  const rel = (raw.relationshipWithMC || {}) as Record<string, unknown>
+  const test = (raw.testingNotes || {}) as Record<string, unknown>
+  const relParts = [
+    '张明（男主）',
+    test.testOrder,
+    test.mcFeeling,
+    test.specialMark !== '无' ? test.specialMark : '',
+    rel.impressionOfMC,
+  ].filter(p => p && String(p).trim())
+
+  // Build arc from testingNotes + notes
+  const arcParts = [test.testOrder, test.physiologicalResponse, raw.notes].filter(p => p && String(p).trim())
+
+  return {
+    id: String(raw.id || ''),
+    name: String(raw.name || ''),
+    role: '女配' as CharacterRole,
+    gender: String(bi.gender || '女'),
+    age: bi.age ? String(bi.age) + '岁' : '未知',
+    occupation: [bi.grade, bi.major].filter(Boolean).join('') || String(bi.occupation || '未知'),
+    background: String(backgroundParts.length > 0 ? backgroundParts.join('，') : (raw.notes || bi.background || '')),
+    appearance: appearanceParts.join('。') || String(app.description || app.face || ''),
+    personality: persParts.join('。') || String(pers.description || pers.type || ''),
+    abilities: String((raw as Record<string,unknown>).abilities || '无（普通大学女生，在静止世界中处于人偶状态）'),
+    weaknesses: String((raw as Record<string,unknown>).weaknesses || '完全无意识，无法自主行动或防御'),
+    relationships: relParts.length > 1 ? relParts.join(' → ') : String((raw as Record<string,unknown>).relationships || ''),
+    relationshipTags: ['同伴'],
+    arc: arcParts.length > 0 ? arcParts.join('；') : String(raw.notes || ''),
+    importance: 20,
+    image: '',
+  }
+}
 import { EMPTY_CHARACTER } from '@/types/character'
 
 export const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
@@ -61,8 +157,11 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
 
     for (const file of jsonFiles) {
       try {
-        const content = await fileService.read(`${projectPath}/characters/${file}`)
-        const char = JSON.parse(content) as Character
+        const raw = await fileService.read(`${projectPath}/characters/${file}`)
+        const repaired = repairJson(raw)
+        if (!repaired) throw new Error('JSON 无法修复')
+        const parsed = JSON.parse(repaired)
+        const char = normalizeCharacter(parsed)
         // Normalize role — AI may write free-form values like "重要女配"
         char.role = normalizeRole(char.role as string)
         chars.push(char)

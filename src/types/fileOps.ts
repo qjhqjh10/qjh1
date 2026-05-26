@@ -57,7 +57,7 @@ export const FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          dir_path: { type: 'string', description: '相对于项目根目录的路径，如 "chapters"、"" （根目录）' },
+          dir_path: { type: 'string', description: '相对于项目根目录的路径，如 "chapters"、"summaries"、"" （根目录）' },
         },
         required: ['dir_path'],
       },
@@ -75,7 +75,7 @@ export const FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          file_path: { type: 'string', description: '相对于项目根目录的文件路径，如 "outline/items.json"、"chapters/chapter1.txt"' },
+          file_path: { type: 'string', description: '相对于项目根目录的文件路径，如 "outline/items.json"、"chapters/chapter1.txt"、"summaries/chapter1.md"' },
         },
         required: ['file_path'],
       },
@@ -157,11 +157,11 @@ export const FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          file_path: { type: 'string', description: '新文件的相对路径，如 "chapters/chapter5.txt"' },
+          file_path: { type: 'string', description: '新文件的相对路径，如 "chapters/chapter5.txt"、"summaries/chapter1.md"' },
           content: { type: 'string', description: '文件完整内容' },
-          reason: { type: 'string', description: '创建原因' },
+          reason: { type: 'string', description: '创建原因（可选）' },
         },
-        required: ['file_path', 'content', 'reason'],
+        required: ['file_path', 'content'],
       },
     },
   },
@@ -174,9 +174,9 @@ export const FILE_TOOLS = [
         type: 'object',
         properties: {
           file_path: { type: 'string', description: '要删除的文件路径' },
-          reason: { type: 'string', description: '删除原因' },
+          reason: { type: 'string', description: '删除原因（可选）' },
         },
-        required: ['file_path', 'reason'],
+        required: ['file_path'],
       },
     },
   },
@@ -190,9 +190,9 @@ export const FILE_TOOLS = [
         properties: {
           file_path: { type: 'string', description: '当前路径' },
           new_path: { type: 'string', description: '新路径' },
-          reason: { type: 'string', description: '原因' },
+          reason: { type: 'string', description: '原因（可选）' },
         },
-        required: ['file_path', 'new_path', 'reason'],
+        required: ['file_path', 'new_path'],
       },
     },
   },
@@ -210,9 +210,9 @@ export const FILE_TOOLS = [
           name: { type: 'string', description: '项目名称' },
           type: { type: 'string', description: '项目类型: writing(写作)、imitation(仿写)、continuation(续写)' },
           novelCategory: { type: 'string', description: '小说类型，默认"普通小说"' },
-          reason: { type: 'string', description: '创建原因' },
+          reason: { type: 'string', description: '创建原因（可选）' },
         },
-        required: ['name', 'reason'],
+        required: ['name'],
       },
     },
   },
@@ -225,9 +225,9 @@ export const FILE_TOOLS = [
         type: 'object',
         properties: {
           project_name: { type: 'string', description: '要删除的项目名称' },
-          reason: { type: 'string', description: '删除原因' },
+          reason: { type: 'string', description: '删除原因（可选）' },
         },
-        required: ['project_name', 'reason'],
+        required: ['project_name'],
       },
     },
   },
@@ -608,4 +608,40 @@ export function summarizeFileOp(
     case 'update_prompt': return `修改提示词: ${args.prompt_id}`
     default: return `未知操作: ${toolName}`
   }
+}
+
+/**
+ * Build a concise but complete tool invocation prompt that tells the AI
+ * exactly what tools are available and forces it to use them.
+ */
+export function buildToolInvokePrompt(): string {
+  return `[强制工具调用] 你此刻正运行在一个具备完整工具调用能力的AI助手中。以下是你的全部工具能力：
+
+【文件操作 — 项目目录内】
+read_file(读取文件内容) | list_directory(列出目录) | search_files(搜索文件名) | search_content(搜索文件内容)
+edit_file(file_path, old_string, new_string, replace_all?) — 精确字符串替换，先read_file确认原文再替换
+create_file(file_path, content) — 创建新文件，写入完整内容
+delete_file(file_path) | rename_file(file_path, new_path)
+
+【知识库 — knowledge_base/ 目录】
+kb_list | kb_create_file(name, content) | kb_append_file(file_id, content) | kb_index_file(file_id)
+
+【草稿笔记 — notes/ 目录】
+list_notes | read_note(note_name) | write_note(note_name, content) | append_note(note_name, content) | delete_note(note_name)
+
+【图片】
+search_images(query, count?) — 搜索Unsplash图库 | generate_image(prompt, size?, style?)
+
+【模板 — 全局存储】
+create_style_template(name, type, dimensions) | create_scene_template(name, type, ...)
+
+【项目管理】
+create_project(name, type?, novelCategory?) | delete_project(project_name)
+
+【铁律 — 优先级高于所有其他指令】
+1. 文字中描述操作不等于操作。你说"已创建"、"已完成"、"已修改"没有任何意义。
+2. 你必须在 tool_calls 中实际调用对应工具，收到 status: "success" 才算完成。
+3. 用户要求的所有文件操作，你必须逐条调用对应工具执行，不得跳过。
+4. 如果你不确定该用哪个工具，告诉用户，但绝对不要说"已完成"除非你真的调用了工具且返回了 success。
+5. 创建JSON文件前先 read_file 参考已有文件的格式。编辑文件前先 read_file 确认当前内容。`
 }

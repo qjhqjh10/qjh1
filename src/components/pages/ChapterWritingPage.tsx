@@ -27,9 +27,11 @@ import {
   ClockIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline'
+import ChapterSummaryPanel from '@/components/chapterWriting/ChapterSummaryPanel/ChapterSummaryPanel'
 import type { DetailedChapter } from '@/types/chapter'
 import { countChineseWords, formatWordCount, stripHtml } from '@/utils/textUtils'
 import { logError } from '@/utils/logger'
+import { loadSummary, saveSummary } from '@/services/summaryService'
 
 export default function ChapterWritingPage() {
   const { chapterId } = useParams<{ chapterId: string }>()
@@ -54,6 +56,8 @@ export default function ChapterWritingPage() {
   const setReplaceAction = useStore(s => s.setReplaceAction)
   const fileEditNotify = useStore(s => s.fileEditNotify)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
+  const chapterSummaryMap = useStore(s => s.chapterSummaryMap)
+  const setChapterSummary = useStore(s => s.setChapterSummary)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
   const outlineContent = useStore(s => s.outlineContent)
 
@@ -63,6 +67,7 @@ export default function ChapterWritingPage() {
   const [content, setContent] = useState('')
   const contentRef = useRef(content)
   contentRef.current = content
+  const [summaryContent, setSummaryContent] = useState('')
   const [projectPath, setProjectPath] = useState('')
   const [showSummaryTemplate, setShowSummaryTemplate] = useState(false)
   const [showExport, setShowExport] = useState(false)
@@ -103,7 +108,7 @@ export default function ChapterWritingPage() {
       setWritingChapter(chapterId, {
         id: chapterId, detailedChapterId: chapterId,
         title: dc?.title || '', content: c,
-        summary: dc?.summary || '',
+        summary: '',
       })
     }).catch(() => {
       setContent('')
@@ -111,8 +116,19 @@ export default function ChapterWritingPage() {
       setWritingChapter(chapterId, {
         id: chapterId, detailedChapterId: chapterId,
         title: dc?.title || '', content: '',
-        summary: dc?.summary || '',
+        summary: '',
       })
+    })
+    // Load chapter summary from standalone file
+    loadSummary(pp, chapterId).then(s => {
+      if (s) {
+        setSummaryContent(s)
+        setChapterSummary(chapterId, s)
+      } else {
+        setSummaryContent('')
+      }
+    }).catch(() => {
+      setSummaryContent('')
     })
     // Load characters if not already in store
     if (characters.length === 0) {
@@ -152,7 +168,7 @@ export default function ChapterWritingPage() {
             setWritingChapter(chapterId!, {
               id: chapterId, detailedChapterId: chapterId,
               title: detailedChapter?.title || '', content: newText,
-              summary: detailedChapter?.summary || '',
+              summary: '',
             })
           })
         }
@@ -200,6 +216,19 @@ export default function ChapterWritingPage() {
     }
   }, [fileEditNotify, chapterId, projectPath])
 
+  // AI direct edit on summary file → reload
+  useEffect(() => {
+    if (!fileEditNotify || !chapterId || !projectPath) return
+    const expectedPath = `${projectPath}/summaries/${chapterId}.md`.replace(/\\/g, '/').toLowerCase()
+    const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    if (notifyPath === expectedPath || notifyPath.includes(`/summaries/${chapterId}.md`)) {
+      loadSummary(projectPath, chapterId).then(s => {
+        if (s) { setSummaryContent(s); setChapterSummary(chapterId, s) }
+      }).catch(() => {})
+      setFileEditNotify(null)
+    }
+  }, [fileEditNotify, chapterId, projectPath])
+
   // Save (file + store for export). Accept optional content to avoid stale closure.
   const handleSave = async (overrideContent?: string) => {
     if (!projectPath || !chapterId) return
@@ -210,9 +239,18 @@ export default function ChapterWritingPage() {
       detailedChapterId: chapterId,
       title: detailedChapter?.title || '',
       content: c,
-      summary: detailedChapter?.summary || '',
+      summary: '',
     })
   }
+
+  // Auto-save summary content (debounced 2s)
+  useEffect(() => {
+    if (!projectPath || !chapterId || !summaryContent) return
+    const timer = setTimeout(() => {
+      saveSummary(projectPath, chapterId, summaryContent).catch(err => logError('摘要自动保存失败', err))
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [summaryContent])
 
   // Save then navigate
   const saveAndNavigate = async (targetChapterId: string) => {
@@ -231,7 +269,9 @@ export default function ChapterWritingPage() {
         { role: 'user' as const, content: `${templatePrompt}\n\n章节标题: ${detailedChapter.title}\n\n章节内容:\n${content}` },
       ]
       const summary = await aiService.chat(messages, activeConfigId)
-      updateDetailedChapter(detailedChapter.id, { ...detailedChapter, summary })
+      setSummaryContent(summary)
+      setChapterSummary(detailedChapter.id, summary)
+      if (projectPath) await saveSummary(projectPath, detailedChapter.id, summary).catch(() => {})
     } catch (err) { logError('AI extract failed', err) }
     setAiLoading(false)
   }
@@ -243,6 +283,25 @@ export default function ChapterWritingPage() {
   const enabledSummaryTemplate = summaryTemplates.find(p => p.enabled)
 
   const chapterWordCount = useMemo(() => countChineseWords(content), [content])
+
+  // Build outline reference text from structured fields (v3.8+) or legacy description
+  const outlineReferenceText = useMemo(() => {
+    const dc = detailedChapter
+    if (!dc) return ''
+    // Legacy description takes priority if present (user may have edited it)
+    if (dc.description) return dc.description
+    // Assemble from structured fields
+    const parts: string[] = []
+    if (dc.plotOverview) parts.push('【剧情概述】\n' + dc.plotOverview)
+    if (dc.characters) parts.push('【出场角色】\n' + dc.characters)
+    if (dc.location) parts.push('【场景地点】\n' + dc.location)
+    if (dc.keyEvents) parts.push('【关键事件】\n' + dc.keyEvents)
+    if (dc.emotionCurve) parts.push('【情绪曲线】\n' + dc.emotionCurve)
+    if (dc.writingNotes) parts.push('【写作笔记】\n' + dc.writingNotes)
+    if (dc.customContent) parts.push('【自定义内容】\n' + dc.customContent)
+    if (dc.eroticContent) parts.push('【情色剧情】\n' + dc.eroticContent)
+    return parts.join('\n\n')
+  }, [detailedChapter])
 
   // Always render the page layout (don't return null)
   if (!activeProjectId || !chapterId) {
@@ -313,7 +372,7 @@ export default function ChapterWritingPage() {
             <h4 style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               关键角色设定
             </h4>
-            <ScrollArea maxHeight={180}>
+            <ScrollArea maxHeight={280}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {[...characters].sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0)).map(char => (
                   <div key={char.id} style={{
@@ -349,7 +408,7 @@ export default function ChapterWritingPage() {
               本章细纲参考
             </h4>
             <textarea
-              value={detailedChapter?.description || ''}
+              value={outlineReferenceText}
               onChange={e => {
                 if (detailedChapter) updateDetailedChapter(detailedChapter.id, { ...detailedChapter, description: e.target.value })
               }}
@@ -357,48 +416,23 @@ export default function ChapterWritingPage() {
               style={{
                 width: '100%', border: '1px solid rgba(0,0,0,0.05)', borderRadius: 8, outline: 'none',
                 resize: 'none', fontSize: 11, lineHeight: 1.6, fontFamily: 'inherit',
-                color: '#4a3f38', background: 'rgba(255,255,255,0.7)', padding: 8, minHeight: 100,
+                color: '#4a3f38', background: 'rgba(255,255,255,0.7)', padding: 8, minHeight: 220,
               }}
               placeholder="本章细纲..."
             />
           </div>
           <div style={{ margin: '0 16px', height: 1, background: 'rgba(0,0,0,0.04)' }} />
 
-          {/* Chapter Summary */}
-          <div style={{ padding: '14px 16px' }}>
-            <h4 style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              章节正文摘要
-            </h4>
-            <textarea
-              value={detailedChapter?.summary || ''}
-              onChange={e => {
-                if (detailedChapter) updateDetailedChapter(detailedChapter.id, { ...detailedChapter, summary: e.target.value })
-              }}
-              className="custom-scrollbar"
-              style={{
-                width: '100%', border: '1px solid rgba(0,0,0,0.05)', borderRadius: 8, outline: 'none',
-                resize: 'none', fontSize: 11, lineHeight: 1.6, fontFamily: 'inherit',
-                color: '#4a3f38', background: 'rgba(255,255,255,0.7)', padding: 8, minHeight: 72,
-              }}
-              placeholder="章节摘要..."
-            />
-            {enabledSummaryTemplate && (
-              <div style={{
-                marginTop: 6, padding: '6px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.04)',
-                fontSize: 10, color: '#7c3aed', lineHeight: 1.4,
-              }}>
-                已启用提示词: {enabledSummaryTemplate.title}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-              <Button size="sm" variant="secondary" onClick={() => setShowSummaryTemplate(true)}>
-                选择摘要模板
-              </Button>
-              <Button size="sm" onClick={handleAIExtract} disabled={aiLoading || !activeConfigId || !content.trim()} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>
-                {aiLoading ? '提取中...' : 'AI提取'}
-              </Button>
-            </div>
-          </div>
+          <ChapterSummaryPanel
+            summaryContent={summaryContent}
+            onSummaryChange={setSummaryContent}
+            enabledSummaryTemplate={enabledSummaryTemplate}
+            aiLoading={aiLoading}
+            activeConfigId={activeConfigId || ''}
+            content={content}
+            onShowTemplateModal={() => setShowSummaryTemplate(true)}
+            onAIExtract={handleAIExtract}
+          />
           <div style={{ margin: '0 16px', height: 1, background: 'rgba(0,0,0,0.04)' }} />
 
           {/* Chapter Navigation */}
@@ -406,30 +440,32 @@ export default function ChapterWritingPage() {
             <h4 style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               章节导航
             </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {detailedChapters.map((ch, idx) => {
-                const wc = countChineseWords(writingChapters[ch.id]?.content || '')
-                const statusColors: Record<string, string> = { outline: '#f59e0b', draft: '#e67e00', revising: '#2563eb', final: '#16a34a' }
-                return (
-                <button
-                  key={ch.id}
-                  onClick={() => saveAndNavigate(ch.id)}
-                  style={{
-                    width: '100%', textAlign: 'left', padding: '6px 8px', borderRadius: 8, border: 'none',
-                    background: ch.id === chapterId ? 'rgba(124,58,237,0.08)' : 'transparent',
-                    color: ch.id === chapterId ? '#7c3aed' : '#6b5e54',
-                    fontSize: 11, fontWeight: ch.id === chapterId ? 600 : 400, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: statusColors[ch.status || 'outline'] || '#9b8e84' }} />
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    章节{idx + 1}: {ch.title || '未命名'}
-                  </span>
-                  {wc > 0 && <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{wc}字</span>}
-                </button>
-              )})}
-            </div>
+            <ScrollArea maxHeight={160}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {detailedChapters.map((ch, idx) => {
+                  const wc = countChineseWords(writingChapters[ch.id]?.content || '')
+                  const statusColors: Record<string, string> = { outline: '#f59e0b', draft: '#e67e00', revising: '#2563eb', final: '#16a34a' }
+                  return (
+                  <button
+                    key={ch.id}
+                    onClick={() => saveAndNavigate(ch.id)}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '6px 8px', borderRadius: 8, border: 'none',
+                      background: ch.id === chapterId ? 'rgba(124,58,237,0.08)' : 'transparent',
+                      color: ch.id === chapterId ? '#7c3aed' : '#6b5e54',
+                      fontSize: 11, fontWeight: ch.id === chapterId ? 600 : 400, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: statusColors[ch.status || 'outline'] || '#9b8e84' }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      章节{idx + 1}: {ch.title || '未命名'}
+                    </span>
+                    {wc > 0 && <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{wc}字</span>}
+                  </button>
+                )})}
+              </div>
+            </ScrollArea>
           </div>
         </ScrollArea>
       </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService } from '@/services/fileService'
 import { loadExtraction, loadDetailResults, saveDetailResults } from '@/services/imitationService'
-import { saveDetailedChapter } from '@/services/chapterService'
+import { saveDetailedChapter, loadDetailedChapters } from '@/services/chapterService'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
@@ -36,18 +36,9 @@ export default function ImitationDetailedPage() {
     setExtraction(ext)
     const dr = await loadDetailResults(pp)
     setDetailResults(dr)
-    // Load chapters written to disk
+    // Load chapters written to disk (using unified loader for summary merge)
     try {
-      const files = await fileService.listDir(`${pp}/detailed_outline`)
-      const chs: DetailedChapter[] = []
-      for (const f of files) {
-        if (!f.endsWith('.json')) continue
-        try {
-          const raw = await fileService.read(`${pp}/detailed_outline/${f}`)
-          chs.push(JSON.parse(raw) as DetailedChapter)
-        } catch { /* skip */ }
-      }
-      chs.sort((a, b) => a.order - b.order)
+      const chs = await loadDetailedChapters(pp)
       setChapters(chs)
     } catch { setChapters([]) }
   }
@@ -75,6 +66,7 @@ export default function ImitationDetailedPage() {
       // Create chapter files
       await fileService.ensureDir(`${pp}/detailed_outline`)
       await fileService.ensureDir(`${pp}/chapters`)
+      await fileService.ensureDir(`${pp}/summaries`)
       const newChs: DetailedChapter[] = []
       for (const dr of results) {
         const id = nanoid(8)
@@ -104,6 +96,7 @@ export default function ImitationDetailedPage() {
   const handleDelete = async (ch: DetailedChapter) => {
     await fileService.deleteFile(`${pp}/detailed_outline/${ch.id}.json`)
     await fileService.deleteFile(`${pp}/chapters/${ch.id}.txt`).catch(() => {})
+    await fileService.deleteFile(`${pp}/summaries/${ch.id}.md`).catch(() => {})
     setChapters(prev => prev.filter(c => c.id !== ch.id))
   }
 

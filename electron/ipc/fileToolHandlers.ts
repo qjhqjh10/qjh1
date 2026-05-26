@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import * as path from 'path'
 import { isSafePath, readFileWithEncoding } from './utils'
+import { validateFileContent } from './schemaValidation'
 
 export interface ToolCallArgs {
   callId: string
@@ -228,7 +229,7 @@ export async function executeFileTool(
         let content: string
         try { content = await readFileWithEncoding(fp || uploadsFp) } catch {
           try { content = await readFileWithEncoding(uploadsFp) } catch {
-            return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+            return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
           }
         }
         const truncated = content.length > MAX_READ_CHARS
@@ -352,13 +353,28 @@ export async function executeFileTool(
 
       case 'create_file': {
         const fp = resolvePath('file_path')
-        if (!fp || !isSafePath(fp, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
+        if (!fp || !isSafePath(fp, projectPath)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(String(args.file_path || '')) }
         const content = args.content as string
         // Issue #12: Size limit for writes
         if (content.length > MAX_WRITE_CHARS) {
           return { callId, toolName, status: 'error', summary: `内容过大 (${content.length} 字符，上限 ${MAX_WRITE_CHARS} 字符)` }
         }
         try { await fsp.access(fp); return { callId, toolName, status: 'error', summary: `文件已存在: ${args.file_path}` } } catch { /* ok */ }
+
+        // Validate structured JSON files before writing (characters, detailed_outline, etc.)
+        const relPath = path.relative(projectPath, fp).replace(/\\/g, '/')
+        if (relPath.endsWith('.json')) {
+          const validation = validateFileContent(relPath, content)
+          if (!validation.valid) {
+            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+            return {
+              callId, toolName, status: 'error',
+              summary: `格式校验不通过 — 文件未创建，请修正后重试`,
+              detail: `文件: ${args.file_path}\n\n${errorDetail}\n\n请按照系统提示词中的 schema 格式重写 content。`,
+            }
+          }
+        }
+
         await fsp.mkdir(path.dirname(fp), { recursive: true })
         await fsp.writeFile(fp, content, 'utf-8')
         return { callId, toolName, status: 'success', summary: `已创建 (${content.length} 字符)`, detail: `文件路径: ${args.file_path}` }
@@ -383,7 +399,7 @@ export async function executeFileTool(
         if (!fp) fp = await resolveNotePath()
         if (!fp) return deny(callId, toolName, '路径不在项目目录内')
         const stat = await fsp.stat(fp).catch(() => null as fs.Stats | null)
-        if (!stat) return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+        if (!stat) return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         if (stat.size > MAX_FILE_SIZE) {
           return { callId, toolName, status: 'error', summary: `文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB，上限 10MB)，无法编辑` }
         }
@@ -394,16 +410,108 @@ export async function executeFileTool(
         let oldStr = args.old_string as string
         const newStr = args.new_string as string
         const replaceAll = !!args.replace_all
-        // Try exact match; fall back to trimmed match (AI often adds extra whitespace)
-        if (!content.includes(oldStr)) {
+
+        // ── __FULL_REPLACE__ sentinel: skip matching, replace entire file ──
+        if (oldStr === '__FULL_REPLACE__') {
+          // Size check for full replacement
+          if (newStr.length > MAX_WRITE_CHARS) {
+            return { callId, toolName, status: 'error', summary: `内容过大 (${newStr.length} 字符，上限 ${MAX_WRITE_CHARS} 字符)` }
+          }
+          // Validate JSON before writing
+          const relPathFull = path.relative(projectPath, fp).replace(/\\/g, '/')
+          if (relPathFull.endsWith('.json')) {
+            const validation = validateFileContent(relPathFull, newStr)
+            if (!validation.valid) {
+              const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+              return { callId, toolName, status: 'error', summary: '全量替换后的格式不正确', detail: `文件: ${args.file_path}\n\n${errorDetail}` }
+            }
+          }
+          const globalNotesDir2 = path.join(path.dirname(projectPath), 'notes')
+          const backupBase2 = fp.startsWith(globalNotesDir2) ? globalNotesDir2 : projectPath
+          await backupFile(fp, backupBase2)
+          await fsp.writeFile(fp, newStr, 'utf-8')
+          return { callId, toolName, status: 'success', summary: `已全量替换 (${newStr.length} 字符)`, detail: `文件: ${args.file_path}` }
+        }
+
+        // ── Strategy 1: exact match ──
+        let matched = content.includes(oldStr)
+
+        // ── Strategy 2: trimmed match (AI often adds trailing whitespace) ──
+        if (!matched) {
           const trimmed = oldStr.trim()
           if (trimmed && trimmed !== oldStr && content.includes(trimmed)) {
-            oldStr = trimmed
+            oldStr = trimmed; matched = true
           }
         }
-        if (!content.includes(oldStr)) {
-          const snippet = JSON.stringify(content.slice(0, 300))
-          return { callId, toolName, status: 'error', summary: '未找到要替换的文本', detail: `文件前300字: ${snippet}\n请用 read_note 重新确认内容，复制 old_string 时确保与原文逐字一致。` }
+
+        // ── Strategy 3: line ending normalization (Windows CRLF vs Unix LF) ──
+        if (!matched) {
+          const normContent = content.replace(/\r\n/g, '\n')
+          const normOld = oldStr.replace(/\r\n/g, '\n')
+          if (normContent.includes(normOld)) {
+            // Find original text in content corresponding to normalized match
+            const idx = normContent.indexOf(normOld)
+            // Map back: find the actual slice in original content
+            let origIdx = 0, normIdx = 0
+            while (normIdx < idx && origIdx < content.length) {
+              if (content[origIdx] === '\r' && content[origIdx + 1] === '\n') { origIdx += 2; normIdx++ }
+              else { origIdx++; normIdx++ }
+            }
+            // Count how many original chars correspond to normOld length
+            let origLen = 0; normIdx = 0
+            while (normIdx < normOld.length && (origIdx + origLen) < content.length) {
+              if (content[origIdx + origLen] === '\r' && content[origIdx + origLen + 1] === '\n') { origLen += 2; normIdx++ }
+              else { origLen++; normIdx++ }
+            }
+            oldStr = content.slice(origIdx, origIdx + origLen); matched = true
+          }
+        }
+
+        // ── Strategy 4: line-by-line fuzzy matching ──
+        if (!matched) {
+          const oldLines = oldStr.split('\n').map(l => l.trim())
+          const contentLines = content.split('\n')
+          if (oldLines.length >= 2) {
+            // Find the first non-empty line of oldStr in content
+            let startLine = -1
+            for (let i = 0; i < contentLines.length - oldLines.length + 1; i++) {
+              let allMatch = true
+              for (let j = 0; j < oldLines.length; j++) {
+                if (contentLines[i + j].trim() !== oldLines[j]) { allMatch = false; break }
+              }
+              if (allMatch) { startLine = i; break }
+            }
+            if (startLine >= 0) {
+              // Reconstruct oldStr from actual content lines to preserve exact formatting
+              const endLine = startLine + oldLines.length
+              oldStr = contentLines.slice(startLine, endLine).join('\n')
+              // Verify the extracted text exists in content
+              if (content.includes(oldStr)) matched = true
+            }
+          }
+        }
+
+        // ── Strategy 5: HTML entity normalization ──
+        if (!matched) {
+          const decodeEntities = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+          const decodedContent = decodeEntities(content)
+          const decodedOld = decodeEntities(oldStr)
+          if (decodedContent.includes(decodedOld)) {
+            const idx = decodedContent.indexOf(decodedOld)
+            oldStr = content.slice(idx, idx + decodedOld.length); matched = true
+          }
+        }
+
+        // ── All strategies exhausted → return full file for AI to do full replace ──
+        if (!matched) {
+          const tail = content.length > 2000
+            ? `...(省略前${content.length - 2000}字)\n${content.slice(-2000)}`
+            : content
+          return {
+            callId, toolName, status: 'error',
+            summary: '未找到要替换的文本 — 请用 __FULL_REPLACE__ 进行全量替换',
+            detail: `old_string 在文件中未匹配（已尝试精确/trim/行尾归一化/逐行模糊/实体归一化5种策略）。\n\n完整文件内容:\n${tail}\n\n下一步: 基于上述完整内容构造修改后的全量版本，调用 edit_file(old_string="__FULL_REPLACE__", new_string="完整的新文件内容")。`,
+          }
         }
         const occurrenceCount = content.split(oldStr).length - 1
         if (occurrenceCount > 1 && !replaceAll) {
@@ -422,6 +530,20 @@ export async function executeFileTool(
         }
 
         // Confirmed: execute
+        // Validate structured JSON files after edit
+        const relPathEdit = path.relative(projectPath, fp).replace(/\\/g, '/')
+        if (relPathEdit.endsWith('.json')) {
+          const validation = validateFileContent(relPathEdit, newContent)
+          if (!validation.valid) {
+            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+            return {
+              callId, toolName, status: 'error',
+              summary: `编辑后的格式不正确 — 修改未保存，请修正后重试`,
+              detail: `文件: ${args.file_path}\n\n${errorDetail}\n\n请确保编辑后的文件仍符合系统提示词中的 schema 格式。`,
+            }
+          }
+        }
+
         const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
         const backupBase = fp.startsWith(globalNotesDir) ? globalNotesDir : projectPath
         await backupFile(fp, backupBase)
@@ -516,7 +638,7 @@ export async function executeFileTool(
         if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return deny(callId, toolName, '无效的项目名称')
         const pp = path.join(projectPath, name)
         try { await fsp.access(pp); return { callId, toolName, status: 'error', summary: `项目已存在: ${name}` } } catch { /* ok */ }
-        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images']) {
+        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
         await fsp.writeFile(path.join(pp, 'outline', 'plot.json'), '', 'utf-8')
@@ -588,4 +710,17 @@ export async function executeFileTool(
 
 function deny(callId: string, toolName: string, reason: string): ToolCallResult {
   return { callId, toolName, status: 'error', summary: reason }
+}
+
+/** Generate a helpful path hint showing the project's expected directory structure */
+function pathHint(requestedPath: string): string {
+  const dirs = [
+    'outline/         — plot.md, worldbuilding.md, items.json, locations.json, factions.json, power_system.json, outline_meta.json, emotion.json',
+    'characters/      — {角色拼音id}.json (每个角色一个文件)',
+    'detailed_outline/— {章节id}.json (每章一个细纲)',
+    'chapters/        — {章节id}.txt (章节正文)',
+    'summaries/       — {章节id}.md (每章摘要，Markdown 格式)',
+    'notes/           — 草稿笔记 (.md)',
+  ]
+  return `请求路径: ${requestedPath}\n\n项目标准目录结构:\n${dirs.map(d => '  ' + d).join('\n')}\n\n提示: 世界观文件是 outline/worldbuilding.md，不是 worldview/。故事剧情是 outline/plot.md。`
 }

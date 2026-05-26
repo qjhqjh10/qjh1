@@ -17,6 +17,7 @@ type ExportType = 'summary' | 'body'
 export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
   const detailedChapters = useStore(s => s.detailedChapters)
   const writingChapters = useStore(s => s.writingChapters)
+  const chapterSummaryMap = useStore(s => s.chapterSummaryMap)
   const activeProjectName = useStore(s => s.activeProjectName) || '未命名项目'
 
   const [exportMode, setExportMode] = useState<ExportMode>('single')
@@ -61,7 +62,7 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
     if (exportMode === 'single') {
       const first = detailedChapters.find(c => selectedIds.has(c.id))
       if (!first) return
-      const content = exportType === 'body' ? writingChapters[first.id]?.content || '' : first.summary || ''
+      const content = exportType === 'body' ? writingChapters[first.id]?.content || '' : chapterSummaryMap[first.id] || ''
       const outputPath = await dialogService.saveFile(`${first.title}.txt`)
       if (!outputPath) return
       await exportService.exportSingleChapter({ title: first.title, content, outputPath })
@@ -75,7 +76,7 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
           title: `第${idx + 1}章 ${ch.title}`,
           content: exportType === 'body'
             ? writingChapters[ch.id]?.content || ''
-            : ch.summary || '暂无摘要',
+            : chapterSummaryMap[ch.id] || '暂无摘要',
         }))
       await exportService.exportChapters({ chapters, outputPath, type: exportType })
     }

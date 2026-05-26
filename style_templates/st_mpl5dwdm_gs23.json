@@ -1,0 +1,125 @@
+{
+  "id": "st_mpl5dwdm_gs23",
+  "name": "【测试A】冷酷写实风",
+  "type": "情色小说",
+  "description": "短句、冷硬、克制。对白少而精，用动作和环境写情绪。",
+  "tone": {
+    "word": "冷酷克制",
+    "description": "冷静旁观式的叙事，用客观的外部描写传递内在情绪",
+    "attitude": "疏离"
+  },
+  "createdAt": "2026-05-25T11:53:24.778Z",
+  "dimensions": {
+    "narrativeTone": {
+      "description": "基调: 冷酷克制 — 叙述者像一架冰冷的摄影机，只记录事实不渲染情绪",
+      "writingRules": [
+        "禁止使用抒情形容词",
+        "情绪通过身体反应间接描写",
+        "每段结尾用简短动作句"
+      ],
+      "vocabularyList": [
+        "盯",
+        "僵",
+        "冷",
+        "硬",
+        "暗",
+        "沉"
+      ],
+      "examples": []
+    },
+    "sentenceStyle": {
+      "description": "短句为主(8-15字)，极少超过25字的长句。句号密集，段落短小",
+      "writingRules": [
+        "单句不超过25字",
+        "段落不超过4句",
+        "避免连续的\"的\"字结构"
+      ],
+      "vocabularyList": [],
+      "examples": []
+    },
+    "dialogueStyle": {
+      "description": "对白占比不超过15%。角色说话简短——命令、回答、沉默。用\"...\"表示停顿而非语气词",
+      "writingRules": [
+        "每句对白不超过15字",
+        "男性角色对话: 单字命令或简短陈述——\"嗯\"\"行\"\"过来\"",
+        "女性角色对话: 从简短抗拒(\"不\"\"别\")到沉默接受(只写动作不写对白)",
+        "禁止在对话中使用~❤等符号"
+      ],
+      "vocabularyList": [
+        "嗯",
+        "不",
+        "行",
+        "来",
+        "别",
+        "对",
+        "好"
+      ],
+      "examples": []
+    },
+    "moodStyle": {
+      "description": "阴暗、压抑、潮湿。场景描写侧重光影对比和触觉质感",
+      "writingRules": [
+        "每场景必有冷暖光对比",
+        "环境声写实(滴水/风声/脚步声)"
+      ],
+      "vocabularyList": [
+        "阴影",
+        "潮湿",
+        "冰冷",
+        "昏黄",
+        "粗糙"
+      ],
+      "examples": []
+    },
+    "bodyLanguageStyle": {
+      "description": "用动作写心理——握拳代替愤怒，吞咽代替紧张。身体描写客观如体检报告",
+      "writingRules": [
+        "身体描写用精确解剖词汇",
+        "禁止比喻式描写(\"如花般\")",
+        "每200字至少1次身体触碰描写"
+      ],
+      "vocabularyList": [
+        "手腕",
+        "锁骨",
+        "膝盖",
+        "指节",
+        "脊椎",
+        "下颌"
+      ],
+      "examples": []
+    },
+    "sensoryStyle": {
+      "description": "触觉和听觉优先，视觉次之。拒绝直接写气味",
+      "writingRules": [
+        "触觉描写占50%以上",
+        "声音用拟声词: 咔嗒/窸窣/闷响"
+      ],
+      "vocabularyList": [
+        "硬的",
+        "凉的",
+        "粗糙的",
+        "湿的",
+        "紧的"
+      ],
+      "examples": []
+    },
+    "rhetoricStyle": {
+      "description": "零修辞——不用比喻、排比、拟人。陈述事实",
+      "writingRules": [
+        "禁止使用比喻",
+        "禁止拟人化描写"
+      ],
+      "vocabularyList": [],
+      "examples": []
+    },
+    "rhythmStyle": {
+      "description": "快节奏——场景切换频繁，过渡省略，让读者自己补白",
+      "writingRules": [
+        "场景过渡不超过3句话",
+        "时间跳跃用空行暗示"
+      ],
+      "vocabularyList": [],
+      "examples": []
+    }
+  }
+}

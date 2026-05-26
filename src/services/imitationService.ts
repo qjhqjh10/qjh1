@@ -1,11 +1,14 @@
 import { fileService } from './fileService'
 import { logError } from '@/utils/logger'
+import { repairJson } from '@/services/chapterService'
 import type { NovelExtraction, DetailGenResult } from '@/types/story'
 
 export async function loadExtraction(projectPath: string): Promise<NovelExtraction | null> {
   try {
     const raw = await fileService.read(`${projectPath}/extraction.json`)
-    if (raw) return JSON.parse(raw) as NovelExtraction
+    if (!raw) return null
+    const repaired = repairJson(raw)
+    if (repaired) return JSON.parse(repaired) as NovelExtraction
   } catch { /* not found */ }
   return null
 }

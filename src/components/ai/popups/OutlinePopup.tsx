@@ -40,7 +40,7 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
   useEffect(() => {
     if (!fileEditNotify || !activeProjectId || !projectsBasePath) return
     const expectedPath = `${projectsBasePath}/${activeProjectId}/outline/${fileName}`.replace(/\\/g, '/')
-    if (fileEditNotify.filePath.replace(/\\/g, '/') === expectedPath) {
+    if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase() === expectedPath.toLowerCase()) {
       if (fileEditNotify.newContent === '__AI_EDITED__') {
         fileService.read(expectedPath).then(c => setContent(markdownToHtml(c))).catch(() => {})
       } else {
@@ -48,7 +48,6 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
       }
       setFileEditNotify(null)
     }
-    return () => { setFileEditNotify(null) }
   }, [fileEditNotify])
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])

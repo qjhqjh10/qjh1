@@ -261,7 +261,7 @@ export default function OutlinePage() {
       loadOutlineData<EmotionData>(projectPath, 'emotion.json', { segments: [] }).then(setEmotionData)
     }
     if (handled) setFileEditNotify(null)
-  }, [fileEditNotify])
+  }, [fileEditNotify, projectPath])
 
   const handleSaveWorldbuilding = useCallback(async () => {
     if (!projectPath) return

@@ -14,7 +14,7 @@ import { logError } from '@/utils/logger'
 interface Props {
   card: FileOpCard
   onConfirm?: (callId: string) => void
-  onDeny?: (callId: string) => void
+  onDeny?: (callId: string, feedback?: string) => void
   onUndo?: (card: FileOpCard) => void
 }
 
@@ -95,6 +95,8 @@ function getStatusLabel(status: string): string {
 
 export default function FileOperationCard({ card, onConfirm, onDeny, onUndo }: Props) {
   const [expanded, setExpanded] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [denyFeedback, setDenyFeedback] = useState('')
   const isPending = card.status === 'pending_confirm'
   const isPreview = card.status === 'needs_preview'
   const isDone = card.status === 'success' || card.status === 'confirmed'
@@ -285,10 +287,10 @@ export default function FileOperationCard({ card, onConfirm, onDeny, onUndo }: P
       ) : null}
 
       {/* Action buttons (confirm/deny for pending or preview) */}
-      {showActions ? (
+      {showActions && !showFeedback ? (
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={() => onDeny!(card.callId)} style={cancelBtn}>
-            取消
+          <button onClick={() => setShowFeedback(true)} style={cancelBtn}>
+            拒绝
           </button>
           <button onClick={() => onConfirm!(card.callId)} style={{
             padding: '5px 14px', borderRadius: 8, border: 'none',
@@ -297,6 +299,35 @@ export default function FileOperationCard({ card, onConfirm, onDeny, onUndo }: P
           }}>
             {isPreview ? '确认应用' : card.toolName === 'delete_file' ? '确认删除' : card.toolName === 'restore_backup' ? '确认恢复' : '确认创建'}
           </button>
+        </div>
+      ) : null}
+
+      {/* Feedback input (shown after clicking 拒绝) */}
+      {showActions && showFeedback ? (
+        <div style={{ marginTop: 8 }}>
+          <textarea
+            value={denyFeedback}
+            onChange={e => setDenyFeedback(e.target.value)}
+            placeholder="告诉 AI 哪里不对、应该怎么改..."
+            className="custom-scrollbar"
+            style={{
+              width: '100%', border: '1px solid rgba(220,38,38,0.15)', borderRadius: 8, outline: 'none',
+              resize: 'vertical', fontSize: 11, lineHeight: 1.6, fontFamily: 'inherit',
+              color: '#4a3f38', background: 'rgba(255,255,255,0.8)', padding: 8, minHeight: 60,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
+            <button onClick={() => onDeny!(card.callId)} style={cancelBtn}>
+              直接拒绝
+            </button>
+            <button onClick={() => onDeny!(card.callId, denyFeedback)} style={{
+              padding: '5px 14px', borderRadius: 8, border: 'none',
+              background: denyFeedback.trim() ? '#7c3aed' : '#9ca3af',
+              color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              提交反馈并拒绝
+            </button>
+          </div>
         </div>
       ) : null}
 

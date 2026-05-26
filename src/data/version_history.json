@@ -1,7 +1,63 @@
 {
-  "currentVersion": "5.4.1",
-  "currentDate": "2026-05-24",
+  "currentVersion": "5.7.0",
+  "currentDate": "2026-05-26",
   "history": [
+    {
+      "version": "5.7.0",
+      "date": "2026-05-26",
+      "features": [
+        "章节摘要独立存储：新建summaries/目录(Markdown格式)+summaryService读写服务+ChapterSummaryPanel组件拆分",
+        "AI写作助手摘要集成：系统提示词完整章节摘要说明+工具描述含summaries示例+优先读摘要替代读正文省95%Token",
+        "批量审批门控：预循环checkBatch扫描全部工具调用+项目文件读取/超3文件/写操作/模板/设置/图片均需确认",
+        "审批面板UI重构：独立于消息流的浮动面板(输入框上方)+默认收起+查看详情展开+输入框审批期间灰色禁用",
+        "操作拒绝+反馈重设计循环：拒绝时可输入反馈+AI收到反馈后重新设计方案+30秒超时自动拒绝+并发防护",
+        "精准执行铁律：系统提示词新增\"只做用户要求的，不多做\"规则+默认只读不写+不确定时先问",
+        "细纲参考自动组装：description为空时自动从plotOverview/characters/keyEvents等结构化字段组装显示",
+        "工具结果合并：执行结果N条合并为1条摘要(成功/失败计数)+不再散落多条工具消息",
+        "左栏高度优化：关键角色设定maxHeight 280+细纲参考minHeight 220+章节导航maxHeight 160",
+        "批量读取限制：read_file上限10次/轮+list_directory上限3次/轮+超限返回错误提示",
+        "章节摘要+细纲+章节生成全链路打通：ChapterGenerationModal/ChapterExportModal双源读取+删除章节同步清理summaries",
+        "细纲文件summary字段确认不存在+死代码清理(移除所有ch.summary fallback)+数据流纯走summaries/*.md"
+      ]
+    },
+    {
+      "version": "5.6.0",
+      "date": "2026-05-26",
+      "features": [
+        "edit_file替换鲁棒性增强：5级级联模糊匹配(trim/行尾归一化/逐行匹配/实体归一化)+__FULL_REPLACE__哨兵全量替换兜底",
+        "运行时幻觉检测增强：detectHallucination正则优化(已...{0,10}间隔匹配)+即时自动重试(检测到幻觉300ms后自动纠正)+重试按钮修复(绕过空input拦截)",
+        "幻觉事前防御：每5条强制工具提醒(80字强力版)+每31条规则复述(工具铁律升级为最高优先级)+'调用工具'关键词即时注入+🔧Toggle按钮+智能意图检测提示",
+        "fileEditNotify实时刷新彻底修复：OutlinePage/DetailedOutlinePage useEffect补projectPath依赖(切页不丢通知)+OutlinePopup/DraftPopup/ScratchpadPage补toLowerCase路径规范化",
+        "AI文件路径自动加项目前缀：Route C工具调用时自动在file_path/dir_path/new_path前加activeProjectId，防止文件落入projects/而非项目目录",
+        "风格模板效力强化：keyDims从9扩展到21维度(含dialogueStyle/情绪氛围等8维度)+convertTemplateToProfile修复复杂对象数据丢失+对话风格强制约束区块+尾部风格复述+风格强度(轻/中/强)三级控制+场景模板语言强化+模板预览UI",
+        "AI错误路径提示增强：read_file/edit_file路径错误时返回项目标准目录结构(pathHint)，帮助AI纠正路径混淆",
+        "repairJson策略3增强(补}前去尾逗号)+schemaValidation覆盖8种文件类型+image字段改为可选",
+        "API连接稳定性：预检ping(30秒缓存)+maxRetries 1→2+连接失败红色横幅阻止发送",
+        "细纲格式对齐：emotionCurve/writingNotes加入DetailedChapter接口+文件夹提示强化(outline≠detailed_outline)",
+        "前文摘要UI优化：只显示有摘要的章节+无摘要灰显不可选+提示摘要存储位置",
+        "死代码清理：删除AIChatWindow未使用store订阅(characters/rewriteContent/writingChapters等5个变量)+消除setLoading双重调用+消除allToolNames别名",
+        "UX优化：上下文进度条改为累计叠加+对话历史条数/工具保留轮数/规则复述间隔可配置+细纲卡片minHeight 160→200+2列网格约束水平滚动"
+      ]
+    },
+    {
+      "version": "5.5.0",
+      "date": "2026-05-25",
+      "features": [
+        "AI思考→计划→执行机制: 系统提示词新增'执行前思考协议'（强制输出[思考计划]块+步骤列表+工具标注），前端parseThinkingPlan解析并显示为可折叠'执行计划'面板，DeepSeek reasoning_content首次存储展示为'思考过程'折叠条",
+        "Markdown编辑器全面修复: markdownToHtml重写(GFM表格占位符保护+<br>处理+blockquote &gt;修复+表格单元格内联格式化)，htmlToMarkdown增加GFM表格反向转换",
+        "Schema校验系统: 新增schemaValidation.ts（8种文件类型写入前校验），集成到create_file/edit_file写入前拦截，错误消息携带参考文件路径让AI自修正",
+        "JSON修复通用化: repairJson() 5级级联修复(原始→换行修复→补括号→去尾逗号→组合)，推广到characterService/sceneService/imitationService全部JSON入口",
+        "上下文用量改为累计叠加: 进度条从lastPromptTokens改为cumulativeTokens，只增不减",
+        "运行时幻觉检测: detectHallucination()比对AI文本声称vs实际工具调用，不一致时消息气泡顶部显示红色警告横幅",
+        "幻觉自动纠正+周期性工具提醒: 检测到幻觉后下次发送自动注入[纠错指令]，每5条用户消息注入精简工具提醒防止长对话遗忘",
+        "工具管线全面审查: 28个工具定义→调度→执行完整验证，修复关键词缺失('查看/浏览/项目/剧情')、移除不存在的webSearch/kb_search引用、解除create_file等5个工具的reason必填限制",
+        "OutlinePopup/ScratchpadPage fileEditNotify清理函数bug修复(无条件清空→仅匹配时清空)",
+        "大纲系统格式审计+修复: 7处系统提示词vs代码格式不一致修复(outline_meta补updatedAt/locations+factions校验对齐/细纲格式补全可选字段)",
+        "AI编辑大纲能力强化: 意图表新增'追加大纲/补充世界观'行+Markdown编辑指引(追加/修改段落/修改标题下内容策略)+大纲编辑diff摘要",
+        "章节序号显示修复: loadDetailedChapters加载后统一规范order为0-indexed，修复AI创建1-indexed导致'第2章'显示错误",
+        "上下文累计用量: 进度条改为显示cumulativeTokens累计叠加而非lastPromptTokens单次值"
+      ]
+    },
     {
       "version": "5.4.1",
       "date": "2026-05-24",

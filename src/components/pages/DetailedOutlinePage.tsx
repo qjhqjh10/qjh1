@@ -77,7 +77,7 @@ export default function DetailedOutlinePage() {
       loadDetailedChapters(projectPath).then(setDetailedChapters)
       setFileEditNotify(null)
     }
-  }, [fileEditNotify])
+  }, [fileEditNotify, projectPath])
 
   const saveDetailedChapterToFile = async (ch: DetailedChapter) => {
     await saveDetailedChapter(projectPath, ch)
@@ -110,6 +110,7 @@ export default function DetailedOutlinePage() {
 
   const handleDeleteChapter = async (ch: DetailedChapter) => {
     await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.json`)
+    await fileService.deleteFile(`${projectPath}/summaries/${ch.id}.md`).catch(() => {})
     removeDetailedChapter(ch.id)
     if (editingChapter?.id === ch.id) {
       setEditingChapter(null)
@@ -279,19 +280,20 @@ export default function DetailedOutlinePage() {
           </div>
         </div>
 
-        <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '0 28px 24px' }}>
+        <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '0 16px 24px', overflowX: 'hidden' }}>
           {/* 2-column card grid */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
-            gap: 14,
+            gap: 10,
+            minWidth: 0,
           }}>
             {detailedChapters.map((ch, idx) => {
               const preview = previewText(ch)
               const chars = charPreview(ch)
 
               return (
-                <GlassCard key={ch.id} hover style={{ cursor: 'pointer', minHeight: 160 }}
+                <GlassCard key={ch.id} hover style={{ cursor: 'pointer', minHeight: 200, minWidth: 0 }}
                   onClick={() => openEditor(ch)}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}

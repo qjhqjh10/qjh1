@@ -42,16 +42,116 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     const vocabWords = new Set<string>()
     const writingRules: string[] = []
     const keyDims = ['narrativeTone', 'bodyLanguageStyle', 'sensoryStyle', 'sentenceStyle', 'compoundWordPattern',
-                     'onomatopoeiaSystem', 'sensoryPackFormula', 'bodyMindBetrayal', 'humiliationTemplate']
+                     'onomatopoeiaSystem', 'sensoryPackFormula', 'bodyMindBetrayal', 'humiliationTemplate',
+                     'dialogueStyle', 'moodStyle', 'rhetoricStyle', 'rhythmStyle',
+                     'vocabularyStyle', 'perspectiveStyle', 'tensionStyle', 'descriptionPattern',
+                     'corruptionArc', 'degradationRitual', 'narrativeVoice', 'shameVoyeurLoop']
+
+    // Complex dimension extractors: convert sub-fields to writingRules + vocabularyList
+    const extractComplex = (dk: string, dv: Record<string, unknown>): { rules: string[]; words: string[] } => {
+      try {
+        switch (dk) {
+          case 'descriptionPattern': {
+            const rules: string[] = []
+            const bodyOrder = dv.bodyOrder as string[] | undefined
+            const sections = dv.sections as { part: string; sentenceCount: string; details: string[] }[] | undefined
+            const stockingDetail = dv.stockingDetail as string | undefined
+            const characterVisualProfile = dv.characterVisualProfile as string | undefined
+            const detailFingerprints = dv.detailFingerprints as string[] | undefined
+            if (bodyOrder?.length) rules.push(`身体扫描顺序: ${bodyOrder.join(' → ')}`)
+            if (sections?.length) rules.push(...sections.map(s => `${s.part}: ${s.sentenceCount}句 — ${(s.details||[]).join('、')}`))
+            if (stockingDetail) rules.push(`丝袜细节: ${stockingDetail}`)
+            if (characterVisualProfile) rules.push(`角色视觉档案: ${characterVisualProfile}`)
+            if (detailFingerprints?.length) rules.push(...detailFingerprints)
+            return { rules, words: [] }
+          }
+          case 'corruptionArc': {
+            const rules: string[] = []
+            const states = dv.characterStates as { characterName: string; originalState: string; currentState: string; progressionSteps: string[] }[] | undefined
+            const overallTrajectory = dv.overallTrajectory as string | undefined
+            if (states?.length) rules.push(...states.map(s => `${s.characterName}: ${s.originalState} → ${s.progressionSteps?.join(' → ') || ''} → ${s.currentState}`))
+            if (overallTrajectory) rules.push(`整体轨迹: ${overallTrajectory}`)
+            return { rules, words: [] }
+          }
+          case 'degradationRitual': {
+            const rules: string[] = []; const words: string[] = []
+            const sceneTemplate = dv.sceneTemplate as string[] | undefined
+            const punishmentTools = dv.punishmentTools as string[] | undefined
+            const authorityEntryPattern = dv.authorityEntryPattern as string | undefined
+            const audienceInvolvement = dv.audienceInvolvement as string | undefined
+            const chorusPattern = dv.chorusPattern as string | undefined
+            const surrenderConfirmation = dv.surrenderConfirmation as string | undefined
+            const sensoryCounterpoint = dv.sensoryCounterpoint as string | undefined
+            const symbolicTool = dv.symbolicTool as string | undefined
+            const recurringVisualFormula = dv.recurringVisualFormula as string | undefined
+            if (sceneTemplate?.length) rules.push(`场景模板: ${sceneTemplate.join(' → ')}`)
+            if (punishmentTools?.length) { rules.push(`惩罚工具: ${punishmentTools.join('、')}`); words.push(...punishmentTools) }
+            if (authorityEntryPattern) rules.push(`权威登场: ${authorityEntryPattern}`)
+            if (audienceInvolvement) rules.push(`观众参与: ${audienceInvolvement}`)
+            if (chorusPattern) rules.push(`齐声浪叫句式: ${chorusPattern}`)
+            if (surrenderConfirmation) rules.push(`屈服确认: ${surrenderConfirmation}`)
+            if (sensoryCounterpoint) rules.push(`感官对位: ${sensoryCounterpoint}`)
+            if (symbolicTool) rules.push(`象征工具: ${symbolicTool}`)
+            if (recurringVisualFormula) rules.push(`视觉定型: ${recurringVisualFormula}`)
+            return { rules, words }
+          }
+          case 'narrativeVoice': {
+            const rules: string[] = []
+            const r = dv.internalMonologueRatio as string | undefined
+            const t = dv.toneContrast as string | undefined
+            const w = dv.worldBuildingStyle as string | undefined
+            const c = dv.routineCatalog as string | undefined
+            const p = dv.powerResignation as string | undefined
+            if (r) rules.push(`内心独白占比: ${r}`)
+            if (t) rules.push(`基调对比: ${t}`)
+            if (w) rules.push(`世界观构建: ${w}`)
+            if (c) rules.push(`日常仪式: ${c}`)
+            if (p) rules.push(`权力臣服: ${p}`)
+            return { rules, words: [] }
+          }
+          case 'shameVoyeurLoop': {
+            const rules: string[] = []
+            const trigger = dv.triggerPattern as string | undefined
+            const excitement = dv.excitementResponse as string | undefined
+            const shame = dv.shameLayer as string | undefined
+            const feedback = dv.feedbackAmplification as string | undefined
+            if (trigger && excitement && shame && feedback) {
+              rules.push(`羞耻循环: ${trigger} → ${excitement} → ${shame} → ${feedback}`)
+            } else {
+              if (trigger) rules.push(`触发: ${trigger}`)
+              if (excitement) rules.push(`兴奋: ${excitement}`)
+              if (shame) rules.push(`羞耻: ${shame}`)
+              if (feedback) rules.push(`放大: ${feedback}`)
+            }
+            return { rules, words: [] }
+          }
+          default: return { rules: [], words: [] }
+        }
+      } catch { return { rules: [], words: [] } }
+    }
 
     for (const dk of keyDims) {
-      const da: DimAnalysis | undefined = dims[dk]
-      if (!da) continue
-      // Skip dimensions with empty or placeholder descriptions
+      const dv = dims[dk]
+      if (!dv) continue
+
+      // Complex object dimensions (no 'description' property → not DimAnalysis format)
+      if (typeof dv === 'object' && dv !== null && !Array.isArray(dv) && !('description' in dv)) {
+        const extracted = extractComplex(dk, dv as Record<string, unknown>)
+        extracted.words.forEach(w => vocabWords.add(w))
+        if (extracted.rules.length > 0) writingRules.push(...extracted.rules.map(r => `[${dk}] ${r}`))
+        continue
+      }
+
+      // DimAnalysis format: description + writingRules + vocabularyList
+      const da = dv as DimAnalysis
       if (!da.description || da.description.startsWith('（见完整分析文本') || da.description === '[此维度在本章不适用]') continue
       if (da.vocabularyList?.length > 0) da.vocabularyList.forEach(w => vocabWords.add(w))
       if (da.writingRules?.length > 0) writingRules.push(...da.writingRules.map(r => `[${dk}] ${r}`))
     }
+
+    // Safety caps
+    if (writingRules.length > 100) writingRules.length = 100
+    if (vocabWords.size > 500) { const arr = [...vocabWords].slice(0, 500); vocabWords.clear(); arr.forEach(w => vocabWords.add(w)) }
 
     if (vocabWords.size > 0) {
       parts.push(`【必须使用的原文词汇库 - 严禁替换为近义词】\n${[...vocabWords].join('、')}`)
@@ -90,6 +190,21 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     calibrationLines.push(`8. 禁缩: 禁止在场景结尾"收束"或"降调"——高潮之后可以直接结束，但不可以回到"温馨/温情/清醒"的基调。让读者始终停留在淫靡的氛围中`)
     calibrationLines.push(`9. 段落格式: 正文必须用空行（双换行）分隔自然段。段落长度根据内容需要自由决定——动作/对话可以短到一行，描写/心理可以连写数行。唯一铁律: 禁止全文一堆到底。场景切换、对话轮换、动作转换时必须分段。无需刻意控制每段字数，只求自然的呼吸感`)
     parts.push(calibrationLines.join('\n'))
+
+    // ── Dialogue style enforcement ──
+    const dialogueData = dims?.dialogueStyle
+    if (dialogueData?.description || (dialogueData?.writingRules && dialogueData.writingRules.length > 0)) {
+      const dlLines: string[] = []
+      dlLines.push(`【对话风格强制约束 — 必须遵守】`)
+      if (dialogueData.description) dlLines.push(`整体要求: ${dialogueData.description}`)
+      if (dialogueData.writingRules && dialogueData.writingRules.length > 0) {
+        dlLines.push(`对白规则:`)
+        dialogueData.writingRules.forEach((r: string, i: number) => dlLines.push(`  ${i + 1}. ${r}`))
+      }
+      // Add character differentiation reminder
+      dlLines.push(`角色区分: 每个角色的对白必须有明显差异——语气词(呢/哦/嘛/罢了/呀)、句式长短、礼貌程度、用词习惯都要不同。主角之间对话时尤其要区分，让读者能从对白本身辨识出是谁在说话。`)
+      parts.push(dlLines.join('\n'))
+    }
 
     // ── Tone enforcement: two-tier architecture (erotic base + analyzed layer) ──
     const toneAnalysis = dims?.narrativeTone
@@ -286,7 +401,13 @@ export function convertTemplateToProfile(template: {
     identityDissolution: null as any, shameVoyeurLoop: null as any,
   }
   for (const [k, v] of Object.entries(dims)) {
-    (features as any)[k] = (v as any)?.description || ''
+    // Complex objects (no 'description' field) → preserve as-is for dedicated renderers
+    // Simple DimAnalysis (has 'description') → extract description string
+    if (typeof v === 'object' && v !== null && !Array.isArray(v) && !('description' in v)) {
+      (features as any)[k] = v
+    } else {
+      (features as any)[k] = (v as any)?.description || ''
+    }
   }
 
   // Inject tone into narrativeTone if present

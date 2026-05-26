@@ -8,12 +8,14 @@ export interface DetailedChapter {
   order: number
   status: ChapterStatus
   // v3.8 结构化细纲字段
-  plotOverview?: string          // 本章剧情概述 (150—250字)
-  characters?: string            // 出现的角色 (姓名、性别、特征等)
-  location?: string              // 场景地点
-  keyEvents?: string             // 关键事件 (多条，每行一个)
-  customContent?: string         // 自定义内容（AI可自由添加额外信息，如伏笔、节奏、情绪等）
-  eroticContent?: string         // 情色剧情 (仅情色小说类型启用)
+  plotOverview?: string          // 本章剧情概述 (150—300字) — AI创建时必填
+  characters?: string            // 出现的角色 (每行一个) — AI创建时必填
+  location?: string              // 场景地点 — AI创建时必填
+  keyEvents?: string             // 关键事件 (每行一个，通常5-7个) — AI创建时必填
+  customContent?: string         // 自定义内容（伏笔/节奏/情绪/世界观关联等，可选）
+  eroticContent?: string         // 情色剧情 (仅情色小说类型，非情色类型留空字符串)
+  emotionCurve?: string          // 情绪曲线 (可选)
+  writingNotes?: string          // 写作笔记 (可选)
 }
 
 export interface WritingChapter {

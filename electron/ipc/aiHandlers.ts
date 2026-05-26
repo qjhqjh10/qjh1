@@ -71,7 +71,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       apiKey,
       baseURL: config.apiUrl || undefined,
       timeout: 120_000,
-      maxRetries: 1,
+      maxRetries: 2,  // retry up to 2 times on network/5xx errors
     })
 
     const apiMessages = [

@@ -39,6 +39,9 @@ export interface AppState {
   writingChapters: Record<string, WritingChapter>
   currentChapterId: string | null
 
+  // Chapter summaries (standalone files)
+  chapterSummaryMap: Record<string, string>
+
   // UI
   activePage: string
   isAIChatOpen: boolean
@@ -87,6 +90,7 @@ export interface AppState {
   addDetailedChapter: (chapter: DetailedChapter) => void
   updateDetailedChapter: (id: string, updates: Partial<DetailedChapter>) => void
   removeDetailedChapter: (id: string) => void
+  setChapterSummary: (chapterId: string, content: string) => void
 
   // Actions - Chapter Writing
   setWritingChapter: (chapterId: string, chapter: WritingChapter) => void
@@ -114,6 +118,7 @@ const initialProjectState = {
   detailedChapters: [] as DetailedChapter[],
   writingChapters: {} as Record<string, WritingChapter>,
   currentChapterId: null as string | null,
+  chapterSummaryMap: {} as Record<string, string>,
   insertionAction: null as { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null,
   replaceAction: null as { chapterId: string; content: string } | null,
   fileEditNotify: null as { filePath: string; newContent: string } | null,
@@ -195,6 +200,10 @@ export const useStore = create<AppState>()(
     }),
     removeDetailedChapter: (id) => set(s => {
       s.detailedChapters = s.detailedChapters.filter(c => c.id !== id)
+    }),
+
+    setChapterSummary: (chapterId, content) => set(s => {
+      s.chapterSummaryMap[chapterId] = content
     }),
 
     setWritingChapter: (chapterId, chapter) => set(s => {
@@ -322,6 +331,7 @@ export const useSettingsStore = create<SettingsState>()(
             selectedCharacterIds: Array.isArray(oldCG.selectedCharacterIds) ? oldCG.selectedCharacterIds : [],
             selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
             selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
+            styleStrength: (oldCG as any).styleStrength === 'light' || (oldCG as any).styleStrength === 'strong' ? (oldCG as any).styleStrength : 'normal',
           }
 
           return {

@@ -3,6 +3,7 @@ import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService, templateService, styleTemplateService } from '@/services/fileService'
 import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
 import { loadOutlineDimensions } from '@/utils/outlineData'
+import { loadAllSummaries } from '@/services/summaryService'
 import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import Modal from './Modal'
 import { SparklesIcon, BookOpenIcon } from '@heroicons/react/24/outline'
@@ -69,8 +70,11 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const aiSettings = useSettingsStore(s => s.aiSettings)
   const setAISettings = useSettingsStore(s => s.setAISettings)
 
+  const chapterSummaryMap = useStore(s => s.chapterSummaryMap)
+  const setChapterSummary = useStore(s => s.setChapterSummary)
   const currentChapter = detailedChapters.find(c => c.id === chapterId)
   const prevChapters = detailedChapters.filter(c => c.order < (currentChapter?.order ?? 0)).sort((a, b) => a.order - b.order)
+  const prevChaptersWithSummary = prevChapters.filter(c => chapterSummaryMap[c.id]?.trim())
 
   // Section states — load from persisted settings
   const cg = aiSettings.chapterGen
@@ -138,6 +142,15 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       setError(''); setStreamContent(''); setStreamChars(0); setStreamDone(false); setStreamUsage(undefined)
       templateService.list().then(list => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => setSceneTemplates([]))
       styleTemplateService.list().then(list => setStyleTemplates(Array.isArray(list) ? list : [])).catch(() => setStyleTemplates([]))
+      // Load summaries from files for all chapters so the modal has up-to-date data
+      if (activeProjectId && projectsBasePath && detailedChapters.length > 0) {
+        const pp = `${projectsBasePath}/${activeProjectId}`
+        loadAllSummaries(pp, detailedChapters.map(c => c.id)).then(map => {
+          Object.entries(map).forEach(([id, content]) => {
+            if (content) setChapterSummary(id, content)
+          })
+        }).catch(() => {})
+      }
     }
   }, [isOpen])
 
@@ -158,7 +171,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         if (ec.customCharacters?.length > 0) charLines.push(ec.customCharacters.map(c => `${c.name}: ${c.role}, ${c.bodyState}${c.note ? ', ' + c.note : ''}`).join('\n'))
         if (charLines.length > 0) parts.push('【角色状态】\n' + charLines.join('\n'))
       }
-      const sceneLine = autoLabel('location', '场景') || `【场景】${ec.location || ''} | ${ec.time || ''} | ${ec.atmosphere || ''} | ${ec.publicity || ''}`
+      const sceneLine = autoLabel('location', '场景') || `【场景】${ec.location || ''} | ${ec.time || ''} | ${ec.atmosphere || ''} | ${ec.publicity || ''} — 必须在此场景展开`
       parts.push(sceneLine)
       if (a('selectedKinks')) parts.push('【玩法：AI根据上下文自主决定】')
       else if (ec.selectedKinks?.length > 0) {
@@ -331,7 +344,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     }
 
     if (selectedSummaryIds.size > 0) {
-      const summaries = prevChapters.filter(c => selectedSummaryIds.has(c.id)).map(c => `第${c.order + 1}章 ${c.title}: ${c.summary || '无摘要'}`)
+      const summaries = prevChapters.filter(c => selectedSummaryIds.has(c.id)).map(c => `第${c.order + 1}章 ${c.title}: ${chapterSummaryMap[c.id] || '无摘要'}`)
       parts.push(`【前文章节摘要】\n${summaries.join('\n')}\n`)
     }
     if (selectedKbFileIds.size > 0) {
@@ -345,10 +358,41 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     }
 
     // Inject style template
+    const styleStrength = cg.styleStrength || 'normal'
     if (selectedStyleTemplateId && selectedStyleTemplate) {
       try {
         const stylePrompt = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
-        if (stylePrompt) parts.unshift('---\n' + stylePrompt + '\n---')
+        if (stylePrompt) {
+          // Style strength header
+          const strengthHeader = styleStrength === 'light' ? '' :
+            styleStrength === 'strong'
+              ? '【⚠️ 以下风格要求必须严格执行，优先级高于所有其他设定。违反任何一条都视为生成失败。】\n'
+              : '【以下风格要求必须遵守，优先级高于其他设定。】\n'
+          parts.unshift('---\n' + strengthHeader + stylePrompt + '\n---')
+
+          // Recapitulate key style rules at end of prompt (recency effect)
+          if (styleStrength === 'strong' || styleStrength === 'normal') {
+            const dims = selectedStyleTemplate.dimensions || {}
+            const recapLines: string[] = []
+            recapLines.push('【风格约束复述 — 输出前请逐条确认】')
+            const recaps: { key: string; label: string }[] = [
+              { key: 'dialogueStyle', label: '对话风格' },
+              { key: 'narrativeTone', label: '叙事基调' },
+              { key: 'sentenceStyle', label: '句式风格' },
+              { key: 'bodyLanguageStyle', label: '身体描写' },
+              { key: 'moodStyle', label: '情绪氛围' },
+              { key: 'rhetoricStyle', label: '修辞手法' },
+            ]
+            recaps.forEach(r => {
+              if (dims[r.key]?.description) {
+                recapLines.push(`• ${r.label}: ${(dims[r.key].description || '').slice(0, 100)}`)
+              }
+            })
+            recapLines.push('• 角色对白必须有明显差异（语气词/句式/礼貌度）')
+            recapLines.push(`• 输出前再次确认: 以上风格约束是否全部满足？`)
+            parts.push(recapLines.join('\n'))
+          }
+        }
       } catch { /* skip */ }
     }
 
@@ -555,7 +599,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   const smartSelectSummaries = () => {
-    const ids = prevChapters.slice(-5).map(c => c.id)
+    const ids = prevChaptersWithSummary.slice(-5).map(c => c.id)
     selectIds(setSelectedSummaryIds, ids)
   }
 
@@ -699,22 +743,30 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
             {/* Chapter summaries */}
             <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>前文摘要 · {selectedSummaryIds.size}/5</div>
+              <div style={cardHeaderStyle}>前文摘要 · {selectedSummaryIds.size}/5（有摘要 {prevChaptersWithSummary.length}/{prevChapters.length} 章）</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                <button onClick={smartSelectSummaries} style={miniActionLink}>最近五章</button>
+                <button onClick={smartSelectSummaries} style={miniActionLink}>最近五章（有摘要的）</button>
                 <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={miniActionLink}>清空</button>
               </div>
               <div className="custom-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
-                {prevChapters.map(c => (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
-                    <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5} style={checkInput} />
+                {prevChapters.map(c => {
+                  const hasSummary = !!chapterSummaryMap[c.id]?.trim()
+                  return (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: hasSummary ? 'pointer' : 'default', borderRadius: 6, fontSize: 11, color: hasSummary ? '#2d2520' : '#b0a89e' }}>
+                    <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!hasSummary || (!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5)} style={checkInput} />
                     <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>第{c.order + 1}章</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                    {!hasSummary && <span style={{ fontSize: 9, color: '#f59e0b', whiteSpace: 'nowrap' }}>无摘要</span>}
                     <span style={{ fontSize: 9, color: '#9b8e84', whiteSpace: 'nowrap' }}>{STATUS_LABELS[c.status || 'incomplete']}</span>
                   </label>
-                ))}
+                )})}
                 {prevChapters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>无前序章节</span>}
               </div>
+              {prevChapters.length > 0 && prevChaptersWithSummary.length === 0 && (
+                <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', fontSize: 10, color: '#b45309', lineHeight: 1.4 }}>
+                  💡 前序章节尚未创建摘要。可在章节创作页左侧面板的"章节正文摘要"中点击"AI提取"为每章自动生成摘要。摘要存储在 summaries/ 目录中。
+                </div>
+              )}
             </div>
 
             {/* Knowledge base */}
@@ -801,10 +853,31 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                   <option key={t.id} value={t.id}>{t.name || '未命名'}</option>
                 ))}
               </select>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#9b8e84' }}>强度:</span>
+                {(['light','normal','strong'] as const).map(s => (
+                  <button key={s} onClick={() => updateCg({ styleStrength: s })}
+                    style={{
+                      padding: '2px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer',
+                      background: (cg.styleStrength || 'normal') === s ? 'rgba(124,58,237,0.08)' : 'transparent',
+                      border: (cg.styleStrength || 'normal') === s ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
+                      color: (cg.styleStrength || 'normal') === s ? '#7c3aed' : '#9b8e84',
+                      fontWeight: (cg.styleStrength || 'normal') === s ? 600 : 400,
+                    }}
+                  >{s === 'light' ? '轻' : s === 'normal' ? '中' : '强'}</button>
+                ))}
+              </div>
               {selectedStyleTemplate && (
-                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, maxHeight: 80, overflow: 'auto', color: '#4a3f38', lineHeight: 1.5 }}>
-                  <span style={{ fontWeight: 600 }}>{selectedStyleTemplate.tone?.word && `基调: ${selectedStyleTemplate.tone.word} | `}</span>
-                  {selectedStyleTemplate.description?.slice(0, 100) || '已加载'}
+                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, maxHeight: 100, overflow: 'auto', color: '#4a3f38', lineHeight: 1.5 }}>
+                  {selectedStyleTemplate.tone?.word && <span style={{ fontWeight: 600, color: '#7c3aed' }}>基调: {selectedStyleTemplate.tone.word} | </span>}
+                  {(() => {
+                    // Show key dimensions summary
+                    const dims = selectedStyleTemplate.dimensions || {}
+                    const keys = Object.keys(dims).filter(k => dims[k]?.description)
+                    return keys.length > 0
+                      ? keys.slice(0, 4).map(k => `${k}: ${(dims[k].description || '').slice(0, 40)}`).join('；')
+                      : (selectedStyleTemplate.description?.slice(0, 100) || '已加载')
+                  })()}
                 </div>
               )}
             </div>

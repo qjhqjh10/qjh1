@@ -61,6 +61,7 @@ export default function ContinuationDetailedPage() {
       await fileService.ensureDir(pp)
       await fileService.ensureDir(`${pp}/detailed_outline`)
       await fileService.ensureDir(`${pp}/chapters`)
+      await fileService.ensureDir(`${pp}/summaries`)
 
       const newChapters: DetailedChapter[] = []
       for (let i = 0; i < plans.length; i++) {
@@ -104,6 +105,7 @@ export default function ContinuationDetailedPage() {
   const handleDelete = async (ch: DetailedChapter) => {
     await fileService.deleteFile(`${pp}/detailed_outline/${ch.id}.json`)
     await fileService.deleteFile(`${pp}/chapters/${ch.id}.txt`).catch(() => {})
+    await fileService.deleteFile(`${pp}/summaries/${ch.id}.md`).catch(() => {})
     setChapters(prev => prev.filter(c => c.id !== ch.id))
   }
 

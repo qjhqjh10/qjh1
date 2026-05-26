@@ -1,6 +1,7 @@
 import { fileService } from '@/services/fileService'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { logError } from '@/utils/logger'
+import { loadSummary } from '@/services/summaryService'
 
 function jsonPath(projectPath: string, id: string) {
   return `${projectPath}/detailed_outline/${id}.json`
@@ -30,6 +31,44 @@ function fixJsonNewlines(json: string): string {
   return result
 }
 
+/**
+ * Attempt to repair AI-generated JSON that may have common issues:
+ * - Unescaped newlines in string values
+ * - Missing closing braces (truncation)
+ * - Trailing commas before } or ]
+ * Returns the repaired JSON string, or null if unrecoverable.
+ */
+export function repairJson(raw: string): string | null {
+  // Strategy 1: try raw
+  try { JSON.parse(raw); return raw } catch { /* continue */ }
+
+  // Strategy 2: fix unescaped newlines
+  const fixed = fixJsonNewlines(raw)
+  try { JSON.parse(fixed); return fixed } catch { /* continue */ }
+
+  // Strategy 3: auto-close missing braces (strip trailing comma first)
+  const openBraces = (raw.match(/{/g) || []).length
+  const closeBraces = (raw.match(/}/g) || []).length
+  if (openBraces > closeBraces) {
+    let closed = raw.trimEnd()
+    closed = closed.replace(/,(\s*)$/, '$1')  // remove trailing comma before appending }
+    closed += '\n' + '}'.repeat(openBraces - closeBraces)
+    try { const f = fixJsonNewlines(closed); JSON.parse(f); return f } catch { /* continue */ }
+  }
+
+  // Strategy 4: remove trailing commas (common AI mistake)
+  const noTrailing = raw.replace(/,(\s*[}\]])/g, '$1')
+  try { const f = fixJsonNewlines(noTrailing); JSON.parse(f); return f } catch { /* continue */ }
+
+  // Strategy 5: missing braces + trailing commas combined
+  if (openBraces > closeBraces) {
+    const both = noTrailing.trimEnd() + '\n' + '}'.repeat(openBraces - closeBraces)
+    try { const f = fixJsonNewlines(both); JSON.parse(f); return f } catch { /* continue */ }
+  }
+
+  return null
+}
+
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
   try {
     await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
@@ -49,6 +88,7 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
     const jsonFiles = files.filter(f => f.endsWith('.json'))
     for (const file of jsonFiles) {
       try {
+        // Strip non-JSON wrapper text and attempt repair
         let content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
         // Handle AI wrapping JSON in markdown code fences
         const fenceMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/)
@@ -58,12 +98,20 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
         const jsonEnd = content.lastIndexOf('}')
         if (jsonStart >= 0 && jsonEnd > jsonStart) {
           content = content.slice(jsonStart, jsonEnd + 1)
+        } else if (jsonStart >= 0) {
+          content = content.slice(jsonStart)
         }
-        // Fix unescaped newlines inside JSON string values (AI may write multi-line strings)
-        content = fixJsonNewlines(content)
-        const ch = JSON.parse(content) as DetailedChapter
+
+        const repaired = repairJson(content)
+        if (!repaired) throw new Error('JSON 无法修复')
+        const ch = JSON.parse(repaired) as DetailedChapter
         if (!ch.id) ch.id = file.replace('.json', '')
         if (!ch.title) ch.title = file.replace('.json', '')
+        // Merge summary from standalone file (priority), fallback to JSON field
+        const fileSummary = await loadSummary(projectPath, ch.id).catch(() => '')
+        if (fileSummary) {
+          ch.summary = fileSummary
+        }
         chapters.push(ch)
         seenIds.add(ch.id || file.replace('.json', ''))
       } catch (e) {
@@ -140,6 +188,8 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
     }
 
     chapters.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    // Normalize order to 0-based index (AI may write 1-based values)
+    chapters.forEach((c, i) => { c.order = i })
     return chapters
   } catch (e) {
     logError('加载细纲列表失败', e)
