@@ -1,7 +1,27 @@
 {
-  "currentVersion": "5.7.0",
+  "currentVersion": "5.8.0",
   "currentDate": "2026-05-26",
   "history": [
+    {
+      "version": "5.8.0",
+      "date": "2026-05-26",
+      "features": [
+        "路径安全全面加固：isSafePath大小写修复(Windows)+safeResolve绝对路径拒绝+百分号编码防御+resolvePath统一清理",
+        "跨项目隔离：list_directory默认限定当前项目+无活跃项目拒绝文件操作+系统提示词项目隔离规则",
+        "前端路径归一化：Route C+fileEditNotify统一cleanPath去开头斜杠和反斜杠",
+        "generateImage路径穿越修复：projectId用basename+白名单清理",
+        "fileEditNotify精确匹配：去掉宽泛includes()fallback",
+        "pathHint扩展名修正：outline文件从.json改为实际.md",
+        "死代码清理：删除FileOperationCard.tsx(365行)+冗余守卫+Message类型4个无用字段",
+        "AI诊断系统：debugLogService+14个事件埋点+JSONL事件流+IPC通道",
+        "任务级审批：planApprovedRef一次批准全步骤自动执行",
+        "批量审批面板UI重构：输入框上方独立浮动面板+输入框审批期间禁用+工具结果合并为单条摘要",
+        "操作拒绝反馈循环：拒绝时可输入反馈+AI收到反馈重新设计+30s超时自动拒绝+并发防护",
+        "精准执行铁律：只做用户要求的不多做+默认只读+任务计划步骤输出",
+        "章节摘要独立存储：summaries/*.md+优先读摘要省95%Token+细纲自动组装",
+        "handleSend优化：提取重复plan/popup解析到分支前+补debugApiError调用"
+      ]
+    },
     {
       "version": "5.7.0",
       "date": "2026-05-26",

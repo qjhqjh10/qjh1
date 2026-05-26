@@ -71,6 +71,7 @@ AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_dir
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
+| v5.8.0 | 2026-05-26 | 路径安全加固(isSafePath大小写+safeResolve绝对路径拦截+百分号防御)+跨项目隔离(list_directory限定+无项目拒绝)+前端路径归一化+generateImage修复+死代码清理+AI诊断事件流+任务级审批+审批面板重构+精准执行铁律 |
 | v5.7.0 | 2026-05-26 | 章节摘要独立存储(summaries/*.md)+批量审批门控+审批面板UI重构+精准执行铁律+操作拒绝反馈循环+细纲自动组装+工具结果合并+批量读取限制 |
 | v5.6.0 | 2026-05-26 | edit_file 5级模糊匹配+__FULL_REPLACE__全量替换+幻觉检测增强(间隔匹配+即时自纠)+三重幻觉防御(关键词/按钮/智能提示)+fileEditNotify彻底修复(补projectPath依赖+toLowerCase)+AI路径自动加项目前缀+风格模板21维度全生效+对话风格强制约束+风格强度三级+API连接预检+死代码清理+UX多项优化 |
 | v5.4.1 | 2026-05-24 | Token优化3(config.systemPrompt前移仅首条)+死代码清理(buildContextPrefix 112行+customRole+contextPriority+setWritingChapter)+模板去重修复(AI同名不覆盖)+场景模板参数修复(intensity双名+path.basename崩溃)+代码注释增强(工具选择/历史精简/scene_handler/fileEditNotify/上传三入口)+READ_ONLY_TOOLS注释+工具关键词补全 |

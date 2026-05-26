@@ -14,6 +14,7 @@ import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS, buildToolInvokePrompt } from '@/types/fileOps'
+import { debugApiSend, debugApiResponse, debugApiError, debugBatchCheck, debugBatchShow, debugBatchApprove, debugBatchDeny, debugBatchTimeout, debugToolCall, debugToolResult, debugSysError, debugSysWarn } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
@@ -214,6 +215,7 @@ export default function AIChatWindow() {
       setApiError(null)
       return true
     } catch {
+      debugApiError(activeConversationId, 'NETWORK', 'API 连接失败')
       setApiError('[NETWORK] API 连接失败 — 请检查网络或模型配置后重试')
       return false
     }
@@ -361,6 +363,9 @@ export default function AIChatWindow() {
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ breakdown: { label: string; chars: number }[]; completionTokens?: number } | null>(null)
   const [compressing, setCompressing] = useState(false)
+  // Task-level approval: when true, skip batch gate for subsequent rounds
+  const planApprovedRef = useRef(false)
+
   // Batch approval gate state
   const pendingBatchRef = useRef<{
     toolCalls: Array<{ tc: any; routeArgs: Record<string, unknown> }>
@@ -433,24 +438,27 @@ export default function AIChatWindow() {
   }
 
   const handleBatchApprove = () => {
+    debugBatchApprove(activeConversationId)
     const batch = pendingBatchRef.current
     pendingBatchRef.current = null
     setBatchCard(null)
     if (!batch) {
+      debugSysError(activeConversationId, 'handleBatchApprove', 'pendingBatchRef is null')
       // Batch was already resolved (timeout, race condition) — clean up UI
-      setMessages(prev => prev.filter(m => !m.batchPending))
+      setMessages(prev => prev)
       return
     }
     batch.onResolve(true)
   }
 
   const handleBatchDeny = (feedback?: string) => {
+    debugBatchDeny(activeConversationId, feedback)
     const batch = pendingBatchRef.current
     pendingBatchRef.current = null
     setBatchCard(null)
     setShowBatchFeedback(false)
     setBatchFeedback('')
-    setMessages(prev => prev.filter(m => !m.batchPending))
+    setMessages(prev => prev)
     if (!batch) return
     batch.onResolve(false, feedback || undefined)
   }
@@ -463,11 +471,11 @@ export default function AIChatWindow() {
   }
 
   // ── Batch approval panel (rendered above input area) ──
-  function BatchApprovalPanel({ batchCard, showFeedback, feedback, onFeedbackChange, onShowFeedback, onApprove, onDeny }: {
+  function BatchApprovalPanel({ batchCard, showFeedback, feedback, onFeedbackChange, onShowFeedback, onApprove, onApproveAll, onDeny }: {
     batchCard: BatchCard
     showFeedback: boolean; feedback: string
     onFeedbackChange: (v: string) => void; onShowFeedback: (v: boolean) => void
-    onApprove: () => void; onDeny: (feedback?: string) => void
+    onApprove: () => void; onApproveAll: () => void; onDeny: (feedback?: string) => void
   }) {
     const [showDetail, setShowDetail] = useState(false)
     const hasOps = batchCard.summary.reads.length > 0 || batchCard.summary.writes.length > 0
@@ -534,7 +542,8 @@ export default function AIChatWindow() {
           {!showFeedback ? (
             <>
               <button onClick={() => onShowFeedback(true)} style={batchBtnStyle('#fff', '#dc2626')}>✗ 拒绝</button>
-              <button onClick={onApprove} style={batchBtnStyle('#16a34a', '#fff')}>✓ 批准全部</button>
+              <button onClick={onApprove} style={batchBtnStyle('#16a34a', '#fff')}>仅批准当前</button>
+              <button onClick={onApproveAll} style={{ ...batchBtnStyle('#7c3aed', '#fff'), fontWeight: 700 }}>✓ 批准全部步骤，自动执行</button>
             </>
           ) : (
             <>
@@ -723,10 +732,12 @@ export default function AIChatWindow() {
     // Allow retry when pendingCorrection is set (from hallucination retry button)
     const isRetry = !!pendingCorrection.current
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
-    if (!activeConfigId || loading) return
     // Pre-flight: verify API connectivity before sending
     const connected = await checkApiConnection()
     if (!connected) return  // don't send if connection is known bad
+
+    // Reset task-level approval for new user messages
+    planApprovedRef.current = false
 
     // Block new requests while a batch approval card is pending
     if (pendingBatchRef.current) return
@@ -1002,29 +1013,31 @@ export default function AIChatWindow() {
         iteration++
         // AI chat with tools. In Action mode, the AI can call file operations; in Plan mode, only read-only tools.
         // Safety: backend enforces path isolation (isSafePath), file size limits, and dangerous tool confirmation.
+        debugApiSend(activeConversationId, fullContent.length, messagesForApi.length, toolsForApi?.length || 0)
         const response = await aiService.chatWithTools(messagesForApi, activeConfigId!, activeProjectId || undefined, toolsForApi)
         const { text, toolCalls, finishReason, images, usage, reasoning_content } = response
+        debugApiResponse(activeConversationId, finishReason || 'unknown', toolCalls?.length || 0, usage?.prompt_tokens || 0, usage?.completion_tokens || 0)
         sessionTokens = usage?.total_tokens || sessionTokens
         if (usage?.prompt_tokens) { lastPrompt = usage.prompt_tokens; setLastPromptTokens(usage.prompt_tokens); setPeakPromptTokens(prev => Math.max(prev, usage.prompt_tokens)) }
 
-        if (!toolCalls || toolCalls.length === 0) {
-          // Parse thinking plan before popup/insertion parsing (plan block may interfere)
-          const planParsed = parseThinkingPlan(text || '')
-          const textAfterPlan = planParsed.plainText || text || ''
+        // Parse thinking plan and popup commands (shared by both branches)
+        const planParsed = parseThinkingPlan(text || '')
+        const textAfterPlan = planParsed.plainText || text || ''
+        const popupParsed = parsePopupCommand(textAfterPlan)
+        // Auto-open popup if AI included the command
+        if (popupParsed.popup) {
+          const id = Date.now().toString()
+          openPopup({ id: `ai_${id}`, type: popupParsed.popup.type, title: popupParsed.popup.title, documentKey: popupParsed.popup.documentKey })
+        }
+        // Trigger chapter generation via store if AI included 【生成本章】or【生成第X章】
+        if (popupParsed.genTrigger) {
+          const targetId = popupParsed.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed.genTrigger
+          if (targetId) useStore.getState().setChapterGenTrigger(targetId)
+        }
 
-          const popupParsed = parsePopupCommand(textAfterPlan)
+        if (!toolCalls || toolCalls.length === 0) {
           const displayText = popupParsed.popup ? popupParsed.text : textAfterPlan
           const { plainText, insertion } = parseInsertionSuggestion(displayText)
-          // Auto-open popup if AI included the command
-          if (popupParsed.popup) {
-            const id = Date.now().toString()
-            openPopup({ id: `ai_${id}`, type: popupParsed.popup.type, title: popupParsed.popup.title, documentKey: popupParsed.popup.documentKey })
-          }
-          // Trigger chapter generation via store if AI included 【生成本章】or【生成第X章】
-          if (popupParsed.genTrigger) {
-            const targetId = popupParsed.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed.genTrigger
-            if (targetId) useStore.getState().setChapterGenTrigger(targetId)
-          }
           // Runtime hallucination check: did AI claim an action without calling the tool?
           const finalText = plainText || displayText
           const hw = detectHallucination(finalText, conversationToolNames.current)
@@ -1057,21 +1070,7 @@ export default function AIChatWindow() {
           isDone = true
         } else {
           // Process tool calls
-          // Parse thinking plan from this round's text before popup parsing
-          const planParsed2 = parseThinkingPlan(text || '')
-          const textAfterPlan2 = planParsed2.plainText || text || ''
-
-          // Also parse popup commands from text (may be mixed with tool calls)
-          const popupParsed2 = parsePopupCommand(textAfterPlan2)
-          const displayText2 = popupParsed2.popup ? popupParsed2.text : textAfterPlan2
-          if (popupParsed2.popup) {
-            const pid = Date.now().toString()
-            openPopup({ id: `ai_${pid}`, type: popupParsed2.popup.type, title: popupParsed2.popup.title, documentKey: popupParsed2.popup.documentKey })
-          }
-          if (popupParsed2.genTrigger) {
-            const targetId = popupParsed2.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed2.genTrigger
-            if (targetId) useStore.getState().setChapterGenTrigger(targetId)
-          }
+          const displayText2 = popupParsed.popup ? popupParsed.text : textAfterPlan
           // Track all tool names called (for runtime hallucination detection + UI summary)
           toolCalls.forEach((tc: any) => { conversationToolNames.current.add(tc.function.name); thisSendTools.add(tc.function.name) })
 
@@ -1090,7 +1089,7 @@ export default function AIChatWindow() {
           setMessages(prev => [...prev, {
             id: `${Date.now()}_tc`, role: 'assistant' as const, content: displayText2, timestamp: Date.now(),
             tool_calls: strippedCalls,
-            thinkingPlan: planParsed2.plan,
+            thinkingPlan: planParsed.plan,
             reasoningContent: reasoning_content || undefined,
           }])
           const resultMsgs: Message[] = []
@@ -1100,15 +1099,17 @@ export default function AIChatWindow() {
           // ── Batch approval gate: check all tool calls before executing ──
           const allRawArgs = toolCalls.map(tc => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })
           const batchCheck = checkBatch(toolCalls, allRawArgs)
+          debugBatchCheck(activeConversationId, batchCheck.needsApproval, batchCheck.summary.reads.length, batchCheck.summary.writes.length, batchCheck.summary.creates.length, batchCheck.summary.deletes.length, batchCheck.summary.reads.some(r => isProjectFilePath(r)))
 
-          if (batchCheck.needsApproval) {
+          if (batchCheck.needsApproval && !planApprovedRef.current) {
             // Pause and wait for user approval via Promise
             const batchApproved = await new Promise<boolean>((resolve) => {
               const timeoutId = setTimeout(() => {
                 // Auto-deny after 30s timeout
+                debugBatchTimeout(activeConversationId)
                 pendingBatchRef.current = null
                 setBatchCard(null)
-                setMessages(prev => prev.filter(m => !m.batchPending))
+                setMessages(prev => prev)
                 const timeoutContent = JSON.stringify({ status: 'denied', summary: '操作超时（30秒未响应），自动拒绝' })
                 for (const tc of toolCalls) {
                   messagesForApi.push({ role: 'tool' as const, tool_call_id: tc.id, content: timeoutContent })
@@ -1119,7 +1120,7 @@ export default function AIChatWindow() {
               pendingBatchRef.current = {
                 toolCalls: toolCalls.map((tc, i) => ({ tc, routeArgs: allRawArgs[i] })),
                 summary: batchCheck.summary,
-                thinkingPlan: typeof planParsed2.plan === 'string' ? planParsed2.plan : (planParsed2.plan?.intent || ''),
+                thinkingPlan: typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''),
                 onResolve: (approved: boolean, feedback?: string) => {
                   clearTimeout(timeoutId)
                   pendingBatchRef.current = null
@@ -1140,7 +1141,7 @@ export default function AIChatWindow() {
                       })
                     }
                     // Remove batch card from messages
-                    setMessages(prev => prev.filter(m => !m.batchPending))
+                    setMessages(prev => prev)
                     resolve(false)
                   }
                 },
@@ -1149,8 +1150,9 @@ export default function AIChatWindow() {
                 id: `batch_${Date.now()}`,
                 summary: batchCheck.summary,
                 previews: batchCheck.previews,
-                thinkingPlan: typeof planParsed2.plan === 'string' ? planParsed2.plan : (planParsed2.plan?.intent || ''),
+                thinkingPlan: typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''),
               })
+              debugBatchShow(activeConversationId, typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''))
               // Batch card is rendered in the input area, not in message stream
             })
 
@@ -1161,12 +1163,13 @@ export default function AIChatWindow() {
               return
             }
             // User approved — remove batch card and continue execution
-            setMessages(prev => prev.filter(m => !m.batchPending))
+            setMessages(prev => prev)
           }
 
           for (const tc of toolCalls) {
             try {
               const args = JSON.parse(tc.function.arguments)
+              debugToolCall(activeConversationId, tc.function.name, args)
               let r: { status: string; summary: string; detail?: string; confirmArgs?: Record<string, unknown> } | undefined
 
               // ══════════════════════════════════════════════════════════════
@@ -1507,19 +1510,39 @@ export default function AIChatWindow() {
               } else {
                 // Prepend active project ID to paths so AI-relative paths
                 // (like "characters/test.json") resolve to the correct project folder.
+                const cleanPath = (p: string) => (p || '').replace(/\\/g, '/').replace(/^\/+/, '')
                 const projPrefix = activeProjectId ? activeProjectId + '/' : ''
                 const routeArgs = { ...args }
-                if (projPrefix && typeof routeArgs.file_path === 'string' && !routeArgs.file_path.startsWith(projPrefix)) {
-                  routeArgs.file_path = projPrefix + routeArgs.file_path
+
+                // Project isolation: reject file ops when no active project
+                if (!activeProjectId) {
+                  r = { status: 'error', summary: '请先选择一个项目，才能操作文件。' }
                 }
-                if (projPrefix && typeof routeArgs.dir_path === 'string' && !routeArgs.dir_path.startsWith(projPrefix)) {
-                  routeArgs.dir_path = projPrefix + routeArgs.dir_path
-                }
-                if (projPrefix && typeof routeArgs.new_path === 'string' && !routeArgs.new_path.startsWith(projPrefix)) {
-                  routeArgs.new_path = projPrefix + routeArgs.new_path
+
+                if (activeProjectId) {
+                  // Default dir_path to project root (prevents listing all projects)
+                  if (typeof routeArgs.dir_path !== 'string' || !routeArgs.dir_path) {
+                    routeArgs.dir_path = projPrefix
+                  }
+                  if (typeof routeArgs.file_path === 'string') {
+                    const cleaned = cleanPath(routeArgs.file_path)
+                    if (!cleaned.startsWith(projPrefix)) routeArgs.file_path = projPrefix + cleaned
+                    else routeArgs.file_path = cleaned
+                  }
+                  if (typeof routeArgs.dir_path === 'string') {
+                    const cleaned = cleanPath(routeArgs.dir_path)
+                    if (!cleaned.startsWith(projPrefix)) routeArgs.dir_path = projPrefix + cleaned
+                    else routeArgs.dir_path = cleaned
+                  }
+                  if (typeof routeArgs.new_path === 'string') {
+                    const cleaned = cleanPath(routeArgs.new_path)
+                    if (!cleaned.startsWith(projPrefix)) routeArgs.new_path = projPrefix + cleaned
+                    else routeArgs.new_path = cleaned
+                  }
                 }
 
                 // All tools execute directly (batch approval gate already passed)
+                if (!r) {
                 if (tc.function.name === 'edit_file') {
                 const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: { ...routeArgs, _confirmed: true } }])
                 r = results[0]
@@ -1545,11 +1568,13 @@ export default function AIChatWindow() {
                 if (tc.function.name === 'read_file') {
                   readCounts.read_file++
                   if (readCounts.read_file > MAX_READS) {
+                    debugSysWarn(activeConversationId, 'read_limit', `reads=${readCounts.read_file} limit=${MAX_READS}`)
                     r = { status: 'error', summary: `本轮已读取 ${MAX_READS} 个文件（上限），请分析已读内容后再继续。` }
                   }
                 } else if (tc.function.name === 'list_directory') {
                   readCounts.list_directory++
                   if (readCounts.list_directory > MAX_LISTS) {
+                    debugSysWarn(activeConversationId, 'list_limit', `lists=${readCounts.list_directory} limit=${MAX_LISTS}`)
                     r = { status: 'error', summary: `本轮已列出 ${MAX_LISTS} 个目录（上限），请按需查询。` }
                   }
                 }
@@ -1558,7 +1583,9 @@ export default function AIChatWindow() {
                   r = results[0]
                 }
               }
+              } // if (!r)
               } // end Route C
+              debugToolResult(activeConversationId, tc.function.name, r?.status || 'error', r?.summary || '')
               const content = JSON.stringify({ status: r?.status || 'error', summary: r?.summary || '', detail: r?.detail || '' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
               resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
@@ -1594,7 +1621,7 @@ export default function AIChatWindow() {
                   if (tc.function.name === 'delete_project') {
                     targetPath = pp
                   } else if (fileModifyingTools.includes(tc.function.name)) {
-                    let relPath = String(args.file_path || '').replace(/\\/g, '/')
+                    let relPath = String(args.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '')
                     // Strip project prefix if AI accidentally included it (e.g. "1/outline/plot.md")
                     if (activeProjectId && relPath.startsWith(activeProjectId + '/')) {
                       relPath = relPath.slice(activeProjectId.length + 1)
@@ -1644,7 +1671,8 @@ export default function AIChatWindow() {
                   }
                 }
               }
-            } catch {
+            } catch (e: any) {
+              debugSysError(activeConversationId, tc.function.name, e?.message || '工具执行异常')
               const content = JSON.stringify({ status: 'error', summary: '工具执行异常' })
               messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
               resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
@@ -1666,13 +1694,17 @@ export default function AIChatWindow() {
             }
             setMessages(prev => [...prev, summaryMsg])
           }
-          if (finishReason !== 'tool_calls') isDone = true
+          if (finishReason !== 'tool_calls') {
+            planApprovedRef.current = false
+            isDone = true
+          }
         }
       }
       const newTotal = cumulativeTokens + sessionTokens
       setCumulativeTokens(newTotal)
       setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: lastPrompt || c.lastPromptTokens, peakPromptTokens: Math.max(c.peakPromptTokens || 0, lastPrompt || 0) } : c))
     } catch (err) {
+      debugApiError(activeConversationId, 'API', String((err as any)?.message || err))
       const errMsg = parseAiErrorMessage(err)
       setApiError(errMsg)
 
@@ -2340,6 +2372,7 @@ export default function AIChatWindow() {
                   onFeedbackChange={setBatchFeedback}
                   onShowFeedback={setShowBatchFeedback}
                   onApprove={handleBatchApprove}
+                  onApproveAll={() => { planApprovedRef.current = true; handleBatchApprove() }}
                   onDeny={handleBatchDeny}
                 />
               )}

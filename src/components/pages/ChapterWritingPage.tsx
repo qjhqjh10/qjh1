@@ -207,7 +207,7 @@ export default function ChapterWritingPage() {
     if (!fileEditNotify || !chapterId || !projectPath) return
     const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/').toLowerCase()
     const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
-    if (notifyPath === expectedPath || notifyPath.includes(`/chapters/${chapterId}.txt`)) {
+    if (notifyPath === expectedPath) {
       fileService.read(expectedPath).then(c => {
         setContent(c)
         handleSave(c).catch(err => logError('fileEditNotify自动保存失败', err))
@@ -221,7 +221,7 @@ export default function ChapterWritingPage() {
     if (!fileEditNotify || !chapterId || !projectPath) return
     const expectedPath = `${projectPath}/summaries/${chapterId}.md`.replace(/\\/g, '/').toLowerCase()
     const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
-    if (notifyPath === expectedPath || notifyPath.includes(`/summaries/${chapterId}.md`)) {
+    if (notifyPath === expectedPath) {
       loadSummary(projectPath, chapterId).then(s => {
         if (s) { setSummaryContent(s); setChapterSummary(chapterId, s) }
       }).catch(() => {})

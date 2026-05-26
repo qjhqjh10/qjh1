@@ -195,6 +195,7 @@ const api = {
     writeAnalysis: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('rewrite:writeAnalysis', id, chId, content),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('rewrite:delete', id),
   },
+  appendDebugLog: (name: string, line: string): Promise<void> => ipcRenderer.invoke('debug:append-log', name, line),
 }
 
 contextBridge.exposeInMainWorld('electron', api)

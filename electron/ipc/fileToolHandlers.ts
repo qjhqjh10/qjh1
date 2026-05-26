@@ -47,6 +47,10 @@ async function safeResolve(
   }
   // Normalize slashes and strip leading slash
   let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
+  // Reject absolute Windows paths (C:\...) and Unix absolute paths
+  if (/^[A-Za-z]:[/\\]/.test(clean) || path.isAbsolute(clean)) return null
+  // Decode percent-encoded path traversal attempts (%2e%2e%2f = ../)
+  clean = clean.replace(/%2e%2e%2f/gi, '').replace(/%2e%2e/gi, '')
   // Loop until no more ../ patterns remain (Issue #1: multi-pass defense against ....// bypass)
   let prev = ''
   while (prev !== clean) {
@@ -715,7 +719,7 @@ function deny(callId: string, toolName: string, reason: string): ToolCallResult 
 /** Generate a helpful path hint showing the project's expected directory structure */
 function pathHint(requestedPath: string): string {
   const dirs = [
-    'outline/         — plot.md, worldbuilding.md, items.json, locations.json, factions.json, power_system.json, outline_meta.json, emotion.json',
+    'outline/         — plot.md, worldbuilding.md（大纲和世界观为 .md 格式）',
     'characters/      — {角色拼音id}.json (每个角色一个文件)',
     'detailed_outline/— {章节id}.json (每章一个细纲)',
     'chapters/        — {章节id}.txt (章节正文)',

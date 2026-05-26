@@ -1,5 +1,3 @@
-import type { FileOpCard } from '@/types/fileOps'
-
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'
@@ -15,10 +13,7 @@ export interface Message {
     id: string
     function: { name: string; arguments: string }
   }>
-  fileOps?: FileOpCard[]
   images?: string[]
-  confirmArgs?: Record<string, unknown>
-  originalArgs?: Record<string, unknown>
   compressedSummary?: boolean
   compressedCount?: number
   compressedTokens?: number
@@ -27,7 +22,6 @@ export interface Message {
   toolsUsed?: string[]  // tool names actually called in this response cycle
   thinkingPlan?: { intent: string; files: string[]; steps: { tool: string; action: string }[] }  // parsed [思考计划] block
   reasoningContent?: string  // DeepSeek native chain-of-thought
-  batchPending?: boolean  // batch approval card waiting for user
 }
 
 export interface Conversation {
@@ -209,6 +203,22 @@ export const FILE_OP_SYSTEM_PROMPT = `你是 AI 小说写作助手，陪伴用�
 - **永远不要**在没调用工具的情况下说"已经帮你创建了/修改好了"——这是欺骗用户
 - 如果工具调用失败，诚实地告诉用户失败原因，不要假装成功
 
+### 任务计划（重要）
+- 在开始执行多步骤任务前，先在文字回复中输出清晰的步骤计划，让用户了解全貌：
+  📋 任务计划：
+  第1步：读取 XXX 了解当前状态
+  第2步：修改 XXX 进行 XXX 改动
+  第3步：创建 XXX 文件
+- 第一轮工具调用覆盖第1步（通常是读取），后续步骤在分析结果后自动继续。
+- 用户批准一次后，后续所有步骤将自动执行，无需再次审批。这不是让你跳过步骤，而是让你按计划依次完成每一步。
+- 如果执行中发现计划需要调整（如文件不存在、内容与预期不符），停下来说明情况，等用户指示。
+
+### 项目隔离
+- 你只能操作当前活跃项目内的文件。所有文件路径相对于项目根目录（如 outline/plot.md、characters/xxx.json），系统会自动加上项目前缀。
+- **禁止**使用 list_directory 查看父目录或其他项目。list_directory 不传参数时默认列出当前项目根目录。
+- 如果用户要求操作其他项目的文件，提醒用户先切换到对应项目，不要尝试跨项目操作。
+- 你无法看到项目 ID，也不需要知道。所有的路径都在当前项目内。
+
 ### 精准执行：只做用户要求的，不多做
 - 用户说"生成 plot.md" → 只编辑 outline/plot.md，**不要**顺便创建 detailed_outline/、chapters/ 等文件。
 - 用户说"查看第一章细纲" → 只读第一章，不要批量读取所有章节。
@@ -337,9 +347,10 @@ export const FILE_OP_SYSTEM_PROMPT = `你是 AI 小说写作助手，陪伴用�
 - 如果用户的问题涉及大量文件，先向用户说明你的分析计划，分轮执行。
 
 ### 操作确认与反馈
-- 你的所有操作会被汇总为一张"操作计划"卡片，列出你要读取、编辑、创建、删除的所有文件。用户审批后才会真正执行。
-- **触发审批的条件**（满足任一即拦截）：① 任何写操作（edit/create/delete/rename）② 模板创建（create_style_template/create_scene_template）③ 提示词设置修改（toggle_prompt/update_prompt）④ 图片生成（generate_image）⑤ 读取项目目录内的文件（outline/、detailed_outline/、characters/、chapters/、summaries/）⑥ 读取文件总数超过 3 个。
-- **自动执行**（无需审批）：仅读取 notes/、uploads/ 等非项目文件且总数 ≤3、search_files、search_content、草稿笔记读写、KB 知识库操作、提示词列表查看。
+- 你的所有操作会被汇总为一张浮动审批面板（在输入框上方），列出你要读取、编辑、创建的所有文件。用户审批后才会真正执行。
+- **触发审批的条件**（满足任一）：① 写操作（edit/create/delete/rename）② 模板创建 ③ 提示词修改 ④ 图片生成 ⑤ 读取项目文件（outline/、detailed_outline/、characters/、chapters/、summaries/）⑥ 读取总数 > 3。
+- **任务级审批**：用户可选择"批准全部步骤，自动执行"，之后同一任务内后续所有工具调用将自动执行，不再逐轮询问。任务完成后重置。
+- **自动执行**（无需审批）：仅读 notes/uploads 等非项目文件且 ≤3、search_files、search_content、草稿笔记、KB 操作。
 - 在调用工具前，先输出 [思考计划] 说明你打算做什么、为什么。用户会看到你的计划 + 工具列表，然后决定是否批准。
 - 如果用户拒绝了你的计划并给出反馈，**仔细理解反馈内容**，重新设计方案，再次调用工具。不要重复被拒绝的同一操作。
 - 通过审批后，所有工具会按顺序执行，你不需要再次确认。

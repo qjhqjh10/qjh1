@@ -417,11 +417,15 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       if (!imageUrl) throw new Error('图片生成返回空结果')
 
       // Download image to project
-      const { join } = await import('path')
+      const { join, basename } = await import('path')
       const { mkdir, writeFile } = await import('fs/promises')
       const timestamp = Date.now().toString(36)
       const fileName = `gen_${timestamp}.png`
-      const imagesDir = join(projectsPath || '', projectId || '', 'images')
+      // Sanitize projectId to prevent path traversal
+      const safeId = basename(projectId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+      if (!safeId) throw new Error('Invalid project ID')
+      if (!projectsPath) throw new Error('Projects path not configured')
+      const imagesDir = join(projectsPath, safeId, 'images')
       await mkdir(imagesDir, { recursive: true })
       const imagePath = join(imagesDir, fileName)
 

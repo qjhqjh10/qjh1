@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, safeStorage, shell, Menu } from 'electron'
 import { join, dirname } from 'path'
+import { mkdir, appendFile } from 'fs/promises'
 import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
 import { registerExportHandlers } from './ipc/exportHandlers'
@@ -120,6 +121,15 @@ app.whenReady().then(async () => {
   registerContinuationHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
+
+  // Diagnostic debug logging for Claude Code analysis
+  ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {
+    const dir = join(app.getPath('userData'), 'ai-debug', 'events')
+    await mkdir(dir, { recursive: true })
+    const date = new Date().toISOString().slice(0, 10)
+    const fname = `${date}_${name}.jsonl`.replace(/[<>:"/\\|?*]/g, '_')
+    await appendFile(join(dir, fname), line, 'utf-8')
+  })
 
   const win = await createWindow()
 

@@ -41,8 +41,8 @@ export function encryptKey(apiKey: string, safeStorage: SafeStorage): { key: str
 export function isSafePath(inputPath: string, basePath: string): boolean {
   if (!inputPath || typeof inputPath !== 'string') return false
   if (!basePath) return false
-  const normalized = path.normalize(inputPath)
-  const base = path.normalize(basePath)
+  const normalized = path.normalize(inputPath).toLowerCase()
+  const base = path.normalize(basePath).toLowerCase()
   return normalized.startsWith(base + path.sep) || normalized === base
 }
 
