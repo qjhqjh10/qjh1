@@ -14,9 +14,10 @@ Electron + React + TypeScript 桌面应用，AI 辅助小说创作。
 ## 架构
 
 ```
-electron/ipc/     — 10个IPC handler（文件读写/项目/AI/导出/知识库/统计/风格/模板/反推/文件工具）
+electron/ipc/     — 11个IPC handler（文件读写/项目/AI/导出/知识库/统计/风格/模板/反推/文件工具/Agent）
+src/agent/        — Agent运行时框架（32文件~3500行: Runtime/FSM/Store/Tools/Context/Thinking/Sessions/Permissions/Budget/Reflection/Cache/SubAgents）
 src/services/     — 6个service（fileService/characterService/chapterService/sceneService/extractionService）
-src/components/   — 12个页面 + 17个共享组件 + AI聊天悬浮窗
+src/components/   — 12个页面 + 20个共享组件 + AI聊天悬浮窗
 src/store/        — Zustand (AppState + SettingsState + OperationHistoryState)
 src/types/        — TypeScript 类型定义
 src/utils/        — 工具函数
@@ -71,7 +72,7 @@ AI 可通过 OpenAI Function Calling 操作项目文件。10 个工具: list_dir
 
 | 版本 | 日期 | 核心变化 |
 |------|------|---------|
-| v6.0.0 | 2026-05-28 | 大规模代码重构：12文件拆为81子文件(CharactersPanel重写/StyleWorkshopPage架构重写/ImitationPage handler提取/AIChatWindow拆分/ChapterGenerationModal拆分等) |
+| v6.1.0 | 2026-05-27 | Agent架构全面改造：新增src/agent/目录32文件(AgentRuntime+FSM+EventEmitter+AgentStore+ToolRegistry+ContextAssembler+ThinkingEngine+SessionManager+PermissionManager+BudgetManager+ReflectionEngine+ToolCache+SubAgentManager)+AgentChatBridge集成桥接+Agent UI组件(StateBar/ToolCard/ThinkingPanel)+CLI无头模式agent-cli.mjs+Bug修复(schemaValidation/死代码/危险工具confirmed)+测试285→295 |\n| v6.0.0 | 2026-05-28 | 大规模代码重构：12文件拆为81子文件(CharactersPanel重写/StyleWorkshopPage架构重写/ImitationPage handler提取/AIChatWindow拆分/ChapterGenerationModal拆分等) |
 | v5.8.0 | 2026-05-26 | 路径安全加固(isSafePath大小写+safeResolve绝对路径拦截+百分号防御)+跨项目隔离(list_directory限定+无项目拒绝)+前端路径归一化+generateImage修复+死代码清理+AI诊断事件流+任务级审批+审批面板重构+精准执行铁律 |
 | v5.7.0 | 2026-05-26 | 章节摘要独立存储(summaries/*.md)+批量审批门控+审批面板UI重构+精准执行铁律+操作拒绝反馈循环+细纲自动组装+工具结果合并+批量读取限制 |
 | v5.6.0 | 2026-05-26 | edit_file 5级模糊匹配+__FULL_REPLACE__全量替换+幻觉检测增强(间隔匹配+即时自纠)+三重幻觉防御(关键词/按钮/智能提示)+fileEditNotify彻底修复(补projectPath依赖+toLowerCase)+AI路径自动加项目前缀+风格模板21维度全生效+对话风格强制约束+风格强度三级+API连接预检+死代码清理+UX多项优化 |

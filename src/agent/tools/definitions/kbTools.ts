@@ -1,0 +1,87 @@
+import type { ToolDefinition } from '../ToolRegistry'
+
+export const kbTools: ToolDefinition[] = [
+  {
+    schema: {
+      name: 'kb_list',
+      description: '列出知识库中所有文件的名称、ID 和类型。保存前应先调用此工具查看已有文件。',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    permission: 'AUTO',
+    category: 'kb',
+    availableInPlanMode: true,
+    executor: async (_args) => {
+      const { kbService } = await import('@/services/fileService')
+      const meta = await kbService.list() as { files: { id: string; originalName: string; type: string }[] }
+      const fileList = meta.files.map(f => `${f.originalName} (id: ${f.id}, 类型: ${f.type})`).join('\n')
+      return { status: 'success', summary: `${meta.files.length} 个文件`, detail: fileList || '(知识库为空)' }
+    },
+  },
+  {
+    schema: {
+      name: 'kb_create_file',
+      description: '在知识库中创建新的 .md 文件保存资料。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '文件名（建议含中文描述）' },
+          content: { type: 'string', description: '文件内容（Markdown）' },
+        },
+        required: ['name', 'content'],
+      },
+    },
+    permission: 'READ_ASK',
+    category: 'kb',
+    availableInPlanMode: true,
+    executor: async (args) => {
+      const { kbService } = await import('@/services/fileService')
+      const result = await kbService.create(
+        (args.name as string) || '未命名.md',
+        (args.content as string) || '',
+      )
+      return { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}` }
+    },
+  },
+  {
+    schema: {
+      name: 'kb_append_file',
+      description: '向知识库已有文件末尾追加内容。先 kb_list 查看文件列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: '目标文件 ID（从 kb_list 获取）' },
+          content: { type: 'string', description: '要追加的内容' },
+        },
+        required: ['file_id', 'content'],
+      },
+    },
+    permission: 'READ_ASK',
+    category: 'kb',
+    availableInPlanMode: true,
+    executor: async (args) => {
+      const { kbService } = await import('@/services/fileService')
+      await kbService.append(args.file_id as string, args.content as string)
+      return { status: 'success', summary: '已追加到知识库文件' }
+    },
+  },
+  {
+    schema: {
+      name: 'kb_index_file',
+      description: '对知识库文件建立 embedding 语义搜索索引。',
+      parameters: {
+        type: 'object',
+        properties: { file_id: { type: 'string', description: '目标文件 ID' } },
+        required: ['file_id'],
+      },
+    },
+    permission: 'READ_ASK',
+    category: 'kb',
+    availableInPlanMode: true,
+    executor: async (args, ctx) => {
+      const { kbService } = await import('@/services/fileService')
+      const fileId = String(args.file_id || '')
+      const result = await kbService.index(fileId, ctx.configId)
+      return { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段` }
+    },
+  },
+]

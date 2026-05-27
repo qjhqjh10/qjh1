@@ -14,6 +14,7 @@ import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
 import { registerRewriteHandlers } from './ipc/rewriteHandlers'
+import { registerAgentHandlers } from './ipc/agentHandlers'
 import { logError } from './ipc/logger'
 import { loadWindowBounds, saveWindowBounds } from './ipc/utils'
 
@@ -121,6 +122,7 @@ app.whenReady().then(async () => {
   registerContinuationHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
+  registerAgentHandlers(ipcMain, projectsPath)
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {

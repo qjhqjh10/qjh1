@@ -1,7 +1,31 @@
 {
-  "currentVersion": "6.0.0",
-  "currentDate": "2026-05-28",
+  "currentVersion": "6.1.0",
+  "currentDate": "2026-05-27",
   "history": [
+    {
+      "version": "6.1.0",
+      "date": "2026-05-27",
+      "features": [
+        "Agent架构全面改造: 新增src/agent/目录32文件(~3500行), AgentRuntime+StateMachine+EventEmitter+AgentStore核心",
+        "统一工具注册表: ToolRegistry替换4路由分发, 7个工具定义文件, 26工具自包含定义含权限级别",
+        "动态上下文组装: ContextAssembler+11个ContextProvider, 按需注入规则和schema, 典型请求省60-80%token",
+        "流式工具执行: ToolExecutor渐进事件(started→progress→completed), ToolExecutionCard实时UI卡片",
+        "结构化思考协议: ThinkingEngine解析JSON/markdown计划, 验证工具可用性, 追踪进度",
+        "文件系统会话管理: SessionManager替换localStorage, 支持CRUD+搜索+标签+导出JSON/Markdown",
+        "权限学习系统: PermissionManager追踪审批历史, 5次批准+0拒绝后自动放行, 4级风险分类",
+        "Token预算管理: BudgetManager主动追踪+70%压缩阈值+工具结果截断策略",
+        "错误恢复反思: ReflectionEngine 6类失败分类+针对性重试建议注入",
+        "工具结果缓存: ToolCache LRU淘汰+写入失效, 避免重复读取",
+        "子Agent委派: SubAgentManager 5个预定义子Agent(chapter-planner/style-analyzer/consistency-checker/scene-builder/knowledge-curator)",
+        "Agent集成桥接: AgentChatBridge连接新AgentRuntime到React UI, useAgentRuntime hook",
+        "Agent UI组件: AgentStateBar(11状态指示器)+ToolExecutionCard(进度卡片)+AgentThinkingPanel(思考面板)",
+        "后端Agent IPC: agentHandlers.ts 7个handler, main.ts+preload.ts集成",
+        "CLI无头模式: agent-cli.mjs独立脚本, 18工具Node.js实现, 支持REPL交互+单次命令, 端到端验证通过",
+        "Bug修复: schemaValidation可选字段image误报, edit_file预览分支死代码清理, 危险工具confirmed标记补全",
+        "测试增强: 从27→295测试(+268), 新增6个测试文件覆盖Agent核心模块",
+        "Harness Engineering基础设施: 覆盖12维度中10项(生命周期/权限/可观测性/沙箱/资源控制/规划/恢复/持久化/委派/无头)"
+      ]
+    },
     {
       "version": "6.0.0",
       "date": "2026-05-28",

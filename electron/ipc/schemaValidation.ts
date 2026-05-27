@@ -66,6 +66,8 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
       errors.push({ field: field.key, message: `必填字段不能为空: ${field.key}` })
       continue
     }
+    // Skip type check for optional fields that are not present
+    if (val === undefined || val === null) continue
     // Type check
     if (field.type === 'string' && typeof val !== 'string') {
       errors.push({ field: field.key, message: `${field.key} 必须是字符串，当前是 ${typeof val}` })

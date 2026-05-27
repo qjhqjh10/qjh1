@@ -1186,7 +1186,7 @@ export default function AIChatWindow() {
                 // All tools execute directly (batch approval gate already passed)
                 if (!r) {
                 if (tc.function.name === 'edit_file') {
-                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: { ...routeArgs, _confirmed: true } }])
+                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs }])
                 r = results[0]
                 // Add diff summary for outline/worldbuilding edits
                 if (r?.status === 'success') {
@@ -1203,7 +1203,8 @@ export default function AIChatWindow() {
                   }
                 }
               } else if (DANGEROUS_TOOLS.has(tc.function.name)) {
-                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs }])
+                // Batch approval gate already passed — send confirmed flag so backend allows execution
+                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs, confirmed: true }])
                 r = results[0]
               } else {
                 // Batch read limits for read-only tools

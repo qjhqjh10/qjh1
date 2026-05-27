@@ -196,6 +196,15 @@ const api = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke('rewrite:delete', id),
   },
   appendDebugLog: (name: string, line: string): Promise<void> => ipcRenderer.invoke('debug:append-log', name, line),
+  agent: {
+    sessionSave: (id: string, data: string): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:session-save', id, data),
+    sessionLoad: (id: string): Promise<any> => ipcRenderer.invoke('agent:session-load', id),
+    sessionList: (): Promise<any[]> => ipcRenderer.invoke('agent:session-list'),
+    sessionDelete: (id: string): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:session-delete', id),
+    permissionRecord: (toolName: string, approved: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:permission-record', toolName, approved),
+    permissionPatterns: (): Promise<Record<string, any>> => ipcRenderer.invoke('agent:permission-patterns'),
+    getSessionsPath: (): Promise<string> => ipcRenderer.invoke('agent:get-sessions-path'),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

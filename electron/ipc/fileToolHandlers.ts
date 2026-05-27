@@ -523,18 +523,8 @@ export async function executeFileTool(
         }
         const newContent = replaceAll ? content.replaceAll(oldStr, newStr) : content.replace(oldStr, newStr)
 
-        // Preview mode: return diff data for user confirmation (功能一)
-        if (!args._confirmed) {
-          return {
-            callId, toolName, status: 'success', // 'needs_preview' handled in frontend
-            summary: `待确认编辑: ${args.file_path}`,
-            detail: `文件: ${args.file_path}\n替换 ${occurrenceCount} 处`,
-            confirmArgs: { ...args, _confirmed: true },
-          }
-        }
-
-        // Confirmed: execute
         // Validate structured JSON files after edit
+        // User confirmation is handled by the batch approval gate in AIChatWindow before tools execute
         const relPathEdit = path.relative(projectPath, fp).replace(/\\/g, '/')
         if (relPathEdit.endsWith('.json')) {
           const validation = validateFileContent(relPathEdit, newContent)

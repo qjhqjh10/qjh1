@@ -1,0 +1,98 @@
+// ── Context Provider Interface ──
+
+export interface ContextBlock {
+  domain: string
+  content: string
+  priority: number
+  estimatedTokens: number
+}
+
+export interface ContextProvider {
+  domain: string
+  relevance: (userMessage: string, history: Array<{ role: string; content: string }>) => number
+  buildContext: (projectId: string | null) => Promise<ContextBlock>
+}
+
+export interface AssembledContext {
+  systemMessages: Array<{ role: 'system'; content: string }>
+  totalTokens: number
+  domains: string[]
+  breakdown: Array<{ domain: string; tokens: number }>
+}
+
+// ── Assembler ──
+
+export class ContextAssembler {
+  private providers: ContextProvider[] = []
+  private relevanceThreshold = 0.3
+  private maxContextTokens = 8000
+
+  register(provider: ContextProvider): void {
+    this.providers.push(provider)
+  }
+
+  setThreshold(t: number): void {
+    this.relevanceThreshold = t
+  }
+
+  setMaxTokens(max: number): void {
+    this.maxContextTokens = max
+  }
+
+  getProviders(): readonly ContextProvider[] {
+    return this.providers
+  }
+
+  async assemble(
+    userMessage: string,
+    history: Array<{ role: string; content: string }>,
+    projectId: string | null,
+  ): Promise<AssembledContext> {
+    // Score relevance for each provider
+    const scored = this.providers.map(p => ({
+      provider: p,
+      score: p.relevance(userMessage, history),
+    }))
+
+    // Select providers above threshold
+    const selected = scored
+      .filter(s => s.score > this.relevanceThreshold)
+      .sort((a, b) => b.score - a.score) // highest relevance first
+
+    // Build context blocks
+    const blocks: ContextBlock[] = []
+    let totalTokens = 0
+
+    for (const { provider } of selected) {
+      const block = await provider.buildContext(projectId)
+      if (totalTokens + block.estimatedTokens <= this.maxContextTokens) {
+        blocks.push(block)
+        totalTokens += block.estimatedTokens
+      }
+    }
+
+    // Sort by priority
+    blocks.sort((a, b) => b.priority - a.priority)
+
+    const systemMessages = blocks.map(b => ({
+      role: 'system' as const,
+      content: b.content,
+    }))
+
+    return {
+      systemMessages,
+      totalTokens,
+      domains: blocks.map(b => b.domain),
+      breakdown: blocks.map(b => ({ domain: b.domain, tokens: b.estimatedTokens })),
+    }
+  }
+
+  // Quick check: does the input look like it needs any tools?
+  isTaskOriented(userMessage: string): boolean {
+    return /创建|新建|修改|编辑|删除|生成|写入|写一|改一|添加|追加|读取|查看|列出|搜索/.test(userMessage)
+  }
+}
+
+// ── Global assembler ──
+
+export const contextAssembler = new ContextAssembler()
