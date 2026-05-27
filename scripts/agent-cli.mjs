@@ -383,6 +383,38 @@ class NodeToolExecutor {
         return { status: 'success', summary: 'CLI 模式不支持提示词修改' }
       }
 
+      case 'list_rules': {
+        const rulesDir = path.join(this.projectsDir, '..', '.aiharness', 'rules', 'auto-learned')
+        try {
+          const files = await fsp.readdir(rulesDir)
+          const rules = []
+          for (const f of files) {
+            if (f.endsWith('.json')) {
+              try {
+                const raw = await fsp.readFile(path.join(rulesDir, f), 'utf-8')
+                const rule = JSON.parse(raw)
+                rules.push(`[${rule.status || 'auto'}] ${rule.title || f}: ${(rule.problem || '').slice(0, 80)}`)
+              } catch { rules.push(f) }
+            }
+          }
+          return { status: 'success', summary: `${rules.length} 条已学习规则`, detail: rules.join('\n') || '(暂无)' }
+        } catch { return { status: 'success', summary: '0 条规则', detail: '(暂无已学习规则)' } }
+      }
+
+      case 'learn_rule': {
+        const rulesDir2 = path.join(this.projectsDir, '..', '.aiharness', 'rules', 'auto-learned')
+        await fsp.mkdir(rulesDir2, { recursive: true })
+        const rule = {
+          title: `[自动学习] ${args.trigger || ''}`,
+          trigger: String(args.trigger || ''), problem: String(args.problem || ''),
+          solution: String(args.solution || ''), category: String(args.category || 'general'),
+          createdAt: new Date().toISOString(), status: 'auto-draft',
+        }
+        const id = `rule_${Date.now().toString(36)}`
+        await fsp.writeFile(path.join(rulesDir2, `${id}.json`), JSON.stringify(rule, null, 2), 'utf-8')
+        return { status: 'success', summary: `已记录规则: ${id}`, detail: '规则已保存到 .aiharness/rules/auto-learned/，下次会话自动生效' }
+      }
+
       default:
         return { status: 'error', summary: `未知工具: ${toolName}` }
     }
@@ -407,6 +439,8 @@ const TOOLS = [
   { type: 'function', function: { name: 'write_note', description: '写草稿', parameters: { type: 'object', properties: { note_name: { type: 'string' }, content: { type: 'string' } }, required: ['note_name', 'content'] } } },
   { type: 'function', function: { name: 'append_note', description: '追加草稿', parameters: { type: 'object', properties: { note_name: { type: 'string' }, content: { type: 'string' } }, required: ['note_name', 'content'] } } },
   { type: 'function', function: { name: 'delete_note', description: '删除草稿', parameters: { type: 'object', properties: { note_name: { type: 'string' } }, required: ['note_name'] } } },
+  { type: 'function', function: { name: 'list_rules', description: '列出 .aiharness/ 中的已学习规则', parameters: { type: 'object', properties: {}, required: [] } } },
+  { type: 'function', function: { name: 'learn_rule', description: '从经验中学习并持久化规则，防止以后再犯同样错误', parameters: { type: 'object', properties: { trigger: { type: 'string' }, problem: { type: 'string' }, solution: { type: 'string' }, category: { type: 'string' } }, required: ['trigger', 'problem', 'solution'] } } },
 ]
 
 const SYSTEM_PROMPT = `你是一个 AI 小说写作助手 Agent，在命令行模式下运行。

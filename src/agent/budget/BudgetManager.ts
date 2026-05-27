@@ -1,3 +1,5 @@
+import { ProgressiveCompressor } from '../context/ProgressiveCompressor'
+
 export interface TokenBudget {
   contextWindow: number
   used: number
@@ -5,14 +7,18 @@ export interface TokenBudget {
   available: number
 }
 
+export type CompressionStage = 'none' | 'budget_reduction' | 'snip' | 'microcompact' | 'context_collapse' | 'auto_compact'
+
 export class BudgetManager {
   private contextWindow: number
   private reserveForResponse: number
   private _used = 0
+  private compressor: ProgressiveCompressor
 
   constructor(contextWindow: number, reserveForResponse = 4096) {
     this.contextWindow = contextWindow
     this.reserveForResponse = reserveForResponse
+    this.compressor = new ProgressiveCompressor(contextWindow)
   }
 
   get budget(): TokenBudget {
@@ -46,9 +52,25 @@ export class BudgetManager {
     this._used = 0
   }
 
+  getCompressionStage(): CompressionStage {
+    return this.compressor.getStage(this._used)
+  }
+
+  needsCompression(): boolean {
+    return this.compressor.needsCompression(this._used)
+  }
+
+  shouldTriggerCompactHook(): boolean {
+    return this.compressor.shouldTriggerHook(this._used)
+  }
+
   shouldCompress(messages: Array<{ role: string; content: string }>): boolean {
     const estimated = this.estimateMessages(messages)
-    return estimated > this.contextWindow * 0.7 // Compress at 70% usage
+    if (this._used > this.contextWindow * 0.95) return true  // Stage 5: auto-compact
+    if (this._used > this.contextWindow * 0.85) return true  // Stage 4: context collapse
+    if (this._used > this.contextWindow * 0.70) return true  // Stage 3: microcompact
+    if (this._used > this.contextWindow * 0.60) return estimated > this.contextWindow * 0.6  // Stage 2: snip
+    return estimated > this.contextWindow * 0.50  // Stage 1: budget reduction
   }
 
   truncateToolResult(detail: string | undefined, maxChars: number = 10000): string {

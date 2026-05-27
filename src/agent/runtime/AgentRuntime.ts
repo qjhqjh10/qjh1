@@ -1,6 +1,7 @@
 import { AgentStateMachine } from '../state/AgentStateMachine'
 import { AgentEventEmitter } from './AgentEventEmitter'
 import { useAgentStore } from '../store/AgentStore'
+import { useStore } from '@/store'
 import type {
   AgentPhase, AgentState, ToolCallRequest,
   ApiResponse, AgentError,
@@ -10,6 +11,8 @@ import type {
   ToolProgressEvent, ToolResultEvent,
   PermissionRequest,
 } from './AgentEventEmitter'
+import type { HookEngine } from '../hooks/HookEngine'
+import type { LivingSkillManager } from '../living-skills/LivingSkillManager'
 
 // ── Config ──
 
@@ -37,11 +40,9 @@ export interface AgentRunInput {
 }
 
 export interface AgentRunResult {
-  success: boolean
-  messageCount: number
-  totalTokens: number
-  toolCalls: number
-  phase: AgentPhase
+  success: boolean; text: string; messageCount: number; totalTokens: number; toolCalls: number; phase: AgentPhase
+  thinkingPlan: unknown | null; toolsUsed: string[]; hallucinationWarnings: string[]
+  kbSources: unknown[]; webSources: unknown[]; images: string[]; reasoningContent: string | null
 }
 
 // ── Tool Execution Contract ──
@@ -115,6 +116,11 @@ export class AgentRuntime {
   private tools: unknown[] = []
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
+  private hookEngine: HookEngine | null = null
+  private budgetManager: { budget: { available: number }; addUsage(tokens: number): void } | null = null
+  private hallucinationDetector: { detect(text: string, knownTools: Set<string>): string | null } | null = null
+  private checkpointManager: { save(sessionId: string, state: AgentState, messages: Message[], tokenUsage: number, reason: string): Promise<unknown> } | null = null
+  private livingSkillManager: LivingSkillManager | null = null
 
   constructor(config: AgentConfig) {
     this.config = config
@@ -148,6 +154,15 @@ export class AgentRuntime {
     this.tools = tools
   }
 
+  setHookEngine(engine: HookEngine): void {
+    this.hookEngine = engine
+  }
+
+  setBudgetManager(bm: { budget: { available: number }; addUsage(tokens: number): void }): void { this.budgetManager = bm }
+  setHallucinationDetector(hd: { detect(text: string, knownTools: Set<string>): string | null }): void { this.hallucinationDetector = hd }
+  setCheckpointManager(cm: { save(sessionId: string, state: AgentState, messages: Message[], tokenUsage: number, reason: string): Promise<unknown> }): void { this.checkpointManager = cm }
+  setLivingSkillManager(lsm: LivingSkillManager): void { this.livingSkillManager = lsm }
+
   setHistory(messages: Message[]): void {
     this.historyMessages = messages
   }
@@ -169,8 +184,27 @@ export class AgentRuntime {
     this.emitter.reset()
     this.emitter.emit('run:start', { timestamp: Date.now() })
 
+    // ── Hook: SessionStart ──
+    if (this.hookEngine) {
+      const sessionResults = await this.hookEngine.fire('SessionStart', {
+        sessionId: runId,
+        projectId: this.config.projectId,
+        configId: this.config.configId,
+        userMessage: input.userMessage,
+        workMode: this.config.workMode,
+        timestamp: Date.now(),
+      })
+      if (sessionResults.some(r => !r.passed)) {
+        this.emitter.emit('hook:blocked', { hookName: 'SessionStart', feedback: this.hookEngine.buildBlockingFeedback(sessionResults), timestamp: Date.now() } as any)
+        store.endRun()
+        return { success: false, text: '', messageCount: 0, totalTokens: 0, toolCalls: 0, phase: 'ABORTED', thinkingPlan: null, toolsUsed: [], hallucinationWarnings: [], kbSources: [], webSources: [], images: [], reasoningContent: null }
+      }
+    }
+
     let totalTokens = 0
     let toolCallsCount = 0
+    let collectedText = ''
+    const toolsUsed: string[] = []
     this.messagesForApi = []
 
     try {
@@ -231,6 +265,8 @@ export class AgentRuntime {
           this.fsm.incrementIteration()
           const iteration = this.fsm.currentState.iteration
           store.setIteration(iteration)
+          // Auto-checkpoint before API call
+          this.checkpointManager?.save(runId, this.fsm.currentState, this.messagesForApi, totalTokens, 'CALLING_API')
           this.emitter.emit('thinking:progress', {
             step: iteration,
             totalSteps: this.config.maxIterations,
@@ -238,11 +274,24 @@ export class AgentRuntime {
             timestamp: Date.now(),
           })
 
+          // G6: Budget check before API call
+          if (this.budgetManager && this.budgetManager.budget.available < 4096) {
+            await this.hookEngine?.fire('PreCompact', {
+              sessionId: 'runtime', projectId: this.config.projectId,
+              configId: this.config.configId, messageCount: this.messagesForApi.length,
+              estimatedTokens: 0, contextWindow: 128000, timestamp: Date.now(),
+            })
+          }
+
+          // G1: Smart tool selection — pure chat gets 0 tools, saves ~5000 tokens/round
+          const isTaskMsg = /创建|新建|修改|编辑|删除|生成|写入|添加|追加|读取|查看|列出|搜索|笔记|草稿|知识库|kb|素材|图片|模板|风格|场景|提示词|prompt|项目|project|规则|学习/.test(input.userMessage)
+          const toolsForThisRound = isTaskMsg || iteration > 1 ? this.tools : []
+
           const response = await this.aiService.chatWithTools(
             this.messagesForApi,
             this.config.configId,
             this.config.projectId || undefined,
-            this.tools,
+            toolsForThisRound,
           )
 
           totalTokens += response.usage?.total_tokens || 0
@@ -261,9 +310,20 @@ export class AgentRuntime {
 
           // No tool calls → respond
           if (!response.toolCalls || response.toolCalls.length === 0) {
+            // G5: Hallucination detection — did AI claim action but not call tools?
+            if (this.hallucinationDetector) {
+              const hw = this.hallucinationDetector.detect(response.text || '', new Set())
+              if (hw) {
+                this.messagesForApi.push({ role: 'system', content: `[纠错] 你说完成了操作但没有调用工具。请立即调用对应工具执行。${hw}` })
+                this.fsm.setShouldContinue(true)
+                if (this.fsm.canTransition('CALLING_API')) { await this.fsm.transition('CALLING_API') }
+                continue
+              }
+            }
             if (this.fsm.canTransition('RESPONDING')) {
               await this.fsm.transition('RESPONDING')
             }
+            collectedText = response.text || ''
             this.emitter.emit('response:streaming', {
               text: response.text,
               accumulated: response.text,
@@ -302,6 +362,7 @@ export class AgentRuntime {
           const calls = this.fsm.currentState.pendingToolCalls
           for (const tc of calls) {
             if (this.config.abortSignal.aborted) break
+            if (!toolsUsed.includes(tc.name)) toolsUsed.push(tc.name)
 
             try {
               const args = JSON.parse(tc.arguments)
@@ -328,6 +389,27 @@ export class AgentRuntime {
                 timestamp: Date.now(),
               })
 
+              // ── Hook: PreToolUse ──
+              if (this.hookEngine) {
+                const preResults = await this.hookEngine.fire('PreToolUse', {
+                  sessionId: runId,
+                  projectId: this.config.projectId,
+                  configId: this.config.configId,
+                  toolName: tc.name,
+                  toolArgs: args,
+                  timestamp: Date.now(),
+                })
+                if (preResults.some(r => !r.passed)) {
+                  const feedback = this.hookEngine.buildBlockingFeedback(preResults)
+                  this.emitter.emit('hook:blocked', { hookName: 'PreToolUse', feedback, timestamp: Date.now() } as any)
+                  this.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ status: 'error', summary: `PreToolUse hook 阻断: ${feedback}` }) })
+                  continue
+                }
+                if (preResults.some(r => r.passed && r.feedback)) {
+                  this.emitter.emit('hook:passed', { hookName: 'PreToolUse', passed: true, feedback: '', timestamp: Date.now() } as any)
+                }
+              }
+
               let result: ToolResult
               if (this.toolExecutor) {
                 result = await this.toolExecutor(args, {
@@ -339,6 +421,31 @@ export class AgentRuntime {
                 })
               } else {
                 result = { status: 'error', summary: '工具执行器未配置' }
+              }
+
+              // ── Hook: PostToolUse ──
+              if (this.hookEngine) {
+                await this.hookEngine.fire('PostToolUse', {
+                  sessionId: runId,
+                  projectId: this.config.projectId,
+                  configId: this.config.configId,
+                  toolName: tc.name,
+                  toolArgs: args,
+                  toolResult: result,
+                  timestamp: Date.now(),
+                })
+              }
+
+              // G3: Notify file changes so other pages refresh
+              if (result.status === 'success' && /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project)$/.test(tc.name)) {
+                useStore.getState().setFileEditNotify({ filePath: String(args.file_path || args.project_name || ''), newContent: '__AI_EDITED__' })
+              }
+
+              // Living Skill: observe tool outcomes for learning
+              if (result.status === 'error') {
+                this.livingSkillManager?.onToolError(tc.name, result.summary)
+              } else {
+                this.livingSkillManager?.onToolSuccess(tc.name, args, result)
               }
 
               // Emit result
@@ -388,6 +495,16 @@ export class AgentRuntime {
         await this.reflectAndDecide()
       }
 
+      // ── Hook: SessionStop ──
+      if (this.hookEngine) {
+        await this.hookEngine.fire('SessionStop', {
+          sessionId: runId,
+          projectId: this.config.projectId,
+          configId: this.config.configId,
+          timestamp: Date.now(),
+        })
+      }
+
       // Done
       this.emitter.emit('run:complete', {
         iterations: this.fsm.currentState.iteration,
@@ -396,12 +513,15 @@ export class AgentRuntime {
       })
       store.endRun()
 
+      // G9: Rich result
+      const lastResponse = this.fsm.currentState.lastApiResponse
       return {
         success: this.fsm.currentPhase !== 'ABORTED',
-        messageCount: this.messagesForApi.length,
-        totalTokens,
-        toolCalls: toolCallsCount,
-        phase: this.fsm.currentPhase,
+        text: collectedText, messageCount: this.messagesForApi.length,
+        totalTokens, toolCalls: toolCallsCount, phase: this.fsm.currentPhase,
+        thinkingPlan: null, toolsUsed, hallucinationWarnings: [],
+        kbSources: [], webSources: [], images: [],
+        reasoningContent: (lastResponse as unknown as Record<string, unknown>)?.reasoning_content as string || null,
       }
 
     } catch (err) {
@@ -416,11 +536,10 @@ export class AgentRuntime {
       })
       store.endRun()
       return {
-        success: false,
-        messageCount: 0,
-        totalTokens,
-        toolCalls: 0,
-        phase: 'ERROR',
+        success: false, text: '', messageCount: 0,
+        totalTokens, toolCalls: 0, phase: 'ERROR',
+        thinkingPlan: null, toolsUsed: [], hallucinationWarnings: [],
+        kbSources: [], webSources: [], images: [], reasoningContent: null,
       }
     }
   }

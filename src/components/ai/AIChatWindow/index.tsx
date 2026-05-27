@@ -13,17 +13,19 @@ import {
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
-import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS, buildToolInvokePrompt } from '@/types/fileOps'
-import { debugApiSend, debugApiResponse, debugApiError, debugBatchCheck, debugBatchShow, debugBatchApprove, debugBatchDeny, debugBatchTimeout, debugToolCall, debugToolResult, debugSysError, debugSysWarn } from '@/services/debugLogService'
+import { debugApiError, debugBatchApprove, debugBatchDeny, debugSysError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
-import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 
-import { makeConversation, parsePopupCommand, parseInsertionSuggestion, detectHallucination, parseThinkingPlan } from "./utils";
-import { isProjectFilePath, checkBatch } from "./batchUtils";
+import { makeConversation } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { BatchApprovalPanel, FileGroup, batchBtnStyle } from "./components/BatchApprovalPanel";
+import { AgentChatBridge } from '@/agent/AgentChatBridge'
+import { AgentStateBar } from './components/AgentStateBar'
+import { AgentThinkingPanel } from './components/AgentThinkingPanel'
+import { ToolExecutionPanel } from './components/ToolExecutionCard'
 
 
 export default function AIChatWindow() {
@@ -370,32 +372,26 @@ export default function AIChatWindow() {
     }
   }
 
+  // ── Agent mode refs ──
+  const bridgeRef = useRef<AgentChatBridge | null>(null)
+
   const handleSend = async () => {
-    // Allow retry when pendingCorrection is set (from hallucination retry button)
     const isRetry = !!pendingCorrection.current
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
-    // Pre-flight: verify API connectivity before sending
+
+    // Pre-flight: verify API connectivity
     const connected = await checkApiConnection()
     if (!connected) return  // don't send if connection is known bad
 
     // Reset task-level approval for new user messages
     planApprovedRef.current = false
 
-    // Block new requests while a batch approval card is pending
-    if (pendingBatchRef.current) return
-
-    // Clear stale notifications before starting new request
     setFileEditNotify(null)
-    // Attach pending file/image if any.
-    // File saved to uploads/, AI reads it via read_file on demand.
-    // Image saved to images/, reference sent inline.
     let attachText = ''
     if (attachment) {
       if (attachment.type === 'file') {
         attachText = `[上传文件: ${attachment.name}]\n文件已保存到全局 uploads 目录。如需读取内容，请用 read_file("${attachment.name}")。`
-      } else {
-        attachText = attachment.content
-      }
+      } else { attachText = attachment.content }
     }
     const fullContent = isRetry ? '[系统指令] 请执行上述纠错指令中的操作。' : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: fullContent, timestamp: Date.now() }
@@ -404,960 +400,50 @@ export default function AIChatWindow() {
     setAttachment(null)
     setLoading(true)
 
+    // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
+    if (!bridgeRef.current) {
+      bridgeRef.current = new AgentChatBridge()
+      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, workMode: aiSettings.workMode, maxIterations: 8, historyMessages: messages.filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })) })
+    } else {
+      bridgeRef.current.updateHistory(messages.filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })))
+    }
+    let collectedText = ''
     try {
-      // KB search
-      let kbContext = ''
-      const kbSources: { fileName: string; score: number }[] = []
-      if (kbEnabled && activeProjectId && activeConfig) {
-        try {
-          const selIds = currentSelections[activePage]
-          const fileIds = (selIds && selIds.length > 0) ? selIds : undefined
-          const results = await kbService.search(
-            userMsg.content, activeProjectId, activeConfig.id, 3, fileIds,
-          ) as { content: string; fileName: string; score: number }[]
-          if (results.length > 0) {
-            kbContext = '\n\n[知识库参考]\n'
-            for (const r of results) {
-              kbContext += `【来源: ${r.fileName}】\n${r.content}\n\n`
-              kbSources.push({ fileName: r.fileName, score: r.score })
-            }
-          }
-        } catch (e) { logError('知识库搜索失败', e) }
-      }
-
-      // Web search
-      let webContext = ''
-      const webSources: { title: string; url: string }[] = []
-      if (webSearchEnabled) {
-        try {
-          const results = await kbService.webSearch(userMsg.content, 5, aiSettings.safeSearch, aiSettings.prioritySites) as { title: string; snippet: string; url: string }[]
-          if (results.length > 0) {
-            webContext = '\n\n[网络搜索结果]\n'
-            results.forEach((r, i) => {
-              webContext += `${i + 1}. 【${r.title}】\n${r.snippet}\nURL: ${r.url}\n\n`
-              webSources.push({ title: r.title, url: r.url })
-            })
-          }
-        } catch (e) { logError('网络搜索失败', e) }
-      }
-
-      // @ referenced files content
-      let refContext = ''
-      for (const ref of selectedRefs) {
-        try {
-          const result = await kbService.read(ref.id) as { content: string }
-          if (result.content) refContext += `\n\n[引用文件: ${ref.name}]\n${result.content.slice(0, 30000)}`
-        } catch (e) { logError('读取引用文件失败', e) }
-      }
-      setSelectedRefs([])
-
-      // Page context: no longer auto-injected. AI reads files on demand via tools.
-
-
-      // Style injection: only when user explicitly requests chapter generation, not just chatting.
-      // The AI can read style templates via read_file if needed. Removed automatic injection.
-
-      // System messages — FILE_OP_SYSTEM_PROMPT only on first call of conversation.
-      // Check actual message count, not just ref (more robust against remounts).
-      // setMessages is async — current msg not in state yet. 0 = no prior user msgs = first send.
-      const existingUserMsgs = messages.filter(m => m.role === 'user').length
-      const isFirstMessage = existingUserMsgs === 0
-      const promptStatus = prompts.map(p =>
-        `  [${p.enabled ? '✓' : ' '}] ${p.id}: ${p.title} (${p.type})${p.enabled ? ' ← 当前使用' : ''}`
-      ).join('\n')
-      const systemMessages: Array<{ role: string; content: string }> = []
-      if (isFirstMessage) {
-        systemMessages.push({ role: 'system', content: FILE_OP_SYSTEM_PROMPT })
-        // config.systemPrompt now sent once with FILE_OP_SYSTEM_PROMPT instead of every API call
-        const cfgSysPrompt = activeConfig?.systemPrompt
-        if (cfgSysPrompt) systemMessages.push({ role: 'system', content: cfgSysPrompt })
-        systemMessages.push(
-          { role: 'system', content: aiSettings.workMode === 'plan'
-            ? `[Plan分析模式] 只读: list_directory/read_file/search_files/search_content + 草稿笔记。分析后说明方案，需写入时提醒切换Action。`
-            : `[Action执行模式] 全部工具可用。` },
-          { role: 'system', content: `【当前提示词库状态 — 每种类型只有一个启用，生成内容时参考对应启用模板的格式要求】\n${promptStatus}\n\n提示词管理工具: list_prompts(查看全部) / toggle_prompt(prompt_id, enabled)(切换启用) / update_prompt(prompt_id, title?, content?, type?)(修改模板)。同类型只能启用一个，启用新模板会自动关闭旧的。` },
-        )
-      }
-
-      // Periodic tool reminder: re-inject compact tool rules every 5 user messages.
-      // Long conversations cause the model to "forget" it has tools (attention dilution).
-      if (existingUserMsgs > 0 && existingUserMsgs % 5 === 0) {
-        systemMessages.push({
-          role: 'system',
-          content: `[强制工具提醒] 你此刻正运行在一个具备完整工具调用能力的AI助手中。用户说的"创建/修改/删除/生成/查看/写"等操作，你必须调用对应的 create_file / edit_file / delete_file / read_file 等工具来执行。在文字中描述操作不等于操作——只有函数调用返回 success 才算完成。如果你不确定用哪个工具，告诉用户你不确定，但绝对不要说"已完成"除非你真的调用了工具并收到了 success。这条规则优先于其他所有生成策略。`,
-        })
-      }
-
-      // Comprehensive rules refresh: re-inject key rules at configurable interval.
-      // After ~100 messages, the original system prompt has fallen out of the history window.
-      // This compact summary keeps critical rules alive without the full 25K token cost.
-      // Set to 0 to disable (only the compact tool reminder every 5 messages will run).
-      // Default 31 (prime, avoids overlapping with the every-5-msg tool reminder at LCM=30)
-      const refreshInterval = aiSettings.rulesRefreshInterval ?? 31
-      if (refreshInterval > 0 && existingUserMsgs > 0 && existingUserMsgs % refreshInterval === 0) {
-        systemMessages.push({
-          role: 'system',
-          content: [
-            '[规则复述] 以下是必须始终遵守的核心规则（完整版见对话开头的系统提示词）：',
-            '',
-            '1. 执行前思考协议：需要调用工具时，必须先在回复顶部输出 [思考计划] 块——用户意图、涉及文件、第1/2/3步各用什么工具。',
-            '2. 【最高优先级】工具铁律：文字中说"已创建/已修改/已完成"等于零，只有函数调用返回 status:success 才算真的完成。用户让你创建/修改/删除/生成任何内容，你必须立刻调用对应的 create_file/edit_file/delete_file 工具。不确定用哪个工具时告诉用户，但绝对禁止口头承诺。',
-            '3. 角色格式：15个平铺字段(image可选)，禁止嵌套对象(basicInfo/appearance等)。role必须是 男主|女主|男配|女配|反派|其他。',
-            '4. 细纲格式：JSON文件，必须字段 id/title/order(数字)/status/plotOverview/characters/location/keyEvents。禁止创建.md。',
-            '5. Markdown编辑：追加用末尾原文做old_string、修改用完整段落做old_string。先read_file确认再edit_file。',
-            '6. 项目文件路径（严禁混淆）：故事剧情=outline/plot.md、世界观=outline/worldbuilding.md、角色=characters/{拼音id}.json、细纲=detailed_outline/{id}.json。大纲文件夹是outline/，细纲文件夹是detailed_outline/——两者完全不同！细纲JSON绝对不能放入outline/！',
-            '7. 写入前自检：JSON文件会被系统自动校验格式，格式错误会拒绝写入并返回具体原因。创建角色前先read_file参考已有角色。',
-            '8. edit_file替换失败应对：如果返回"未找到要替换的文本"，不要反复尝试微调old_string——直接用 edit_file(old_string="__FULL_REPLACE__", new_string="完整的新文件内容") 全量覆盖整个文件。',
-            '9. 读取文件约束：如果需要读取超过3个文件才能完成任务，必须先向用户简要说明原因并征得同意。查看章节列表用list_directory而非逐个read_file。查看细纲时只读用户指定的章节，不要全部读取。',
-          ].join('\n'),
-        })
-      }
-
-      // Auto-correction: if previous response hallucinated, inject corrective instruction
-      if (pendingCorrection.current) {
-        systemMessages.push({
-          role: 'system',
-          content: pendingCorrection.current,
-        })
-        pendingCorrection.current = null
-      }
-
-      // Keyword "调用工具": inject full tool invoke prompt
-      const hasToolKeyword = /\b调用工具\b/.test(input.trim())
-      if (hasToolKeyword || toolInvokeEnabled) {
-        systemMessages.push({
-          role: 'system',
-          content: buildToolInvokePrompt(),
-        })
-        if (hasToolKeyword) setShowToolHint(false) // keyword detected, dismiss hint
-      }
-
-      // Smart intent detection: suggest tool invoke if user asks for actions but AI hasn't used tools
-      const actionKeywords = /创建|新建|修改|编辑|删除|生成|写入|写一|改一|添加|追加/
-      const recentToolCount = [...conversationToolNames.current].length
-      if (!toolInvokeEnabled && !hasToolKeyword && actionKeywords.test(input.trim()) && recentToolCount === 0) {
-        setShowToolHint(true)
-      } else if (hasToolKeyword || toolInvokeEnabled || recentToolCount > 0) {
-        setShowToolHint(false)
-      }
-
-      // ══════════════════════════════════════════════════════════════════
-      // 对话历史精简 (History Pruning)
-      // ══════════════════════════════════════════════════════════════════
-      //
-      // 过滤规则：
-      //   1. 排除 welcome / system / tool / compressedSummary 消息
-      //   2. user/assistant 消息限制（可配置，默认 100 条）
-      //
-      // 注意：tool 消息和 tool_calls 不跨轮——它们仅在当前 handleSend 的
-      // while 循环内通过 messagesForApi 传递。跨轮的 tool 消息因缺少配对的
-      // tool_calls/tool_call_id 会导致 API 400 错误。
-      const MAX_HISTORY = aiSettings.maxHistory ?? 100
-
-      const compressedMsgs = messages.filter(m => m.compressedSummary)
-      const filteredMessages = messages.filter(m =>
-        !m.id.startsWith('welcome') && String(m.role) !== 'system' && !m.compressedSummary && m.role !== 'tool',
-      )
-      const recentMessages = filteredMessages.slice(-MAX_HISTORY)
-      const historyMessages = recentMessages.map(m => ({
-        role: m.role as string,
-        content: m.content,
-      }))
-      // Inject compressed summaries as extra system messages
-      for (const cm of compressedMsgs) {
-        systemMessages.push({ role: 'system', content: `[对话历史摘要 — ${cm.compressedCount || '?'}条消息已压缩]\n${cm.content}` })
-      }
-
-      // Build the full message array: system prompts + conversation history + current user message
-      const messagesForApi: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
-        ...systemMessages,
-        ...historyMessages,
-        { role: 'user' as const, content: (kbContext + webContext + refContext || '') + '\n\n[用户输入]\n' + fullContent },
-      ]
-
-      // ══════════════════════════════════════════════════════════════════
-      // 工具按需选择 (Smart Tool Selection)
-      // ══════════════════════════════════════════════════════════════════
-      //
-      // 设计意图：28个工具的完整 JSON Schema 约消耗 5,000 tokens/轮。
-      // 闲聊（"你好"）不需要任何工具，任务型对话也只需相关子集。
-      //
-      // 三级策略：
-      //   纯闲聊 → toolsForApi = undefined → 省 ~5,000 tokens
-      //   普通任务 → 仅核心8个文件工具 → ~1,500 tokens
-      //   特定领域 → 核心+领域工具 → ~2,000-3,000 tokens
-      //
-      // 关键词匹配用于判断领域，所有工具通过 FILE_TOOLS 注册的真实函数名筛选。
-      // Plan 模式下进一步限制为 READ_ONLY_TOOLS 子集。
-      const allTools = aiSettings.workMode === 'plan'
-        ? FILE_TOOLS.filter((t: any) => READ_ONLY_TOOLS.has(t.function.name))
-        : FILE_TOOLS
-      const isFileTask   = /(大纲|细纲|章节|角色|世界观|文件|道具|地点|势力|等级|伏笔|故事线|情绪|场景|统计|导出|配置|创建|新建|修改|编辑|删除|读取|帮|改|写|读|删|加|换|设定|生成|添加|整理|查看|看看|浏览|打开|项目|剧情|故事|列表|列出|目录|内容)/i.test(userMsg.content)
-      const isNoteTask   = /(笔记|草稿|记下来|灵感|想法|保存|备忘)/i.test(userMsg.content)
-      const isKbTask     = /(知识库|资料库|索引|语义|搜索|KB|查.*资料|素材)/i.test(userMsg.content)
-      const isImageTask  = /(图片|生成.*图|插图|配图|形象图|照片|画像)/i.test(userMsg.content)
-      const isTmplTask   = /(模板|风格工坊|场景工坊|风格分析|场景模板|场景编排|文风|风格模板)/i.test(userMsg.content)
-      const isPromptTask = /(提示词|prompt|模板.*格式)/i.test(userMsg.content)
-      const isProjTask   = /(创建.*项目|新建.*项目|删除.*项目|新建项目|创建项目)/i.test(userMsg.content)
-      const anyTask = isFileTask || isNoteTask || isKbTask || isImageTask || isTmplTask || isPromptTask || isProjTask
-
-      let toolsForApi: unknown[] | undefined
-      if (!anyTask) {
-        toolsForApi = undefined // pure chat — no tools
-      } else {
-        // Core file tools (always included for any task)
-        const core = ['list_directory','read_file','search_files','search_content','edit_file','create_file','delete_file','rename_file']
-        // Domain tools — only added when user mentions relevant keywords
-        const noteTools   = ['list_notes','read_note','write_note','append_note','delete_note']
-        const kbTools     = ['kb_list','kb_create_file','kb_append_file','kb_index_file']
-        const imageTools  = ['search_images','generate_image']
-        const promptTools = ['list_prompts','toggle_prompt','update_prompt']
-        const tmplTools   = ['create_style_template','create_scene_template']
-        const projTools   = ['create_project','delete_project']
-
-        const needed = new Set(core)
-        if (isNoteTask)   noteTools.forEach(t => needed.add(t))
-        if (isKbTask)     kbTools.forEach(t => needed.add(t))
-        if (isImageTask)  imageTools.forEach(t => needed.add(t))
-        if (isTmplTask)   tmplTools.forEach(t => needed.add(t))
-        if (isPromptTask) promptTools.forEach(t => needed.add(t))
-        if (isProjTask)   projTools.forEach(t => needed.add(t))
-
-        toolsForApi = allTools.filter((t: any) => needed.has(t.function.name))
-      }
-
-      // Token breakdown for debugging
-      const breakdown: { label: string; chars: number }[] = []
-      let sysChars = 0; for (const sm of systemMessages) sysChars += (sm.content || '').length
-      if (sysChars > 0) breakdown.push({ label: '系统提示词', chars: sysChars })
-      let histChars = 0; for (const hm of historyMessages) histChars += (hm.content || '').length
-      if (histChars > 0) breakdown.push({ label: `对话历史 (${historyMessages.length}条)`, chars: histChars })
-      if (kbContext) breakdown.push({ label: '知识库上下文', chars: kbContext.length })
-      if (webContext) breakdown.push({ label: '网络搜索上下文', chars: webContext.length })
-      if (refContext) breakdown.push({ label: '引用文件', chars: refContext.length })
-      breakdown.push({ label: '用户输入', chars: userMsg.content.length + 11 })  // +11 for \n\n[用户输入]\n prefix
-      // Tools definition (sent every API call, often the hidden token hog)
-      if (toolsForApi) {
-        const toolsJson = JSON.stringify(toolsForApi)
-        breakdown.push({ label: `工具定义 (${toolsForApi.length}个)`, chars: toolsJson.length })
-      }
-      // JSON structure overhead: role/content keys, brackets, quotes (~25 chars per message)
-      const structOverhead = (systemMessages.length + historyMessages.length + 1) * 25
-      breakdown.push({ label: `消息结构开销 (${systemMessages.length + historyMessages.length + 1}条)`, chars: structOverhead })
-      setTokenBreakdown(breakdown)
-
-      let iteration = 0; const MAX_ITER = 8; let isDone = false
-      let sessionTokens = 0; let lastPrompt = 0
-      // Accumulate called tools across entire conversation for hallucination check
-      const thisSendTools = new Set<string>()  // tools used in this specific handleSend
-      abortRef.current = false
-      while (iteration < MAX_ITER && !isDone && !abortRef.current) {
-        iteration++
-        // AI chat with tools. In Action mode, the AI can call file operations; in Plan mode, only read-only tools.
-        // Safety: backend enforces path isolation (isSafePath), file size limits, and dangerous tool confirmation.
-        debugApiSend(activeConversationId, fullContent.length, messagesForApi.length, toolsForApi?.length || 0)
-        const response = await aiService.chatWithTools(messagesForApi, activeConfigId!, activeProjectId || undefined, toolsForApi)
-        const { text, toolCalls, finishReason, images, usage, reasoning_content } = response
-        debugApiResponse(activeConversationId, finishReason || 'unknown', toolCalls?.length || 0, usage?.prompt_tokens || 0, usage?.completion_tokens || 0)
-        sessionTokens = usage?.total_tokens || sessionTokens
-        if (usage?.prompt_tokens) { lastPrompt = usage.prompt_tokens; setLastPromptTokens(usage.prompt_tokens); setPeakPromptTokens(prev => Math.max(prev, usage.prompt_tokens)) }
-
-        // Parse thinking plan and popup commands (shared by both branches)
-        const planParsed = parseThinkingPlan(text || '')
-        const textAfterPlan = planParsed.plainText || text || ''
-        const popupParsed = parsePopupCommand(textAfterPlan)
-        // Auto-open popup if AI included the command
-        if (popupParsed.popup) {
-          const id = Date.now().toString()
-          openPopup({ id: `ai_${id}`, type: popupParsed.popup.type, title: popupParsed.popup.title, documentKey: popupParsed.popup.documentKey })
-        }
-        // Trigger chapter generation via store if AI included 【生成本章】or【生成第X章】
-        if (popupParsed.genTrigger) {
-          const targetId = popupParsed.genTrigger === '__current__' ? (currentChapterId || '') : popupParsed.genTrigger
-          if (targetId) useStore.getState().setChapterGenTrigger(targetId)
-        }
-
-        if (!toolCalls || toolCalls.length === 0) {
-          const displayText = popupParsed.popup ? popupParsed.text : textAfterPlan
-          const { plainText, insertion } = parseInsertionSuggestion(displayText)
-          // Runtime hallucination check: did AI claim an action without calling the tool?
-          const finalText = plainText || displayText
-          const hw = detectHallucination(finalText, conversationToolNames.current)
-          // If hallucination detected, queue auto-correction for immediate retry
-          if (hw) {
-            pendingCorrection.current = `[纠错指令] 你在上一条回复中声称执行了操作但系统检测到你实际没有调用任何工具。这是不允许的——只有 tool_call 返回 success 才算完成。请现在立即调用对应工具完成你刚才声称的操作。${hw}`
-            // Auto-retry once: inject correction and re-send immediately
-            if (!autoRetryRef.current) {
-              autoRetryRef.current = true
-              setTimeout(() => {
-                if (pendingCorrection.current) handleSend()
-              }, 300)
-            }
-          } else {
-            autoRetryRef.current = false
-          }
-
-          const assistantMsg: Message = {
-            id: Date.now().toString() + '_r', role: 'assistant', content: finalText, timestamp: Date.now(), insertion,
-            hallucinationWarning: hw || undefined,
-            toolsUsed: thisSendTools.size > 0 ? [...thisSendTools] : undefined,
-            thinkingPlan: planParsed.plan,
-            reasoningContent: reasoning_content || undefined,
-            usage: usage ? { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, total_tokens: usage.total_tokens, cost: usage.cost } : undefined,
-            wordCount: plainText ? plainText.replace(/\s/g, '').length : 0,
-            breakdown,
-            sources: { kb: kbSources, web: webSources }, images,
-          }
-          setMessages(prev => [...prev, assistantMsg])
-          isDone = true
-        } else {
-          // Process tool calls
-          const displayText2 = popupParsed.popup ? popupParsed.text : textAfterPlan
-          // Track all tool names called (for runtime hallucination detection + UI summary)
-          toolCalls.forEach((tc: any) => { conversationToolNames.current.add(tc.function.name); thisSendTools.add(tc.function.name) })
-
-          const assistantMsgForApi: Record<string, unknown> = { role: 'assistant', content: displayText2, tool_calls: toolCalls }
-          if (reasoning_content) assistantMsgForApi.reasoning_content = reasoning_content
-          messagesForApi.push(assistantMsgForApi as any)
-          // Persist assistant message with tool_calls. Strip note content to save tokens.
-          const strippedCalls = toolCalls.map((tc: any) => {
-            if (tc.function.name === 'write_note' || tc.function.name === 'append_note') {
-              const args = JSON.parse(tc.function.arguments)
-              const stripped = { ...args, content: `(${String(args.content || '').length}字符，已自动省略。用read_note读取)` }
-              return { ...tc, function: { ...tc.function, arguments: JSON.stringify(stripped) } }
-            }
-            return tc
-          })
+      const result = await bridgeRef.current.sendMessage(fullContent, {
+        kbEnabled, webSearchEnabled, selectedRefs,
+        onResponse: (chunk) => { collectedText = chunk.accumulated },
+        onComplete: (runResult) => {
           setMessages(prev => [...prev, {
-            id: `${Date.now()}_tc`, role: 'assistant' as const, content: displayText2, timestamp: Date.now(),
-            tool_calls: strippedCalls,
-            thinkingPlan: planParsed.plan,
-            reasoningContent: reasoning_content || undefined,
+            id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || '(Agent 已完成操作)', timestamp: Date.now(),
+            toolsUsed: runResult.toolsUsed, usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
           }])
-          const resultMsgs: Message[] = []
-          const readCounts = { read_file: 0, list_directory: 0 }
-          const MAX_READS = 10, MAX_LISTS = 3
-
-          // ── Batch approval gate: check all tool calls before executing ──
-          const allRawArgs = toolCalls.map(tc => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })
-          const batchCheck = checkBatch(toolCalls, allRawArgs)
-          debugBatchCheck(activeConversationId, batchCheck.needsApproval, batchCheck.summary.reads.length, batchCheck.summary.writes.length, batchCheck.summary.creates.length, batchCheck.summary.deletes.length, batchCheck.summary.reads.some(r => isProjectFilePath(r)))
-
-          if (batchCheck.needsApproval && !planApprovedRef.current) {
-            // Pause and wait for user approval via Promise
-            const batchApproved = await new Promise<boolean>((resolve) => {
-              const timeoutId = setTimeout(() => {
-                // Auto-deny after 30s timeout
-                debugBatchTimeout(activeConversationId)
-                pendingBatchRef.current = null
-                setBatchCard(null)
-                setMessages(prev => prev)
-                const timeoutContent = JSON.stringify({ status: 'denied', summary: '操作超时（3分钟未响应），自动拒绝' })
-                for (const tc of toolCalls) {
-                  messagesForApi.push({ role: 'tool' as const, tool_call_id: tc.id, content: timeoutContent })
-                  resultMsgs.push({ id: `${tc.id}_r`, role: 'tool' as const, content: timeoutContent, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
-                }
-                resolve(false)
-              }, 180_000)
-              pendingBatchRef.current = {
-                toolCalls: toolCalls.map((tc, i) => ({ tc, routeArgs: allRawArgs[i] })),
-                summary: batchCheck.summary,
-                thinkingPlan: typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''),
-                onResolve: (approved: boolean, feedback?: string) => {
-                  clearTimeout(timeoutId)
-                  pendingBatchRef.current = null
-                  if (approved) {
-                    resolve(true)
-                  } else {
-                    // Create denied tool results for all tool calls
-                    const deniedContent = JSON.stringify({
-                      status: 'denied',
-                      summary: '用户拒绝了此操作计划',
-                      detail: feedback ? `用户反馈: ${feedback}` : ''
-                    })
-                    for (const tc of toolCalls) {
-                      messagesForApi.push({ role: 'tool' as const, tool_call_id: tc.id, content: deniedContent })
-                      resultMsgs.push({
-                        id: `${tc.id}_r`, role: 'tool' as const, content: deniedContent,
-                        tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now(),
-                      })
-                    }
-                    // Remove batch card from messages
-                    setMessages(prev => prev)
-                    resolve(false)
-                  }
-                },
-              }
-              setBatchCard({
-                id: `batch_${Date.now()}`,
-                summary: batchCheck.summary,
-                previews: batchCheck.previews,
-                thinkingPlan: typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''),
-              })
-              debugBatchShow(activeConversationId, typeof planParsed.plan === 'string' ? planParsed.plan : (planParsed.plan?.intent || ''))
-              // Batch card is rendered in the input area, not in message stream
-            })
-
-            if (!batchApproved) {
-              // User denied — push all denied results to message list and return
-              setMessages(prev => [...prev, ...resultMsgs])
-              setLoading(false)
-              return
+        },
+        onApprovalRequired: async (tools) => {
+          return new Promise<boolean>((resolve) => {
+            const summary = { reads: [] as string[], writes: [] as string[], creates: [] as string[], deletes: [] as string[], lists: [] as string[], settings: [] as string[], templates: [] as string[], images: [] as string[] }
+            for (const t of tools) {
+              if (/read_file|list_directory/.test(t.name)) summary.reads.push(String(t.args.file_path || t.args.dir_path || ''))
+              else if (/edit_file/.test(t.name)) summary.writes.push(String(t.args.file_path || ''))
+              else if (/create_file/.test(t.name)) summary.creates.push(String(t.args.file_path || ''))
+              else if (/delete_file/.test(t.name)) summary.deletes.push(String(t.args.file_path || ''))
+              else summary.writes.push(t.name)
             }
-            // User approved — remove batch card and continue execution
-            setMessages(prev => prev)
-          }
-
-          for (const tc of toolCalls) {
-            try {
-              const args = JSON.parse(tc.function.arguments)
-              debugToolCall(activeConversationId, tc.function.name, args)
-              let r: { status: string; summary: string; detail?: string; confirmArgs?: Record<string, unknown> } | undefined
-
-              // ══════════════════════════════════════════════════════════════
-              // 工具分发架构 (Tool Dispatch Architecture)
-              // ══════════════════════════════════════════════════════════════
-              //
-              // AI 返回的 tool_calls 按以下 3 条路由分发执行:
-              //
-              // 路由A: 知识库专用工具 (前端直接调用 kbService)
-              //   kb_list / kb_create_file / kb_index_file / kb_append_file
-              //   原因: KB 文件在 knowledge_base/ 目录，不在项目目录内，
-              //         无法通过 executeFileTools(projectPath) 访问
-              //
-              // 路由B: 前端直接调用的工具 (模板创建 / 图片生成)
-              //   create_style_template → styleTemplateService → 风格工坊+模板库
-              //   create_scene_template  → templateService      → 场景工坊
-              //   generate_image        → aiService            → DALL-E API
-              //   原因: 需要构建完整对象或调用特定 API，逻辑在前端更合适
-              //
-              // 路由C: 项目文件工具 (IPC 后端 executeFileTools)
-              //   其余22个工具 → aiService.executeFileTools() → electron/ipc/
-              //   原因: 需要访问项目目录+安全验证+备份管理，必须在主进程执行
-              // ══════════════════════════════════════════════════════════════
-
-              // ── 路由A: 知识库工具 ──
-              // 知识库文件存储在 knowledge_base/files/，与项目目录隔离
-              // 这些工具直接调用 kbService，成功后会触 fileEditNotify 让 KB 页刷新
-
-              // kb_list: 列出知识库所有文件 → 连接 KnowledgeBasePage / KbPopup
-              if (tc.function.name === 'kb_list') {
-                try {
-                  const meta = await kbService.list() as { files: { id: string; originalName: string; type: string }[] }
-                  const fileList = meta.files.map(f => `${f.originalName} (id: ${f.id}, 类型: ${f.type})`).join('\n')
-                  r = { status: 'success', summary: `${meta.files.length} 个文件`, detail: fileList || '(知识库为空)' }
-                } catch (e: any) { r = { status: 'error', summary: `列出失败: ${e.message}` } }
-
-              // kb_create_file: 创建知识库文件 → 连接 KnowledgeBasePage
-              } else if (tc.function.name === 'kb_create_file') {
-                try {
-                  const result = await kbService.create(args.name || '未命名.md', args.content || '', activeProjectId || undefined)
-                  r = { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}\n可在知识库页面查看和索引。` }
-                  // 通知 KnowledgeBasePage + KbPopup 刷新文件列表
-                  setFileEditNotify({ filePath: 'knowledge_base/metadata.json', newContent: '__AI_EDITED__' })
-                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
-
-              // kb_index_file: 对KB文件建立embedding语义索引 → 连接 KnowledgeBasePage
-              } else if (tc.function.name === 'kb_index_file') {
-                try {
-                  const fileId = String(args.file_id || '')
-                  if (!fileId) throw new Error('缺少 file_id 参数')
-                  const result = await kbService.index(fileId, activeConfigId!)
-                  r = { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段`, detail: `文件已被索引，支持语义搜索。` }
-                } catch (e: any) { r = { status: 'error', summary: `索引失败: ${e.message}` } }
-
-              // kb_append_file: 追加内容到KB文件 → 连接 KnowledgeBasePage
-              } else if (tc.function.name === 'kb_append_file') {
-                try {
-                  await kbService.append(args.file_id, args.content || '')
-                  r = { status: 'success', summary: '已追加到知识库文件', detail: '内容已追加。可在知识库页面查看。' }
-                  // 通知 KnowledgeBasePage + KbPopup 刷新
-                  setFileEditNotify({ filePath: 'knowledge_base/metadata.json', newContent: '__AI_EDITED__' })
-                } catch (e: any) { r = { status: 'error', summary: `追加失败: ${e.message}` } }
-
-              // ── 路由B: 模板创建工具 ──
-              // 这些工具构建完整模板对象后调用 service 保存
-
-              // create_style_template: 创建风格模板 → 连接 StyleWorkshopPage（风格模板Tab）
-              } else if (tc.function.name === 'create_style_template') {
-                try {
-                  // Fix AI double-stringifying dimensions/tone — parse if string
-                  let dims = args.dimensions || {}
-                  if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { /* keep as-is */ } }
-                  let tone = args.tone || {}
-                  if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { /* keep as-is */ } }
-                  // Fix writingRules items that are accidentally arrays instead of strings
-                  const rules = (args.writingRules || []).map((r: any) => Array.isArray(r) ? r[0] || '' : String(r))
-                  const tmpl: any = {
-                    name: args.name || '未命名模板', type: args.type || '普通小说',
-                    worldType: args.worldType || '', description: args.description || '',
-                    dimensions: dims, vocabularyList: args.vocabularyList || [],
-                    writingRules: rules, tone,
-                    source: 'ai-generated', createdAt: '', updatedAt: '', id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,
-                  }
-                  const saved = await styleTemplateService.save(tmpl) as any
-                  r = { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}\n可在风格工坊→模板库查看和编辑。` }
-                  // 通知风格工坊+模板库刷新
-                  setFileEditNotify({ filePath: 'style_templates/updated', newContent: '__AI_EDITED__' })
-                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
-
-              // ══════════════════════════════════════════════════════════════
-              // create_scene_template: 创建场景模板 (Route B — 前端直调)
-              // ══════════════════════════════════════════════════════════════
-              //
-              // AI 通过工具参数传入各字段值。Handler 负责：
-              //   1. 解析 AI 传入的参数（字符串→数组、角色行解析等）
-              //   2. 区分"AI 已提供"和"AI 未提供"的字段
-              //   3. 未提供字段自动标记为 autoFields（生成时 AI 自主决定）
-              //   4. 构建标准 SceneTemplate JSON 并写入 scene_templates/
-              //
-              // 注意：isEmpty() 函数将空数组 []、空对象 {}、空字符串 "" 均视为未提供。
-              // 这避免了 AI 传 `bodyFluidFocus: []` 时被错误当作"已提供"的 bug。
-              } else if (tc.function.name === 'create_scene_template') {
-                try {
-                  const isErotic = String(args.type || '').includes('情色')
-
-                  // Parse characters from "角色名-情绪" lines
-                  const charLines = String(args.characters || '').split('\n').filter(Boolean)
-                  const charObjs = charLines.map((line: string) => {
-                    const parts = line.split(/[-—–·]/)
-                    return { characterId: '', characterName: parts[0]?.trim() || line.trim(), emotion: parts[1]?.trim() || '' }
-                  })
-
-                  // Track which fields AI explicitly provided with actual content.
-                  // Empty strings and empty arrays count as NOT provided → auto.
-                  const aiProvided = new Set<string>()
-                  const isEmpty = (v: any) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)
-                  const argKeys = Object.keys(args).filter(k => k !== 'name' && k !== 'type' && k !== 'autoFields')
-                  for (const k of argKeys) {
-                    if (!isEmpty(args[k])) aiProvided.add(k)
-                  }
-                  // Also add explicit autoFields entries
-                  if (Array.isArray(args.autoFields)) args.autoFields.forEach((f: string) => aiProvided.add(f))
-
-                  const allFieldKeys = [
-                    'sceneType','scenePurpose','conflictType','characters','location','time','weather','atmosphere',
-                    'senses','dialogueRatio','subtextLevel','sentenceStyle','paragraphDensity',
-                    'wordTarget','narrativePOV','narrativeStyle','timeCompression','introspection',
-                    'emotionStart','emotionEnd','dominantEmotion','pacing','foreshadowUse','sceneTurningPoint',
-                    'props','appearance','bodyLanguage','propList','worldRules','costumeList','sensoryAnchors',
-                    // Erotic-specific fields
-                    'intensity','selectedKinks','opening','mainPose','mainRhythm','poseChanges',
-                    'climax','aftermath','soundDensity','moanStyle','degradeLangs','bannedWords',
-                    'consentDynamic','aftercareDetail',
-                    // Extra
-                    'detail','extraNote','plotOverview','kinkNote','publicity',
-                    'bodyFluidFocus','bodyPartFocus','tactileFocus','emotionCurveInput','triggerWords',
-                  ]
-                  // Auto-set all fields AI didn't provide
-                  const autoFields: Record<string, boolean> = {}
-                  for (const fk of allFieldKeys) {
-                    if (!aiProvided.has(fk)) autoFields[fk] = true
-                  }
-
-                  const config: any = {
-                    sceneType: args.sceneType || '日常',
-                    scenePurpose: Array.isArray(args.scenePurpose) ? args.scenePurpose : ['推进剧情'],
-                    conflictType: args.conflictType || '无冲突',
-                    povCharacterId: '', povCharacterName: '',
-                    characters: charObjs,
-                    location: args.location || '',
-                    time: args.time || '不限',
-                    weather: args.weather || '不限',
-                    atmosphere: args.atmosphere || '不限',
-                    senses: Array.isArray(args.senses) ? args.senses : ['视觉'],
-                    dialogueRatio: args.dialogueRatio || '适量(30%)',
-                    subtextLevel: args.subtextLevel || '一般',
-                    sentenceStyle: args.sentenceStyle || '混合',
-                    paragraphDensity: args.paragraphDensity || '适中',
-                    wordTarget: args.wordTarget || 3000,
-                    narrativePOV: args.narrativePOV || '第三人称',
-                    narrativeStyle: args.narrativeStyle || '沉浸式长镜',
-                    timeCompression: args.timeCompression || '实时',
-                    introspection: args.introspection || '中',
-                    emotionStart: args.emotionStart || '',
-                    emotionEnd: args.emotionEnd || '',
-                    dominantEmotion: args.dominantEmotion || '',
-                    pacing: args.pacing || '渐进',
-                    props: args.props || '', appearance: args.appearance || '', bodyLanguage: args.bodyLanguage || '',
-                    foreshadowUse: args.foreshadowUse || '无',
-                    sceneTurningPoint: args.sceneTurningPoint || '',
-                    intensity: args.eroticIntensity || args.intensity || 3,  // accept both param names
-                    selectedKinks: Array.isArray(args.selectedKinks) ? args.selectedKinks : [],
-                    opening: Array.isArray(args.opening) ? args.opening : [],
-                    mainPose: args.mainPose || '无偏好',
-                    mainRhythm: '无偏好', poseChanges: '2-3次转换',
-                    climax: Array.isArray(args.climax) ? args.climax : [],
-                    aftermath: Array.isArray(args.aftermath) ? args.aftermath : [],
-                    soundDensity: args.soundDensity || '中等', moanStyle: args.moanStyle || '含蓄',
-                    degradeLangs: Array.isArray(args.degradeLangs) ? args.degradeLangs : [], bannedWords: args.bannedWords || '',
-                    consentDynamic: args.consentDynamic || '默认', aftercareDetail: args.aftercareDetail || '',
-                    worldRules: args.worldRules || '', propList: args.propList || '', costumeList: args.costumeList || '',
-                    // Body focus & sensory (commonly missed)
-                    bodyFluidFocus: Array.isArray(args.bodyFluidFocus) ? args.bodyFluidFocus : [],
-                    bodyPartFocus: Array.isArray(args.bodyPartFocus) ? args.bodyPartFocus : [],
-                    tactileFocus: Array.isArray(args.tactileFocus) ? args.tactileFocus : [],
-                    sensoryAnchors: args.sensoryAnchors || '',
-                    emotionCurveInput: args.emotionCurveInput || '', triggerWords: args.triggerWords || '',
-                    plotOverview: args.plotOverview || '',
-                    detail: args.detail || '',
-                    extraNote: args.extraNote || '',
-                    autoFields,
-                    useStyleProfile: true,
-                    useChapterOutline: true,
-                  }
-
-                  const tmpl: any = {
-                    id: `sc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,
-                    name: args.name || '场景模板',
-                    type: isErotic ? '情色小说' : (args.type || '普通小说'),
-                    config,
-                    createdAt: new Date().toISOString(),
-                  }
-                  await templateService.save(tmpl)
-                  const autoCount = Object.keys(autoFields).length
-                  r = { status: 'success', summary: `已创建场景模板: ${tmpl.name}${autoCount > 0 ? ` (${autoCount}项AI自动)` : ''}`, detail: `模板ID: ${tmpl.id}\n可在场景工坊查看和编辑。` }
-                  setFileEditNotify({ filePath: 'scene_templates/updated', newContent: '__AI_EDITED__' })
-                } catch (e: any) { r = { status: 'error', summary: `创建失败: ${e.message}` } }
-
-              // ── generate_image: AI 图片生成 ──
-              } else if (tc.function.name === 'generate_image') {
-                try {
-                  const prompt = String(args.prompt || '').slice(0, 1000)
-                  if (!prompt) throw new Error('图片描述不能为空')
-                  const size = String(args.size || '1024x1024')
-                  const style = String(args.style || 'vivid')
-                  const result = await aiService.generateImage(prompt, activeConfigId!, activeProjectId || undefined, size, style)
-                  r = { status: 'success', summary: '已生成图片', detail: `图片路径: ${result.path}\n提示词: ${prompt}\n花费: ${activeConfig?.currency === 'CNY' ? '¥' : '$'}${result.cost.toFixed(2)}` }
-                  // Load image binary and convert to data URL for display
-                  let imgSrc = ''
-                  if (activeProjectId) {
-                    try {
-                      const proj = useStore.getState().projects.find(p => p.id === activeProjectId)
-                      if (proj?.path) {
-                        const imgPath = `${proj.path}/${result.path}`.replace(/\\/g, '/')
-                        const b64 = await fileService.readBinary(imgPath)
-                        const ext = result.path.split('.').pop()?.toLowerCase() || 'png'
-                        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png'
-                        if (b64) imgSrc = `data:${mime};base64,${b64}`
-                      }
-                    } catch { /* fallback to path */ }
-                  }
-                  if (!imgSrc) imgSrc = result.path
-                  // Add image to current message for display
-                  setMessages(prev => {
-                    const last = prev[prev.length - 1]
-                    if (last && last.role === 'assistant') {
-                      return [...prev.slice(0, -1), { ...last, images: [...(last.images || []), imgSrc] }]
-                    }
-                    return prev
-                  })
-                } catch (e: any) { r = { status: 'error', summary: `图片生成失败: ${e.message}` } }
-
-              // ── list_prompts: 列出提示词库 ──
-              } else if (tc.function.name === 'list_prompts') {
-                const lines = prompts.map(p => `[${p.enabled ? '✓启用' : '  关闭'}] ${p.id} | ${p.title} | 类型:${p.type}`)
-                const detail = lines.join('\n')
-                r = { status: 'success', summary: `${prompts.length} 个提示词模板`, detail }
-
-              // ── toggle_prompt: 切换提示词启用状态 ──
-              } else if (tc.function.name === 'toggle_prompt') {
-                const pid = String(args.prompt_id || '')
-                const enable = args.enabled !== false
-                const target = prompts.find(p => p.id === pid)
-                if (!target) { r = { status: 'error', summary: `未找到提示词: ${pid}` } }
-                else if (enable) {
-                  // Disable other enabled prompts of same type
-                  const sameType = prompts.filter(p => p.type === target.type && p.id !== pid && p.enabled)
-                  for (const p of sameType) updatePromptStore(p.id, { enabled: false })
-                  updatePromptStore(pid, { enabled: true })
-                  const disabled = sameType.map(p => p.title).join('、')
-                  r = { status: 'success', summary: `已启用「${target.title}」${disabled ? `（自动关闭: ${disabled})` : ''}`, detail: `${target.type}类型现在使用「${target.title}」模板。` }
-                } else {
-                  updatePromptStore(pid, { enabled: false })
-                  r = { status: 'success', summary: `已关闭「${target.title}」`, detail: `${target.type}类型现在没有启用的模板，将使用默认格式。` }
-                }
-
-              // ── update_prompt: 修改提示词 ──
-              } else if (tc.function.name === 'update_prompt') {
-                const pid = String(args.prompt_id || '')
-                const updates: Record<string, any> = {}
-                if (args.title) updates.title = String(args.title)
-                if (args.content) updates.content = String(args.content)
-                if (args.type) updates.type = String(args.type)
-                if (Object.keys(updates).length === 0) { r = { status: 'error', summary: '没有提供要修改的字段' } }
-                else {
-                  updatePromptStore(pid, updates)
-                  const fields = Object.keys(updates).map(k => k === 'title' ? '标题' : k === 'content' ? '内容' : k === 'type' ? '类型' : k).join('、')
-                  r = { status: 'success', summary: `已更新提示词 ${fields}`, detail: `模板ID: ${pid}` }
-                }
-
-              // ── 路由 D: 草稿笔记工具 (全局存储) ──
-              } else if (tc.function.name === 'list_notes') {
-                try {
-                  const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
-                  const files = await fileService.listDir(dir)
-                  const mdFiles = files.filter((f: string) => f.endsWith('.md'))
-                  r = { status: 'success', summary: `${mdFiles.length} 个草稿`, detail: mdFiles.join('\n') || '(无草稿)' }
-                } catch (e: any) { r = { status: 'error', summary: `列出失败: ${e.message}` } }
-
-              } else if (tc.function.name === 'read_note') {
-                try {
-                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
-                  else {
-                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
-                    const content = await fileService.read(`${dir}/${noteName}`)
-                    r = { status: 'success', summary: `已读取: ${noteName}`, detail: content || '(草稿为空)' }
-                  }
-                } catch (e: any) { r = { status: 'error', summary: `读取失败: ${e.message}` } }
-
-              } else if (tc.function.name === 'write_note' || tc.function.name === 'append_note') {
-                try {
-                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
-                  else {
-                    const newContent = String(args.content || '')
-                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
-                    const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
-                    if (tc.function.name === 'append_note') {
-                      let existing = ''
-                      try { existing = await fileService.read(filePath) } catch { /* */ }
-                      const combined = existing ? existing + '\n\n' + newContent : newContent
-                      await fileService.write(filePath, combined)
-                      r = { status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
-                    } else {
-                      await fileService.write(filePath, newContent)
-                      r = { status: 'success', summary: `已写入草稿: ${noteName} (${newContent.length} 字符)` }
-                    }
-                    setFileEditNotify({ filePath, newContent: '__AI_EDITED__' })
-                  }
-                } catch (e: any) { r = { status: 'error', summary: `操作失败: ${e.message}` } }
-
-              } else if (tc.function.name === 'delete_note') {
-                try {
-                  const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-                  if (!noteName) { r = { status: 'error', summary: '草稿名称无效' } }
-                  else {
-                    const dir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
-                    const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
-                    await fileService.deleteFile(filePath)
-                    r = { status: 'success', summary: `已删除草稿: ${noteName}` }
-                    setFileEditNotify({ filePath, newContent: '__AI_EDITED__' })
-                  }
-                } catch (e: any) { r = { status: 'error', summary: `删除失败: ${e.message}` } }
-
-              // ── 路由C: 项目文件工具 (IPC 后端) ──
-              // 所有对项目目录内文件的 CRUD 操作，通过 executeFileTools 发送到主进程
-              } else {
-                // Prepend active project ID to paths so AI-relative paths
-                // (like "characters/test.json") resolve to the correct project folder.
-                const cleanPath = (p: string) => (p || '').replace(/\\/g, '/').replace(/^\/+/, '')
-                const projPrefix = activeProjectId ? activeProjectId + '/' : ''
-                const routeArgs = { ...args }
-
-                // Project isolation: reject file ops when no active project
-                if (!activeProjectId) {
-                  r = { status: 'error', summary: '请先选择一个项目，才能操作文件。' }
-                }
-
-                if (activeProjectId) {
-                  // Default dir_path to project root (prevents listing all projects)
-                  if (typeof routeArgs.dir_path !== 'string' || !routeArgs.dir_path) {
-                    routeArgs.dir_path = projPrefix
-                  }
-                  if (typeof routeArgs.file_path === 'string') {
-                    const cleaned = cleanPath(routeArgs.file_path)
-                    if (!cleaned.startsWith(projPrefix)) routeArgs.file_path = projPrefix + cleaned
-                    else routeArgs.file_path = cleaned
-                  }
-                  if (typeof routeArgs.dir_path === 'string') {
-                    const cleaned = cleanPath(routeArgs.dir_path)
-                    if (!cleaned.startsWith(projPrefix)) routeArgs.dir_path = projPrefix + cleaned
-                    else routeArgs.dir_path = cleaned
-                  }
-                  if (typeof routeArgs.new_path === 'string') {
-                    const cleaned = cleanPath(routeArgs.new_path)
-                    if (!cleaned.startsWith(projPrefix)) routeArgs.new_path = projPrefix + cleaned
-                    else routeArgs.new_path = cleaned
-                  }
-                }
-
-                // All tools execute directly (batch approval gate already passed)
-                if (!r) {
-                if (tc.function.name === 'edit_file') {
-                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs }])
-                r = results[0]
-                // Add diff summary for outline/worldbuilding edits
-                if (r?.status === 'success') {
-                  const ep = String(args.file_path || '').replace(/\\/g, '/')
-                  if (ep === 'outline/plot.md' || ep === 'outline/worldbuilding.md' || ep.endsWith('/outline/plot.md') || ep.endsWith('/outline/worldbuilding.md')) {
-                    const oldS = (args.old_string as string || '').slice(0, 80)
-                    const newS = (args.new_string as string || '').slice(0, 80)
-                    const isAppend = newS.includes(oldS) && newS.length > oldS.length
-                    const action = isAppend ? '追加' : '修改'
-                    const preview = isAppend
-                      ? newS.slice(oldS.length).slice(0, 60)
-                      : `${oldS.slice(0, 30)} → ${newS.slice(0, 30)}`
-                    r.detail = (r.detail || '') + `\n${action}预览: ${preview}${preview.length >= 60 ? '...' : ''}`
-                  }
-                }
-              } else if (DANGEROUS_TOOLS.has(tc.function.name)) {
-                // Batch approval gate already passed — send confirmed flag so backend allows execution
-                const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs, confirmed: true }])
-                r = results[0]
-              } else {
-                // Batch read limits for read-only tools
-                if (tc.function.name === 'read_file') {
-                  readCounts.read_file++
-                  if (readCounts.read_file > MAX_READS) {
-                    debugSysWarn(activeConversationId, 'read_limit', `reads=${readCounts.read_file} limit=${MAX_READS}`)
-                    r = { status: 'error', summary: `本轮已读取 ${MAX_READS} 个文件（上限），请分析已读内容后再继续。` }
-                  }
-                } else if (tc.function.name === 'list_directory') {
-                  readCounts.list_directory++
-                  if (readCounts.list_directory > MAX_LISTS) {
-                    debugSysWarn(activeConversationId, 'list_limit', `lists=${readCounts.list_directory} limit=${MAX_LISTS}`)
-                    r = { status: 'error', summary: `本轮已列出 ${MAX_LISTS} 个目录（上限），请按需查询。` }
-                  }
-                }
-                if (!r) {
-                  const results = await aiService.executeFileTools([{ callId: tc.id, toolName: tc.function.name, args: routeArgs }])
-                  r = results[0]
-                }
-              }
-              } // if (!r)
-              } // end Route C
-              debugToolResult(activeConversationId, tc.function.name, r?.status || 'error', r?.summary || '')
-              const content = JSON.stringify({ status: r?.status || 'error', summary: r?.summary || '', detail: r?.detail || '' })
-              messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
-              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
-              // ══════════════════════════════════════════════════════════════
-              // 界面刷新通知机制 (fileEditNotify)
-              // ══════════════════════════════════════════════════════════════
-              //
-              // 每次 AI 工具成功执行后，设置 fileEditNotify 通知相关页面刷新。
-              // 通知路径决定哪些页面会响应:
-              //   {projectPath}/outline/*.json  → OutlinePage, OutlinePopup
-              //   {projectPath}/detailed_outline/* → DetailedOutlinePage
-              //   {projectPath}/chapters/*.txt  → ChapterWritingPage
-              //   {projectPath}/summaries/*.md  → ChapterWritingPage (summary refresh)
-              //   {projectPath}/characters/*.json → CharactersPanel
-              //   {projectPath}/notes/*.md       → ScratchpadPage, DraftPopup
-              //   {projectPath}                   → HomePage (项目级变更)
-              //   knowledge_base/*               → KnowledgeBasePage, KbPopup
-              //   style_templates/*              → StyleWorkshopPage（风格模板Tab）
-              //   scene_templates/*              → SceneWorkshopPage
-              //
-              // __AI_EDITED__ 哨兵值: 通知页面从磁盘重新加载，而非使用内存缓存。
-              // 通知持续存活，直到下次 handleSend 时统一清除（用户切Tab/页面时可看到新内容）。
-              //
-              // 消费者注意（各页面 fileEditNotify handler）：
-              //   1. 路径比较前务必 .toLowerCase() — Windows 路径大小写不敏感但字符串比较敏感
-              //   2. setFileEditNotify(null) 只在匹配成功时调用 — 不匹配就不要清除
-              //   3. 遵循 handled 标志模式 — 多个 if/else 分支中只有命中的才 setFileEditNotify(null)
-              const fileModifyingTools = ['edit_file', 'create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']
-              if (r?.status === 'success' && activeProjectId) {
-                const pp = useStore.getState().projects.find(p => p.id === activeProjectId)?.path
-                if (pp) {
-                  let targetPath: string
-                  if (tc.function.name === 'delete_project') {
-                    targetPath = pp
-                  } else if (fileModifyingTools.includes(tc.function.name)) {
-                    let relPath = String(args.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '')
-                    // Strip project prefix if AI accidentally included it (e.g. "1/outline/plot.md")
-                    if (activeProjectId && relPath.startsWith(activeProjectId + '/')) {
-                      relPath = relPath.slice(activeProjectId.length + 1)
-                    }
-                    // For notes/, use global notes path instead of project path
-                    if (relPath.startsWith('notes/')) {
-                      const globalDir = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '/notes')
-                      targetPath = `${globalDir}/${relPath.replace(/^notes\//, '')}`.replace(/\\/g, '/')
-                    } else {
-                      targetPath = `${pp}/${relPath}`.replace(/\\/g, '/')
-                    }
-                  } else if (tc.function.name === 'search_images') {
-                    targetPath = `${pp}/images/`  // 图片保存目录
-                  } else {
-                    targetPath = ''
-                  }
-                  if (targetPath) {
-                    setFileEditNotify({ filePath: targetPath, newContent: '__AI_EDITED__' })
-                    // Auto-promote project scene/style templates to global dir
-                    if (tc.function.name === 'create_file' || tc.function.name === 'edit_file') {
-                      const tgt = targetPath.replace(/\\/g, '/')
-                      if (tgt.includes('/scene_templates/') && tgt.endsWith('.json')) {
-                        try {
-                          const raw = await fileService.read(targetPath)
-                          const obj = JSON.parse(raw) as any
-                          // Normalize to SceneTemplate format: ensure id/name/type/config exist
-                          const tpl: any = {
-                            id: obj.id || `proj_${Date.now().toString(36)}`,
-                            name: obj.name || obj.templateName || '未命名模板',
-                            type: obj.type || '普通小说',
-                            createdAt: obj.createdAt || obj.created_at || new Date().toISOString(),
-                            // Wrap all AI output as config so editor can read it
-                            config: obj.config || obj,
-                          }
-                          await templateService.save(tpl)
-                        } catch { /* best-effort */ }
-                      }
-                      if (tgt.includes('/style_templates/') && tgt.endsWith('.json')) {
-                        try {
-                          const raw = await fileService.read(targetPath)
-                          const tpl = JSON.parse(raw) as any
-                          if (!tpl.id) tpl.id = `proj_${Date.now().toString(36)}`
-                          await styleTemplateService.save(tpl)
-                        } catch { /* best-effort */ }
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (e: any) {
-              debugSysError(activeConversationId, tc.function.name, e?.message || '工具执行异常')
-              const content = JSON.stringify({ status: 'error', summary: '工具执行异常' })
-              messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content })
-              resultMsgs.push({ id: `${tc.id}_r`, role: 'tool', content, tool_call_id: tc.id, toolName: tc.function.name, timestamp: Date.now() })
-            }
-          }
-          // Merge tool results into single summary message
-          if (resultMsgs.length > 0) {
-            const successCount = resultMsgs.filter(m => {
-              try { return JSON.parse(m.content).status === 'success' } catch { return false }
-            }).length
-            const failCount = resultMsgs.length - successCount
-            const summaryContent = JSON.stringify({
-              status: failCount > 0 ? 'partial' : 'success',
-              summary: `执行完毕 — ${successCount}/${resultMsgs.length} 成功${failCount > 0 ? `, ${failCount} 失败` : ''}`,
-            })
-            const summaryMsg: Message = {
-              id: `summary_${Date.now()}`, role: 'tool', content: summaryContent,
-              tool_call_id: resultMsgs[0].tool_call_id, toolName: 'batch_summary', timestamp: Date.now(),
-            }
-            setMessages(prev => [...prev, summaryMsg])
-          }
-          if (finishReason !== 'tool_calls') {
-            planApprovedRef.current = false
-            isDone = true
-          }
-        }
-      }
-      const newTotal = cumulativeTokens + sessionTokens
+            const timeout = setTimeout(() => { pendingBatchRef.current = null; setBatchCard(null); resolve(false) }, 180000)
+            pendingBatchRef.current = { toolCalls: tools.map(t => ({ tc: { function: { name: t.name } }, routeArgs: t.args })), summary: summary as any, thinkingPlan: '', onResolve: (approved: boolean) => { clearTimeout(timeout); pendingBatchRef.current = null; setBatchCard(null); resolve(approved) } }
+            setBatchCard({ id: `batch_${Date.now()}`, summary: summary as any, previews: { editDiffs: [], createPreviews: [] }, thinkingPlan: '' })
+          })
+        },
+      })
+      const newTotal = cumulativeTokens + result.totalTokens
       setCumulativeTokens(newTotal)
-      setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: lastPrompt || c.lastPromptTokens, peakPromptTokens: Math.max(c.peakPromptTokens || 0, lastPrompt || 0) } : c))
+      setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
     } catch (err) {
-      debugApiError(activeConversationId, 'API', String((err as any)?.message || err))
-      const errMsg = parseAiErrorMessage(err)
-      setApiError(errMsg)
-
-      setMessages(prev => [...prev, {
-        id: Date.now().toString() + '_e', role: 'assistant',
-        content: errMsg,
-      }])
+      setMessages(prev => [...prev, { id: Date.now().toString() + '_e', role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}` }])
     }
     setLoading(false)
   }
+
+  // @ reference handling
 
   // @ reference handling
   const handleInputChange = async (value: string) => {
@@ -1626,6 +712,10 @@ export default function AIChatWindow() {
 
           {/* Messages */}
           <div ref={scrollRef} className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
+            {/* ── Agent mode UI ── */}
+            <AgentStateBar />
+            <AgentThinkingPanel />
+
             {messages.map((msg, i) => {
               // WeChat-style time separator
               const prevMsg = i > 0 ? messages[i - 1] : null

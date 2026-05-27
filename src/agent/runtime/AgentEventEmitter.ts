@@ -89,6 +89,8 @@ export interface AgentEventMap {
   'response:streaming': ResponseChunk
   'response:complete': ResponseComplete
   'permission:request': PermissionRequest
+  'hook:blocked': { hookName: string; feedback: string; timestamp: number }
+  'hook:passed': { hookName: string; passed: boolean; feedback: string; timestamp: number }
   'agent:state': { from: AgentPhase; to: AgentPhase; state: AgentState }
   'error': AgentErrorEvent
   'aborted': { timestamp: number }

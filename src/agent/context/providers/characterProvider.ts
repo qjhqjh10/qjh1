@@ -37,6 +37,13 @@ export const characterProvider: ContextProvider = {
       '- image: string — 形象图路径（可选）',
       '',
       '创建角色前，先用 read_file 查看已有角色文件了解格式。不要使用 basicInfo/appearance/personality 等嵌套对象。',
+      '',
+      '常见错误（必须避免）:',
+      '- 使用嵌套对象如 {"基本属性":{"姓名":"张三"}} — 所有字段必须平铺',
+      '- role 写成"男主角"、"女主角" — 必须严格用男主/女主/男配/女配/反派/其他',
+      '- abilities 写成对象如 {"异能":"xxx"} — 必须是纯文本字符串',
+      '- relationshipTags 写成字符串 — 必须是数组如 ["恋人","师徒"]',
+      '- 角色文件必须放在 characters/{拼音id}.json，不要放在 characters_test/，不要用中文名作为文件名',
     ].join('\n'),
   }),
 }

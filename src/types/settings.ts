@@ -139,6 +139,7 @@ export interface AIAssistantSettings {
   maxHistory: number                          // 对话历史保留条数 (10-500)
   toolRetentionRounds: number                 // 工具结果跨轮保留轮数 (0-10)
   rulesRefreshInterval: number                // 核心规则复述间隔 (0-100, 0=不重复)
+  useAgent: boolean                            // 启用 Agent 模式（替代旧 handleSend）
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -162,6 +163,7 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   maxHistory: 100,
   toolRetentionRounds: 3,
   rulesRefreshInterval: 31,
+  useAgent: false,
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },

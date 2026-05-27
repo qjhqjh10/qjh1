@@ -41,18 +41,17 @@ export class AgentStateMachine {
       { from: 'ASSEMBLING_CONTEXT', to: 'CALLING_API' },
       { from: 'CALLING_API', to: 'AWAITING_TOOLS' },
       { from: 'CALLING_API', to: 'RESPONDING' },       // no tool calls
+
+      // Approval gate: check before executing
+      { from: 'AWAITING_TOOLS', to: 'AWAITING_APPROVAL' },
       { from: 'AWAITING_TOOLS', to: 'EXECUTING' },
 
-      // Execution branches
-      {
-        from: 'EXECUTING', to: 'REFLECTING',
-        guard: (s) => s.pendingToolCalls.length === 0,
-      },
-      {
-        from: 'EXECUTING', to: 'AWAITING_APPROVAL',
-        guard: (s) => s.pendingToolCalls.length > 0,
-      },
-      { from: 'AWAITING_APPROVAL', to: 'CALLING_API' },
+      // Execution
+      { from: 'EXECUTING', to: 'REFLECTING', guard: (s) => s.pendingToolCalls.length === 0 },
+
+      // Approval resolution
+      { from: 'AWAITING_APPROVAL', to: 'EXECUTING' },   // approved
+      { from: 'AWAITING_APPROVAL', to: 'REFLECTING' },  // denied
 
       // Reflection → loop or respond
       {

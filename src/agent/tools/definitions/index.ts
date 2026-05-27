@@ -5,6 +5,7 @@ import { imageTools } from './imageTools'
 import { templateTools } from './templateTools'
 import { projectTools } from './projectTools'
 import { promptTools } from './promptTools'
+import { harnessTools } from './harnessTools'
 import type { ToolDefinition } from '../ToolRegistry'
 
 export const ALL_TOOLS: ToolDefinition[] = [
@@ -15,7 +16,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...templateTools,  // 2 tools: create_style_template, create_scene_template
   ...projectTools,   // 2 tools: create_project, delete_project
   ...promptTools,    // 3 tools: list_prompts, toggle_prompt, update_prompt
-  // Total: 26 tools
+  ...harnessTools,   // 3 tools: list_rules, learn_rule, update_config (self-management)
+  // Total: 29 tools
 ]
 
-export { fileTools, kbTools, noteTools, imageTools, templateTools, projectTools, promptTools }
+export { fileTools, kbTools, noteTools, imageTools, templateTools, projectTools, promptTools, harnessTools }

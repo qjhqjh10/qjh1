@@ -22,8 +22,30 @@ export async function executeBatch(options: BatchExecutionOptions): Promise<Batc
   const results: ToolResult[] = []
   let successCount = 0
   let failureCount = 0
+  let readCount = 0
+  let listCount = 0
+  const MAX_READS = 10
+  const MAX_LISTS = 3
 
   for (const call of calls) {
+    // G11: Read limits — cap reads and directory listings per batch
+    if (call.name === 'read_file') {
+      readCount++
+      if (readCount > MAX_READS) {
+        results.push({ status: 'error', summary: `本轮已读取 ${MAX_READS} 个文件（上限），请分析已读内容后再继续。` })
+        failureCount++
+        continue
+      }
+    }
+    if (call.name === 'list_directory') {
+      listCount++
+      if (listCount > MAX_LISTS) {
+        results.push({ status: 'error', summary: `本轮已列出 ${MAX_LISTS} 个目录（上限），请按需查询。` })
+        failureCount++
+        continue
+      }
+    }
+
     const args = JSON.parse(call.arguments)
 
     const result = await registry.execute(call.name, args, {

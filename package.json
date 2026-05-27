@@ -9,7 +9,8 @@
     "preview": "electron-vite preview",
     "package": "electron-builder",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check-harness": "bash scripts/check-harness.sh"
   },
   "keywords": [],
   "author": "",

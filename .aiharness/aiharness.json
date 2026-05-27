@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "permissions": {
+    "defaultEffect": "allow",
+    "policies": [
+      {
+        "id": "deny-delete-outside-notes",
+        "effect": "deny",
+        "toolName": "delete_file",
+        "pathPattern": "**/*",
+        "operation": "delete"
+      }
+    ]
+  },
+  "hooks": [],
+  "budget": {
+    "maxTokensPerSession": 500000,
+    "compressThresholds": [50, 60, 70, 85, 95]
+  },
+  "evaluators": [],
+  "tools": {
+    "constraints": {}
+  },
+  "circuitBreaker": {
+    "maxConsecutiveFailures": 5,
+    "cooldownMs": 30000
+  },
+  "durableExecution": {
+    "enabled": false,
+    "maxCheckpoints": 50,
+    "autoCheckpointOn": ["CALLING_API", "EXECUTING", "ERROR"],
+    "idempotentRetry": {
+      "enabled": false,
+      "maxRetries": 3,
+      "baseDelayMs": 100
+    }
+  }
+}

@@ -1,7 +1,27 @@
 {
-  "currentVersion": "6.1.0",
+  "currentVersion": "6.2.0",
   "currentDate": "2026-05-27",
   "history": [
+    {
+      "version": "6.2.0",
+      "date": "2026-05-27",
+      "features": [
+        "Agent一体化改造: 旧handleSend完全删除(~1000行), AgentChatBridge→AgentRuntime成为唯一引擎",
+        "AIChatWindow薄壳化: 2317行→1316行(-43%), handleSend仅~70行直接调用AgentRuntime",
+        "LivingSkill 6阶段自进化: OBSERVED→PATTERN→SOFT_SKILL→CONDITIONAL_RULE→HARD_CONSTRAINT→VERIFIED",
+        "6因子置信度算法: 频率20%+新鲜度15%+有效性30%+预防力20%+用户信任10%+跨项目5%",
+        "垃圾回收: 3条件自动清理过期/无效/有害技能到.aiharness/garbage/",
+        "批次审批集成: onApprovalRequired回调连接AgentRuntime PolicyEngine和UI BatchApprovalPanel",
+        "读取限制: ToolExecutor MAX_READS=10 MAX_LISTS=3",
+        "检查点自动保存: CALLING_API前自动检查点",
+        "渐进式压缩: BudgetManager 5阶段(50%/60%/70%/85%/95%)替换70%单阈值",
+        "context provider增强: characterProvider常见错误+反模式, coreRulesProvider项目导航地图",
+        "AGENTS.md: Agent项目导航入口(~80行)+.aiharness/AGENTS.md Harness配置说明",
+        "Harness一致性检查: scripts/check-harness.sh C1/C3/C4自动验证",
+        "旧代码清理: handleSendViaAgent删除, useAgent开关删除, 8个死import清理",
+        "G2/G7/G11全面完成: 审批回调/KB搜索/读取限制全部接线验证"
+      ]
+    },
     {
       "version": "6.1.0",
       "date": "2026-05-27",

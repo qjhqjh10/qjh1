@@ -27,6 +27,15 @@ import { ToolCache } from './cache/ToolCache'
 import { ALL_TOOLS } from './tools/definitions'
 import { ALL_PROVIDERS } from './context/providers'
 import { aiService } from '@/services/fileService'
+import { HookEngine } from './hooks/HookEngine'
+import { AiHarnessConfigLoader } from './config/AiHarnessConfig'
+import { PolicyEngine } from './permissions/PolicyEngine'
+import { CheckpointManager } from './checkpoint/CheckpointManager'
+import { CircuitBreaker } from './circuit/CircuitBreaker'
+import { GatekeeperRunner } from './gatekeeper/GatekeeperRunner'
+import { AuditTrail } from './audit/AuditTrail'
+import { SkillLearner } from './evolution/SkillLearner'
+import { LivingSkillManager } from './living-skills/LivingSkillManager'
 import type { Message, AgentRunResult } from './runtime/AgentRuntime'
 import type { ToolProgressEvent, ResponseChunk, ThinkingContext } from './runtime/AgentEventEmitter'
 
@@ -67,6 +76,7 @@ export interface SendMessageOptions {
   onToolProgress?: (event: ToolProgressEvent) => void
   onResponse?: (chunk: ResponseChunk) => void
   onComplete?: (result: AgentRunResult) => void
+  onApprovalRequired?: (tools: Array<{ name: string; args: Record<string, unknown> }>) => Promise<boolean>
 }
 
 export interface BridgeSendResult {
@@ -87,12 +97,23 @@ export class AgentChatBridge {
   private reflectionEng = new ReflectionEngine()
   private toolCache = new ToolCache()
 
+  // New Harness subsystems
+  private policyEngine = new PolicyEngine()
+  private checkpointMgr = new CheckpointManager()
+  private circuitBreaker = new CircuitBreaker()
+  private gatekeeper = new GatekeeperRunner()
+  private auditTrail = new AuditTrail()
+  private hookEngine = new HookEngine()
+  private skillLearner = new SkillLearner('.aiharness')
+  private livingSkillManager = new LivingSkillManager()
+
   private initialized = false
   private configId = ''
   private projectId: string | null = null
   private workMode: 'plan' | 'action' = 'action'
   private history: Message[] = []
   private abortController: AbortController = new AbortController()
+  private runId = ''
 
   // ── Init ──
 
@@ -128,12 +149,28 @@ export class AgentChatBridge {
       throw new Error('AgentChatBridge not initialized. Call init() first.')
     }
 
+    // Circuit breaker check
+    const cbCheck = this.circuitBreaker.beforeCall()
+    if (!cbCheck.allowed) {
+      return { success: false, text: cbCheck.reason || '断路保护已激活', toolCalls: 0, totalTokens: 0, phase: 'ERROR' }
+    }
+
     const store = useAgentStore.getState()
 
     // Build runtime
+    this.runId = Date.now().toString(36)
     this.abortController = new AbortController()
     this.emitter = new AgentEventEmitter()
     const store2 = useAgentStore.getState()
+
+    // Start audit trail + skill learner
+    this.auditTrail.startSession(this.runId)
+    this.skillLearner.startSession(this.runId, this.projectId)
+    await this.skillLearner.loadLearned()
+    const learnedContext = this.skillLearner.getContextInject()
+    if (learnedContext && this.runtime) {
+      this.runtime.setHistory([...this.history, { role: 'system', content: learnedContext }])
+    }
 
     this.runtime = new AgentRuntime({
       configId: this.configId,
@@ -163,25 +200,142 @@ export class AgentChatBridge {
       abortStream: () => aiService.abortStream(),
     })
 
-    // Inject context assembler
+    // Inject context assembler with KB/Web search
     this.runtime.setContextAssembler(async (msg, hist) => {
+      let searchContext = ''
+
+      // G7: KB search
+      if (options.kbEnabled && this.projectId) {
+        try {
+          const { kbService } = await import('@/services/fileService')
+          const results = await kbService.search(msg, this.projectId, this.configId || '', 3)
+          if (Array.isArray(results) && results.length > 0) {
+            searchContext += '\n[知识库搜索结果]\n' + results.map((r: any) => r.content || r.text || '').join('\n---\n')
+          }
+        } catch { /* KB search unavailable */ }
+      }
+
+      // G7: Web search
+      if (options.webSearchEnabled) {
+        try {
+          const { kbService } = await import('@/services/fileService')
+          const results = await kbService.webSearch(msg, 3)
+          if (Array.isArray(results) && results.length > 0) {
+            searchContext += '\n[网络搜索结果]\n' + results.map((r: any) => r.snippet || r.title || '').join('\n---\n')
+          }
+        } catch { /* Web search unavailable */ }
+      }
+
+      if (searchContext) {
+        return {
+          systemMessages: [{ role: 'system', content: searchContext }],
+          totalTokens: Math.ceil(searchContext.length / 3),
+          domains: ['kb-web-search'],
+        }
+      }
       return contextAssembler.assemble(msg, hist, this.projectId)
     })
 
-    // Inject tool executor (with caching)
+    // Inject tool executor (with caching + policy check + audit)
     this.runtime.setToolExecutor(async (args, ctx) => {
+      // Policy check (deny-first)
+      const perm = this.policyEngine.evaluate(ctx.toolName, args)
+      this.auditTrail.recordPermissionDecision(ctx.toolName, perm.effect, perm.reason)
+      if (perm.effect === 'deny') {
+        return { status: 'error', summary: `[Policy Deny] ${perm.reason}` }
+      }
+      if (perm.effect === 'ask' && options.onApprovalRequired) {
+        const approved = await options.onApprovalRequired([{ name: ctx.toolName, args }])
+        if (!approved) {
+          return { status: 'error', summary: '用户拒绝了此操作' }
+        }
+      }
+
       // For reads, check cache first
       const cacheKey = `${ctx.toolName}:${JSON.stringify(args)}`
       if (this.toolCache.has(cacheKey)) {
         return this.toolCache.get(cacheKey)!
       }
+
       const result = await toolRegistry.execute(ctx.toolName, args, ctx)
-      // Cache successful reads
-      if (result.status === 'success' && ctx.toolName === 'read_file') {
-        this.toolCache.set(cacheKey, result)
+
+      // Audit + circuit breaker + skill learning
+      this.auditTrail.recordToolResult(ctx.toolName, result.status, result.summary)
+      if (result.status === 'success') {
+        this.circuitBreaker.recordSuccess()
+        this.skillLearner.recordSuccess(ctx.toolName)
+        if (ctx.toolName === 'read_file') this.toolCache.set(cacheKey, result)
+      } else {
+        this.circuitBreaker.recordFailure()
+        this.skillLearner.recordError(ctx.toolName, result.summary)
       }
+
       return result
     })
+
+    // ── Initialize and wire all Harness subsystems ──
+    const projectRoot = this.projectId || '.'
+
+    // Load config
+    try {
+      const configLoader = new AiHarnessConfigLoader(
+        projectRoot,
+        process.env.HOME || process.env.USERPROFILE || '~',
+      )
+      const config = await configLoader.load()
+
+      // Hooks
+      if (config.hooks.length > 0) {
+        this.hookEngine.loadFromDefinitions(config.hooks, projectRoot)
+      }
+
+      // Permissions: deny-first policy
+      if (config.permissions.defaultEffect === 'deny' || config.permissions.policies.length > 0) {
+        this.policyEngine.load(config.permissions.policies)
+      }
+
+      // Gatekeeper scripts
+      const evalScripts = config.evaluators.filter(e => e.enabled).map(e => `${e.dimension}-evaluator.mjs`)
+      this.gatekeeper.loadScripts(evalScripts, projectRoot)
+
+      // Checkpoint
+      this.checkpointMgr = new CheckpointManager(config.durableExecution.maxCheckpoints)
+    } catch { /* defaults are fine */ }
+
+    // Wire Harness into runtime
+    this.runtime.setHookEngine(this.hookEngine)
+    this.runtime.setLivingSkillManager(this.livingSkillManager)
+    this.livingSkillManager.startSession(this.runId, this.projectId)
+    this.circuitBreaker.reset()
+    this.auditTrail.startSession(this.runId)
+
+    // ── Inject living skills (6-stage lifecycle learning) ──
+    const livingSkillsContext = this.livingSkillManager.getContextInject()
+    if (livingSkillsContext) {
+      contextAssembler.register({
+        domain: 'living-skills',
+        relevance: () => 1.0,
+        buildContext: async () => ({ domain: 'living-skills', priority: 115, estimatedTokens: Math.ceil(livingSkillsContext.length / 3), content: livingSkillsContext }),
+      })
+    }
+
+    // ── Inject learned rules from SkillLearner ──
+    try {
+      const learnedRules = await this.skillLearner.loadLearned()
+      const learnedContext = this.skillLearner.getContextInject()
+      if (learnedContext && learnedRules.length > 0) {
+        contextAssembler.register({
+          domain: 'learned-rules',
+          relevance: () => 1.0,
+          buildContext: async () => ({
+            domain: 'learned-rules',
+            priority: 110,
+            estimatedTokens: Math.ceil(learnedContext.length / 3),
+            content: learnedContext,
+          }),
+        })
+      }
+    } catch { /* skill learner may not have storage access */ }
 
     // Set tools based on work mode
     const schemas = toolRegistry.getFilteredSchemas(
@@ -230,6 +384,12 @@ export class AgentChatBridge {
     emitter.on('agent:state', (data) => {
       store2.setPhase(data.to)
       store2.setIteration(data.state.iteration)
+      this.auditTrail.recordStateTransition(data.from, data.to)
+    })
+
+    emitter.on('response:streaming', (data) => {
+      collectedText = data.accumulated
+      options.onResponse?.(data)
     })
 
     // Run!
@@ -245,6 +405,17 @@ export class AgentChatBridge {
     })
 
     options.onComplete?.(result)
+
+    // ── End-of-session learning ──
+    const promotedSkills = await this.livingSkillManager.endSession()
+    const learnedRules = await this.skillLearner.generateRules()
+    await this.skillLearner.persistPatterns()
+    if (promotedSkills.length > 0) {
+      console.log(`[LivingSkill] ${promotedSkills.length} 个技能升级:`, promotedSkills.map(s => `${s.title} → ${s.stage}`).join(', '))
+    }
+    if (learnedRules.length > 0) {
+      console.log(`[SkillLearner] 生成了 ${learnedRules.length} 条新规则:`, learnedRules.map(r => r.title).join(', '))
+    }
 
     return {
       success: result.success,
