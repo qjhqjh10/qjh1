@@ -1,7 +1,27 @@
 {
-  "currentVersion": "5.8.0",
-  "currentDate": "2026-05-26",
+  "currentVersion": "6.0.0",
+  "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "6.0.0",
+      "date": "2026-05-28",
+      "features": [
+        "大规模代码重构：12个文件拆分为81个子文件，遵循ImitationPage拆分模式",
+        "CharactersPanel 完全重写：690行→226行编排器+5子组件(卡片/网格/AI弹窗/hook)",
+        "StyleWorkshopPage 架构重写：1604行→11行编排器+hook(28state+28handler)+2视图(670/410行)",
+        "ImitationPage 处理器提取：1339行→692行编排器+hook(13个handler)+useWriteTabInjection",
+        "AIChatWindow 拆分：2583行→2225行+4子文件(纯函数/批审批/hook/组件)",
+        "ChapterGenerationModal 拆分：978行→670行+4子文件(类型/常量/promptBuilder/versionManager)",
+        "DetailedOutlinePage 拆分：623行→324行+3子文件(卡片/弹窗/常量)",
+        "ChapterWritingPage 拆分：717行→654行+2子文件(覆盖层/工具函数)",
+        "ContinuationWorkspacePage 拆分：740行→709行+2子文件(常量/弹窗)",
+        "SceneWorkshopPage 拆分：743行→319行+2子文件(情色/普通编辑器)",
+        "StoryMapPage 拆分：625行→335行+13个Tab组件",
+        "OutlinePage 拆分：652行→607行+常量提取",
+        "类型/服务/常量拆分：story(4)/fileOps(3)/chatConstants(4)/extractionService(5)/continuationService(2)",
+        "kbHandlers Electron拆分：546行→helper(180)+index(375)"
+      ]
+    },
     {
       "version": "5.8.0",
       "date": "2026-05-26",
