@@ -52,6 +52,7 @@ export class ConstraintEngine {
     this.archConstraints = ALL_ARCHITECTURAL_CONSTRAINTS.filter(c => {
       if (c.id === 'dependency-direction' && !this.config.enforceDependencyDirection) return false
       if (c.id === 'json-schema-validation' && !this.config.jsonSchemaValidation) return false
+      if (c.id === 'no-duplicate-create' && !this.config.enforceNoDuplicateCreate) return false
       return true
     })
 
@@ -65,19 +66,19 @@ export class ConstraintEngine {
 
   /**
    * Check all constraints before tool execution.
-   * Returns: { passed, messages } — if !passed, tool should be BLOCKED.
+   * Returns: { passed, message, severity } — severity distinguishes hard blocks from warnings.
    */
   check(args: ToolCallArgs): ConstraintResult {
     // Architectural constraints: fail = BLOCK
     for (const c of this.archConstraints) {
       const result = c.check(args)
-      if (!result.passed) return result
+      if (!result.passed) return { ...result, severity: 'block' }
     }
 
     // Taste invariants: fail = WARN (still pass, but log)
     for (const t of this.tasteInvariants) {
       const result = t.check(args)
-      if (!result.passed) return result
+      if (!result.passed) return { ...result, severity: 'warn', passed: true }
     }
 
     return { passed: true, message: '' }

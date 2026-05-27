@@ -70,9 +70,17 @@ export class HookEngine {
       const { execFile } = await import('child_process')
       const { join } = await import('path')
       const scriptPath = join(this.projectRoot, '.aiharness', 'hooks', hook.command!)
+      // Sanitize env: only pass safe system variables + hook context
+      const safeEnv: Record<string, string> = {
+        PATH: process.env.PATH || '',
+        HOME: process.env.HOME || process.env.USERPROFILE || '',
+        TEMP: process.env.TEMP || process.env.TMP || '/tmp',
+        NODE_ENV: process.env.NODE_ENV || 'production',
+        HOOK_CONTEXT: ctxJson,
+      }
       return new Promise((resolve) => {
         execFile('node', [scriptPath], {
-          env: { ...process.env, HOOK_CONTEXT: ctxJson },
+          env: safeEnv,
           timeout: hook.timeout,
           cwd: this.projectRoot,
         }, (err, stdout, stderr) => {
@@ -99,10 +107,12 @@ export class HookEngine {
         signal: AbortSignal.timeout(hook.timeout),
       })
       const text = await res.text()
+      // 2xx = passed, 409 = explicit block, other non-2xx = failure
+      const passed = res.status >= 200 && res.status < 300
       return {
         hookName: hook.name, event: hook.event,
-        passed: res.status !== 409,
-        feedback: text,
+        passed,
+        feedback: passed ? text : `Webhook 返回 ${res.status}: ${text}`,
         stdout: '',
         duration: 0,
       }

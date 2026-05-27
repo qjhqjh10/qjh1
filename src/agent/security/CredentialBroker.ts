@@ -26,6 +26,7 @@ export interface DelegationEntry {
 
 export class CredentialBroker {
   private handles = new Map<string, CapabilityHandle>()
+  private opCounters = new Map<string, number>()
   private delegationChain: DelegationEntry[] = []
 
   issue(sessionId: string, scopes: CapabilityScope[], maxDurationMs = 3600000): CapabilityHandle {
@@ -36,6 +37,7 @@ export class CredentialBroker {
       scopes,
     }
     this.handles.set(handle.id, handle)
+    this.opCounters.set(handle.id, 0)
     return handle
   }
 
@@ -53,16 +55,29 @@ export class CredentialBroker {
       return { valid: false, reason: `路径不在句柄范围内: ${filePath}` }
     }
 
+    // Enforce maxOps limit
+    if (matchingScope.maxOps !== undefined) {
+      const current = this.opCounters.get(handleId) || 0
+      if (current >= matchingScope.maxOps) {
+        return { valid: false, reason: `操作次数已达上限 (${matchingScope.maxOps})` }
+      }
+      this.opCounters.set(handleId, current + 1)
+    }
+
     return { valid: true }
   }
 
   revoke(handleId: string): void {
     this.handles.delete(handleId)
+    this.opCounters.delete(handleId)
   }
 
   revokeSession(sessionId: string): void {
     for (const [id, h] of this.handles) {
-      if (h.sessionId === sessionId) this.handles.delete(id)
+      if (h.sessionId === sessionId) {
+        this.handles.delete(id)
+        this.opCounters.delete(id)
+      }
     }
   }
 

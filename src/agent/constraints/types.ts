@@ -12,6 +12,7 @@ export interface ToolCallArgs {
 export interface ConstraintResult {
   passed: boolean
   message: string       // Failure: includes actionable fix instruction
+  severity?: 'block' | 'warn'  // block = hard stop, warn = log but allow
 }
 
 export interface ArchitecturalConstraint {

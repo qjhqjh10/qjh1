@@ -1,7 +1,20 @@
 {
-  "currentVersion": "7.1.0",
+  "currentVersion": "7.2.0",
   "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "7.2.0",
+      "date": "2026-05-28",
+      "features": [
+        "CredentialBroker maxOps实现: 操作次数限制递减+达到上限拒绝+revoke清理计数器",
+        "HookShell环境变量隔离: 仅传递PATH/HOME/TEMP/NODE_ENV+HOOK_CONTEXT, 防止敏感变量泄露",
+        "Webhook状态码检查扩展: 仅2xx通过, 其他全部视为失败(原仅检查409)",
+        "ConstraintEngine严重性区分: check()返回severity字段(block/warn), 品味不变量仅警告不阻断",
+        "enforceNoDuplicateCreate接线: 新增noDuplicateCreate约束, 阻止覆盖系统配置文件(package.json等)",
+        "pathIsolation增强: 新增UNC路径(\\\\server)检测+环境变量(%VAR%/$VAR)展开拦截",
+        "HallucinationDetector多语言: 新增英文动作声称关键词(created/modified/deleted等)"
+      ]
+    },
     {
       "version": "7.1.0",
       "date": "2026-05-28",

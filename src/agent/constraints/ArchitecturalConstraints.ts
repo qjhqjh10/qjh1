@@ -45,6 +45,20 @@ export const pathIsolation: ArchitecturalConstraint = {
         message: `路径 "${fp}" 指向项目外部。请使用项目目录内的相对路径，如 "outline/plot.md"、"characters/xxx.json"。`,
       }
     }
+    // Reject UNC paths (\\server\share)
+    if (/^\\\\/.test(fp)) {
+      return {
+        passed: false,
+        message: `路径 "${fp}" 是 UNC 网络路径，禁止访问。请使用项目目录内的相对路径。`,
+      }
+    }
+    // Reject environment variable expansion (%VAR% or $VAR)
+    if (/%[A-Z_]+%/.test(fp) || /\$[A-Z_]+/i.test(fp) || fp.includes('${')) {
+      return {
+        passed: false,
+        message: `路径 "${fp}" 包含环境变量引用，禁止使用。请使用项目目录内的相对路径。`,
+      }
+    }
     // Reject ../ traversal
     if (fp.includes('..')) {
       return {
@@ -107,9 +121,35 @@ export const dependencyDirection: ArchitecturalConstraint = {
   fixInstruction: 'Agent 层通过 IPC 或 service 层与 UI 通信，不要 import React 组件。',
 }
 
+/**
+ * Constraint: no duplicate create
+ * Prevents creating files that would shadow well-known system files.
+ */
+export const noDuplicateCreate: ArchitecturalConstraint = {
+  id: 'no-duplicate-create',
+  description: '禁止创建会覆盖系统文件的重复文件',
+  check: (args: ToolCallArgs) => {
+    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    const fp = (args.file_path as string) || ''
+    if (!fp) return { passed: true, message: '' }
+    // Block creating files at project root that shadow known system files
+    const systemFiles = ['package.json', 'tsconfig.json', 'electron-builder.yml', 'vitest.config.ts', 'tailwind.config.js', 'postcss.config.js']
+    const fileName = fp.split('/').pop() || ''
+    if (!fp.includes('/') && systemFiles.includes(fileName)) {
+      return {
+        passed: false,
+        message: `文件 "${fileName}" 是系统配置文件，不应通过 create_file 创建。请用 edit_file 修改现有文件。`,
+      }
+    }
+    return { passed: true, message: '' }
+  },
+  fixInstruction: '使用 edit_file 修改已有系统配置文件，不要用 create_file 重新创建。',
+}
+
 export const ALL_ARCHITECTURAL_CONSTRAINTS: ArchitecturalConstraint[] = [
   fileSizeLimit,
   pathIsolation,
   jsonSchemaValidation,
   dependencyDirection,
+  noDuplicateCreate,
 ]
