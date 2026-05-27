@@ -18,6 +18,18 @@
     "compressThresholds": [50, 60, 70, 85, 95]
   },
   "evaluators": [],
+  "constraints": {
+    "enabled": true,
+    "fileSizeLimit": 0,
+    "enforceNamingConvention": true,
+    "enforceDependencyDirection": false,
+    "jsonSchemaValidation": true,
+    "enforceNoEmptyFiles": true,
+    "enforceNoDuplicateCreate": true
+  },
+  "http": {
+    "allowPrivateIPs": true
+  },
   "tools": {
     "constraints": {}
   },

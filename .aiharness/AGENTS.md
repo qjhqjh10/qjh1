@@ -9,13 +9,15 @@
 │   ├── *.md                    ← 手动编写的规则
 │   ├── auto-learned/           ← Agent 自动学习的技能
 │   │   └── rule_*.json         ← LivingSkill JSON 格式
-│   └── auto-generated/         ← RuleExtractor 生成的规则
+│   └── auto-learned/           ← SkillLearner 自动学习的规则
 ├── hooks/                      ← Hook 脚本（PreToolUse/PostToolUse 等）
 │   └── *.mjs                   ← Node.js 脚本，exit code 2 = 阻断
 ├── evaluators/                 ← Gatekeeper 验证脚本
 │   └── *.mjs
-├── garbage/                    ← 被垃圾回收的过期技能（非永久删除）
-└── learned/                    ← SkillLearner 持久化的错误模式
+├── feedback/                   ← FeedbackChannel 自动建议
+├── living-skills/              ← LivingSkill 持久化
+├── learned/                    ← SkillLearner 错误模式（按需创建）
+└── garbage/                    ← GC 回收（按需创建）
 ```
 
 ## 工具

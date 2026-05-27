@@ -115,15 +115,19 @@ export class FeedbackChannel {
 
     const content = this.buildMarkdown(newSuggestions)
     try {
-      const { writeFile, mkdir } = await import('fs/promises')
-      const { join } = await import('path')
-      const dir = join('.aiharness', 'feedback')
-      await mkdir(dir, { recursive: true })
-      // Append to existing file or create new
-      const filePath = join(dir, 'auto-suggestions.md')
+      const { fileService } = await import('@/services/fileService')
+      const filePath = '.aiharness/feedback/auto-suggestions.md'
+      await fileService.ensureDir('.aiharness/feedback')
+      // Read existing, keep only last 5 sections to prevent unbounded growth
       let existing = ''
-      try { existing = await import('fs').then(fs => fs.readFileSync(filePath, 'utf-8')) } catch { /* new */ }
-      await writeFile(filePath, existing + '\n\n' + content, 'utf-8')
+      try {
+        existing = await fileService.read(filePath)
+        const sections = existing.split('## 自动反馈')
+        if (sections.length > 6) {
+          existing = '## 自动反馈' + sections.slice(-5).join('## 自动反馈')
+        }
+      } catch { /* new file */ }
+      await fileService.write(filePath, existing + '\n\n' + content)
     } catch { /* persist failure is non-fatal */ }
   }
 

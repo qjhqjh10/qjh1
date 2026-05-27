@@ -1,4 +1,4 @@
-import { IpcMain, BrowserWindow, app } from 'electron'
+import { IpcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { showSaveDialog, showOpenDialog, isSafePath } from './utils'
@@ -45,7 +45,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
 
   ipcMain.handle('export:project', async (_event, projectPath: string, outputPath: string) => {
     if (!isSafePath(projectPath, projectsBasePath)) throw new Error('项目路径不在允许范围内')
-    if (!isSafePath(outputPath, app.getPath('documents'))) throw new Error('导出路径不在允许范围内')
+    if (!isSafePath(outputPath, projectsBasePath)) throw new Error('导出路径不在项目目录范围内')
     return new Promise<void>((resolve, reject) => {
       const archiver = require('archiver')
       const archive = archiver('zip', { zlib: { level: 9 } })
@@ -100,7 +100,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('export:epub', async (_event, options: {
     title: string; author: string; chapters: { title: string; content: string }[]; outputPath: string
   }) => {
-    if (!isSafePath(options.outputPath, app.getPath('documents'))) throw new Error('导出路径不在允许范围内')
+    if (!isSafePath(options.outputPath, projectsBasePath)) throw new Error('导出路径不在项目目录范围内')
     try {
       const archiver = require('archiver')
       const output = require('fs').createWriteStream(options.outputPath)

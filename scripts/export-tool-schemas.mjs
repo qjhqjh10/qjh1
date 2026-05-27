@@ -60,7 +60,7 @@ function generateSchemas() {
     { name: 'list_prompts', description: '列出提示词库中的提示词。', params: {}, required: [] },
     { name: 'toggle_prompt', description: '启用或禁用提示词。', params: { prompt_name: { type: 'string', description: '提示词名称' }, enabled: { type: 'boolean', description: '启用/禁用' } }, required: ['prompt_name'] },
     { name: 'update_prompt', description: '修改提示词内容。', params: { prompt_name: { type: 'string', description: '提示词名称' }, new_content: { type: 'string', description: '新提示词内容' } }, required: ['prompt_name'] },
-    // ── Harness/self-management tools (3) ──
+    // ── Harness/self-management tools (4) ──
     { name: 'list_rules', description: '列出 .aiharness/ 中的已学习规则。', params: {}, required: [] },
     { name: 'learn_rule', description: '从经验中学习并持久化规则，防止以后再犯同样错误。', params: { trigger: { type: 'string', description: '触发条件' }, problem: { type: 'string', description: '问题描述' }, solution: { type: 'string', description: '解决方案' }, category: { type: 'string', description: '错误分类' } }, required: ['trigger', 'problem', 'solution'] },
     { name: 'update_config', description: '更新 .aiharness 配置（权限/预算/Hook）。', params: { section: { type: 'string', description: '配置节' }, changes: { type: 'string', description: 'JSON 格式的变更内容' } }, required: ['section', 'changes'] },

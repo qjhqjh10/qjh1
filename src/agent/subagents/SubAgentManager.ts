@@ -1,6 +1,7 @@
 import { AgentRuntime } from '../runtime/AgentRuntime'
 import { ContextAssembler } from '../context/ContextAssembler'
 import { ToolRegistry } from '../tools/ToolRegistry'
+import { TEAM_ROLES } from '../teams/AgentTeam'
 import { coreRulesProvider } from '../context/providers/coreRulesProvider'
 import { characterProvider } from '../context/providers/characterProvider'
 import { outlineProvider } from '../context/providers/outlineProvider'
@@ -317,5 +318,94 @@ export class SubAgentManager {
     return Promise.all(
       tasks.map(t => this.delegate(t.agentName, t.input, configId, projectId))
     )
+  }
+
+  /**
+   * Run a relay team: Planner → Coder → Reviewer → Fixer.
+   * Each role reads the previous role's output from a shared note.
+   * Teams provide multi-perspective verification (Claude Code pattern).
+   */
+  async runRelay(
+    input: string,
+    configId: string,
+    projectId: string | null,
+    relayNote = 'relay-plan',
+  ): Promise<{ results: SubAgentResult[]; passed: boolean }> {
+    const results: SubAgentResult[] = []
+    let plan = input
+
+    // 1. Planner: analyze and create plan
+    const plannerResult = await this.delegateWithRole(
+      'planner', `分析需求并制定执行计划:\n${plan}`, configId, projectId, relayNote,
+    )
+    results.push(plannerResult)
+    if (plannerResult.status === 'error') return { results, passed: false }
+    plan = plannerResult.output
+
+    // 2. Coder: execute the plan
+    const coderResult = await this.delegateWithRole(
+      'coder', `根据以下计划执行任务:\n${plan}`, configId, projectId, relayNote,
+    )
+    results.push(coderResult)
+    if (coderResult.status === 'error') return { results, passed: false }
+
+    // 3. Reviewer: check the output
+    const reviewerResult = await this.delegateWithRole(
+      'reviewer', `审查以下执行结果，只读验证:\n${coderResult.output}`, configId, projectId, relayNote,
+    )
+    results.push(reviewerResult)
+
+    // 4. Fixer: fix issues if reviewer found problems (exclude negation patterns like "没有问题")
+    const reviewText = reviewerResult.output
+    const hasNegation = /没有[问错]|无[问错]|不存在[问错]|no\s+(?:issues?|problems?|errors?)/i.test(reviewText)
+    const hasProblem = /[问错]题|issues?|problems?|errors?|缺陷|漏洞|异常|失败/i.test(reviewText)
+    if (hasProblem && !hasNegation) {
+      const fixerResult = await this.delegateWithRole(
+        'fixer', `根据审查意见修复问题:\n审查意见: ${reviewerResult.output}\n原始输出: ${coderResult.output}`, configId, projectId, relayNote,
+      )
+      results.push(fixerResult)
+    }
+
+    return { results, passed: true }
+  }
+
+  private async delegateWithRole(
+    roleName: string,
+    input: string,
+    configId: string,
+    projectId: string | null,
+    relayNote: string,
+  ): Promise<SubAgentResult> {
+    const role = TEAM_ROLES[roleName]
+    if (!role) {
+      return { agentName: roleName, status: 'error', summary: `未找到角色: ${roleName}`, output: '', tokenCost: 0, toolCalls: 0, duration: 0, modelTier: 'main' }
+    }
+
+    // Build temporary agent config from the team role
+    const tempConfig = {
+      name: roleName,
+      purpose: role.name,
+      toolNames: role.toolNames,
+      contextProviderDomains: ['core-rules'],
+      maxIterations: role.maxIterations,
+      systemPrompt: role.systemPrompt,
+      modelTier: 'main' as const,
+    }
+
+    // Temporarily register this role as a sub-agent
+    const prevAgent = this.getAgent(roleName)
+    this.defineAgent(tempConfig)
+
+    const result = await this.delegate(roleName, input, configId, projectId, role.name === 'Planner' ? 'cheap' : 'main')
+
+    // Restore original agent if it existed
+    if (prevAgent) this.defineAgent(prevAgent)
+    else {
+      // Remove the temporary agent
+      const idx = (this as any).agents?.findIndex?.((a: any) => a.name === roleName)
+      if (idx >= 0) (this as any).agents?.splice?.(idx, 1)
+    }
+
+    return result
   }
 }

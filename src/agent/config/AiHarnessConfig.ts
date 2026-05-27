@@ -64,6 +64,9 @@ export interface AiHarnessConfig {
     enforceNoEmptyFiles: boolean
     enforceNoDuplicateCreate: boolean
   }
+  http?: {
+    allowPrivateIPs?: boolean
+  }
   tools: {
     enabledTools?: string[]
     disabledTools?: string[]
@@ -108,6 +111,9 @@ export const DEFAULT_CONFIG: AiHarnessConfig = {
     jsonSchemaValidation: true,
     enforceNoEmptyFiles: true,
     enforceNoDuplicateCreate: true,
+  },
+  http: {
+    allowPrivateIPs: false,
   },
   tools: {
     constraints: {},

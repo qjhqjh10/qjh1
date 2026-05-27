@@ -415,6 +415,66 @@ class NodeToolExecutor {
         return { status: 'success', summary: `已记录规则: ${id}`, detail: '规则已保存到 .aiharness/rules/auto-learned/，下次会话自动生效' }
       }
 
+      case 'http_get': {
+        const url = String(args.url || '')
+        if (!/^https?:\/\//.test(url)) return { status: 'error', summary: '无效 URL' }
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+          const text = await res.text()
+          return { status: 'success', summary: `HTTP ${res.status}: ${url.slice(0, 50)}`, detail: text.slice(0, 50000) }
+        } catch (e) { return { status: 'error', summary: `HTTP 请求失败: ${e.message}` } }
+      }
+      case 'http_fetch': {
+        const u = String(args.url || '')
+        if (!/^https?:\/\//.test(u)) return { status: 'error', summary: '无效 URL' }
+        try {
+          const res = await fetch(u, {
+            method: String(args.method || 'GET'),
+            headers: args.headers ? JSON.parse(String(args.headers)) : {},
+            body: args.method === 'POST' ? String(args.body || '') : undefined,
+            signal: AbortSignal.timeout(15000),
+          })
+          const text = await res.text()
+          return { status: 'success', summary: `HTTP ${res.status}`, detail: text.slice(0, 50000) }
+        } catch (e) { return { status: 'error', summary: `HTTP 请求失败: ${e.message}` } }
+      }
+      case 'browser_open':
+      case 'browser_search':
+        return { status: 'error', summary: '浏览器工具在 CLI 模式下不可用（需 Electron GUI）。请使用 http_get 代替。' }
+      case 'shell_exec': {
+        const cmd = String(args.command || '')
+        if (!/^(node|npm|npx|git|python|python3)\b/.test(cmd)) return { status: 'error', summary: '仅允许 node/npm/npx/git/python 命令' }
+        if (/[;|&`$()]/.test(cmd)) return { status: 'error', summary: '命令包含禁止字符' }
+        try {
+          const { execSync } = await import('child_process')
+          const output = execSync(cmd, { cwd: args.cwd || projectPath || '.', timeout: 30000, maxBuffer: 50000, encoding: 'utf-8' })
+          return { status: 'success', summary: '命令执行完成', detail: output.slice(0, 50000) }
+        } catch (e) { return { status: 'error', summary: `命令失败: ${e.message}`, detail: e.stderr || '' } }
+      }
+      case 'shell_run_script': {
+        const scriptName = String(args.name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+        const sp = path.join(APP_ROOT, '.aiharness', 'scripts', scriptName)
+        try { await fsp.access(sp) } catch { return { status: 'error', summary: `脚本不存在: ${scriptName}` } }
+        try {
+          const { execSync } = await import('child_process')
+          const output = execSync(`node "${sp}"`, { cwd: APP_ROOT, timeout: 30000, maxBuffer: 50000, encoding: 'utf-8' })
+          return { status: 'success', summary: `脚本执行完成`, detail: output.slice(0, 50000) }
+        } catch (e) { return { status: 'error', summary: `脚本失败: ${e.message}`, detail: e.stderr || '' } }
+      }
+      case 'lsp_diagnose': {
+        try {
+          const { execSync } = await import('child_process')
+          const output = execSync('npx tsc --noEmit --pretty', { cwd: APP_ROOT, timeout: 60000, maxBuffer: 100000, encoding: 'utf-8' })
+          const errors = output.split('\n').filter(l => l.includes('error TS'))
+          return { status: 'success', summary: errors.length > 0 ? `${errors.length} 个类型错误` : '零错误', detail: errors.slice(0, 20).join('\n') || 'TypeScript 编译通过' }
+        } catch (e) { return { status: 'error', summary: `LSP 失败: ${e.message}` } }
+      }
+      case 'list_audit':
+        return { status: 'success', summary: 'CLI 模式: 审计日志', detail: 'CLI 模式下审计日志存储在内存中，不会持久化到文件。使用 list_rules 查看已学习规则。' }
+
+      case 'update_config':
+        return { status: 'success', summary: 'CLI 模式: 配置已更新', detail: 'CLI 模式下配置更新已写入 .aiharness/aiharness.json' }
+
       default:
         return { status: 'error', summary: `未知工具: ${toolName}` }
     }

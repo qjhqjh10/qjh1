@@ -1,7 +1,21 @@
 {
-  "currentVersion": "7.0.0",
+  "currentVersion": "7.1.0",
   "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "7.1.0",
+      "date": "2026-05-28",
+      "features": [
+        "AgentRuntime集成CredentialBroker: 能力句柄验证(会话级scope+过期检查), 覆盖file_path/dir_path/new_path三种路径参数",
+        "ThinkingEngine计划解析: AI响应自动提取思考计划, 验证工具可用性, 注入store追踪进度",
+        "SubAgentManager接力模式: runRelay() Planner→Coder→Reviewer→Fixer四角色协作, 关键词触发改为否定模式排除(修复'没有问题'误触发)",
+        "Shell/HTTP/LSP CLI工具: agent-cli.mjs新增6个工具实现(shell_exec/shell_run_script/http_get/http_fetch/lsp_diagnose/list_audit/update_config)",
+        "安全加固: 导出路径从documents收紧到projectsBasePath, HTTP内网访问改为aiharness.json配置驱动",
+        "SessionManager持久化修复: ensureDir替代listDir解决目录不存在时写入失败",
+        "FeedbackChannel自动建议限制5条防止文件无限增长",
+        "v6.0.0版本日期修正: 2026-05-28→2026-05-27(与git commit一致)"
+      ]
+    },
     {
       "version": "7.0.0",
       "date": "2026-05-28",
@@ -69,7 +83,7 @@
     },
     {
       "version": "6.0.0",
-      "date": "2026-05-28",
+      "date": "2026-05-27",
       "features": [
         "大规模代码重构：12个文件拆分为81个子文件，遵循ImitationPage拆分模式",
         "CharactersPanel 完全重写：690行→226行编排器+5子组件(卡片/网格/AI弹窗/hook)",

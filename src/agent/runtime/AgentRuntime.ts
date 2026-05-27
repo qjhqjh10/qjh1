@@ -13,6 +13,7 @@ import type {
 } from './AgentEventEmitter'
 import type { HookEngine } from '../hooks/HookEngine'
 import type { LivingSkillManager } from '../living-skills/LivingSkillManager'
+import { ThinkingEngine } from '../thinking/ThinkingEngine'
 
 // ── Config ──
 
@@ -125,6 +126,9 @@ export class AgentRuntime {
   private constraintEngine: { check(args: Record<string, unknown>): { passed: boolean; message: string } } | null = null
   private policyEngine: { evaluate(toolName: string, args?: Record<string, unknown>): { effect: string; matchedPolicy: string | null; reason: string; requiresUserApproval: boolean } } | null = null
   private hallucinationCallback: ((text: string) => void) | null = null
+  private thinkingEngine = new ThinkingEngine()
+  private credentialBroker: { verify(handleId: string, toolName: string, filePath?: string): { valid: boolean; reason?: string } } | null = null
+  private capabilityHandleId: string | null = null
   private toolResultsBatch: ToolResult[] = []
 
   constructor(config: AgentConfig) {
@@ -171,6 +175,7 @@ export class AgentRuntime {
   setConstraintEngine(ce: typeof this.constraintEngine): void { this.constraintEngine = ce }
   setPolicyEngine(pe: typeof this.policyEngine): void { this.policyEngine = pe }
   setHallucinationCallback(cb: typeof this.hallucinationCallback): void { this.hallucinationCallback = cb }
+  setCredentialBroker(cb: typeof this.credentialBroker, handleId: string): void { this.credentialBroker = cb; this.capabilityHandleId = handleId }
 
   setHistory(messages: Message[]): void {
     this.historyMessages = messages
@@ -344,6 +349,24 @@ export class AgentRuntime {
                 continue
               }
             }
+            // Parse thinking plan from AI response for progress tracking
+            if (response.text) {
+              const plan = this.thinkingEngine.parseFromResponse(response.text)
+              if (plan) {
+                const toolNames = new Set(this.tools.map((t: any) => t.function?.name || ''))
+                const validation = this.thinkingEngine.validate(plan, toolNames as Set<string>)
+                if (!validation.valid) {
+                  this.messagesForApi.push({ role: 'system', content: `思考计划验证失败: ${validation.errors.join('; ')}` })
+                }
+                store.setThinking({
+                  intent: plan.intent,
+                  steps: plan.steps.map(s => ({ tool: s.tool, action: s.action })),
+                  filesNeeded: [],
+                  estimatedTokens: plan.estimatedTokens,
+                  timestamp: Date.now(),
+                })
+              }
+            }
             if (this.fsm.canTransition('RESPONDING')) {
               await this.fsm.transition('RESPONDING')
             }
@@ -431,6 +454,22 @@ export class AgentRuntime {
                 }
                 if (preResults.some(r => r.passed && r.feedback)) {
                   this.emitter.emit('hook:passed', { hookName: 'PreToolUse', passed: true, feedback: '', timestamp: Date.now() } as any)
+                }
+              }
+
+              // ── CredentialBroker Check (capability-based access control) ──
+              if (this.credentialBroker && this.capabilityHandleId) {
+                const targetPath = (args.file_path as string) || (args.dir_path as string) || (args.new_path as string) || ''
+                const verifyResult = this.credentialBroker.verify(
+                  this.capabilityHandleId, tc.name,
+                  targetPath,
+                )
+                if (!verifyResult.valid) {
+                  this.messagesForApi.push({
+                    role: 'tool', tool_call_id: tc.id,
+                    content: JSON.stringify({ status: 'error', summary: `[能力句柄拒绝] ${verifyResult.reason}` }),
+                  })
+                  continue
                 }
               }
 

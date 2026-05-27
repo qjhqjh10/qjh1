@@ -16,7 +16,6 @@
  */
 
 import { AgentRuntime } from './runtime/AgentRuntime'
-import { AgentEventEmitter } from './runtime/AgentEventEmitter'
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler } from './context/ContextAssembler'
 import { useAgentStore } from './store/AgentStore'
@@ -38,6 +37,7 @@ import { GatekeeperRunner } from './gatekeeper/GatekeeperRunner'
 import { AuditTrail } from './audit/AuditTrail'
 import { SkillLearner } from './evolution/SkillLearner'
 import { LivingSkillManager } from './living-skills/LivingSkillManager'
+import { CredentialBroker } from './security/CredentialBroker'
 import { SessionManager } from './sessions/SessionManager'
 import { EvaluationPipeline } from './evaluators/EvaluationPipeline'
 import { MetricsCollector } from './metrics/MetricsCollector'
@@ -98,7 +98,6 @@ export interface BridgeSendResult {
 
 export class AgentChatBridge {
   private runtime: AgentRuntime | null = null
-  private emitter: AgentEventEmitter | null = null
   private budgetMgr = new BudgetManager(128000)
   private reflectionEng = new ReflectionEngine()
   private toolCache = new ToolCache()
@@ -113,6 +112,7 @@ export class AgentChatBridge {
   private hookEngine = new HookEngine()
   private skillLearner = new SkillLearner('.aiharness')
   private livingSkillManager = new LivingSkillManager()
+  private credentialBroker = new CredentialBroker()
   private sessionMgr = new SessionManager('agent-sessions')
   private evaluationPipeline = new EvaluationPipeline()
   private metricsCollector = new MetricsCollector()
@@ -173,7 +173,6 @@ export class AgentChatBridge {
     // Build runtime
     this.runId = Date.now().toString(36)
     this.abortController = new AbortController()
-    this.emitter = new AgentEventEmitter()
     const store2 = useAgentStore.getState()
 
     // Start audit trail + skill learner + session persistence
@@ -198,7 +197,6 @@ export class AgentChatBridge {
         if (prevSessions.length > 1) {
           const prevSession = await this.sessionMgr.load(prevSessions[1].id) // second-most-recent
           if (prevSession && prevSession.messages.length > 0) {
-            const lastMsgs = prevSession.messages.slice(-3) // last 3 messages from previous session
             console.log(`[AgentBridge] 已加载上次会话 (${prevSession.meta.messageCount} 条消息)`)
           }
         }
@@ -356,6 +354,13 @@ export class AgentChatBridge {
     this.runtime.setReflectionEngine(this.reflectionEng)
     this.runtime.setConstraintEngine(this.constraintEngine)
     this.runtime.setPolicyEngine(this.policyEngine)
+    // Issue capability handle for this session (scoped to project + 1 hour)
+    const handle = this.credentialBroker.issue(this.runId, [
+      { tool: '*', pathPrefix: this.projectId || '.', operation: 'read' },
+      { tool: '*', pathPrefix: this.projectId || '.', operation: 'write' },
+      { tool: '*', pathPrefix: this.projectId || '.', operation: 'delete' },
+    ])
+    this.runtime.setCredentialBroker(this.credentialBroker, handle.id)
     this.runtime.setHallucinationCallback((text) => {
       this.skillLearner.recordError('hallucination', text, 'hallucination')
     })
@@ -543,7 +548,6 @@ export class AgentChatBridge {
   abort(): void {
     this.abortController.abort()
     this.runtime?.abort()
-    this.emitter?.abort()
   }
 
   // ── Budget ──
@@ -557,7 +561,6 @@ export class AgentChatBridge {
   destroy(): void {
     this.abort()
     this.runtime = null
-    this.emitter = null
     this.toolCache.invalidateAll()
   }
 }

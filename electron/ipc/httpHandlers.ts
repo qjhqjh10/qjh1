@@ -59,7 +59,9 @@ async function httpFetch(
   }
 }
 
-export function registerHttpHandlers(ipcMain: IpcMain) {
+export function registerHttpHandlers(ipcMain: IpcMain, config?: { allowPrivateIPs?: boolean }) {
+  const allowPrivateIPs = config?.allowPrivateIPs ?? false
+
   ipcMain.handle('http:fetch', async (_event, url: string, options?: Record<string, unknown>) => {
     const cleanUrl = sanitizeUrl(String(url || ''))
 
@@ -67,7 +69,7 @@ export function registerHttpHandlers(ipcMain: IpcMain) {
       return { status: 'error', summary: `无效 URL: ${url}` }
     }
 
-    if (isPrivateIP(cleanUrl)) {
+    if (!allowPrivateIPs && isPrivateIP(cleanUrl)) {
       return { status: 'error', summary: '禁止访问内网地址' }
     }
 
@@ -92,7 +94,7 @@ export function registerHttpHandlers(ipcMain: IpcMain) {
     if (!/^https?:\/\//.test(cleanUrl)) {
       return { status: 'error', summary: `无效 URL: ${url}` }
     }
-    if (isPrivateIP(cleanUrl)) {
+    if (!allowPrivateIPs && isPrivateIP(cleanUrl)) {
       return { status: 'error', summary: '禁止访问内网地址' }
     }
     try {

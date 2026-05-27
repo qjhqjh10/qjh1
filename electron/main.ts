@@ -129,7 +129,15 @@ app.whenReady().then(async () => {
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
   registerAgentHandlers(ipcMain, projectsPath)
-  registerHttpHandlers(ipcMain)
+  // Load HTTP config from aiharness.json (if present)
+  let httpConfig = { allowPrivateIPs: false }
+  try {
+    const configPath = join(app.getAppPath(), '.aiharness', 'aiharness.json')
+    const configRaw = await import('fs/promises').then(fs => fs.readFile(configPath, 'utf-8'))
+    const config = JSON.parse(configRaw)
+    if (config.http?.allowPrivateIPs) httpConfig.allowPrivateIPs = true
+  } catch { /* use defaults */ }
+  registerHttpHandlers(ipcMain, httpConfig)
   registerBrowserHandlers(ipcMain)
   registerShellHandlers(ipcMain, projectsPath)
   registerMCPHandlers(ipcMain)

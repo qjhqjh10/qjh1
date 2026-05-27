@@ -23,7 +23,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / OpenAI
 | Harness 配置 | `.aiharness/aiharness.json` |
 | Agent 工具列表 | `src/agent/tools/toolSchemas.ts` |
 | 版本历史 | `src/data/version_history.json` |
-| 跨会话记忆 | `memory/MEMORY.md` |
+| 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 已学习规则 | `.aiharness/rules/auto-learned/`（用 list_rules 查看） |
 | 测试 | `npx vitest run` |
 

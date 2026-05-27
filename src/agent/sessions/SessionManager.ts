@@ -160,8 +160,8 @@ export class SessionManager {
   private async persist(id: string, data: SessionData): Promise<void> {
     const { fileService } = await import('@/services/fileService')
     const dir = this.basePath
-    // Ensure directory exists
-    try { await fileService.listDir(dir) } catch { return /* base path not writable, skip persist */ }
+    // Ensure directory exists (ensureDir creates recursively, listDir does not)
+    try { await fileService.ensureDir(dir) } catch { return /* base path not writable, skip persist */ }
     await fileService.write(this.sessionPath(id), JSON.stringify(data, null, 2))
   }
 
