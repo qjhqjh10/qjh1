@@ -1,0 +1,67 @@
+// ── HTTP Tools ──
+// Agent tools for making HTTP requests.
+
+import type { ToolDefinition } from '../ToolRegistry'
+
+export const httpTools: ToolDefinition[] = [
+  {
+    schema: {
+      name: 'http_get',
+      description: '发起 HTTP GET 请求获取网页或 API 数据。返回文本/html/json 响应体。可用于查阅在线文档、参考资料、API 数据。禁止访问内网地址。',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: '完整的 URL（https://...）' },
+        },
+        required: ['url'],
+      },
+    },
+    permission: 'READ_ASK',
+    category: 'http',
+    availableInPlanMode: true,
+    executor: async (args) => {
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const result = await (fileService as any).httpGet?.(String(args.url))
+        return result || { status: 'error', summary: 'HTTP 工具不可用' }
+      } catch {
+        return { status: 'error', summary: 'HTTP 请求失败' }
+      }
+    },
+  },
+  {
+    schema: {
+      name: 'http_fetch',
+      description: '发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。用于调用外部 API、提交数据。需要用户确认。禁止访问内网地址。',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: '完整的 URL' },
+          method: { type: 'string', description: 'HTTP 方法: GET 或 POST，默认 GET' },
+          headers: { type: 'string', description: 'JSON 格式的请求头，如 {"Content-Type":"application/json"}' },
+          body: { type: 'string', description: '请求体内容（POST 时使用）' },
+        },
+        required: ['url'],
+      },
+    },
+    permission: 'DANGEROUS_ASK',
+    category: 'http',
+    availableInPlanMode: false,
+    executor: async (args) => {
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const result = await (fileService as any).httpFetch?.(
+          String(args.url),
+          {
+            method: String(args.method || 'GET'),
+            headers: args.headers ? JSON.parse(String(args.headers)) : undefined,
+            body: args.body ? String(args.body) : undefined,
+          },
+        )
+        return result || { status: 'error', summary: 'HTTP 工具不可用' }
+      } catch {
+        return { status: 'error', summary: 'HTTP 请求失败' }
+      }
+    },
+  },
+]

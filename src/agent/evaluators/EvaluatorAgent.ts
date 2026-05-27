@@ -1,8 +1,13 @@
 // ── Independent Evaluator Agent ──
-// Critical Anthropic finding: evaluation must run in a SEPARATE agent instance
-// with restricted tools (read-only). Never self-evaluate.
+// Two-layer evaluation:
+//   Layer 1 — fast heuristic (always runs)
+//   Layer 2 — LLM deep evaluation (only when Layer 1 score < threshold)
+//
+// Critical principle: evaluation must run in a SEPARATE context with
+// read-only tools. Never self-evaluate.
 
 import type { Message, ToolResult } from '../runtime/AgentRuntime'
+import { EVALUATION_SYSTEM_PROMPT, EVALUATION_USER_PROMPT } from './prompts/evaluationPrompt'
 
 export interface EvaluationIssue {
   severity: 'critical' | 'major' | 'minor' | 'info'
@@ -13,7 +18,7 @@ export interface EvaluationIssue {
 
 export interface EvaluationDimension {
   name: 'correctness' | 'quality' | 'architecture' | 'security'
-  score: number           // 0.0 - 1.0
+  score: number
   passThreshold: number
   passed: boolean
   issues: EvaluationIssue[]
@@ -23,74 +28,170 @@ export interface EvaluationReport {
   timestamp: number
   duration: number
   overallPassed: boolean
+  overallScore: number
   dimensions: EvaluationDimension[]
   summary: string
   tokenCost: number
+  layer: 'heuristic' | 'llm'
 }
 
-const EVALUATOR_SYSTEM_PROMPT = `你是一个独立的评估 Agent。你的任务是评估主 Agent 的工作质量。
-你只能读取文件，不能创建、修改或删除任何内容。
-
-评估 4 个维度，每个维度评分 0.0-1.0:
-1. **correctness** (正确性): 任务是否按要求完成？文件是否正确创建/修改？JSON 格式是否有效？
-2. **quality** (质量): 输出是否完整？文字是否连贯？格式是否符合规范？
-3. **architecture** (架构): 是否使用了正确的工具？文件位置是否符合项目结构？是否遵循了最佳实践？
-4. **security** (安全): 是否有路径遍历？是否操作了不应操作的文件？是否有敏感信息泄露？
-
-对每个维度列出具体问题（如有），给出严重程度和建议。
-最后输出 JSON 格式的评估报告。`
+interface AIServiceForEval {
+  chat(messages: Array<{ role: string; content: string }>): Promise<{ text: string; usage?: { total_tokens: number } }>
+}
 
 const DEFAULT_THRESHOLDS: Record<string, number> = {
   correctness: 0.7, quality: 0.6, architecture: 0.5, security: 0.8,
 }
 
-export class EvaluatorAgent {
-  private configId: string
-  private projectId: string | null
+const DIMENSION_WEIGHTS: Record<string, number> = {
+  correctness: 0.4, quality: 0.25, architecture: 0.2, security: 0.15,
+}
 
-  constructor(configId: string, projectId: string | null) {
-    this.configId = configId
-    this.projectId = projectId
+// ═══════════════════════════════════════════════════════════════
+// EvaluatorAgent
+// ═══════════════════════════════════════════════════════════════
+
+export class EvaluatorAgent {
+  private llmTriggerThreshold = 0.6  // Overall score below this → trigger LLM evaluation
+  private aiService: AIServiceForEval | null = null
+
+  setAIService(svc: AIServiceForEval): void {
+    this.aiService = svc
   }
 
-  async evaluate(
-    mainAgentMessages: Message[],
-    mainAgentResults: ToolResult[],
+  setLLMThreshold(t: number): void {
+    this.llmTriggerThreshold = t
+  }
+
+  // ── Layer 1: Heuristic Evaluation ──
+
+  async evaluateHeuristic(
+    results: ToolResult[],
+    messages: Message[],
   ): Promise<EvaluationReport> {
     const startTime = Date.now()
 
-    const successCount = mainAgentResults.filter(r => r.status === 'success').length
-    const failureCount = mainAgentResults.filter(r => r.status === 'error').length
-
-    // Heuristic evaluation (lightweight, no API call required)
-    // Full AI-based evaluation would use SubAgentManager infrastructure
     const dimensions: EvaluationDimension[] = [
-      this.evaluateCorrectness(mainAgentResults, mainAgentMessages),
-      this.evaluateQuality(mainAgentResults),
-      this.evaluateArchitecture(mainAgentResults),
-      this.evaluateSecurity(mainAgentResults),
+      this.evalCorrectness(results, messages),
+      this.evalQuality(results),
+      this.evalArchitecture(results),
+      this.evalSecurity(results),
     ]
 
+    const overallScore = dimensions.reduce(
+      (sum, d) => sum + d.score * (DIMENSION_WEIGHTS[d.name] || 0.25), 0,
+    )
     const overallPassed = dimensions.every(d => d.passed)
-    const summary = overallPassed
-      ? `全部 ${dimensions.length} 维评估通过 (${successCount} 成功, ${failureCount} 失败)`
-      : `${dimensions.filter(d => !d.passed).length}/${dimensions.length} 维未通过`
 
     return {
       timestamp: Date.now(),
       duration: Date.now() - startTime,
       overallPassed,
+      overallScore: Math.round(overallScore * 100) / 100,
       dimensions,
-      summary,
-      tokenCost: 0, // heuristic evaluation uses no tokens
+      summary: overallPassed
+        ? `全部 ${dimensions.length} 维通过`
+        : `${dimensions.filter(d => !d.passed).length}/${dimensions.length} 维未通过`,
+      tokenCost: 0,
+      layer: 'heuristic',
     }
   }
 
-  private evaluateCorrectness(results: ToolResult[], messages: Message[]): EvaluationDimension {
+  // ── Layer 2: LLM Deep Evaluation ──
+
+  async evaluateLLM(
+    heuristicReport: EvaluationReport,
+    taskDescription: string,
+    toolResults: ToolResult[],
+  ): Promise<EvaluationReport> {
+    const startTime = Date.now()
+    if (!this.aiService) {
+      // Fall back to heuristic
+      heuristicReport.summary += ' (LLM评估不可用，使用启发式结果)'
+      return heuristicReport
+    }
+
+    try {
+      // Collect file contents from successful read operations
+      const fileContents = toolResults
+        .filter(r => r.status === 'success' && r.detail)
+        .map(r => `### ${r.summary}\n${r.detail}`)
+        .join('\n\n')
+
+      const messages = [
+        { role: 'system', content: EVALUATION_SYSTEM_PROMPT },
+        { role: 'user', content: EVALUATION_USER_PROMPT(taskDescription, fileContents) },
+      ]
+
+      const response = await this.aiService.chat(messages)
+
+      // Parse JSON from response
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        heuristicReport.summary += ' (LLM评估格式异常，使用启发式结果)'
+        return heuristicReport
+      }
+
+      const parsed = JSON.parse(jsonMatch[0])
+
+      const dimensions: EvaluationDimension[] = (parsed.dimensions || []).map((d: any) => ({
+        name: d.name as EvaluationDimension['name'],
+        score: Number(d.score) || 0,
+        passThreshold: Number(d.passThreshold) || DEFAULT_THRESHOLDS[d.name] || 0.7,
+        passed: Boolean(d.passed),
+        issues: (d.issues || []).map((i: any) => ({
+          severity: i.severity || 'minor',
+          description: String(i.description || ''),
+          suggestion: String(i.suggestion || ''),
+        })),
+      }))
+
+      const overallScore = dimensions.reduce(
+        (sum, d) => sum + d.score * (DIMENSION_WEIGHTS[d.name] || 0.25), 0,
+      )
+
+      return {
+        timestamp: Date.now(),
+        duration: Date.now() - startTime,
+        overallPassed: Boolean(parsed.overallPassed),
+        overallScore: Math.round(overallScore * 100) / 100,
+        dimensions,
+        summary: String(parsed.summary || ''),
+        tokenCost: response.usage?.total_tokens || 0,
+        layer: 'llm',
+      }
+    } catch {
+      heuristicReport.summary += ' (LLM评估失败，使用启发式结果)'
+      return heuristicReport
+    }
+  }
+
+  // ── Combined: two-layer evaluation ──
+
+  async evaluate(
+    results: ToolResult[],
+    messages: Message[],
+    taskDescription: string,
+  ): Promise<EvaluationReport> {
+    const heuristic = await this.evaluateHeuristic(results, messages)
+
+    // If heuristic score is low, trigger LLM evaluation
+    if (heuristic.overallScore < this.llmTriggerThreshold && this.aiService) {
+      return this.evaluateLLM(heuristic, taskDescription, results)
+    }
+
+    return heuristic
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Dimension Evaluators
+  // ═══════════════════════════════════════════════════════
+
+  private evalCorrectness(results: ToolResult[], messages: Message[]): EvaluationDimension {
     const issues: EvaluationIssue[] = []
     const total = results.length
     const errors = results.filter(r => r.status === 'error').length
-    const score = total > 0 ? (total - errors) / total : 1.0
+    const score = total > 0 ? Math.max(0, (total - errors) / total) : 1.0
 
     for (const r of results) {
       if (r.status === 'error') {
@@ -119,7 +220,7 @@ export class EvaluatorAgent {
     }
   }
 
-  private evaluateQuality(results: ToolResult[]): EvaluationDimension {
+  private evalQuality(results: ToolResult[]): EvaluationDimension {
     const issues: EvaluationIssue[] = []
     let score = 1.0
 
@@ -144,12 +245,13 @@ export class EvaluatorAgent {
     }
   }
 
-  private evaluateArchitecture(results: ToolResult[]): EvaluationDimension {
+  private evalArchitecture(results: ToolResult[]): EvaluationDimension {
     const issues: EvaluationIssue[] = []
     let score = 1.0
 
-    // Check for excessive read operations (inefficiency)
-    const readOps = results.filter(r => r.summary.includes('读取') || r.summary.includes('列出'))
+    const readOps = results.filter(r =>
+      r.summary.includes('读取') || r.summary.includes('列出') || r.summary.includes('搜索'),
+    )
     if (readOps.length > 10) {
       score -= 0.2
       issues.push({
@@ -167,16 +269,17 @@ export class EvaluatorAgent {
     }
   }
 
-  private evaluateSecurity(results: ToolResult[]): EvaluationDimension {
+  private evalSecurity(results: ToolResult[]): EvaluationDimension {
     const issues: EvaluationIssue[] = []
     let score = 1.0
 
     for (const r of results) {
-      if (r.summary.includes('路径不在项目') || r.summary.includes('Invalid path')) {
+      if (r.summary.includes('路径不在项目') || r.summary.includes('Invalid path')
+        || r.summary.includes('路径超出') || r.summary.includes('约束阻断')) {
         score -= 0.3
         issues.push({
           severity: 'critical',
-          description: '检测到路径遍历尝试',
+          description: '检测到路径遍历尝试或约束违反',
           suggestion: '仅操作项目目录内的文件',
         })
       }

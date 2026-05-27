@@ -78,19 +78,31 @@ export const harnessTools: ToolDefinition[] = [
         const { fileService } = await import('@/services/fileService')
         await fileService.ensureDir('.aiharness/rules/auto-learned')
 
+        // Write in LearnedRule format (matching SkillLearner.loadLearned() expectation)
+        const now = Date.now()
+        const ruleId = `rule_${now.toString(36)}`
         const rule = {
-          title: `[自动学习] ${args.trigger}`,
-          trigger: String(args.trigger || ''),
-          problem: String(args.problem || ''),
-          solution: String(args.solution || ''),
-          category: String(args.category || 'general'),
-          createdAt: new Date().toISOString(),
-          status: 'auto-draft',
+          id: ruleId,
+          title: `[手动学习] ${args.trigger}`,
+          when: `当调用相关工具遇到 ${args.category || '错误'} 类型的问题时`,
+          rule: `## 经验教训\n**问题**: ${args.problem}\n\n**解决方案**: ${args.solution}`,
+          source: {
+            id: `pat_${now.toString(36)}`,
+            toolName: '',
+            errorCategory: String(args.category || 'manual'),
+            errorSnippet: String(args.problem || '').slice(0, 100),
+            solution: String(args.solution || ''),
+            occurrenceCount: 1,
+            lastSeen: now,
+            sessions: [],
+            projects: [],
+          },
+          createdAt: now,
+          isAutoDraft: true,
         }
 
-        const id = `rule_${Date.now().toString(36)}`
-        await fileService.write(`.aiharness/rules/auto-learned/${id}.json`, JSON.stringify(rule, null, 2), )
-        return { status: 'success', summary: `已记录规则: ${id}`, detail: `下次会话此规则将自动生效。可在 .aiharness/rules/auto-learned/ 查看。` }
+        await fileService.write(`.aiharness/rules/auto-learned/${ruleId}.json`, JSON.stringify(rule, null, 2))
+        return { status: 'success', summary: `已记录规则: ${ruleId}`, detail: `下次会话此规则将自动生效。可在 .aiharness/rules/auto-learned/ 查看。` }
       } catch (e: any) {
         return { status: 'error', summary: `记录规则失败: ${e.message}` }
       }
@@ -143,6 +155,49 @@ export const harnessTools: ToolDefinition[] = [
         return { status: 'success', summary: `已更新配置: ${section}`, detail: '下次会话生效。可用 list_rules 查看当前规则。' }
       } catch (e: any) {
         return { status: 'error', summary: `更新配置失败: ${e.message}` }
+      }
+    },
+  },
+
+  // ── list_audit — 查询 Agent 自身的操作审计日志 ──
+  {
+    schema: {
+      name: 'list_audit',
+      description: '查询 Agent 自身的操作审计日志，用于自观测和调试。可查看最近的工具调用、状态变更和错误记录。',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: '返回最近 N 条事件，默认 20，最大 100' },
+        },
+        required: [],
+      },
+    },
+    permission: 'AUTO',
+    category: 'prompt',
+    availableInPlanMode: true,
+    executor: async (args) => {
+      const limit = Math.min(Number(args.limit) || 20, 100)
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const logs: string[] = []
+        try {
+          const files = await fileService.listDir('.aiharness/feedback')
+          for (const f of files.slice(-limit)) {
+            try {
+              const content = await fileService.read(`.aiharness/feedback/${f}`)
+              logs.push(`[feedback/${f}] ${content.slice(0, 200)}`)
+            } catch { /* */ }
+          }
+        } catch { /* */ }
+        return {
+          status: 'success',
+          summary: `${logs.length} 条记录`,
+          detail: logs.length > 0
+            ? logs.join('\n---\n')
+            : '暂无审计或反馈记录。Agent 每次会话结束时会自动生成 PostSession 分析和反馈建议到 .aiharness/feedback/。',
+        }
+      } catch {
+        return { status: 'error', summary: '审计日志查询暂不可用' }
       }
     },
   },

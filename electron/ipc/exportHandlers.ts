@@ -10,8 +10,8 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
     outputPath: string
     type: 'summary' | 'body'
   }) => {
-    if (!isSafePath(options.outputPath, app.getPath('documents'))) {
-      throw new Error('导出路径不在允许范围内')
+    if (!isSafePath(options.outputPath, projectsBasePath)) {
+      throw new Error('导出路径不在项目目录范围内')
     }
     const output = options.chapters
       .map(ch => `=== ${ch.title || '未命名'} ===\n\n${ch.content || ''}\n\n`)
@@ -28,8 +28,8 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('export:singleChapter', async (_event, options: {
     title: string; content: string; outputPath: string
   }) => {
-    if (!isSafePath(options.outputPath, app.getPath('documents'))) {
-      throw new Error('导出路径不在允许范围内')
+    if (!isSafePath(options.outputPath, projectsBasePath)) {
+      throw new Error('导出路径不在项目目录范围内')
     }
     const output = `${options.title || '未命名'}\n\n${options.content || ''}`
     try {

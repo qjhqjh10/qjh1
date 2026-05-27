@@ -15,6 +15,11 @@ import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
 import { registerRewriteHandlers } from './ipc/rewriteHandlers'
 import { registerAgentHandlers } from './ipc/agentHandlers'
+import { registerHttpHandlers } from './ipc/httpHandlers'
+import { registerBrowserHandlers } from './ipc/browserHandlers'
+import { registerShellHandlers } from './ipc/shellHandlers'
+import { registerMCPHandlers } from './ipc/mcpHandlers'
+import { registerLSPHandlers } from './ipc/lspHandlers'
 import { logError } from './ipc/logger'
 import { loadWindowBounds, saveWindowBounds } from './ipc/utils'
 
@@ -42,6 +47,7 @@ async function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false, // Set to true after verifying preload doesn't use Node.js APIs directly
     },
     frame: true,
     show: false,
@@ -123,14 +129,25 @@ app.whenReady().then(async () => {
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
   registerAgentHandlers(ipcMain, projectsPath)
+  registerHttpHandlers(ipcMain)
+  registerBrowserHandlers(ipcMain)
+  registerShellHandlers(ipcMain, projectsPath)
+  registerMCPHandlers(ipcMain)
+  registerLSPHandlers(ipcMain)
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {
     const dir = join(app.getPath('userData'), 'ai-debug', 'events')
     await mkdir(dir, { recursive: true })
     const date = new Date().toISOString().slice(0, 10)
-    const fname = `${date}_${name}.jsonl`.replace(/[<>:"/\\|?*]/g, '_')
-    await appendFile(join(dir, fname), line, 'utf-8')
+    const fname = `${date}_${name.slice(0, 30)}.jsonl`.replace(/[<>:"/\\|?*]/g, '_')
+    const fp = join(dir, fname)
+    // 10MB limit per file
+    try {
+      const stat = await import('fs/promises').then(fs => fs.stat(fp)).catch(() => null)
+      if (stat && stat.size > 10 * 1024 * 1024) return
+    } catch { /* continue */ }
+    await appendFile(fp, String(line).slice(0, 10000), 'utf-8')
   })
 
   const win = await createWindow()

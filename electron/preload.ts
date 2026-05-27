@@ -205,6 +205,28 @@ const api = {
     permissionPatterns: (): Promise<Record<string, any>> => ipcRenderer.invoke('agent:permission-patterns'),
     getSessionsPath: (): Promise<string> => ipcRenderer.invoke('agent:get-sessions-path'),
   },
+  http: {
+    fetch: (url: string, options?: Record<string, unknown>): Promise<any> => ipcRenderer.invoke('http:fetch', url, options),
+    get: (url: string): Promise<any> => ipcRenderer.invoke('http:get', url),
+  },
+  browser: {
+    open: (url: string): Promise<any> => ipcRenderer.invoke('browser:open', url),
+    screenshot: (url: string, path?: string): Promise<any> => ipcRenderer.invoke('browser:screenshot', url, path),
+    search: (query: string): Promise<any> => ipcRenderer.invoke('browser:search', query),
+  },
+  shell: {
+    exec: (command: string, cwd?: string): Promise<any> => ipcRenderer.invoke('shell:exec', command, cwd),
+    runScript: (name: string): Promise<any> => ipcRenderer.invoke('shell:run-script', name),
+  },
+  mcp: {
+    listServers: (): Promise<any> => ipcRenderer.invoke('mcp:list-servers'),
+    connectServer: (name: string): Promise<any> => ipcRenderer.invoke('mcp:connect', name),
+    callTool: (serverName: string, toolName: string, args: Record<string, unknown>): Promise<any> => ipcRenderer.invoke('mcp:call-tool', serverName, toolName, args),
+    listTools: (serverName: string): Promise<any> => ipcRenderer.invoke('mcp:list-tools', serverName),
+  },
+  lsp: {
+    diagnose: (filePath?: string): Promise<any> => ipcRenderer.invoke('lsp:diagnose', filePath),
+  },
 }
 
 contextBridge.exposeInMainWorld('electron', api)

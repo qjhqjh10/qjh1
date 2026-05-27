@@ -457,7 +457,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
   // ── Execute file tools on main process ──
   // #9: Backend enforcement — dangerous tools must be confirmed by frontend
-  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project'])
+  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'edit_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project'])
   ipcMain.handle('ai:execute-file-tool',
     async (_event, calls: ToolCallArgs[]) => {
       if (!projectsPath) throw new Error('Projects path not configured')

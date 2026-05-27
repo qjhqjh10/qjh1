@@ -1,16 +1,10 @@
 import { IpcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { showOpenDialog, readFileWithEncoding } from './utils'
+import { showOpenDialog, readFileWithEncoding, isSafePath } from './utils'
 import type { StyleProject, StyleProjectMeta } from '../../src/types/story'
 
 let basePath = ''
-
-function isSafeProjectId(projectId: string): boolean {
-  if (!projectId || typeof projectId !== 'string') return false
-  const normalized = path.normalize(path.join(basePath, projectId))
-  return normalized.startsWith(basePath + path.sep) || normalized === basePath
-}
 
 export function registerStyleHandlers(ipcMain: IpcMain, styleProjectsPath: string) {
   basePath = styleProjectsPath
@@ -56,14 +50,14 @@ export function registerStyleHandlers(ipcMain: IpcMain, styleProjectsPath: strin
 
   // Load full project
   ipcMain.handle('style:loadProject', async (_event, projectId: string) => {
-    if (!isSafeProjectId(projectId)) throw new Error('Access denied')
+    if (!isSafePath(path.join(basePath, projectId), basePath)) throw new Error('Access denied')
     const raw = await fs.readFile(path.join(basePath, projectId, 'project.json'), 'utf-8')
     return JSON.parse(raw) as StyleProject
   })
 
   // Save project
   ipcMain.handle('style:saveProject', async (_event, project: StyleProject) => {
-    if (!isSafeProjectId(project.id)) throw new Error('Access denied')
+    if (!isSafePath(path.join(basePath, project.id), basePath)) throw new Error('Access denied')
     const dir = path.join(basePath, project.id)
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify(project, null, 2), 'utf-8')
@@ -71,7 +65,7 @@ export function registerStyleHandlers(ipcMain: IpcMain, styleProjectsPath: strin
 
   // Delete project
   ipcMain.handle('style:deleteProject', async (_event, projectId: string) => {
-    if (!isSafeProjectId(projectId)) throw new Error('Access denied')
+    if (!isSafePath(path.join(basePath, projectId), basePath)) throw new Error('Access denied')
     const dir = path.join(basePath, projectId)
     await fs.rm(dir, { recursive: true, force: true })
   })

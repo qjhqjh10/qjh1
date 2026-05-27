@@ -20,7 +20,7 @@ import { AgentEventEmitter } from './runtime/AgentEventEmitter'
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler } from './context/ContextAssembler'
 import { useAgentStore } from './store/AgentStore'
-import { PermissionManager } from './permissions/PermissionManager'
+
 import { BudgetManager } from './budget/BudgetManager'
 import { ReflectionEngine } from './reflection/ReflectionEngine'
 import { ToolCache } from './cache/ToolCache'
@@ -30,12 +30,19 @@ import { aiService } from '@/services/fileService'
 import { HookEngine } from './hooks/HookEngine'
 import { AiHarnessConfigLoader } from './config/AiHarnessConfig'
 import { PolicyEngine } from './permissions/PolicyEngine'
+import { PermissionManager } from './permissions/PermissionManager'
 import { CheckpointManager } from './checkpoint/CheckpointManager'
 import { CircuitBreaker } from './circuit/CircuitBreaker'
+import { ConstraintEngine } from './constraints/ConstraintEngine'
 import { GatekeeperRunner } from './gatekeeper/GatekeeperRunner'
 import { AuditTrail } from './audit/AuditTrail'
 import { SkillLearner } from './evolution/SkillLearner'
 import { LivingSkillManager } from './living-skills/LivingSkillManager'
+import { SessionManager } from './sessions/SessionManager'
+import { EvaluationPipeline } from './evaluators/EvaluationPipeline'
+import { MetricsCollector } from './metrics/MetricsCollector'
+import { PostSessionAnalyzer } from './metrics/PostSessionAnalyzer'
+import { FeedbackChannel } from './feedback/FeedbackChannel'
 import type { Message, AgentRunResult } from './runtime/AgentRuntime'
 import type { ToolProgressEvent, ResponseChunk, ThinkingContext } from './runtime/AgentEventEmitter'
 
@@ -92,7 +99,6 @@ export interface BridgeSendResult {
 export class AgentChatBridge {
   private runtime: AgentRuntime | null = null
   private emitter: AgentEventEmitter | null = null
-  private permissionMgr = new PermissionManager()
   private budgetMgr = new BudgetManager(128000)
   private reflectionEng = new ReflectionEngine()
   private toolCache = new ToolCache()
@@ -101,19 +107,27 @@ export class AgentChatBridge {
   private policyEngine = new PolicyEngine()
   private checkpointMgr = new CheckpointManager()
   private circuitBreaker = new CircuitBreaker()
+  private constraintEngine = new ConstraintEngine()
   private gatekeeper = new GatekeeperRunner()
   private auditTrail = new AuditTrail()
   private hookEngine = new HookEngine()
   private skillLearner = new SkillLearner('.aiharness')
   private livingSkillManager = new LivingSkillManager()
+  private sessionMgr = new SessionManager('agent-sessions')
+  private evaluationPipeline = new EvaluationPipeline()
+  private metricsCollector = new MetricsCollector()
+  private postSessionAnalyzer = new PostSessionAnalyzer()
+  private feedbackChannel = new FeedbackChannel()
 
   private initialized = false
   private configId = ''
   private projectId: string | null = null
   private workMode: 'plan' | 'action' = 'action'
+  private maxIterations = 8
   private history: Message[] = []
   private abortController: AbortController = new AbortController()
   private runId = ''
+  private sessionId: string | null = null
 
   // ── Init ──
 
@@ -123,6 +137,7 @@ export class AgentChatBridge {
     this.configId = options.configId
     this.projectId = options.projectId
     this.workMode = options.workMode
+    this.maxIterations = options.maxIterations ?? 8
     this.history = options.historyMessages || []
     this.initialized = true
   }
@@ -155,30 +170,57 @@ export class AgentChatBridge {
       return { success: false, text: cbCheck.reason || '断路保护已激活', toolCalls: 0, totalTokens: 0, phase: 'ERROR' }
     }
 
-    const store = useAgentStore.getState()
-
     // Build runtime
     this.runId = Date.now().toString(36)
     this.abortController = new AbortController()
     this.emitter = new AgentEventEmitter()
     const store2 = useAgentStore.getState()
 
-    // Start audit trail + skill learner
+    // Start audit trail + skill learner + session persistence
     this.auditTrail.startSession(this.runId)
     this.skillLearner.startSession(this.runId, this.projectId)
     await this.skillLearner.loadLearned()
-    const learnedContext = this.skillLearner.getContextInject()
-    if (learnedContext && this.runtime) {
-      this.runtime.setHistory([...this.history, { role: 'system', content: learnedContext }])
-    }
+
+    // Load persisted metrics from previous sessions
+    try { await this.metricsCollector.load() } catch { /* first session */ }
+
+    // Create or resume session for persistence
+    try {
+      const session = await this.sessionMgr.create(
+        userMessage.slice(0, 50), this.projectId,
+      )
+      this.sessionId = session.id
+      useAgentStore.getState().addSession(session as any)
+
+      // Try loading previous session's context (for trend awareness)
+      try {
+        const prevSessions = await this.sessionMgr.list({ projectId: this.projectId || undefined })
+        if (prevSessions.length > 1) {
+          const prevSession = await this.sessionMgr.load(prevSessions[1].id) // second-most-recent
+          if (prevSession && prevSession.messages.length > 0) {
+            const lastMsgs = prevSession.messages.slice(-3) // last 3 messages from previous session
+            console.log(`[AgentBridge] 已加载上次会话 (${prevSession.meta.messageCount} 条消息)`)
+          }
+        }
+      } catch { /* session load is optional */ }
+    } catch { /* session persistence is best-effort */ }
 
     this.runtime = new AgentRuntime({
       configId: this.configId,
       projectId: this.projectId,
       workMode: this.workMode,
-      maxIterations: 8,
+      maxIterations: this.maxIterations,
       abortSignal: this.abortController.signal,
     })
+
+    // Inject learned context into runtime history (must happen after runtime creation)
+    const learnedContext = this.skillLearner.getContextInject()
+    if (learnedContext) {
+      this.runtime.setHistory([...this.history, { role: 'system', content: learnedContext }])
+    }
+
+    // Wire BudgetManager for token budget enforcement
+    this.runtime.setBudgetManager(this.budgetMgr)
 
     // Inject AI service
     this.runtime.setAIService({
@@ -201,7 +243,7 @@ export class AgentChatBridge {
     })
 
     // Inject context assembler with KB/Web search
-    this.runtime.setContextAssembler(async (msg, hist) => {
+    this.runtime.setContextAssembler(async (msg, hist, pid, _mode) => {
       let searchContext = ''
 
       // G7: KB search
@@ -212,7 +254,7 @@ export class AgentChatBridge {
           if (Array.isArray(results) && results.length > 0) {
             searchContext += '\n[知识库搜索结果]\n' + results.map((r: any) => r.content || r.text || '').join('\n---\n')
           }
-        } catch { /* KB search unavailable */ }
+        } catch (err) { console.warn('[AgentBridge] KB search unavailable:', err) }
       }
 
       // G7: Web search
@@ -223,7 +265,7 @@ export class AgentChatBridge {
           if (Array.isArray(results) && results.length > 0) {
             searchContext += '\n[网络搜索结果]\n' + results.map((r: any) => r.snippet || r.title || '').join('\n---\n')
           }
-        } catch { /* Web search unavailable */ }
+        } catch (err) { console.warn('[AgentBridge] Web search unavailable:', err) }
       }
 
       if (searchContext) {
@@ -289,9 +331,15 @@ export class AgentChatBridge {
         this.hookEngine.loadFromDefinitions(config.hooks, projectRoot)
       }
 
-      // Permissions: deny-first policy
+      // Permissions: deny-first policy + learned patterns
+      this.policyEngine.setPermissionManager(new PermissionManager())
       if (config.permissions.defaultEffect === 'deny' || config.permissions.policies.length > 0) {
         this.policyEngine.load(config.permissions.policies)
+      }
+
+      // Constraints: architectural + taste invariants
+      if (config.constraints) {
+        this.constraintEngine.updateConfig(config.constraints)
       }
 
       // Gatekeeper scripts
@@ -300,11 +348,17 @@ export class AgentChatBridge {
 
       // Checkpoint
       this.checkpointMgr = new CheckpointManager(config.durableExecution.maxCheckpoints)
-    } catch { /* defaults are fine */ }
+    } catch (err) { console.warn('[AgentBridge] AiHarnessConfig load failed, using defaults:', err) }
 
     // Wire Harness into runtime
     this.runtime.setHookEngine(this.hookEngine)
     this.runtime.setLivingSkillManager(this.livingSkillManager)
+    this.runtime.setReflectionEngine(this.reflectionEng)
+    this.runtime.setConstraintEngine(this.constraintEngine)
+    this.runtime.setPolicyEngine(this.policyEngine)
+    this.runtime.setHallucinationCallback((text) => {
+      this.skillLearner.recordError('hallucination', text, 'hallucination')
+    })
     this.livingSkillManager.startSession(this.runId, this.projectId)
     this.circuitBreaker.reset()
     this.auditTrail.startSession(this.runId)
@@ -377,7 +431,9 @@ export class AgentChatBridge {
       store2.completeTool(data.callId, 'error', data.summary, data.detail)
     })
 
+    let collectedText = ''
     emitter.on('response:streaming', (data) => {
+      collectedText = data.accumulated
       options.onResponse?.(data)
     })
 
@@ -386,15 +442,6 @@ export class AgentChatBridge {
       store2.setIteration(data.state.iteration)
       this.auditTrail.recordStateTransition(data.from, data.to)
     })
-
-    emitter.on('response:streaming', (data) => {
-      collectedText = data.accumulated
-      options.onResponse?.(data)
-    })
-
-    // Run!
-    let collectedText = ''
-    emitter.on('response:streaming', (d) => { collectedText = d.accumulated })
 
     const result = await this.runtime.run({
       userMessage,
@@ -409,12 +456,77 @@ export class AgentChatBridge {
     // ── End-of-session learning ──
     const promotedSkills = await this.livingSkillManager.endSession()
     const learnedRules = await this.skillLearner.generateRules()
-    await this.skillLearner.persistPatterns()
+    try { await this.skillLearner.persistPatterns() } catch { /* best-effort */ }
     if (promotedSkills.length > 0) {
       console.log(`[LivingSkill] ${promotedSkills.length} 个技能升级:`, promotedSkills.map(s => `${s.title} → ${s.stage}`).join(', '))
     }
     if (learnedRules.length > 0) {
       console.log(`[SkillLearner] 生成了 ${learnedRules.length} 条新规则:`, learnedRules.map(r => r.title).join(', '))
+    }
+
+    // ── Metrics Collection: aggregate audit trail ──
+    const runtimeToolResults = this.runtime?.getToolResults() || []
+    const runtimeMessages = this.runtime?.getMessagesForApi() || []
+    try {
+      this.metricsCollector.collect(this.auditTrail.getEvents(), this.runId)
+    } catch { /* metrics best-effort */ }
+
+    // ── Evaluation Pipeline: analyze this session ──
+    try {
+      const pipelineOutput = await this.evaluationPipeline.run({
+        taskDescription: userMessage,
+        toolResults: runtimeToolResults as any,
+        messages: runtimeMessages.length > 0 ? runtimeMessages : [
+          ...this.history,
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: collectedText },
+        ],
+        auditTrail: this.auditTrail,
+        skillLearner: this.skillLearner,
+        livingSkillManager: this.livingSkillManager,
+      })
+      if (pipelineOutput.report.overallScore < 0.6) {
+        console.log(`[Evaluator] 评分 ${pipelineOutput.report.overallScore} (${pipelineOutput.report.layer}) — ${pipelineOutput.report.summary}`)
+      }
+      if (pipelineOutput.autoSuggestions.length > 0) {
+        console.log(`[Evaluator] 建议:`, pipelineOutput.autoSuggestions.join('; '))
+      }
+    } catch { /* evaluation is best-effort */ }
+
+    // ── Post-Session Analysis ──
+    try {
+      const analysis = await this.postSessionAnalyzer.analyze(
+        this.runId, this.auditTrail,
+        runtimeToolResults as any, this.livingSkillManager,
+      )
+      if (analysis.suggestions.length > 0) {
+        console.log(`[PostSession] ${analysis.suggestions.join('; ')}`)
+      }
+    } catch { /* analysis is best-effort */ }
+
+    // ── Feedback Channel: check metrics → generate suggestions ──
+    try {
+      const aggregate = this.metricsCollector.getAggregate(20)
+      const newSuggestions = this.feedbackChannel.check(aggregate)
+      if (newSuggestions.length > 0) {
+        await this.feedbackChannel.persistNewSuggestions(newSuggestions)
+        console.log(`[Feedback] ${newSuggestions.length} 条新建议 → .aiharness/feedback/auto-suggestions.md`)
+      }
+    } catch { /* feedback is best-effort */ }
+
+    // Persist metrics for trend analysis across sessions
+    try { await this.metricsCollector.save() } catch { /* best-effort */ }
+
+    // Persist session
+    if (this.sessionId) {
+      try {
+        const sessionMessages = [
+          ...this.history.map(m => ({ ...m, timestamp: (m as any).timestamp || Date.now() })),
+          { role: 'user', content: userMessage, timestamp: Date.now() },
+          { role: 'assistant', content: collectedText, timestamp: Date.now() },
+        ]
+        await this.sessionMgr.save(this.sessionId, sessionMessages as any, result.totalTokens)
+      } catch { /* session save is best-effort */ }
     }
 
     return {
@@ -432,16 +544,6 @@ export class AgentChatBridge {
     this.abortController.abort()
     this.runtime?.abort()
     this.emitter?.abort()
-  }
-
-  // ── Permissions ──
-
-  getPermissionManager(): PermissionManager {
-    return this.permissionMgr
-  }
-
-  recordPermissionDecision(toolName: string, approved: boolean): void {
-    this.permissionMgr.recordDecision(toolName, approved)
   }
 
   // ── Budget ──

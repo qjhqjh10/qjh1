@@ -1,0 +1,795 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "list_directory",
+      "description": "列出项目目录中的文件和子目录。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dir_path": {
+            "type": "string",
+            "description": "相对于项目根目录的路径"
+          }
+        },
+        "required": [
+          "dir_path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_file",
+      "description": "读取项目文件的完整文本内容。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "相对路径"
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_files",
+      "description": "在项目目录中按文件名搜索文件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "文件名关键词"
+          },
+          "dir_path": {
+            "type": "string",
+            "description": "起始目录"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_content",
+      "description": "在项目文件中搜索指定文本。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "要搜索的文本"
+          },
+          "file_pattern": {
+            "type": "string",
+            "description": "限定文件类型，如 \"*.json\""
+          },
+          "dir_path": {
+            "type": "string",
+            "description": "起始目录"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_file",
+      "description": "精确字符串替换编辑文件。先 read_file 确认内容再编辑。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "相对路径"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "要被替换的原文"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "替换后的新文本"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "是否替换所有匹配处"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_file",
+      "description": "创建新文件并写入内容。需要用户确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "相对路径"
+          },
+          "content": {
+            "type": "string",
+            "description": "文件内容"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_file",
+      "description": "删除文件。需要用户确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "相对路径"
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "rename_file",
+      "description": "重命名或移动文件。需要用户确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "当前路径"
+          },
+          "new_path": {
+            "type": "string",
+            "description": "新路径"
+          }
+        },
+        "required": [
+          "file_path",
+          "new_path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_list",
+      "description": "列出知识库中的文件。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_create_file",
+      "description": "在知识库中创建新文件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "文件名"
+          },
+          "content": {
+            "type": "string",
+            "description": "文件内容"
+          }
+        },
+        "required": [
+          "file_name",
+          "content"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_append_file",
+      "description": "追加内容到知识库文件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "文件名"
+          },
+          "content": {
+            "type": "string",
+            "description": "追加内容"
+          }
+        },
+        "required": [
+          "file_name",
+          "content"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_index_file",
+      "description": "为知识库文件建立语义搜索索引。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "文件名"
+          }
+        },
+        "required": [
+          "file_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_notes",
+      "description": "列出所有草稿笔记。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_note",
+      "description": "读取草稿笔记内容。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "笔记文件名"
+          }
+        },
+        "required": [
+          "note_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "write_note",
+      "description": "创建或覆盖草稿笔记。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "笔记文件名"
+          },
+          "content": {
+            "type": "string",
+            "description": "笔记内容"
+          }
+        },
+        "required": [
+          "note_name",
+          "content"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "append_note",
+      "description": "追加内容到草稿笔记。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "笔记文件名"
+          },
+          "content": {
+            "type": "string",
+            "description": "追加内容"
+          }
+        },
+        "required": [
+          "note_name",
+          "content"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_note",
+      "description": "删除草稿笔记。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "笔记文件名"
+          }
+        },
+        "required": [
+          "note_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_images",
+      "description": "搜索网络图片（Unsplash）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          },
+          "count": {
+            "type": "number",
+            "description": "返回数量"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "generate_image",
+      "description": "使用AI生成图片。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "图片描述"
+          },
+          "size": {
+            "type": "string",
+            "description": "图片尺寸",
+            "enum": [
+              "1024x1024",
+              "1792x1024",
+              "1024x1792"
+            ]
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_style_template",
+      "description": "创建风格模板。基于26维文风分析。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "模板名称"
+          },
+          "dimensions": {
+            "type": "object",
+            "description": "26维文风分析结果"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_scene_template",
+      "description": "创建场景模板。配置章节的场景参数。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "模板名称"
+          },
+          "scene_type": {
+            "type": "string",
+            "description": "场景类型"
+          },
+          "config": {
+            "type": "object",
+            "description": "场景配置"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_project",
+      "description": "创建新的写作项目。需要用户确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "项目名称"
+          },
+          "novel_category": {
+            "type": "string",
+            "description": "小说类型"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_project",
+      "description": "删除项目。需要用户确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_name": {
+            "type": "string",
+            "description": "项目名称"
+          }
+        },
+        "required": [
+          "project_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_prompts",
+      "description": "列出提示词库中的提示词。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "toggle_prompt",
+      "description": "启用或禁用提示词。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt_name": {
+            "type": "string",
+            "description": "提示词名称"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "启用/禁用"
+          }
+        },
+        "required": [
+          "prompt_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_prompt",
+      "description": "修改提示词内容。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt_name": {
+            "type": "string",
+            "description": "提示词名称"
+          },
+          "new_content": {
+            "type": "string",
+            "description": "新提示词内容"
+          }
+        },
+        "required": [
+          "prompt_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_rules",
+      "description": "列出 .aiharness/ 中的已学习规则。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "learn_rule",
+      "description": "从经验中学习并持久化规则，防止以后再犯同样错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "触发条件"
+          },
+          "problem": {
+            "type": "string",
+            "description": "问题描述"
+          },
+          "solution": {
+            "type": "string",
+            "description": "解决方案"
+          },
+          "category": {
+            "type": "string",
+            "description": "错误分类"
+          }
+        },
+        "required": [
+          "trigger",
+          "problem",
+          "solution"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_config",
+      "description": "更新 .aiharness 配置（权限/预算/Hook）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "type": "string",
+            "description": "配置节"
+          },
+          "changes": {
+            "type": "string",
+            "description": "JSON 格式的变更内容"
+          }
+        },
+        "required": [
+          "section",
+          "changes"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_audit",
+      "description": "查询 Agent 自身的操作审计日志，用于自观测和调试。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "返回最近 N 条，默认 20"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "http_get",
+      "description": "发起 HTTP GET 请求获取网页或 API 数据。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "完整的 URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "http_fetch",
+      "description": "发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "description": "GET 或 POST"
+          },
+          "headers": {
+            "type": "string",
+            "description": "JSON 格式请求头"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_open",
+      "description": "打开网页 URL，提取并返回纯文本内容。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "网页 URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_search",
+      "description": "使用搜索引擎搜索关键词，返回结果摘要。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "shell_exec",
+      "description": "执行系统命令（仅允许 node/python/git/npm/npx）。需要双确认。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "shell_run_script",
+      "description": "执行 .aiharness/scripts/ 下的预置脚本。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "lsp_diagnose",
+      "description": "运行 TypeScript 类型检查，返回诊断错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    }
+  }
+]

@@ -4,12 +4,15 @@ import { useAgentStore } from '../store/AgentStore'
 import { toolRegistry } from '../tools/ToolRegistry'
 import { contextAssembler } from '../context/ContextAssembler'
 import { coreRulesProvider } from '../context/providers/coreRulesProvider'
-import { PermissionManager } from '../permissions/PermissionManager'
 import { BudgetManager } from '../budget/BudgetManager'
-import { ReflectionEngine } from '../reflection/ReflectionEngine'
 import { ToolCache } from '../cache/ToolCache'
+import { CircuitBreaker } from '../circuit/CircuitBreaker'
+import { ConstraintEngine } from '../constraints/ConstraintEngine'
+import { PolicyEngine } from '../permissions/PolicyEngine'
+import { SkillLearner } from '../evolution/SkillLearner'
+import { LivingSkillManager } from '../living-skills/LivingSkillManager'
+import { HallucinationDetector } from '../runtime/HallucinationDetector'
 import type { AgentConfig, AgentRunInput, Message } from '../runtime/AgentRuntime'
-import type { ToolResultEvent } from '../runtime/AgentEventEmitter'
 import { aiService } from '@/services/fileService'
 import { ALL_TOOLS } from '../tools/definitions'
 
@@ -18,9 +21,7 @@ let globalsInitialized = false
 function initGlobals() {
   if (globalsInitialized) return
   globalsInitialized = true
-  // Register all 26 tools
   toolRegistry.registerAll(ALL_TOOLS)
-  // Register core rules provider
   if (contextAssembler.getProviders().length === 0) {
     contextAssembler.register(coreRulesProvider)
   }
@@ -34,6 +35,8 @@ export interface UseAgentRuntimeOptions {
   workMode: 'plan' | 'action'
   maxIterations?: number
   historyMessages?: Message[]
+  kbEnabled?: boolean
+  webSearchEnabled?: boolean
 }
 
 export function useAgentRuntime(options: UseAgentRuntimeOptions) {
@@ -43,6 +46,8 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
     configId, projectId, workMode,
     maxIterations = 8,
     historyMessages = [],
+    kbEnabled = false,
+    webSearchEnabled = false,
   } = options
 
   const [isRunning, setIsRunning] = useState(false)
@@ -52,10 +57,14 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
 
   const runtimeRef = useRef<AgentRuntime | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
-  const permissionMgrRef = useRef(new PermissionManager())
   const budgetMgrRef = useRef(new BudgetManager(128000))
-  const reflectionRef = useRef(new ReflectionEngine())
   const toolCacheRef = useRef(new ToolCache())
+  const circuitBreakerRef = useRef(new CircuitBreaker())
+  const constraintEngineRef = useRef(new ConstraintEngine())
+  const policyEngineRef = useRef(new PolicyEngine())
+  const skillLearnerRef = useRef(new SkillLearner('.aiharness'))
+  const livingSkillManagerRef = useRef(new LivingSkillManager())
+  const hallucinationDetectorRef = useRef(new HallucinationDetector())
 
   const store = useAgentStore()
 
@@ -93,15 +102,73 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
       abortStream: () => aiService.abortStream(),
     })
 
-    runtime.setContextAssembler(async (userMessage, history, mode) => {
-      return contextAssembler.assemble(userMessage, history, projectId)
+    runtime.setContextAssembler(async (userMessage, history, pid, _mode) => {
+      let searchContext = ''
+      const effectiveProjectId = pid ?? projectId
+
+      if (kbEnabled && effectiveProjectId) {
+        try {
+          const { kbService } = await import('@/services/fileService')
+          const results = await kbService.search(userMessage, effectiveProjectId, configId || '', 3)
+          if (Array.isArray(results) && results.length > 0) {
+            searchContext += '\n[知识库搜索结果]\n' + results.map((r: any) => r.content || r.text || '').join('\n---\n')
+          }
+        } catch { /* KB search unavailable */ }
+      }
+
+      if (webSearchEnabled) {
+        try {
+          const { kbService } = await import('@/services/fileService')
+          const results = await kbService.webSearch(userMessage, 3)
+          if (Array.isArray(results) && results.length > 0) {
+            searchContext += '\n[网络搜索结果]\n' + results.map((r: any) => r.snippet || r.title || '').join('\n---\n')
+          }
+        } catch { /* Web search unavailable */ }
+      }
+
+      const assembled = await contextAssembler.assemble(userMessage, history, effectiveProjectId)
+      if (searchContext) {
+        assembled.systemMessages.push({ role: 'system', content: searchContext })
+        assembled.totalTokens += Math.ceil(searchContext.length / 3)
+      }
+      return assembled
     })
 
     runtime.setToolExecutor(async (args, ctx) => {
-      return toolRegistry.execute(ctx.callId.includes('tool') ? ctx.callId.replace('tool', '') : ctx.callId, args, ctx)
+      // Circuit breaker check
+      const cbCheck = circuitBreakerRef.current.beforeCall()
+      if (!cbCheck.allowed) {
+        return { status: 'error', summary: cbCheck.reason || '断路保护已激活' }
+      }
+
+      // For reads, check cache first
+      const cacheKey = `${ctx.toolName}:${JSON.stringify(args)}`
+      if (toolCacheRef.current.has(cacheKey)) {
+        return toolCacheRef.current.get(cacheKey)!
+      }
+
+      const result = await toolRegistry.execute(ctx.toolName, args, ctx)
+
+      if (result.status === 'success') {
+        circuitBreakerRef.current.recordSuccess()
+        if (ctx.toolName === 'read_file') toolCacheRef.current.set(cacheKey, result)
+      } else {
+        circuitBreakerRef.current.recordFailure()
+      }
+
+      return result
     })
 
-    runtime.setTools(toolRegistry.getAllSchemas())
+    // Safety-critical subsystems
+    runtime.setBudgetManager(budgetMgrRef.current)
+    runtime.setConstraintEngine(constraintEngineRef.current)
+    runtime.setPolicyEngine(policyEngineRef.current)
+    runtime.setLivingSkillManager(livingSkillManagerRef.current)
+    runtime.setHallucinationDetector(hallucinationDetectorRef.current)
+    runtime.setHallucinationCallback((text) => {
+      skillLearnerRef.current.recordError('hallucination', text, 'hallucination')
+    })
+    runtime.setTools(toolRegistry.getFilteredSchemas(workMode))
     runtime.setHistory(historyMessages)
 
     // Wire events to UI
@@ -134,7 +201,7 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
 
     runtimeRef.current = runtime
     return runtime
-  }, [configId, projectId, workMode, maxIterations, historyMessages, store])
+  }, [configId, projectId, workMode, maxIterations, historyMessages, kbEnabled, webSearchEnabled, store])
 
   // Run the agent
   const run = useCallback(async (input: AgentRunInput) => {
@@ -142,6 +209,7 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
     setStreamedText('')
     setIsRunning(true)
 
+    circuitBreakerRef.current.reset()
     const runtime = getRuntime()
 
     try {
@@ -172,6 +240,7 @@ export function useAgentRuntime(options: UseAgentRuntimeOptions) {
     runtimeRef.current = null
     abortControllerRef.current = new AbortController()
     toolCacheRef.current.invalidateAll()
+    circuitBreakerRef.current.reset()
     setStreamedText('')
     setError(null)
   }, [abort])

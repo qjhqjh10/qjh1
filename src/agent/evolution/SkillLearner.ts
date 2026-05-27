@@ -65,18 +65,16 @@ export class SkillLearner {
     this.patterns.clear()
     this.rules = []
 
-    // Load from shared learned directory
     try {
-      const { readdir, readFile } = await import('fs/promises')
-      const { join } = await import('path')
-      const dir = join(this.storagePath, 'learned')
+      const { fileService } = await import('@/services/fileService')
 
+      // Load from shared learned directory
       try {
-        const files = await readdir(dir)
+        const files = await fileService.listDir(`${this.storagePath}/learned`)
         for (const f of files) {
           if (f.endsWith('.json')) {
             try {
-              const raw = await readFile(join(dir, f), 'utf-8')
+              const raw = await fileService.read(`${this.storagePath}/learned/${f}`)
               const pattern = JSON.parse(raw) as LearnedPattern
               this.patterns.set(pattern.id, pattern)
             } catch { /* skip corrupt */ }
@@ -85,19 +83,18 @@ export class SkillLearner {
       } catch { /* dir doesn't exist yet */ }
 
       // Load auto-generated rules
-      const rulesDir = join(this.storagePath, 'rules', 'auto-learned')
       try {
-        const ruleFiles = await readdir(rulesDir)
+        const ruleFiles = await fileService.listDir(`${this.storagePath}/rules/auto-learned`)
         for (const f of ruleFiles) {
           if (f.endsWith('.json')) {
             try {
-              const raw = await readFile(join(rulesDir, f), 'utf-8')
+              const raw = await fileService.read(`${this.storagePath}/rules/auto-learned/${f}`)
               this.rules.push(JSON.parse(raw) as LearnedRule)
             } catch { /* skip */ }
           }
         }
       } catch { /* dir doesn't exist yet */ }
-    } catch { /* node fs not available (renderer context) */ }
+    } catch { /* fileService not available */ }
 
     return this.rules
   }
@@ -241,22 +238,20 @@ export class SkillLearner {
 
   private async saveRule(rule: LearnedRule): Promise<void> {
     try {
-      const { mkdir, writeFile } = await import('fs/promises')
-      const { join } = await import('path')
-      const dir = join(this.storagePath, 'rules', 'auto-learned')
-      await mkdir(dir, { recursive: true })
-      await writeFile(join(dir, `${rule.id}.json`), JSON.stringify(rule, null, 2), 'utf-8')
+      const { fileService } = await import('@/services/fileService')
+      const dir = `${this.storagePath}/rules/auto-learned`
+      await fileService.ensureDir(dir)
+      await fileService.write(`${dir}/${rule.id}.json`, JSON.stringify(rule, null, 2))
     } catch { /* persist failure is non-fatal */ }
   }
 
   async persistPatterns(): Promise<void> {
     try {
-      const { mkdir, writeFile } = await import('fs/promises')
-      const { join } = await import('path')
-      const dir = join(this.storagePath, 'learned')
-      await mkdir(dir, { recursive: true })
-      for (const [key, pattern] of this.patterns) {
-        await writeFile(join(dir, `${pattern.id}.json`), JSON.stringify(pattern, null, 2), 'utf-8').catch(() => {})
+      const { fileService } = await import('@/services/fileService')
+      const dir = `${this.storagePath}/learned`
+      await fileService.ensureDir(dir)
+      for (const [, pattern] of this.patterns) {
+        await fileService.write(`${dir}/${pattern.id}.json`, JSON.stringify(pattern, null, 2)).catch(() => {})
       }
     } catch { /* non-fatal */ }
   }

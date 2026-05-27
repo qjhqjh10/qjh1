@@ -18,7 +18,7 @@ export interface ToolDefinition {
 
   executor: (args: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolResult>
 
-  category: 'file' | 'kb' | 'note' | 'image' | 'template' | 'project' | 'prompt'
+  category: 'file' | 'kb' | 'note' | 'image' | 'template' | 'project' | 'prompt' | 'http' | 'browser' | 'shell'
 
   availableInPlanMode: boolean
 }

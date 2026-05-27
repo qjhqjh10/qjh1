@@ -1,7 +1,28 @@
 {
-  "currentVersion": "6.2.0",
-  "currentDate": "2026-05-27",
+  "currentVersion": "7.0.0",
+  "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "7.0.0",
+      "date": "2026-05-28",
+      "features": [
+        "Harness Engineering全面升级: Guides→Execution→Sensors→Feedback闭环四层架构",
+        "CLAUDE.md瘦身: 148行→46行(≤60行铁律), 三层导航(CLAUDE.md+golden-rules+project-structure)",
+        "约束引擎: 4架构约束(500行/路径/JSON/依赖)+3品味不变量, 修复指令嵌入错误消息",
+        "评估体系: FailureTaxonomy(4维)+EvaluatorAgent两层(启发式+LLM)+EvaluationPipeline",
+        "反馈飞轮: MetricsCollector(6指标+趋势)+PostSessionAnalyzer+FeedbackChannel→.aiharness/feedback/",
+        "外部能力扩展: HTTP(http_get/http_fetch)+浏览器(browser_open/browser_search)+Shell(shell_exec/shell_run_script)+MCP+LSP",
+        "工具总数: 26→37(30本地+7外部), 模型路由cheap/main/eval三级, 7子Agent+GC扫描",
+        "学习系统修复: SkillLearner fs/promises→fileService IPC, learn_rule格式统一, LivingSkill effectiveness递增, 持久化闭环",
+        "安全加固: Shell移除shell:true, MCP命令白名单+env隔离+参数校验, edit_file加入危险列表, PolicyEngine接线到AgentRuntime",
+        "可靠性修复: FSM abort安全+RESPONDING→ERROR, compressMessages去as any, 静默catch→console.warn",
+        "权限衰减: 7天时间衰减防止永久自动批准, shell_run_script READ_ASK→DANGEROUS_ASK",
+        "深度审计修复: 36项安全×可靠性×学习问题, 修复率100%",
+        "一致性检查: C1-C8自动化, check-consistency.sh, 15PASS/0FAIL",
+        "一键初始化: bootstrap.sh+bootstrap.bat, 测试覆盖率vitest/coverage-v8(30%门槛)",
+        "session持久化+metrics持久化+skills持久化全部闭环, Feedback自动注入system prompt"
+      ]
+    },
     {
       "version": "6.2.0",
       "date": "2026-05-27",

@@ -196,6 +196,11 @@ export interface ElectronAPI {
   extractions: ExtractionAPI
   story: StoryAPI
   rewrite: RewriteAPI
+  http: { fetch: (url: string, options?: Record<string, unknown>) => Promise<any>; get: (url: string) => Promise<any> }
+  browser: { open: (url: string) => Promise<any>; screenshot: (url: string, path?: string) => Promise<any>; search: (query: string) => Promise<any> }
+  shell: { exec: (command: string, cwd?: string) => Promise<any>; runScript: (name: string) => Promise<any> }
+  mcp: { listServers: () => Promise<any>; connectServer: (name: string) => Promise<any>; callTool: (serverName: string, toolName: string, args: Record<string, unknown>) => Promise<any>; listTools: (serverName: string) => Promise<any> }
+  lsp: { diagnose: (filePath: string) => Promise<any> }
 }
 
 declare global {

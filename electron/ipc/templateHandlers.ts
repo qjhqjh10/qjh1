@@ -50,6 +50,11 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
   })
 
   ipcMain.handle('template:listProject', async (_e, projectPath: string) => {
+    // Path safety check — normalize + lowercase for Windows case-insensitivity
+    const normalized = path.normalize(projectPath).toLowerCase()
+    if (!normalized.startsWith(path.normalize(templatesPath).toLowerCase()) && !normalized.startsWith(path.normalize(basePath).toLowerCase())) {
+      return []
+    }
     const dir = path.join(projectPath, 'scene_templates')
     const templates: SceneTemplate[] = []
     try {

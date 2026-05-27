@@ -33,6 +33,7 @@ export function encryptKey(apiKey: string, safeStorage: SafeStorage): { key: str
       return { key: apiKey, encrypted: false }
     }
   }
+  console.warn('[Security] safeStorage 不可用，API Key 将以明文存储。请确保系统密钥链服务正在运行。')
   return { key: apiKey, encrypted: false }
 }
 

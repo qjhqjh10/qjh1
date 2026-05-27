@@ -11,6 +11,8 @@ import type { Message, ToolResult } from '../runtime/AgentRuntime'
 
 // ── Types ──
 
+export type ModelTier = 'cheap' | 'main' | 'eval'
+
 export interface SubAgentConfig {
   name: string
   purpose: string
@@ -18,6 +20,7 @@ export interface SubAgentConfig {
   contextProviderDomains: string[]
   maxIterations: number
   systemPrompt: string
+  modelTier?: ModelTier  // 'cheap'=haiku/small, 'main'=opus/sonnet, 'eval'=evaluation model
 }
 
 export interface SubAgentResult {
@@ -28,6 +31,7 @@ export interface SubAgentResult {
   tokenCost: number
   toolCalls: number
   duration: number
+  modelTier: ModelTier
 }
 
 // ── Pre-built Sub-Agent Configurations ──
@@ -39,6 +43,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     toolNames: ['read_file', 'list_directory', 'search_content', 'search_files', 'write_note'],
     contextProviderDomains: ['core-rules', 'outline', 'detailed-outline', 'characters'],
     maxIterations: 4,
+    modelTier: 'main',
     systemPrompt: [
       '你是章节规划专家。你的任务是分析大纲和细纲数据，为章节写作做准备。',
       '操作步骤:',
@@ -55,6 +60,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     toolNames: ['read_file', 'search_content', 'create_style_template', 'write_note'],
     contextProviderDomains: ['core-rules', 'style'],
     maxIterations: 5,
+    modelTier: 'main',
     systemPrompt: [
       '你是风格分析专家。分析原文的 26 个文风维度，创建风格模板。',
       '操作步骤:',
@@ -71,6 +77,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     toolNames: ['read_file', 'search_content', 'search_files', 'list_directory', 'write_note'],
     contextProviderDomains: ['core-rules', 'characters', 'outline'],
     maxIterations: 6,
+    modelTier: 'cheap',
     systemPrompt: [
       '你是一致性检查专家。检查项目中的设定冲突和逻辑矛盾。',
       '操作步骤:',
@@ -87,6 +94,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     toolNames: ['read_file', 'create_scene_template', 'write_note'],
     contextProviderDomains: ['core-rules', 'scene', 'detailed-outline'],
     maxIterations: 3,
+    modelTier: 'main',
     systemPrompt: [
       '你是场景构建专家。根据细纲内容创建详细的场景配置模板。',
       '操作步骤:',
@@ -103,6 +111,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     toolNames: ['kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file', 'read_file'],
     contextProviderDomains: ['core-rules', 'kb'],
     maxIterations: 4,
+    modelTier: 'cheap',
     systemPrompt: [
       '你是知识管理专家。整理和维护知识库的素材和参考资料。',
       '操作步骤:',
@@ -110,6 +119,31 @@ export const SUB_AGENTS: SubAgentConfig[] = [
       '2. 分析内容，决定是创建新文件还是追加到已有文件',
       '3. 整理完成后用 kb_index_file 建立语义搜索索引',
       '完成后汇报: 创建/追加的文件、索引状态、知识库总体情况。',
+    ].join('\n'),
+  },
+  {
+    name: 'gc-scanner',
+    purpose: '扫描代码健康度：超大文件、过期引用、孤儿文件、文档漂移',
+    toolNames: ['read_file', 'list_directory', 'search_files', 'search_content', 'write_note', 'list_rules'],
+    contextProviderDomains: ['core-rules'],
+    maxIterations: 10,
+    modelTier: 'cheap',
+    systemPrompt: [
+      '你是代码健康检查 Agent（GC Scanner）。扫描项目，发现并报告问题。',
+      '你只能读取文件，不能修改任何内容。',
+      '',
+      '检查项目:',
+      '1. 超大文件: 检查每个 .ts/.tsx 文件是否超过 500 行',
+      '2. 过期引用: 验证 CLAUDE.md 和 golden-rules.md 中的文件引用',
+      '3. 孤儿文件: 检查是否有文件没有被其他文件 import 或引用',
+      '4. 文档漂移: 对比文档声明与实际结构',
+      '',
+      '操作步骤:',
+      '1. list_directory 顶级目录，list_directory src/agent/ 子目录',
+      '2. read_file CLAUDE.md + .aiharness/rules/golden-rules.md',
+      '3. read_file 各子目录的 index.ts 确认导出覆盖',
+      '4. 将问题写入 write_note，标题 "gc-report"',
+      '完成后输出问题列表和修复建议。',
     ].join('\n'),
   },
 ]
@@ -147,21 +181,26 @@ export class SubAgentManager {
   /**
    * Delegate a task to a sub-agent. The sub-agent runs in an isolated context
    * with limited tools and focused system prompt, then returns a structured result.
+   * Uses the sub-agent's modelTier if configured, otherwise falls back to main.
    */
   async delegate(
     agentName: string,
     input: string,
     configId: string,
     projectId: string | null,
+    modelTierOverride?: 'cheap' | 'main' | 'eval',
   ): Promise<SubAgentResult> {
     const config = this.getAgent(agentName)
     if (!config) {
       return {
         agentName, status: 'error',
         summary: `未找到子 Agent: ${agentName}`,
-        output: '', tokenCost: 0, toolCalls: 0, duration: 0,
+        output: '', tokenCost: 0, toolCalls: 0, duration: 0, modelTier: 'main',
       }
     }
+
+    const effectiveTier = modelTierOverride || config.modelTier || 'main'
+    const effectiveConfigId = configId // Model routing via different configIds when available
 
     const startTime = Date.now()
     let totalTokens = 0
@@ -251,6 +290,7 @@ export class SubAgentManager {
         tokenCost: totalTokens,
         toolCalls,
         duration: Date.now() - startTime,
+        modelTier: effectiveTier,
       }
     } catch (err) {
       return {
@@ -261,6 +301,7 @@ export class SubAgentManager {
         tokenCost: totalTokens,
         toolCalls,
         duration: Date.now() - startTime,
+        modelTier: effectiveTier,
       }
     }
   }

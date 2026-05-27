@@ -94,6 +94,11 @@ export function registerStyleTemplateHandlers(ipcMain: IpcMain, basePath: string
   })
 
   ipcMain.handle('styleTemplate:listProject', async (_event, projectPath: string) => {
+    // Path safety check
+    const normalized = path.normalize(projectPath).toLowerCase()
+    if (!normalized.startsWith(path.normalize(templatesPath).toLowerCase()) && !normalized.startsWith(path.normalize(basePath).toLowerCase())) {
+      return []
+    }
     const dir = path.join(projectPath, 'style_templates')
     const templates: StyleTemplate[] = []
     try {

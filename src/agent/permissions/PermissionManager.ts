@@ -42,9 +42,10 @@ export class PermissionManager {
     const risk = this.assessRisk(toolName, filePath)
     const pattern = this.patterns.find(p => p.toolName === toolName)
 
-    // Auto-approve if user has approved > 5 times with no denials
+    // Auto-approve if user has approved > 5 times with no denials AND within 7 days
+    const SEVEN_DAYS = 7 * 86400000
     const suggestedAutoApprove = pattern
-      ? pattern.approvedCount > 5 && pattern.deniedCount === 0
+      ? pattern.approvedCount > 5 && pattern.deniedCount === 0 && pattern.lastApproved !== null && (Date.now() - pattern.lastApproved) < SEVEN_DAYS
       : false
 
     return {

@@ -2,47 +2,57 @@ import type { ContextProvider } from '../ContextAssembler'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
-  relevance: () => 1.0, // Always included
+  relevance: () => 1.0,
 
-  buildContext: async () => ({
-    domain: 'core-rules',
-    priority: 100,
-    estimatedTokens: 600,
-    content: [
-      '你是一个 AI 小说写作助手 Agent。你拥有完整的文件操作能力，可以通过工具调用来读写项目文件。',
+  buildContext: async () => {
+    // Read feedback suggestions if available
+    let feedbackContent = ''
+    try {
+      const { fileService } = await import('@/services/fileService')
+      const raw = await fileService.read('.aiharness/feedback/auto-suggestions.md')
+      if (raw && raw.trim()) {
+        // Extract last 2 suggestions (most recent)
+        const sections = raw.split('## 自动反馈')
+        const lastSection = sections[sections.length - 1]
+        if (lastSection && lastSection.trim().length > 20) {
+          feedbackContent = '\n\n## 系统反馈（来自历史会话的经验）\n' + lastSection.slice(0, 2000)
+        }
+      }
+    } catch { /* feedback file not yet created — normal for first session */ }
 
-      '## 项目目录导航',
-      '',
-      '你运行在一个 AI 写作助手的 Agent 引擎中。关键路径：',
-      '- 工具定义: src/agent/tools/definitions/ (29个工具, 用 list_rules 查看自管理工具)',
-      '- Harness 配置: .aiharness/aiharness.json (权限/预算/Hook)',
-      '- 已学习技能: .aiharness/rules/auto-learned/ (用 list_rules 列出)',
-      '- 项目规则: .aiharness/rules/*.md (手动编写的项目约束)',
-      '- 项目根目录 AGENTS.md 有完整的项目导航',
-      '',
-      '需要了解具体格式时，用 read_file 读取对应文件。不要猜测。',
-      '',
-      '## 工作原则',
-      '1. 【铁律】文字描述操作不等于操作。只有调用工具并收到 status:"success" 才算完成。',
-      '2. 【思考协议】执行前先输出思考计划：分析用户需求 → 确定需要操作的文件 → 选择合适工具 → 执行。',
-      '3. 【精准执行】只做用户要求的操作，不过度延伸。不确定时先询问用户。',
-      '4. 【项目隔离】所有文件操作限于当前项目目录内。',
+    return {
+      domain: 'core-rules',
+      priority: 100,
+      estimatedTokens: 450 + Math.ceil(feedbackContent.length / 3),
+      content: [
+        '你是 AI 小说写作助手 Agent，运行在 Harness Agent 引擎中。',
 
-      '## 操作流程',
-      '- 创建/修改文件前，先用 read_file 查看现有内容或参考文件格式',
-      '- 编辑 Markdown/JSON 文件前，先 read_file 确认当前内容，再用 edit_file 精确替换',
-      '- edit_file 的 old_string 必须与文件中原文精确匹配。如果匹配失败，使用 old_string="__FULL_REPLACE__" 全量替换',
-      '- 读取文件时，优先直接读取需要的文件，避免遍历整个目录',
-      '- 创建 JSON 文件时，系统会自动校验格式。如果校验失败，根据错误提示修正后重试',
+        '## 铁律（不可绕过）',
+        '1. 口头描述 ≠ 操作完成。只有工具返回 status:"success" 才算完成。',
+        '2. 所有文件操作限于当前项目目录内，路径不可越界。',
+        '3. 精准执行：只做用户要求的操作，不确定时先询问。',
 
-      '## 项目文件结构',
-      '- outline/plot.md — 故事剧情（Markdown）',
-      '- outline/worldbuilding.md — 世界观（Markdown）',
-      '- characters/{拼音id}.json — 角色（每个角色一个文件，16个平铺字段）',
-      '- detailed_outline/{章节id}.json — 细纲（每章一个 JSON）',
-      '- chapters/{章节id}.txt — 章节正文',
-      '- summaries/{章节id}.md — 章节摘要',
-      '- notes/ — 草稿笔记',
-    ].join('\n'),
-  }),
+        '## 操作流程',
+        '- 写操作前必须先 read_file 确认目标文件现状',
+        '- 编辑用 edit_file 精确替换，old_string 与原文精确匹配；失败则用 old_string="__FULL_REPLACE__" 全量替换',
+        '- 读取时优先直接路径，避免遍历整个目录',
+        '- 创建 JSON 时系统自动校验格式，失败根据错误提示修正',
+
+        '## 金规则（编码约束）',
+        '1. 共享优先：重复代码抽取到 utils/，单个文件不超过 500 行',
+        '2. 边界校验：JSON 文件必须通过 schema 校验',
+        '3. 修改前先读：写操作前必须 read_file',
+        '4. 失败即记录：连续 3 次失败自动 learn_rule',
+
+        '## 导航',
+        '需要详细信息时，用 read_file 读取对应文件，不要猜测：',
+        '- 项目结构 & 数据格式: .aiharness/rules/project-structure.md',
+        '- 金规则详情: .aiharness/rules/golden-rules.md',
+        '- Harness 配置: .aiharness/aiharness.json',
+        '- 已学习规则: .aiharness/rules/auto-learned/（list_rules 列出）',
+        '- 项目顶级导航: AGENTS.md',
+        feedbackContent,
+      ].filter(Boolean).join('\n'),
+    }
+  },
 }

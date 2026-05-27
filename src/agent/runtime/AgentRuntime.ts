@@ -69,7 +69,7 @@ export interface ToolExecutorFn {
 // ── Context Assembler Contract ──
 
 export interface ContextAssemblerFn {
-  (userMessage: string, history: Message[], workMode: string): Promise<{
+  (userMessage: string, history: Message[], projectId: string | null, workMode?: string): Promise<{
     systemMessages: Array<{ role: 'system'; content: string }>
     totalTokens: number
     domains: string[]
@@ -117,10 +117,15 @@ export class AgentRuntime {
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private hookEngine: HookEngine | null = null
-  private budgetManager: { budget: { available: number }; addUsage(tokens: number): void } | null = null
+  private budgetManager: { budget: { available: number }; addUsage(tokens: number): void; reset(): void; getCompressionStage(): string; compressMessages(messages: Array<{ role: string; content: string; [key: string]: unknown }>): Array<{ role: string; content: string; [key: string]: unknown }> } | null = null
   private hallucinationDetector: { detect(text: string, knownTools: Set<string>): string | null } | null = null
   private checkpointManager: { save(sessionId: string, state: AgentState, messages: Message[], tokenUsage: number, reason: string): Promise<unknown> } | null = null
   private livingSkillManager: LivingSkillManager | null = null
+  private reflectionEngine: { reflect(results: ToolResult[], toolNames: string[]): { shouldRetry: boolean; retrySuggestions: string[]; summary: string }; buildReflectionInject(r: { retrySuggestions: string[] }): string } | null = null
+  private constraintEngine: { check(args: Record<string, unknown>): { passed: boolean; message: string } } | null = null
+  private policyEngine: { evaluate(toolName: string, args?: Record<string, unknown>): { effect: string; matchedPolicy: string | null; reason: string; requiresUserApproval: boolean } } | null = null
+  private hallucinationCallback: ((text: string) => void) | null = null
+  private toolResultsBatch: ToolResult[] = []
 
   constructor(config: AgentConfig) {
     this.config = config
@@ -158,10 +163,14 @@ export class AgentRuntime {
     this.hookEngine = engine
   }
 
-  setBudgetManager(bm: { budget: { available: number }; addUsage(tokens: number): void }): void { this.budgetManager = bm }
+  setBudgetManager(bm: typeof this.budgetManager): void { this.budgetManager = bm }
   setHallucinationDetector(hd: { detect(text: string, knownTools: Set<string>): string | null }): void { this.hallucinationDetector = hd }
   setCheckpointManager(cm: { save(sessionId: string, state: AgentState, messages: Message[], tokenUsage: number, reason: string): Promise<unknown> }): void { this.checkpointManager = cm }
   setLivingSkillManager(lsm: LivingSkillManager): void { this.livingSkillManager = lsm }
+  setReflectionEngine(re: typeof this.reflectionEngine): void { this.reflectionEngine = re }
+  setConstraintEngine(ce: typeof this.constraintEngine): void { this.constraintEngine = ce }
+  setPolicyEngine(pe: typeof this.policyEngine): void { this.policyEngine = pe }
+  setHallucinationCallback(cb: typeof this.hallucinationCallback): void { this.hallucinationCallback = cb }
 
   setHistory(messages: Message[]): void {
     this.historyMessages = messages
@@ -175,6 +184,14 @@ export class AgentRuntime {
     return this.fsm.currentState
   }
 
+  getMessagesForApi(): Message[] {
+    return [...this.messagesForApi]
+  }
+
+  getToolResults(): readonly ToolResult[] {
+    return this.toolResultsBatch
+  }
+
   // ── Run ──
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
@@ -183,6 +200,7 @@ export class AgentRuntime {
     store.startRun(runId)
     this.emitter.reset()
     this.emitter.emit('run:start', { timestamp: Date.now() })
+    this.budgetManager?.reset()
 
     // ── Hook: SessionStart ──
     if (this.hookEngine) {
@@ -220,7 +238,7 @@ export class AgentRuntime {
       await this.fsm.transition('ASSEMBLING_CONTEXT')
       let contextResult
       if (this.contextAssembler) {
-        contextResult = await this.contextAssembler(input.userMessage, this.historyMessages, this.config.workMode)
+        contextResult = await this.contextAssembler(input.userMessage, this.historyMessages, this.config.projectId, this.config.workMode)
       } else {
         contextResult = { systemMessages: [], totalTokens: 0, domains: [] }
       }
@@ -281,6 +299,10 @@ export class AgentRuntime {
               configId: this.config.configId, messageCount: this.messagesForApi.length,
               estimatedTokens: 0, contextWindow: 128000, timestamp: Date.now(),
             })
+            // Apply progressive compression based on budget stage
+            if (typeof this.budgetManager?.compressMessages === 'function') {
+              this.messagesForApi = (this.budgetManager as any).compressMessages(this.messagesForApi as any[])
+            }
           }
 
           // G1: Smart tool selection — pure chat gets 0 tools, saves ~5000 tokens/round
@@ -296,6 +318,7 @@ export class AgentRuntime {
 
           totalTokens += response.usage?.total_tokens || 0
           store.addTokens(response.usage?.total_tokens || 0)
+          this.budgetManager?.addUsage(response.usage?.total_tokens || 0)
           if (response.usage?.prompt_tokens) {
             store.setPeakPromptTokens(response.usage.prompt_tokens)
           }
@@ -314,6 +337,7 @@ export class AgentRuntime {
             if (this.hallucinationDetector) {
               const hw = this.hallucinationDetector.detect(response.text || '', new Set())
               if (hw) {
+                this.hallucinationCallback?.('hallucination: ' + (response.text || '').slice(0, 100))
                 this.messagesForApi.push({ role: 'system', content: `[纠错] 你说完成了操作但没有调用工具。请立即调用对应工具执行。${hw}` })
                 this.fsm.setShouldContinue(true)
                 if (this.fsm.canTransition('CALLING_API')) { await this.fsm.transition('CALLING_API') }
@@ -410,6 +434,47 @@ export class AgentRuntime {
                 }
               }
 
+              // ── PolicyEngine Check (deny-first permission enforcement) ──
+              if (this.policyEngine) {
+                const permResult = this.policyEngine.evaluate(tc.name, args)
+                if (permResult.effect === 'deny') {
+                  this.messagesForApi.push({
+                    role: 'tool', tool_call_id: tc.id,
+                    content: JSON.stringify({ status: 'error', summary: `[策略拒绝] ${permResult.reason}` }),
+                  })
+                  this.emitter.emit('tool:failed', {
+                    callId: tc.id, toolName: tc.name,
+                    status: 'error', summary: `策略拒绝: ${permResult.reason}`,
+                    timestamp: Date.now(),
+                  })
+                  continue
+                }
+              }
+
+              // ── Constraint Check (architectural + taste invariants) ──
+              if (this.constraintEngine) {
+                const constraintResult = this.constraintEngine.check({
+                  toolName: tc.name,
+                  filePath: args.file_path as string || args.path as string || '',
+                  content: args.content as string || '',
+                  newPath: args.new_path as string || '',
+                  projectId: this.config.projectId,
+                })
+                if (!constraintResult.passed) {
+                  this.messagesForApi.push({
+                    role: 'tool', tool_call_id: tc.id,
+                    content: JSON.stringify({ status: 'error', summary: `[约束阻断] ${constraintResult.message}` }),
+                  })
+                  store.completeTool(tc.id, 'error', `约束阻断: ${constraintResult.message}`)
+                  this.emitter.emit('tool:failed', {
+                    callId: tc.id, toolName: tc.name,
+                    status: 'error', summary: `约束阻断: ${constraintResult.message}`,
+                    timestamp: Date.now(),
+                  })
+                  continue
+                }
+              }
+
               let result: ToolResult
               if (this.toolExecutor) {
                 result = await this.toolExecutor(args, {
@@ -422,6 +487,7 @@ export class AgentRuntime {
               } else {
                 result = { status: 'error', summary: '工具执行器未配置' }
               }
+              this.toolResultsBatch.push(result)
 
               // ── Hook: PostToolUse ──
               if (this.hookEngine) {
@@ -567,6 +633,21 @@ export class AgentRuntime {
     if (this.fsm.canTransition('REFLECTING')) {
       await this.fsm.transition('REFLECTING')
     }
+
+    // Use ReflectionEngine to analyze tool results and suggest retries
+    if (this.reflectionEngine && this.toolResultsBatch.length > 0) {
+      const failedCount = this.toolResultsBatch.filter(r => r.status === 'error').length
+      if (failedCount > 0 && !this.config.abortSignal.aborted) {
+        const reflection = this.reflectionEngine.reflect(this.toolResultsBatch, [])
+        if (reflection.shouldRetry) {
+          const inject = this.reflectionEngine.buildReflectionInject(reflection) || reflection.retrySuggestions.join('\n')
+          if (inject) {
+            this.messagesForApi.push({ role: 'system', content: inject })
+          }
+        }
+      }
+    }
+    this.toolResultsBatch = []
 
     const state = this.fsm.currentState
     // Should continue if: API said "tool_calls", not at max iterations, not aborted

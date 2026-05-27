@@ -55,6 +55,15 @@ export interface AiHarnessConfig {
     compressThresholds: number[]  // [50, 60, 70, 85, 95] percent
   }
   evaluators: EvaluatorThreshold[]
+  constraints: {
+    enabled: boolean
+    fileSizeLimit: number
+    enforceNamingConvention: boolean
+    enforceDependencyDirection: boolean
+    jsonSchemaValidation: boolean
+    enforceNoEmptyFiles: boolean
+    enforceNoDuplicateCreate: boolean
+  }
   tools: {
     enabledTools?: string[]
     disabledTools?: string[]
@@ -91,6 +100,15 @@ export const DEFAULT_CONFIG: AiHarnessConfig = {
     compressThresholds: [50, 60, 70, 85, 95],
   },
   evaluators: [],
+  constraints: {
+    enabled: true,
+    fileSizeLimit: 500,
+    enforceNamingConvention: true,
+    enforceDependencyDirection: false,
+    jsonSchemaValidation: true,
+    enforceNoEmptyFiles: true,
+    enforceNoDuplicateCreate: true,
+  },
   tools: {
     constraints: {},
   },

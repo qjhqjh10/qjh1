@@ -16,10 +16,34 @@ export class LivingSkillManager {
     this.currentSessionId = sessionId
     this.currentProjectId = projectId
     this.observations = []
+    this.loadPersisted()
+  }
+
+  private async loadPersisted(): Promise<void> {
+    try {
+      const { fileService } = await import('@/services/fileService')
+      const path = '.aiharness/living-skills/skills.json'
+      const raw = await fileService.read(path)
+      const data = JSON.parse(raw)
+      if (Array.isArray(data)) {
+        for (const s of data) this.skills.set(s.id, s)
+      }
+    } catch { /* first session or persist not available */ }
+  }
+
+  private async persistSkills(): Promise<void> {
+    try {
+      const { fileService } = await import('@/services/fileService')
+      const data = [...this.skills.values()]
+      if (data.length === 0) return
+      await fileService.ensureDir('.aiharness/living-skills')
+      await fileService.write('.aiharness/living-skills/skills.json', JSON.stringify(data, null, 2))
+    } catch { /* persistence is best-effort */ }
   }
 
   async endSession(): Promise<LivingSkill[]> {
     const promoted = await this.runPromotionCycle()
+    await this.persistSkills()
     return promoted
   }
 
@@ -34,6 +58,17 @@ export class LivingSkillManager {
   }
 
   onToolSuccess(toolName: string, args: Record<string, unknown>, result: ToolResult): void {
+    // Increment effectiveness counters for skills related to this tool
+    for (const [key, skill] of this.skills) {
+      if (skill.trigger.toolName === toolName && skill.trigger.source === 'error') {
+        skill.totalFixesAttempted++
+        skill.totalFixSuccesses++
+        skill.sessionsWhereEffective = Math.max(skill.sessionsWhereEffective, 1)
+        skill.confidence = this.scorer.compute(skill)
+        this.promoteIfReady(skill)
+      }
+    }
+
     // Positive learning: successful patterns
     if (result.status === 'success' && this.observations.length > 0) {
       const prevObs = this.observations.filter(o => o.toolName === toolName && o.type === 'success')
@@ -160,7 +195,7 @@ export class LivingSkillManager {
 
   private pruneStale(): void {
     for (const [key, skill] of this.skills) {
-      if (skill.stage === 'OBSERVED' && skill.occurrenceCount === 1 && Date.now() - skill.createdAt > 7 * 86400000) {
+      if (skill.stage === 'OBSERVED' && skill.occurrenceCount <= 1 && Date.now() - skill.createdAt > 7 * 86400000) {
         this.skills.delete(key)
       }
     }

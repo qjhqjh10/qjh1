@@ -36,11 +36,18 @@ function matchGlob(pattern: string, value: string): boolean {
   return regex.test(value)
 }
 
+import { PermissionManager } from './PermissionManager'
+
 export class PolicyEngine {
   private policies: PermissionPolicy[] = []
+  private permissionMgr: PermissionManager | null = null
 
   load(policies: PermissionPolicy[]): void {
     this.policies = [...policies]
+  }
+
+  setPermissionManager(mgr: PermissionManager): void {
+    this.permissionMgr = mgr
   }
 
   getPolicies(): readonly PermissionPolicy[] {
@@ -78,7 +85,15 @@ export class PolicyEngine {
       return { effect: 'ask', matchedPolicy: p.id, reason: `策略 [${p.id}] 需要用户确认`, requiresUserApproval: true }
     }
 
-    // 4. Default deny
+    // 4. Fallback to learned permission patterns
+    if (this.permissionMgr) {
+      const learned = this.permissionMgr.evaluate(toolName, filePath || undefined)
+      if (learned.suggestedAutoApprove) {
+        return { effect: 'allow', matchedPolicy: 'learned', reason: `自动批准（历史行为模式）`, requiresUserApproval: false }
+      }
+    }
+
+    // 5. Default deny
     return { effect: 'deny', matchedPolicy: null, reason: '默认拒绝：未匹配任何允许策略', requiresUserApproval: false }
   }
 

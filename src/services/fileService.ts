@@ -137,6 +137,22 @@ export const aiService = {
   abortStream: () => { e().ai.abortStream() },
 }
 
+export const httpService = {
+  fetch: (url: string, options?: Record<string, unknown>) => e().http.fetch(url, options),
+  get: (url: string) => e().http.get(url),
+}
+
+// Re-export new service methods on fileService for convenience
+;(fileService as any).httpGet = httpService.get
+;(fileService as any).httpFetch = httpService.fetch
+;(fileService as any).browserOpen = (url: string) => e().browser.open(url)
+;(fileService as any).browserSearch = (query: string) => e().browser.search(query)
+;(fileService as any).shellExec = (command: string, cwd?: string) => e().shell.exec(command, cwd)
+;(fileService as any).shellRunScript = (name: string) => e().shell.runScript(name)
+;(fileService as any).mcpCallTool = (server: string, tool: string, args: Record<string, unknown>) => e().mcp.callTool(server, tool, args)
+;(fileService as any).mcpConnectServer = (name: string) => e().mcp.connectServer(name)
+;(fileService as any).lspDiagnose = (filePath: string | undefined) => e().lsp.diagnose(filePath || undefined as any)
+
 export const kbService = {
   list: () => e().kb.list(),
   read: (fileId: string) => e().kb.read(fileId),

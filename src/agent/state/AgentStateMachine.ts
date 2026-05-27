@@ -74,6 +74,7 @@ export class AgentStateMachine {
       { from: 'AWAITING_TOOLS', to: 'ERROR' },
       { from: 'AWAITING_APPROVAL', to: 'ERROR' },
       { from: 'REFLECTING', to: 'ERROR' },
+      { from: 'RESPONDING', to: 'ERROR' },
       { from: 'ERROR', to: 'IDLE' },
       { from: 'ERROR', to: 'CALLING_API', guard: (s) => s.iteration < s.maxIterations },
 
