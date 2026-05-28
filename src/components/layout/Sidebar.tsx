@@ -18,6 +18,7 @@ import {
   ClockIcon,
   ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline'
+import EmptyState from '@/components/common/EmptyState'
 
 interface NavItem {
   path: string
@@ -120,7 +121,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="glass"
+      className="glass noise-texture"
       style={{
         width,
         height: '100vh',
@@ -265,8 +266,8 @@ export default function Sidebar() {
             </button>
           ))}
           {projects.length === 0 && !collapsed && (
-            <div style={{ padding: '12px', textAlign: 'center', color: '#9b8e84', fontSize: 12 }}>
-              暂无项目
+            <div style={{ padding: '8px 12px' }}>
+              <EmptyState icon="📁" title="暂无项目" />
             </div>
           )}
         </div>
@@ -283,37 +284,58 @@ export default function Sidebar() {
         )}
 
         {/* Nav Items */}
-        <nav style={{ padding: `0 ${collapsed ? 4 : 12}px` }}>
-          {navItems.map(item => (
-            <button
-              key={item.path}
-              onClick={() => handleNav(item.path)}
-              title={collapsed ? item.label : undefined}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: collapsed ? 'center' : undefined,
-                gap: 10,
-                padding: collapsed ? '10px 0' : '10px 12px',
-                borderRadius: 14,
-                border: 'none',
-                background: isActive(item.path)
-                  ? 'rgba(124, 58, 237, 0.1)'
-                  : 'transparent',
-                cursor: 'pointer',
-                fontSize: 'var(--sidebar-font-size, 13px)',
-                color: isActive(item.path) ? '#7c3aed' : '#4a3f38',
-                fontWeight: isActive(item.path) ? 600 : 400,
-                transition: 'all 0.15s ease',
-                marginBottom: 2,
-                textAlign: 'left' as const,
-              }}
-            >
-              <item.icon style={{ width: 18, height: 18, flexShrink: 0 }} />
-              {!collapsed && item.label}
-            </button>
-          ))}
+        <nav style={{ padding: `0 ${collapsed ? 4 : 12}px` }} className="stagger-item">
+          {navItems.map(item => {
+            const active = isActive(item.path)
+            return (
+              <button
+                key={item.path}
+                onClick={() => handleNav(item.path)}
+                title={collapsed ? item.label : undefined}
+                className="interactive"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: collapsed ? 'center' : undefined,
+                  gap: 10,
+                  padding: collapsed ? '10px 0' : '10px 12px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: active ? 'rgba(124, 58, 237, 0.1)' : 'transparent',
+                  cursor: 'pointer',
+                  fontSize: 'var(--sidebar-font-size, 13px)',
+                  color: active ? '#7c3aed' : '#4a3f38',
+                  fontWeight: active ? 600 : 400,
+                  transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  marginBottom: 2,
+                  textAlign: 'left' as const,
+                  boxShadow: active ? '0 0 12px rgba(124,58,237,0.08)' : 'none',
+                  position: 'relative' as const,
+                }}
+                onMouseEnter={e => {
+                  if (!active) {
+                    e.currentTarget.style.background = 'rgba(0,0,0,0.03)'
+                    e.currentTarget.style.transform = 'translateX(2px)'
+                  }
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = active ? 'rgba(124, 58, 237, 0.1)' : 'transparent'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                {active && (
+                  <span style={{
+                    position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                    width: 3, height: 16, borderRadius: 2,
+                    background: 'linear-gradient(180deg, #7c3aed, #a78bfa)',
+                  }} />
+                )}
+                <item.icon style={{ width: 18, height: 18, flexShrink: 0, transition: 'transform 0.2s ease' }} />
+                {!collapsed && item.label}
+              </button>
+            )
+          })}
         </nav>
       </div>
 
@@ -321,15 +343,21 @@ export default function Sidebar() {
       {!collapsed && (
         <div style={{ padding: '0 12px', marginBottom: 4 }}>
           <button onClick={() => handleNav('/settings')} style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
-            borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: 'rgba(0,0,0,0.02)', textAlign: 'left' as const,
-          }}>
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+            borderRadius: 12, border: '1px solid rgba(0,0,0,0.04)', cursor: 'pointer',
+            background: 'rgba(255,255,255,0.3)', textAlign: 'left' as const,
+            transition: 'all 0.2s ease',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.5)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.3)' }}
+          >
             <span style={{
-              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
               background: connectionStatus === 'connected' ? '#16a34a' : connectionStatus === 'disconnected' ? '#dc2626' : '#f59e0b',
+              boxShadow: connectionStatus === 'connected' ? '0 0 6px rgba(22,163,74,0.4)' : 'none',
+              animation: connectionStatus === 'checking' ? 'pulse 1.5s infinite' : 'none',
             }} />
-            <span style={{ fontSize: 10, color: '#6b5e54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11, color: '#6b5e54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {connectionStatus === 'connected' ? `已连接 ${connectedModel}` : connectionStatus === 'disconnected' ? '无连接' : '检测中...'}
             </span>
           </button>

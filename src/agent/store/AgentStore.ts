@@ -32,6 +32,9 @@ export interface AgentRunState {
   thinking: ThinkingContext | null
   activeTools: Record<string, ToolExecutionState>  // keyed by callId
   lastError: string | null
+  streamingText: string
+  isStreaming: boolean
+  hookFeedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null
 }
 
 export interface PermissionPattern {
@@ -39,6 +42,19 @@ export interface PermissionPattern {
   approvedCount: number
   deniedCount: number
   lastApproved: number | null
+}
+
+export interface AgentHealthState {
+  circuitState: 'CLOSED' | 'OPEN' | 'HALF_OPEN'
+  circuitFailures: number
+  checkpointCount: number
+  autoApprovedTools: string[]
+  lastSessionMetrics: {
+    toolSuccessRate: number
+    hallucinationRate: number
+    iterationCycles: number
+    trend: 'improving' | 'stable' | 'declining'
+  } | null
 }
 
 export interface AgentStoreState {
@@ -55,6 +71,9 @@ export interface AgentStoreState {
   // Token tracking
   totalTokensUsed: number
   peakPromptTokens: number
+
+  // Health (persisted across sessions for settings page)
+  health: AgentHealthState
 
   // Actions — Session
   setSessions: (sessions: AgentSessionMeta[]) => void
@@ -73,6 +92,9 @@ export interface AgentStoreState {
   updateToolProgress: (event: ToolProgressEvent) => void
   completeTool: (callId: string, status: 'success' | 'error', summary: string, detail?: string) => void
   setLastError: (error: string | null) => void
+  setStreamingText: (text: string) => void
+  setIsStreaming: (streaming: boolean) => void
+  setHookFeedback: (feedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null) => void
 
   // Actions — Permissions
   recordPermission: (toolName: string, approved: boolean) => void
@@ -81,6 +103,9 @@ export interface AgentStoreState {
   // Actions — Tokens
   addTokens: (amount: number) => void
   setPeakPromptTokens: (tokens: number) => void
+
+  // Actions — Health
+  setHealth: (health: Partial<AgentHealthState>) => void
 }
 
 // ── Store ──
@@ -98,12 +123,23 @@ export const useAgentStore = create<AgentStoreState>()(
       thinking: null,
       activeTools: {},
       lastError: null,
+      streamingText: '',
+      isStreaming: false,
+      hookFeedback: null,
     },
 
     permissionPatterns: [],
 
     totalTokensUsed: 0,
     peakPromptTokens: 0,
+
+    health: {
+      circuitState: 'CLOSED',
+      circuitFailures: 0,
+      checkpointCount: 0,
+      autoApprovedTools: [],
+      lastSessionMetrics: null,
+    },
 
     // ── Session Actions ──
 
@@ -129,6 +165,9 @@ export const useAgentStore = create<AgentStoreState>()(
         thinking: null,
         activeTools: {},
         lastError: null,
+        streamingText: '',
+        isStreaming: false,
+        hookFeedback: null,
       }
     }),
 
@@ -141,6 +180,9 @@ export const useAgentStore = create<AgentStoreState>()(
         thinking: null,
         activeTools: {},
         lastError: null,
+        streamingText: '',
+        isStreaming: false,
+        hookFeedback: null,
       }
     }),
 
@@ -172,6 +214,9 @@ export const useAgentStore = create<AgentStoreState>()(
     }),
 
     setLastError: (error) => set(s => { s.run.lastError = error }),
+    setStreamingText: (text) => set(s => { s.run.streamingText = text }),
+    setIsStreaming: (streaming) => set(s => { s.run.isStreaming = streaming }),
+    setHookFeedback: (feedback) => set(s => { s.run.hookFeedback = feedback }),
 
     // ── Permission Actions ──
 
@@ -199,5 +244,9 @@ export const useAgentStore = create<AgentStoreState>()(
     setPeakPromptTokens: (tokens) => set(s => {
       if (tokens > s.peakPromptTokens) s.peakPromptTokens = tokens
     }),
+
+    // ── Health Actions ──
+
+    setHealth: (partial) => set(s => { Object.assign(s.health, partial) }),
   }))
 )

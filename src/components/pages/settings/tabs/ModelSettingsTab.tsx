@@ -166,6 +166,7 @@ export function ModelSettingsTab() {
                           apiUrl: preset ? preset.apiUrl : activeConfig.apiUrl,
                         })
                       }}
+                      className="focus-ring"
                       style={{ ...inputStyle, cursor: 'pointer' }}
                     >
                       <option value="">-- 选择服务商 --</option>
@@ -189,6 +190,7 @@ export function ModelSettingsTab() {
                       type="text"
                       value={activeConfig.apiUrl}
                       onChange={e => updateConfig(activeConfig.id, { apiUrl: e.target.value })}
+                      className="focus-ring"
                       style={inputStyle}
                       placeholder="https://api.openai.com/v1"
                     />
@@ -198,6 +200,7 @@ export function ModelSettingsTab() {
                       type="password"
                       value={activeConfig.apiKey}
                       onChange={e => updateConfig(activeConfig.id, { apiKey: e.target.value })}
+                      className="focus-ring"
                       style={inputStyle}
                       placeholder="sk-..."
                     />
@@ -210,6 +213,7 @@ export function ModelSettingsTab() {
                           value={activeConfig.model}
                           onChange={e => updateConfig(activeConfig.id, { model: e.target.value })}
                           onFocus={() => modelList.length > 0 && setShowModelDropdown(true)}
+                          className="focus-ring"
                           style={{ ...inputStyle, flex: 1 }}
                           placeholder="gpt-4o"
                         />

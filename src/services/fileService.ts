@@ -150,7 +150,10 @@ export const httpService = {
 ;(fileService as any).shellExec = (command: string, cwd?: string) => e().shell.exec(command, cwd)
 ;(fileService as any).shellRunScript = (name: string) => e().shell.runScript(name)
 ;(fileService as any).mcpCallTool = (server: string, tool: string, args: Record<string, unknown>) => e().mcp.callTool(server, tool, args)
-;(fileService as any).mcpConnectServer = (name: string) => e().mcp.connectServer(name)
+;(fileService as any).mcpConnectServer = (name: string, config: { name: string; command: string; args: string[]; env?: Record<string, string> }) => e().mcp.connectServer(name, config)
+;(fileService as any).mcpDisconnectServer = (name: string) => e().mcp.disconnectServer(name)
+;(fileService as any).mcpSaveConfig = (servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>) => e().mcp.saveConfig(servers)
+;(fileService as any).mcpLoadConfig = (): Promise<Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>> => e().mcp.loadConfig()
 ;(fileService as any).lspDiagnose = (filePath: string | undefined) => e().lsp.diagnose(filePath || undefined as any)
 
 export const kbService = {

@@ -4,6 +4,7 @@ import { useStore } from '@/store'
 import { fileService, dialogService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
+import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
 import {
   PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon,
@@ -201,7 +202,7 @@ export default function DetailedOutlinePage() {
   if (loading) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p>
+        <SkeletonCard lines={3} />
       </div>
     )
   }

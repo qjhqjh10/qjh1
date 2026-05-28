@@ -2,7 +2,7 @@ import type { Character } from '@/types/character'
 import { ROLES, normalizeRole } from '@/services/characterService'
 import { ROLE_COLORS } from './constants'
 import { CharacterCard } from './CharacterCard'
-import { UserIcon } from '@heroicons/react/24/outline'
+import EmptyState from '@/components/common/EmptyState'
 
 interface CharacterGridProps {
   characters: Character[]
@@ -15,10 +15,7 @@ interface CharacterGridProps {
 export function CharacterGrid({ characters, projectPath, onEdit, onDelete, onLightbox }: CharacterGridProps) {
   if (characters.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
-        <UserIcon style={{ width: 48, height: 48, margin: '0 auto 12px', opacity: 0.3 }} />
-        <p style={{ fontSize: 14 }}>暂无角色，点击"AI生成角色"或"新建角色"创建</p>
-      </div>
+      <EmptyState icon="👤" title="暂无角色" description="点击 AI生成角色 或 新建角色 创建" />
     )
   }
 

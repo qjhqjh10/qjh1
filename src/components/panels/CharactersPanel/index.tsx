@@ -159,7 +159,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* Left: Worldbuilding reference */}
       {showWorldbuildingPanel && (
-        <div style={{ width: '30%', borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass" style={{ width: '30%', borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>世界观设定框</h3>
           </div>
@@ -186,17 +186,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         </div>
         <div style={{ margin: '0 28px', height: 1, background: 'rgba(0,0,0,0.06)' }} />
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 24 }}>
-          <style>{`
-            .char-card { transition: all 0.25s cubic-bezier(0.4,0,0.2,1); }
-            .char-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(124,58,237,0.1), 0 4px 12px rgba(0,0,0,0.06) !important; }
-            .char-img-box { transition: all 0.25s ease; }
-            .char-card:hover .char-img-box { box-shadow: 0 0 20px rgba(124,58,237,0.15); }
-            .char-card:hover .char-img-placeholder { border-color: rgba(124,58,237,0.25) !important; background: rgba(124,58,237,0.04) !important; }
-            .char-card:hover .char-img-overlay { background: rgba(0,0,0,0.2) !important; }
-            .char-card:hover .char-img-overlay span { opacity: 1 !important; }
-            .role-group-header { transition: all 0.2s ease; }
-            .role-group-header:hover { transform: translateX(4px); }
-          `}</style>
           <CharacterGrid characters={characters} projectPath={projectPath}
             onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} />
         </ScrollArea>

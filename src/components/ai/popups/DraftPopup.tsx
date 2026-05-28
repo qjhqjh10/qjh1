@@ -3,6 +3,7 @@ import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
 import WordCount from '@/components/common/WordCount'
+import { SkeletonList } from '@/components/common/Skeleton'
 
 interface Props {
   documentKey: string
@@ -92,7 +93,7 @@ export function DraftPopup({ documentKey }: Props) {
       </div>
 
       {loading ? (
-        <div style={{ padding: 20, color: '#9b8e84', fontSize: 12 }}>加载中...</div>
+        <div style={{ padding: 20 }}><SkeletonList count={3} /></div>
       ) : (
         <textarea
           value={content}

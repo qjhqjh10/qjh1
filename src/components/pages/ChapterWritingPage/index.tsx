@@ -8,6 +8,7 @@ import type { ChapterSceneConfig } from '@/types/story'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
+import EmptyState from '@/components/common/EmptyState'
 import Modal from '@/components/common/Modal'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
@@ -318,7 +319,7 @@ export default function ChapterWritingPage() {
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* ====== LEFT: Reference Panel ====== */}
-      <div style={{
+      <div className="glass" style={{
         width: '20%',
         minWidth: 260,
         borderRight: '1px solid rgba(0,0,0,0.05)',
@@ -398,7 +399,7 @@ export default function ChapterWritingPage() {
                   </div>
                 ))}
                 {characters.length === 0 && (
-                  <p style={{ fontSize: 11, color: '#9b8e84', textAlign: 'center', padding: 8 }}>暂无角色</p>
+                  <EmptyState icon="👤" title="暂无角色" description="在角色面板中创建角色" />
                 )}
               </div>
             </ScrollArea>
@@ -415,9 +416,9 @@ export default function ChapterWritingPage() {
               onChange={e => {
                 if (detailedChapter) updateDetailedChapter(detailedChapter.id, { ...detailedChapter, description: e.target.value })
               }}
-              className="custom-scrollbar"
+              className="custom-scrollbar focus-ring"
               style={{
-                width: '100%', border: '1px solid rgba(0,0,0,0.05)', borderRadius: 8, outline: 'none',
+                width: '100%', border: '1px solid rgba(0,0,0,0.05)', borderRadius: 10, outline: 'none',
                 resize: 'none', fontSize: 11, lineHeight: 1.6, fontFamily: 'inherit',
                 color: '#4a3f38', background: 'rgba(255,255,255,0.7)', padding: 8, minHeight: 220,
               }}
@@ -452,6 +453,7 @@ export default function ChapterWritingPage() {
                   <button
                     key={ch.id}
                     onClick={() => saveAndNavigate(ch.id)}
+                    className="interactive"
                     style={{
                       width: '100%', textAlign: 'left', padding: '6px 8px', borderRadius: 8, border: 'none',
                       background: ch.id === chapterId ? 'rgba(124,58,237,0.08)' : 'transparent',
@@ -474,9 +476,9 @@ export default function ChapterWritingPage() {
       </div>
 
       {/* ====== RIGHT: Chapter Editor Area ====== */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#e8e4df' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.25)' }}>
         {/* Top bar */}
-        <div style={{
+        <div className="glass" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 24px', background: 'rgba(255,255,255,0.6)', borderBottom: '1px solid rgba(0,0,0,0.05)',
         }}>
@@ -488,21 +490,24 @@ export default function ChapterWritingPage() {
               {detailedChapter?.title || '未命名章节'}
             </h1>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setShowAIGen(true)} style={{ padding: '5px 14px', borderRadius: 10, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <SparklesIcon style={{ width: 14, height: 14 }} /> AI生成
-              </button>
-              <button onClick={() => setShowReview(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <ClipboardDocumentCheckIcon style={{ width: 14, height: 14 }} /> AI审稿
-              </button>
-              <button onClick={() => setShowReviewResults(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(16,163,74,0.2)', background: 'rgba(16,163,74,0.04)', color: '#16a34a', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <DocumentTextIcon style={{ width: 14, height: 14 }} /> 审稿结果
-              </button>
-              <button onClick={() => setShowBatchGen(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.04)', color: '#e67e00', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <SparklesIcon style={{ width: 14, height: 14 }} /> 批量生成
-              </button>
-              <button onClick={() => setShowVersions(true)} style={{ padding: '5px 14px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                <ClockIcon style={{ width: 14, height: 14 }} /> 版本历史
-              </button>
+              <Button size="sm" onClick={() => setShowAIGen(true)} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
+                AI生成
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowReview(true)} icon={<ClipboardDocumentCheckIcon style={{ width: 14, height: 14 }} />}
+                style={{ borderColor: 'rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed' }}>
+                AI审稿
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowReviewResults(true)} icon={<DocumentTextIcon style={{ width: 14, height: 14 }} />}
+                style={{ borderColor: 'rgba(16,163,74,0.2)', background: 'rgba(16,163,74,0.04)', color: '#16a34a' }}>
+                审稿结果
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowBatchGen(true)} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}
+                style={{ borderColor: 'rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.04)', color: '#e67e00' }}>
+                批量生成
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowVersions(true)} icon={<ClockIcon style={{ width: 14, height: 14 }} />}>
+                版本历史
+              </Button>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -520,7 +525,7 @@ export default function ChapterWritingPage() {
 
         {/* Editor body */}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '16px 32px' }}>
-          <div className="custom-scrollbar" style={{ width: '100%', overflowY: 'auto' }}>
+          <div className="custom-scrollbar writing-paper" style={{ width: '100%', overflowY: 'auto' }}>
             <RichTextEditor
               content={content}
               onContentChange={setContent}

@@ -409,9 +409,20 @@ export class AgentChatBridge {
     // Wire events to callbacks
     const emitter = this.runtime.getEmitter()
 
+    // Start run in store (activates AgentStateBar + AgentThinkingPanel)
+    store2.startRun(this.runId)
+
     emitter.on('thinking:start', (data) => {
       store2.setThinking(data)
       options.onThinking?.(data)
+    })
+
+    emitter.on('thinking:progress', (data) => {
+      // Update thinking context with progress info
+      const current = useAgentStore.getState().run.thinking
+      if (current) {
+        store2.setThinking({ ...current, intent: `[${data.step}/${data.totalSteps}] ${data.description}` })
+      }
     })
 
     emitter.on('tool:started', (data) => {
@@ -439,6 +450,8 @@ export class AgentChatBridge {
     let collectedText = ''
     emitter.on('response:streaming', (data) => {
       collectedText = data.accumulated
+      store2.setStreamingText(data.accumulated)
+      store2.setIsStreaming(true)
       options.onResponse?.(data)
     })
 
@@ -448,15 +461,37 @@ export class AgentChatBridge {
       this.auditTrail.recordStateTransition(data.from, data.to)
     })
 
-    const result = await this.runtime.run({
-      userMessage,
-      attachments: [],
-      kbEnabled: options.kbEnabled ?? false,
-      webSearchEnabled: options.webSearchEnabled ?? false,
-      selectedRefs: options.selectedRefs ?? [],
+    emitter.on('hook:blocked', (data) => {
+      store2.setHookFeedback({ hookName: data.hookName, passed: false, feedback: data.feedback, timestamp: data.timestamp })
     })
 
+    emitter.on('hook:passed', (data) => {
+      store2.setHookFeedback({ hookName: data.hookName, passed: data.passed, feedback: data.feedback, timestamp: data.timestamp })
+    })
+
+    emitter.on('error', (data) => {
+      store2.setLastError(data.message)
+    })
+
+    let result: Awaited<ReturnType<typeof this.runtime.run>>
+    try {
+      result = await this.runtime.run({
+        userMessage,
+        attachments: [],
+        kbEnabled: options.kbEnabled ?? false,
+        webSearchEnabled: options.webSearchEnabled ?? false,
+        selectedRefs: options.selectedRefs ?? [],
+      })
+    } catch (err) {
+      store2.setIsStreaming(false)
+      store2.endRun()
+      throw err
+    }
+
+    // Keep isRunning=true through onComplete so tool cards remain visible
+    store2.setIsStreaming(false)
     options.onComplete?.(result)
+    store2.endRun()
 
     // ── End-of-session learning ──
     const promotedSkills = await this.livingSkillManager.endSession()
@@ -521,6 +556,24 @@ export class AgentChatBridge {
 
     // Persist metrics for trend analysis across sessions
     try { await this.metricsCollector.save() } catch { /* best-effort */ }
+
+    // ── Write health state to store (for Agent settings page) ──
+    try {
+      const store = useAgentStore.getState()
+      const aggregate = this.metricsCollector.getAggregate(20)
+      store.setHealth({
+        circuitState: this.circuitBreaker.currentState,
+        circuitFailures: (this.circuitBreaker as any).failureCount ?? 0,
+        checkpointCount: this.checkpointMgr.count,
+        autoApprovedTools: [],
+        lastSessionMetrics: aggregate ? {
+          toolSuccessRate: aggregate.avgToolSuccessRate,
+          hallucinationRate: aggregate.hallucinationRate,
+          iterationCycles: aggregate.avgIterationCycles,
+          trend: aggregate.trend,
+        } : store.health.lastSessionMetrics,
+      })
+    } catch { /* health update is best-effort */ }
 
     // Persist session
     if (this.sessionId) {

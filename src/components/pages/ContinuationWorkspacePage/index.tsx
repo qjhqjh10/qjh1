@@ -9,6 +9,7 @@ import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
 import Button from '@/components/common/Button'
+import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
 import Modal from '@/components/common/Modal'
 import {
@@ -417,7 +418,7 @@ export default function ContinuationWorkspacePage() {
   const analyzedCount = chapters.filter(c => c.analysis).length
 
   // Style constants
-  if (!project) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84', fontSize: 13 }}>加载中...</div>
+  if (!project) return <div style={{ flex: 1, padding: 24 }}><SkeletonCard lines={3} /></div>
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

@@ -7,6 +7,7 @@ import type { Project } from '@/types/project'
 import type { ModelConfig } from '@/types/settings'
 import { DEFAULT_PROMPTS } from '@/types/settings'
 import { logError } from '@/utils/logger'
+import { injectThemeVars } from '@/theme'
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
   constructor(props: { children: React.ReactNode }) { super(props); this.state = { error: null } }
@@ -109,6 +110,9 @@ export default function App() {
   const displaySettings = useSettingsStore(s => s.displaySettings)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
+
+  // Inject design tokens as CSS custom properties (one-time)
+  useEffect(() => { injectThemeVars() }, [])
 
   useEffect(() => {
     appService.getProjectsBasePath().then(setProjectsBasePath)

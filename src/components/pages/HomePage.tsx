@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid'
 import GlassCard from '@/components/common/GlassCard'
 import CoverUpload from '@/components/common/CoverUpload'
 import Button from '@/components/common/Button'
+import EmptyState from '@/components/common/EmptyState'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { formatWordCount } from '@/utils/textUtils'
@@ -258,8 +259,8 @@ projList.push({ id: name, ...meta, type: pt })
             )
           })}
           {projects.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 32, color: '#9b8e84', fontSize: 12 }}>
-              暂无项目，点击"新建"开始
+            <div style={{ padding: 16 }}>
+              <EmptyState icon="📁" title="暂无项目" description="点击新建开始创作" action={{ label: '新建项目', onClick: () => setShowCreate(true) }} />
             </div>
           )}
         </div>
@@ -308,17 +309,17 @@ projList.push({ id: name, ...meta, type: pt })
 
               {/* Stats row */}
               <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.06)', overflow: 'hidden' }}>
-                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
                   <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.chapterCount}</div>
                   <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>完成章节</div>
                 </div>
                 <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
-                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
                   <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{formatWordCount(activeProject.wordCount)}</div>
                   <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>已写字数</div>
                 </div>
                 <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
-                <div style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
                   <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.type === 'imitation' ? '仿写' : activeProject.type === 'continuation' ? '续写' : '写作'}</div>
                   <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>项目类型</div>
                 </div>
@@ -326,53 +327,34 @@ projList.push({ id: name, ...meta, type: pt })
 
               {/* Actions */}
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
-                <button
+                <Button
+                  variant="accent-gradient"
                   onClick={() => handleEnterProject(activeProject)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1,
-                    padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-                    color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
-                    justifyContent: 'center', transition: 'all 0.2s ease',
-                  }}
+                  icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}
+                  style={{ flex: 1, justifyContent: 'center', padding: '12px 0', fontSize: 14 }}
                 >
-                  <ArrowRightIcon style={{ width: 16, height: 16 }} /> 进入项目
-                </button>
-                <button
+                  进入项目
+                </Button>
+                <Button
+                  variant="secondary"
                   onClick={() => handleExportProject(activeProject)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '12px 24px', borderRadius: 12,
-                    border: '1px solid rgba(0,0,0,0.08)', cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.6)', color: '#4a3f38',
-                    fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-                    transition: 'all 0.2s ease',
-                  }}
+                  style={{ padding: '12px 24px' }}
                 >
                   导出
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="danger"
                   onClick={() => setDeleteTarget(activeProject)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '12px 24px', borderRadius: 12,
-                    border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer',
-                    background: 'rgba(239,68,68,0.04)', color: '#dc2626',
-                    fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-                    transition: 'all 0.2s ease',
-                  }}
+                  icon={<TrashIcon style={{ width: 14, height: 14 }} />}
+                  style={{ padding: '12px 24px' }}
                 >
-                  <TrashIcon style={{ width: 14, height: 14 }} /> 删除
-                </button>
+                  删除
+                </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
-            <BookOpenIcon style={{ width: 64, height: 64, margin: '0 auto 16px', opacity: 0.2 }} />
-            <p style={{ fontSize: 16, marginBottom: 4 }}>选择左侧项目</p>
-            <p style={{ fontSize: 13 }}>或点击"新建"创建项目</p>
-          </div>
+          <EmptyState icon="📚" title="选择左侧项目" description="或点击新建创建项目" />
         )}
       </div>
 
@@ -404,11 +386,12 @@ projList.push({ id: name, ...meta, type: pt })
               onKeyDown={e => { if (e.key === 'Enter') handleCreateProject() }}
               placeholder="输入项目名称..."
               autoFocus
+              className="focus-ring"
               style={{
                 width: '100%',
                 padding: '10px 14px',
                 fontSize: 14,
-                borderRadius: 12,
+                borderRadius: 10,
                 border: '1px solid #e5e0da',
                 outline: 'none',
                 background: '#faf9f8',

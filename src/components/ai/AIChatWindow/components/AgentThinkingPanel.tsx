@@ -43,7 +43,7 @@ export function AgentThinkingPanel() {
               {thinking.steps.map((step, i) => (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '2px 0', color: '#6d5h80',
+                  padding: '2px 0', color: '#6d5f80',
                 }}>
                   <span style={{
                     width: 16, height: 16, borderRadius: 8,

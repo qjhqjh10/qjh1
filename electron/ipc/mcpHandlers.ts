@@ -6,6 +6,9 @@ import { IpcMain } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
 import { createInterface } from 'readline'
+import { app } from 'electron'
+import * as fs from 'fs/promises'
+import * as path from 'path'
 
 interface MCPServerConfig {
   name: string
@@ -34,6 +37,10 @@ interface MCPToolSchema {
 
 const servers = new Map<string, MCPServerState>()
 let requestId = 0
+
+function getConfigPath(): string {
+  return path.join(app.getPath('userData'), 'mcp-servers.json')
+}
 
 function nextId(): number { return ++requestId }
 
@@ -186,6 +193,35 @@ export function registerMCPHandlers(ipcMain: IpcMain) {
       status: 'success',
       summary: `${state?.tools.length || 0} 个工具`,
       detail: JSON.stringify(state?.tools || []),
+    }
+  })
+
+  ipcMain.handle('mcp:disconnect', async (_event, name: string) => {
+    const state = servers.get(name)
+    if (!state) return { status: 'error', summary: `MCP server 未找到: ${name}` }
+    if (state.process) {
+      state.process.kill()
+      state.process = null
+    }
+    state.connected = false
+    servers.delete(name)
+    return { status: 'success', summary: `已断开 MCP: ${name}` }
+  })
+
+  ipcMain.handle('mcp:save-config', async (_event, serverConfigs: MCPServerConfig[]) => {
+    try {
+      const configPath = getConfigPath()
+      await fs.writeFile(configPath, JSON.stringify(serverConfigs, null, 2), 'utf-8')
+    } catch { /* best-effort */ }
+  })
+
+  ipcMain.handle('mcp:load-config', async () => {
+    try {
+      const configPath = getConfigPath()
+      const raw = await fs.readFile(configPath, 'utf-8')
+      return JSON.parse(raw)
+    } catch {
+      return []
     }
   })
 }

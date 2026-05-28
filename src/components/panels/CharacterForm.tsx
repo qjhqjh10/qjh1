@@ -71,11 +71,11 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
       <div style={{ display: 'flex', gap: 14 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>姓名</label>
-          <input type="text" value={char.name} onChange={e => set('name', e.target.value)} style={inputStyle} placeholder="角色姓名" />
+          <input type="text" value={char.name} onChange={e => set('name', e.target.value)} className="focus-ring" style={inputStyle} placeholder="角色姓名" />
         </div>
         <div style={{ width: 130 }}>
           <label style={labelStyle}>角色类型</label>
-          <select value={char.role} onChange={e => set('role', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+          <select value={char.role} onChange={e => set('role', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
             {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
@@ -107,6 +107,7 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
           <textarea
             value={safeStr(char[k])}
             onChange={e => set(k, e.target.value)}
+            className="focus-ring"
             style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
             placeholder={`${FIELD_TO_LABEL[k]}...`}
           />

@@ -11,6 +11,7 @@ import { htmlToMarkdown } from '@/utils/markdownConverter'
 import { nanoid } from 'nanoid'
 import WordCount from '@/components/common/WordCount'
 import Button from '@/components/common/Button'
+import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import CharactersPanel from '@/components/panels/CharactersPanel'
@@ -467,7 +468,7 @@ export default function OutlinePage() {
   }
 
   if (!activeProjectId) return null
-  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><p style={{ fontSize: 14, color: '#9b8e84' }}>加载中...</p></div>
+  if (loading) return <div style={{ flex: 1, padding: 24 }}><SkeletonCard lines={3} /></div>
 
   const TAB_LABELS: Record<Tab, string> = {
     basic: '故事剧情', worldbuilding: '世界观（设定）', characters: '角色档案',
@@ -479,9 +480,9 @@ export default function OutlinePage() {
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
         {/* Left tabs */}
-        <div style={{ width: 140, minWidth: 140, borderRight: '1px solid rgba(0,0,0,0.05)', background: 'rgba(255,255,255,0.35)', display: 'flex', flexDirection: 'column', padding: '12px 6px', gap: 2, overflowY: 'auto' }} className="custom-scrollbar">
+        <div className="glass custom-scrollbar" style={{ width: 140, minWidth: 140, borderRight: '1px solid rgba(0,0,0,0.05)', background: 'rgba(255,255,255,0.35)', display: 'flex', flexDirection: 'column', padding: '12px 6px', gap: 2, overflowY: 'auto' }}>
           {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)} className="interactive-accent" style={{
               width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 10, border: 'none',
               background: activeTab === tab.key ? 'rgba(124,58,237,0.08)' : 'transparent',
               color: activeTab === tab.key ? '#7c3aed' : '#6b5e54',

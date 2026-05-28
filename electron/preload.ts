@@ -220,9 +220,12 @@ const api = {
   },
   mcp: {
     listServers: (): Promise<any> => ipcRenderer.invoke('mcp:list-servers'),
-    connectServer: (name: string): Promise<any> => ipcRenderer.invoke('mcp:connect', name),
+    connectServer: (name: string, config: { name: string; command: string; args: string[]; env?: Record<string, string> }): Promise<any> => ipcRenderer.invoke('mcp:connect', name, config),
+    disconnectServer: (name: string): Promise<any> => ipcRenderer.invoke('mcp:disconnect', name),
     callTool: (serverName: string, toolName: string, args: Record<string, unknown>): Promise<any> => ipcRenderer.invoke('mcp:call-tool', serverName, toolName, args),
     listTools: (serverName: string): Promise<any> => ipcRenderer.invoke('mcp:list-tools', serverName),
+    saveConfig: (servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>): Promise<void> => ipcRenderer.invoke('mcp:save-config', servers),
+    loadConfig: (): Promise<Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>> => ipcRenderer.invoke('mcp:load-config'),
   },
   lsp: {
     diagnose: (filePath?: string): Promise<any> => ipcRenderer.invoke('lsp:diagnose', filePath),

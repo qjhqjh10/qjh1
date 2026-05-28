@@ -8,7 +8,7 @@ import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
 import type { UsageResult } from '@/types/electron'
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESETS } from '@/types/settings'
-import { inputStyle } from '@/components/common/styles'
+import { inputStyle, textareaStyle, captionText } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import { FormField, StatCard } from '../shared'
 
@@ -20,11 +20,11 @@ export function AISettingsTab() {
 
   return (
     <div className="custom-scrollbar" style={{ overflowY: 'auto', paddingRight: 16, height: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* 能力总览面板 */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(59,130,246,0.04))', border: '1px solid rgba(124,58,237,0.12)' }}>
+        <div className="stagger-item glass-card-enhanced" style={{ padding: 20, background: 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(59,130,246,0.04))', border: '1px solid rgba(124,58,237,0.12)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: '#7c3aed' }}>AI 写作助手能力总览</h4>
-          <p style={{ fontSize: 11, color: '#9b8e84', marginBottom: 14 }}>你的 AI 助手具备以下能力，覆盖写作全流程</p>
+          <p style={{ ...captionText, marginBottom: 14 }}>你的 AI 助手具备以下能力，覆盖写作全流程</p>
 
           {/* 工具清单 */}
           <div style={{ marginBottom: 14 }}>
@@ -74,18 +74,18 @@ export function AISettingsTab() {
         </div>
 
         {/* AI Dialogue */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>AI 对话设置</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label="工作模式">
-              <select value={aiSettings.workMode || 'action'} onChange={e => update('workMode', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              <select value={aiSettings.workMode || 'action'} onChange={e => update('workMode', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 <option value="plan">Plan 分析 — 仅可读取搜索，不可修改文件</option>
                 <option value="action">Action 执行 — 全部工具可用，可修改文件</option>
               </select>
               <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 4 }}>聊天窗口中也可随时切换。Plan 模式安全无风险。</div>
             </FormField>
             <FormField label="默认角色">
-              <select value={aiSettings.defaultRole} onChange={e => update('defaultRole', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              <select value={aiSettings.defaultRole} onChange={e => update('defaultRole', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 {aiSettings.customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </FormField>
@@ -99,16 +99,15 @@ export function AISettingsTab() {
                         const roles = [...aiSettings.customRoles]
                         roles[idx] = { ...roles[idx], name: e.target.value }
                         update('customRoles', roles)
-                      }} style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }} placeholder="角色名称" />
+                      }} className="focus-ring" style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }} placeholder="角色名称" />
                       <button onClick={() => {
                         const deleted = aiSettings.customRoles[idx]
                         const remaining = aiSettings.customRoles.filter((_, i) => i !== idx)
                         update('customRoles', remaining)
-                        // Reset defaultRole if deleted
                         if (aiSettings.defaultRole === deleted.id && remaining.length > 0) {
                           update('defaultRole', remaining[0].id)
                         }
-                      }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 4 }}>
+                      }} className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 4, borderRadius: 6 }}>
                         <TrashIcon style={{ width: 14, height: 14 }} />
                       </button>
                     </div>
@@ -116,7 +115,7 @@ export function AISettingsTab() {
                       const roles = [...aiSettings.customRoles]
                       roles[idx] = { ...roles[idx], prompt: e.target.value }
                       update('customRoles', roles)
-                    }} style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.06)', fontSize: 11, fontFamily: 'inherit', resize: 'vertical', minHeight: 50 }} placeholder="角色系统提示词..." />
+                    }} className="focus-ring" style={{ ...textareaStyle, minHeight: 50, fontSize: 11 }} placeholder="角色系统提示词..." />
                   </div>
                 ))}
                 <Button size="sm" variant="ghost" onClick={() => {
@@ -126,7 +125,7 @@ export function AISettingsTab() {
               </div>
             </div>
             <FormField label="回复风格">
-              <select value={aiSettings.responseStyle} onChange={e => update('responseStyle', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              <select value={aiSettings.responseStyle} onChange={e => update('responseStyle', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 {[{ v: 'concise', l: '简洁' }, { v: 'normal', l: '标准' }, { v: 'detailed', l: '详细' }].map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
               </select>
             </FormField>
@@ -137,7 +136,7 @@ export function AISettingsTab() {
         </div>
 
         {/* Conversation History */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>对话上下文</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label={`对话历史保留条数 (${aiSettings.maxHistory ?? 100})`}>
@@ -171,11 +170,11 @@ export function AISettingsTab() {
         </div>
 
         {/* Context Priority */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>信息调用优先级</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label="参考信息优先顺序">
-              <select value={aiSettings.contextPriority} onChange={e => update('contextPriority', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              <select value={aiSettings.contextPriority} onChange={e => update('contextPriority', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 <option value="balanced">均衡 — 知识库 + 模型 + 搜索</option>
                 <option value="kb-first">知识库优先 — 以知识库为准，模型补充</option>
                 <option value="model-first">模型优先 — 以模型知识为准，知识库参考</option>
@@ -190,7 +189,7 @@ export function AISettingsTab() {
         </div>
 
         {/* Web Search */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>界面设置</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label="显示新会话欢迎信息">
@@ -207,7 +206,7 @@ export function AISettingsTab() {
               <input type="range" min={1} max={10} value={aiSettings.searchResultCount} onChange={e => update('searchResultCount', parseInt(e.target.value))} style={{ width: '100%' }} />
             </FormField>
             <FormField label="安全搜索">
-              <select value={aiSettings.safeSearch} onChange={e => update('safeSearch', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+              <select value={aiSettings.safeSearch} onChange={e => update('safeSearch', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 {[{ v: 'strict', l: '严格' }, { v: 'moderate', l: '中等' }, { v: 'off', l: '关闭' }].map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
               </select>
             </FormField>
@@ -215,7 +214,7 @@ export function AISettingsTab() {
         </div>
 
         {/* Priority Sites */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>优先搜索网站</h4>
           <div style={{ marginBottom: 12 }}>
             <Button size="sm" onClick={() => {
@@ -224,22 +223,22 @@ export function AISettingsTab() {
             }} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>添加网址</Button>
           </div>
           {aiSettings.prioritySites.map((site, i) => (
-            <div key={site.id} style={{ padding: 12, borderRadius: 12, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div key={site.id} className="interactive" style={{ padding: 12, borderRadius: 12, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
               <input value={site.url} onChange={e => {
                 const sites = [...aiSettings.prioritySites]
                 sites[i] = { ...sites[i], url: e.target.value }
                 setAISettings({ prioritySites: sites })
-              }} placeholder="网址 (如 zh.wikipedia.org)" style={{ ...inputStyle, flex: 2 }} />
+              }} placeholder="网址 (如 zh.wikipedia.org)" className="focus-ring" style={{ ...inputStyle, flex: 2 }} />
               <input value={site.description} onChange={e => {
                 const sites = [...aiSettings.prioritySites]
                 sites[i] = { ...sites[i], description: e.target.value }
                 setAISettings({ prioritySites: sites })
-              }} placeholder="描述" style={{ ...inputStyle, flex: 1 }} />
+              }} placeholder="描述" className="focus-ring" style={{ ...inputStyle, flex: 1 }} />
               <select value={site.category} onChange={e => {
                 const sites = [...aiSettings.prioritySites]
                 sites[i] = { ...sites[i], category: e.target.value }
                 setAISettings({ prioritySites: sites })
-              }} style={{ ...inputStyle, cursor: 'pointer', width: 100 }}>
+              }} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer', width: 100 }}>
                 {['文学', '百科', '社区', '资料', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <Button variant="danger" size="sm" onClick={() => {
@@ -250,11 +249,11 @@ export function AISettingsTab() {
         </div>
 
         {/* Budget */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>月度预算预警</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <FormField label="月度预算上限 ($)">
-              <input type="number" min={0} step={0.01} value={aiSettings.monthlyBudget} onChange={e => update('monthlyBudget', parseFloat(e.target.value) || 0)} style={inputStyle} placeholder="0=不限" />
+              <input type="number" min={0} step={0.01} value={aiSettings.monthlyBudget} onChange={e => update('monthlyBudget', parseFloat(e.target.value) || 0)} className="focus-ring" style={inputStyle} placeholder="0=不限" />
             </FormField>
             <FormField label="启用预算预警">
               <input type="checkbox" checked={aiSettings.budgetWarning} onChange={e => update('budgetWarning', e.target.checked)} />
@@ -263,13 +262,14 @@ export function AISettingsTab() {
         </div>
 
         {/* Avatar Settings */}
-        <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>会话头像</h4>
           <div style={{ display: 'flex', gap: 24 }}>
             {/* User Avatar */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 11, color: '#6b5e54' }}>你的头像</span>
               <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('userAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+                className="interactive"
                 style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
                 {aiSettings.userAvatar
                   ? <img src={aiSettings.userAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -283,6 +283,7 @@ export function AISettingsTab() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 11, color: '#6b5e54' }}>AI 头像</span>
               <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('assistantAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+                className="interactive"
                 style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
                 {aiSettings.assistantAvatar
                   ? <img src={aiSettings.assistantAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -293,7 +294,7 @@ export function AISettingsTab() {
               )}
             </div>
           </div>
-          <div style={{ marginTop: 10, fontSize: 10, color: '#9b8e84' }}>点击头像可上传图片。上传后会话中的头像将替换为你的自定义图片。留空使用默认emoji。</div>
+          <div style={{ marginTop: 10, ...captionText }}>点击头像可上传图片。上传后会话中的头像将替换为你的自定义图片。留空使用默认emoji。</div>
         </div>
       </div>
     </div>

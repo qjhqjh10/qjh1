@@ -1,7 +1,81 @@
 {
-  "currentVersion": "7.2.0",
+  "currentVersion": "8.1.0",
   "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "8.1.0",
+      "date": "2026-05-28",
+      "features": [
+        "MCP工具服务器管理: Agent设置页新增MCP标签页，支持添加/编辑/删除/连接/断开MCP服务器，查看可用工具列表",
+        "MCP配置持久化: 后端新增mcp:save-config/mcp:load-config handler，配置保存到userData/mcp-servers.json",
+        "MCP参数修复: preload的connectServer从只传name改为传递完整config对象，修复前后端参数不匹配",
+        "AISettingsTab视觉升级: 添加page-enter入场动画、stagger-item交错入场、focus-ring聚焦光环、interactive交互反馈、glass-card-enhanced磨砂卡片、captionText统一辅助文字"
+      ]
+    },
+    {
+      "version": "8.0.0",
+      "date": "2026-05-28",
+      "features": [
+        "基础设施激活: App.tsx调用injectThemeVars()，theme.ts Token系统从零使用变为全局生效",
+        "Bug修复: AgentThinkingPanel无效hex色#6d5h80→#6d5f80",
+        "EntityEditModal重写: 改用Modal包装，获得framer-motion动画+Escape键+backdrop blur",
+        "CharactersPanel: 移除注入<style>标签，CSS规则移入index.css全局类",
+        "输入框标准化: 统一border-radius为10px，添加focus-ring聚焦光环(HomePage/ChapterWriting/Settings/CharacterForm/AIChat)",
+        "Hover/Focus状态: Sidebar/OutlinePage添加interactive/interactive-accent类，HomePage操作按钮改用Button组件，ChapterWritingPage工具栏5个raw button改用Button组件，AIChatWindow消息气泡添加msg-bubble悬浮态，章节导航添加interactive类",
+        "骨架屏替换: 10个文件的加载中...文本替换为SkeletonCard/SkeletonList/SkeletonStat组件",
+        "空状态升级: HomePage/Sidebar/CharacterGrid/ChapterWritingPage的空状态改用EmptyState组件",
+        "玻璃态一致性: ChapterWritingPage左侧面板+顶栏+编辑器容器添加glass/writing-paper类，CharactersPanel世界观面板添加glass，OutlinePage侧边栏添加glass，AIChatWindow输入区添加glass",
+        "噪点纹理: Sidebar添加noise-texture类",
+        "交错入场: Sidebar导航项+HomePage统计行添加stagger-item类",
+        "排版预设: styles.ts新增headingLg/headingMd/headingSm/bodyText/captionText",
+        "textareaStyle: styles.ts新增textareaStyle(基于inputStyle+resize:none+lineHeight:1.6)"
+      ]
+    },
+    {
+      "version": "7.5.0",
+      "date": "2026-05-28",
+      "features": [
+        "设计系统: 新增theme.ts统一Token(颜色/圆角/阴影/间距/动画)+injectThemeVars()注入CSS变量",
+        "CSS工具类: 新增骨架屏闪烁/交错入场/聚焦环/交互悬浮/光晕/渐变边框/噪点纹理/打字机光标/涟漪效果",
+        "共享样式库: styles.ts扩展为完整样式库(颜色常量/组件样式/Tab按钮/StatCard生成器)",
+        "Skeleton骨架屏组件: Skeleton/SkeletonCard/SkeletonStat/SkeletonList四种变体",
+        "EmptyState空状态组件: 图标+标题+描述+操作引导按钮",
+        "Button升级: CSS悬浮+涟漪点击效果+渐变变体(accent-gradient)+微缩按压反馈",
+        "GlassCard升级: 三级深度(0平/1标准/2浮起)+hover光晕效果+backdrop-filter",
+        "StatCard升级: 渐变背景+悬浮上移+光晕阴影+更粗字重",
+        "Settings页: 标题渐变文字+Tab栏滑动下划线(渐变紫色)+悬浮变色+内容区入场动画",
+        "Sidebar增强: 活跃项左侧渐变指示条+光晕阴影+导航项悬浮右移+连接状态发光点+脉冲检测动画",
+        "Agent设置页: 子Tab图标+胶囊容器+白色活跃态阴影+内容切换fadeInUp动画"
+      ]
+    },
+    {
+      "version": "7.4.0",
+      "date": "2026-05-28",
+      "features": [
+        "修复Agent UI死代码: startRun/endRun从未调用导致AgentStateBar/ThinkingPanel/ToolExecutionCard永远不显示",
+        "流式响应: response:streaming事件接入UI, 聊天窗口实时显示AI生成文本(带光标闪烁)",
+        "思考进度: thinking:progress事件更新思考面板, 显示当前步骤/总步骤/描述",
+        "Hook反馈: hook:blocked/passed事件接入UI, 工具执行被拦截或通过时显示指示器",
+        "错误事件: error事件接入store, 运行时错误实时显示在状态栏",
+        "pulse动画: 补充缺失的@keyframes pulse, 状态指示灯/工具执行/思考面板动画生效",
+        "ToolExecutionPanel: 补充缺失的渲染位置, 工具执行卡片现在正确显示在聊天窗口"
+      ]
+    },
+    {
+      "version": "7.3.0",
+      "date": "2026-05-28",
+      "features": [
+        "Agent设置页: 新增第7个Tab\"Agent\", 7个子Tab全部实现(概览/指标/技能/反馈/可靠性/健康/团队)",
+        "概览面板: 6指标卡片(成功率/幻觉率/首过率/迭代数/会话数/已学习规则) + 断路器状态 + 性能趋势",
+        "指标面板: 近10会话列表(成功率/幻觉/轮次) + 工具成功率排行(进度条) + 趋势标签",
+        "技能面板: LivingSkill阶段分布(6阶段) + 技能列表(置信度/次数) + 已学习规则列表",
+        "反馈面板: 解析.aiharness/feedback/auto-suggestions.md, 展示自动建议(严重度/指标/目标文件/建议)",
+        "可靠性面板: 断路器状态卡片(三态说明) + 检查点数量 + 最近10会话列表",
+        "健康面板: GCAgent扫描按钮 + 超大文件/过期引用/孤儿文件检测 + 修复建议",
+        "团队面板: 6个子Agent卡片(名称/职责/工具数/迭代上限/模型层级) + Team Relay接力模式说明",
+        "AgentStore扩展: AgentHealthState接口 + health字段 + setHealth动作, 会话结束自动写入"
+      ]
+    },
     {
       "version": "7.2.0",
       "date": "2026-05-28",

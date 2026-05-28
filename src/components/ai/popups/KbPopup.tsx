@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { kbService } from '@/services/fileService'
 import { useStore } from '@/store'
 import ScrollArea from '@/components/common/ScrollArea'
+import { SkeletonList } from '@/components/common/Skeleton'
 import { MagnifyingGlassIcon, DocumentTextIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 
 interface KbFile {
@@ -130,7 +131,7 @@ export function KbPopup() {
               选择左侧文件查看内容
             </div>
           )}
-          {loading && <div style={{ textAlign: 'center', color: '#9b8e84', fontSize: 11, padding: 20 }}>加载中...</div>}
+          {loading && <div style={{ padding: 20 }}><SkeletonList count={3} /></div>}
           {selectedFileId && !loading && (
             <pre style={{ margin: 0, fontSize: 11, lineHeight: 1.7, color: '#2d2520', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>
               {fileContent || '(空文件)'}

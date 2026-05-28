@@ -23,6 +23,7 @@ import { makeConversation } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { BatchApprovalPanel, FileGroup, batchBtnStyle } from "./components/BatchApprovalPanel";
 import { AgentChatBridge } from '@/agent/AgentChatBridge'
+import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStateBar } from './components/AgentStateBar'
 import { AgentThinkingPanel } from './components/AgentThinkingPanel'
 import { ToolExecutionPanel } from './components/ToolExecutionCard'
@@ -53,6 +54,11 @@ export default function AIChatWindow() {
   const updateDetailedChapter = useStore(s => s.updateDetailedChapter)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
+
+  // Agent runtime state
+  const agentStreamingText = useAgentStore(s => s.run.streamingText)
+  const agentIsStreaming = useAgentStore(s => s.run.isStreaming)
+  const agentHookFeedback = useAgentStore(s => s.run.hookFeedback)
 
   // Search toggles
   const prompts = useSettingsStore(s => s.prompts)
@@ -715,6 +721,41 @@ export default function AIChatWindow() {
             {/* ── Agent mode UI ── */}
             <AgentStateBar />
             <AgentThinkingPanel />
+            <ToolExecutionPanel />
+
+            {/* Hook feedback indicator */}
+            {agentHookFeedback && (
+              <div style={{
+                padding: '4px 12px', borderRadius: 6, marginBottom: 8, fontSize: 11,
+                background: agentHookFeedback.passed ? 'rgba(22,163,74,0.06)' : 'rgba(220,38,38,0.06)',
+                border: `1px solid ${agentHookFeedback.passed ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)'}`,
+                color: agentHookFeedback.passed ? '#16a34a' : '#dc2626',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <span style={{ fontSize: 12 }}>{agentHookFeedback.passed ? '✓' : '✗'}</span>
+                <span style={{ fontWeight: 600 }}>{agentHookFeedback.hookName}</span>
+                <span style={{ color: '#6b5e54' }}>{agentHookFeedback.feedback}</span>
+              </div>
+            )}
+
+            {/* Streaming text bubble */}
+            {agentIsStreaming && agentStreamingText && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 8, animation: 'fadeInUp 0.3s ease-out' }}>
+                <div style={{
+                  maxWidth: '80%', padding: '12px 16px', borderRadius: 16,
+                  borderBottomLeftRadius: 4,
+                  background: 'rgba(245,242,239,0.9)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(0,0,0,0.04)',
+                  color: '#2d2520',
+                  fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                }}>
+                  {agentStreamingText}
+                  <span className="typewriter-cursor" style={{ fontSize: 14 }} />
+                </div>
+              </div>
+            )}
 
             {messages.map((msg, i) => {
               // WeChat-style time separator
@@ -809,7 +850,7 @@ export default function AIChatWindow() {
                       : (aiSettings.assistantAvatar ? <img src={aiSettings.assistantAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '📖')
                     }
                   </div>
-                  <div style={{
+                  <div className="msg-bubble" style={{
                     maxWidth: '82%', padding: '10px 14px', borderRadius: 16,
                     background: msg.role === 'user' ? 'rgba(124,58,237,0.08)'
                       : msg.role === 'tool' ? 'rgba(22,163,74,0.04)'
@@ -1058,7 +1099,7 @@ export default function AIChatWindow() {
           </div>
 
           {/* Input */}
-          <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(0,0,0,0.06)', position: 'relative' }}>
+          <div className="glass" style={{ padding: '10px 14px', borderTop: '1px solid rgba(0,0,0,0.06)', position: 'relative' }}>
             {/* Ref tags */}
             {selectedRefs.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -1113,7 +1154,8 @@ export default function AIChatWindow() {
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={batchCard ? '请先审批 AI 的操作计划...' : activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
               disabled={!activeConfigId || !!batchCard} rows={2}
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 14, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: batchCard ? '#9b8e84' : '#2d2520', background: batchCard ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.02)' }}
+              className="focus-ring"
+              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: batchCard ? '#9b8e84' : '#2d2520', background: batchCard ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.02)' }}
             />
             <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
               style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: input.trim() && activeConfigId ? '#7c3aed' : '#e5e0da', color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' }}>
