@@ -5,7 +5,9 @@ import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
-import { inputStyle } from '@/components/common/styles'
+import { SkeletonList } from '@/components/common/Skeleton'
+import EmptyState from '@/components/common/EmptyState'
+import { inputStyle, headingMd, headingSm, captionText } from '@/components/common/styles'
 import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate, SceneTemplateType } from '@/types/story'
 import { SparklesIcon, TrashIcon, PencilIcon, PlusIcon, DocumentTextIcon, FireIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import {
@@ -54,6 +56,7 @@ export default function SceneWorkshopPage() {
   const [showNovelSectionModal, setShowNovelSectionModal] = useState(false)
   const [editingNovelSection, setEditingNovelSection] = useState<number | null>(null)
   const [editTagMode, setEditTagMode] = useState(false)
+  const [loading, setLoading] = useState(true)
   useEffect(() => { setActivePage('scene-workshop'); loadTemplates() }, [])
 
   // Reload templates when AI creates scene templates
@@ -65,6 +68,7 @@ export default function SceneWorkshopPage() {
   const toggleNovelAuto = (field: string, v: boolean) => setNovelConfig({ ...novelConfig, autoFields: { ...novelConfig.autoFields, [field]: v } })
 
   const loadTemplates = async () => {
+    setLoading(true)
     try {
       const globalRaw = await templateService.list() as any[]
       let projectRaw: any[] = []
@@ -89,6 +93,7 @@ export default function SceneWorkshopPage() {
       for (const t of projectList) { if (!seen.has(t.id)) { merged.push(t); seen.add(t.id) } }
       setTemplates(merged)
     } catch { setTemplates([]) }
+    setLoading(false)
   }
 
   const handleEnterType = (tmplType: SceneTemplateType) => {
@@ -175,7 +180,7 @@ export default function SceneWorkshopPage() {
             </h2>
           </>
         ) : (
-          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>场景工坊</h2>
+          <h2 style={headingMd}>场景工坊</h2>
         )}
         <div style={{ flex: 1 }} />
         <Button size="sm" onClick={handleNewTemplate} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建模板</Button>
@@ -183,14 +188,16 @@ export default function SceneWorkshopPage() {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left: Template list (always visible, grouped by type) */}
-        <div style={{ width: 280, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
-          <div style={{ padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+        <div className="glass" style={{ width: 280, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          <div style={{ padding: '10px 14px', ...headingSm, fontSize: 11, borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
             场景模板 ({templates.length})
           </div>
           <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
             <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {templates.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, fontSize: 12, color: '#9b8e84' }}>暂无模板</div>
+              {loading ? (
+                <div style={{ padding: 12 }}><SkeletonList count={4} /></div>
+              ) : templates.length === 0 ? (
+                <EmptyState icon="🎬" title="暂无场景模板" description="新建模板开始配置场景" action={{ label: '新建模板', onClick: handleNewTemplate }} />
               ) : (
                 Object.entries(groupedTemplates).map(([type, tpls]) => (
                   <div key={type}>
@@ -203,12 +210,11 @@ export default function SceneWorkshopPage() {
                       {type} · {tpls.length}
                     </div>
                     {tpls.map(tpl => (
-                      <div key={tpl.id} onClick={() => handleEditTemplate(tpl)} style={{
+                      <div key={tpl.id} onClick={() => handleEditTemplate(tpl)} className="interactive" style={{
                         padding: '8px 10px 8px 14px', borderRadius: 8, cursor: 'pointer',
                         background: '#fff', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 3,
-                        fontSize: 12, transition: 'all 0.15s',
-                      }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.15)'; e.currentTarget.style.background = 'rgba(124,58,237,0.02)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.04)'; e.currentTarget.style.background = '#fff' }}>
+                        fontSize: 12,
+                      }}>
                         <div style={{ fontWeight: 600, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tpl.name}</div>
                         <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>
                           {tpl.createdAt ? new Date(tpl.createdAt).toLocaleDateString() : ''}
@@ -231,17 +237,16 @@ export default function SceneWorkshopPage() {
           {!editorType ? (
             /* Type selection grid */
             <div style={{ padding: 32, maxWidth: 700, margin: '0 auto' }}>
-              <p style={{ fontSize: 13, color: '#9b8e84', marginBottom: 20 }}>选择场景类型创建新模板，或从左侧选择已有模板编辑</p>
+              <p style={{ ...captionText, fontSize: 13, marginBottom: 20 }}>选择场景类型创建新模板，或从左侧选择已有模板编辑</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 {(['普通小说','情色小说','玄幻小说','奇幻小说','灵异小说','游戏小说','末世小说','轻小说','都市小说','修仙小说','武侠小说','恋爱小说','古风小说','悬疑小说','历史小说','科幻小说','穿越小说'] as SceneTemplateType[]).map(type => {
                   const isErotic = type === '情色小说'
                   const count = groupedTemplates[type]?.length || 0
                   return (
-                    <button key={type} onClick={() => handleEnterType(type)} style={{
+                    <button key={type} onClick={() => handleEnterType(type)} className="interactive stagger-item" style={{
                       padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit',
                       border: isErotic ? '1px solid rgba(220,38,38,0.15)' : '1px solid rgba(124,58,237,0.1)',
                       background: isErotic ? 'rgba(220,38,38,0.03)' : 'rgba(124,58,237,0.02)',
-                      transition: 'all 0.15s',
                     }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: isErotic ? '#dc2626' : '#3b82f6', marginBottom: 4 }}>{type.replace('小说','')}</div>
                       <div style={{ fontSize: 10, color: '#9b8e84' }}>{isErotic ? '26区块' : '10区块'} · {count}个模板</div>
@@ -258,7 +263,7 @@ export default function SceneWorkshopPage() {
           ) : editorType === 'erotic' ? (
             <>
               <div style={{ padding: '12px 16px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-                    <input value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
+                    <input value={templateName} onChange={e => setTemplateName(e.target.value)} className="focus-ring" style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
                   </div>
               <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
                 <div style={{ padding: '12px 16px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -286,7 +291,7 @@ export default function SceneWorkshopPage() {
           ) : (
             <>
               <div style={{ padding: '12px 16px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-                <input value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
+                <input value={templateName} onChange={e => setTemplateName(e.target.value)} className="focus-ring" style={{ ...inputStyle, width: '100%', fontSize: 14, fontWeight: 600 }} placeholder="输入模板名称（必填）..." />
               </div>
               <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
                 <div style={{ padding: '12px 16px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>

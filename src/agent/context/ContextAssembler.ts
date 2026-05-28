@@ -1,3 +1,5 @@
+import { isTaskMessage } from '../utils/taskDetection'
+
 // ── Context Provider Interface ──
 
 export interface ContextBlock {
@@ -25,7 +27,7 @@ export interface AssembledContext {
 export class ContextAssembler {
   private providers: ContextProvider[] = []
   private relevanceThreshold = 0.3
-  private maxContextTokens = 8000
+  private maxContextTokens = 50000
 
   register(provider: ContextProvider): void {
     this.providers.push(provider)
@@ -89,7 +91,7 @@ export class ContextAssembler {
 
   // Quick check: does the input look like it needs any tools?
   isTaskOriented(userMessage: string): boolean {
-    return /创建|新建|修改|编辑|删除|生成|写入|写一|改一|添加|追加|读取|查看|列出|搜索/.test(userMessage)
+    return isTaskMessage(userMessage)
   }
 }
 

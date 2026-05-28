@@ -103,7 +103,7 @@ export function SectionCard({ id, label, summary, isAuto, onClick }: { id: numbe
   ]
   const accent = colors[(id - 1) % colors.length]
   return (
-    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="interactive" style={{
       display: 'flex', flexDirection: 'column', textAlign: 'left', width: '100%', minHeight: 110,
       borderRadius: 16, border: hover ? `1px solid ${accent}40` : isAuto ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(0,0,0,0.06)',
       background: hover ? `linear-gradient(135deg, ${accent}08, #fff)` : isAuto ? 'rgba(139,92,246,0.03)' : '#fff',
@@ -150,7 +150,7 @@ export function NovelSectionCard({ id, label, summary, isAuto, onClick }: { id: 
   const colors = ['#3b82f6','#6366f1','#0ea5e9','#8b5cf6','#2563eb','#06b6d4','#7c3aed','#14b8a6','#a855f7','#0891b2']
   const accent = colors[(id - 1) % colors.length]
   return (
-    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="interactive" style={{
       display: 'flex', flexDirection: 'column', textAlign: 'left', width: '100%', minHeight: 110,
       borderRadius: 16, border: hover ? `1px solid ${accent}40` : isAuto ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(0,0,0,0.06)',
       background: hover ? `linear-gradient(135deg, ${accent}08, #fff)` : isAuto ? 'rgba(139,92,246,0.03)' : '#fff',
@@ -204,7 +204,7 @@ export function CustomInput({ label, values, onAdd, onRemove, hideDisplay }: { l
     <div style={{ marginTop: 6 }}>
       {label && <span style={{ fontSize: 10, color: '#9b8e84', marginRight: 4 }}>{label}</span>}
       <div style={{ display: 'flex', gap: 4, marginTop: 2, alignItems: 'center' }}>
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAdd() }} placeholder="添加自定义..." style={{ ...inputStyle, flex: 1, fontSize: 10, padding: '4px 8px' }} />
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAdd() }} placeholder="添加自定义..." className="focus-ring" style={{ ...inputStyle, flex: 1, fontSize: 10, padding: '4px 8px' }} />
         <button onClick={handleAdd} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #7c3aed', background: 'rgba(124,58,237,0.06)', color: '#7c3aed', cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}>+</button>
         {justAdded && <span style={{ fontSize: 10, color: '#16a34a', whiteSpace: 'nowrap' }}>已添加 ✓</span>}
       </div>

@@ -9,6 +9,24 @@
         "toolName": "delete_file",
         "pathPattern": "**/*",
         "operation": "delete"
+      },
+      {
+        "id": "ask-delete-chapters",
+        "effect": "ask",
+        "toolName": "delete_file",
+        "pathPattern": "chapters/**"
+      },
+      {
+        "id": "ask-delete-characters",
+        "effect": "ask",
+        "toolName": "delete_file",
+        "pathPattern": "characters/**"
+      },
+      {
+        "id": "ask-delete-outline",
+        "effect": "ask",
+        "toolName": "delete_file",
+        "pathPattern": "outline/**"
       }
     ]
   },

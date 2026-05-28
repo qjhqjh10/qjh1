@@ -9,6 +9,9 @@ export type FailureCategory =
   | 'tool_design'     // Tool description inaccurate or parameter schema wrong
   | 'model_limits'    // Model capability boundary (context window, reasoning)
   | 'data_gaps'       // Missing info (file not found, KB no results)
+  | 'narrative_inconsistency' // Plot contradiction, character violation
+  | 'style_drift'     // Style mismatch, voice drift
+  | 'incomplete_scene' // Scene not fully written
 
 export interface ClassifiedFailure {
   toolName: string
@@ -51,6 +54,31 @@ const CATEGORY_PATTERNS: Array<{ category: FailureCategory; patterns: RegExp[] }
       /未指定|不明确|ambiguous/i,
     ],
   },
+  {
+    category: 'narrative_inconsistency',
+    patterns: [
+      /角色.*矛盾|character.*inconsist/i,
+      /情节.*冲突|plot.*conflict/i,
+      /时间线.*不一致|timeline.*mismatch/i,
+      /与.*设定.*不符|contradicts/i,
+    ],
+  },
+  {
+    category: 'style_drift',
+    patterns: [
+      /风格.*不一致|style.*mismatch|style.*drift/i,
+      /语气.*不符|voice.*inconsist/i,
+      /文风.*偏离/i,
+    ],
+  },
+  {
+    category: 'incomplete_scene',
+    patterns: [
+      /场景.*不完整|scene.*incomplete/i,
+      /内容.*过短|too short/i,
+      /缺少.*细节|missing.*detail/i,
+    ],
+  },
 ]
 
 const FIX_SUGGESTIONS: Record<FailureCategory, string> = {
@@ -58,6 +86,9 @@ const FIX_SUGGESTIONS: Record<FailureCategory, string> = {
   tool_design: '工具描述或参数 schema 可能需要修正',
   model_limits: '减少单次操作规模或拆分为多步',
   data_gaps: '先用 list_directory 或 search_files 确认目标存在',
+  narrative_inconsistency: '读取相关角色文件和大纲，确保内容与已有设定一致',
+  style_drift: '参考已有章节的写作风格，保持一致',
+  incomplete_scene: '补充场景细节，确保内容完整',
 }
 
 const FEEDBACK_TARGETS: Record<FailureCategory, 'prompt' | 'tool_schema' | 'context' | 'kb' | 'unknown'> = {
@@ -65,6 +96,9 @@ const FEEDBACK_TARGETS: Record<FailureCategory, 'prompt' | 'tool_schema' | 'cont
   tool_design: 'tool_schema',
   model_limits: 'context',
   data_gaps: 'kb',
+  narrative_inconsistency: 'context',
+  style_drift: 'context',
+  incomplete_scene: 'context',
 }
 
 export class FailureTaxonomy {
@@ -114,6 +148,9 @@ export class FailureTaxonomy {
       tool_design: 0,
       model_limits: 0,
       data_gaps: 0,
+      narrative_inconsistency: 0,
+      style_drift: 0,
+      incomplete_scene: 0,
     }
     for (const f of failures) {
       dist[f.category]++

@@ -43,7 +43,9 @@ export function CharacterGrid({ characters, projectPath, onEdit, onDelete, onLig
           {/* Card grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
             {group.chars.map(char => (
-              <CharacterCard key={char.id} char={char} projectPath={projectPath} onEdit={onEdit} onDelete={onDelete} onLightbox={onLightbox} />
+              <div key={char.id} className="stagger-item">
+                <CharacterCard char={char} projectPath={projectPath} onEdit={onEdit} onDelete={onDelete} onLightbox={onLightbox} />
+              </div>
             ))}
           </div>
           {/* Divider between groups */}

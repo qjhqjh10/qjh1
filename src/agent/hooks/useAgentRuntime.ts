@@ -3,7 +3,7 @@ import { AgentRuntime } from '../runtime/AgentRuntime'
 import { useAgentStore } from '../store/AgentStore'
 import { toolRegistry } from '../tools/ToolRegistry'
 import { contextAssembler } from '../context/ContextAssembler'
-import { coreRulesProvider } from '../context/providers/coreRulesProvider'
+import { ALL_PROVIDERS } from '../context/providers'
 import { BudgetManager } from '../budget/BudgetManager'
 import { ToolCache } from '../cache/ToolCache'
 import { CircuitBreaker } from '../circuit/CircuitBreaker'
@@ -22,8 +22,10 @@ function initGlobals() {
   if (globalsInitialized) return
   globalsInitialized = true
   toolRegistry.registerAll(ALL_TOOLS)
-  if (contextAssembler.getProviders().length === 0) {
-    contextAssembler.register(coreRulesProvider)
+  for (const p of ALL_PROVIDERS) {
+    if (!contextAssembler.getProviders().some(existing => existing.domain === p.domain)) {
+      contextAssembler.register(p)
+    }
   }
 }
 

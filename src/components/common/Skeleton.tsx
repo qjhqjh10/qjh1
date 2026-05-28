@@ -16,7 +16,7 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = 6, style 
 
 export function SkeletonCard({ lines = 3 }: { lines?: number }) {
   return (
-    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.4)', border: '1px solid rgba(0,0,0,0.03)' }}>
+    <div style={{ padding: '12px 14px', borderRadius: 'var(--theme-radius-lg, 12px)', background: 'var(--theme-glass-bg-light, rgba(255,255,255,0.4))', border: '1px solid var(--theme-border, rgba(0,0,0,0.03))' }}>
       <Skeleton width="60%" height={14} style={{ marginBottom: 10 }} />
       {Array.from({ length: lines }, (_, i) => (
         <Skeleton key={i} width={i === lines - 1 ? '40%' : '85%'} height={10} style={{ marginBottom: 6 }} />
@@ -27,7 +27,7 @@ export function SkeletonCard({ lines = 3 }: { lines?: number }) {
 
 export function SkeletonStat() {
   return (
-    <div style={{ flex: 1, padding: '10px 14px', borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
+    <div style={{ flex: 1, padding: '10px 14px', borderRadius: 'var(--theme-radius-lg, 12px)', background: 'var(--theme-bg-hover, rgba(0,0,0,0.02))' }}>
       <Skeleton width="50%" height={10} style={{ marginBottom: 6 }} />
       <Skeleton width="70%" height={20} />
     </div>

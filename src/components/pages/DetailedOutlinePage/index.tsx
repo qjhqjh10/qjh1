@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
+import EmptyState from '@/components/common/EmptyState'
 import {
   PlusIcon, TrashIcon, DocumentTextIcon, DocumentArrowDownIcon,
   PencilIcon, MapPinIcon, UserGroupIcon,
@@ -15,6 +16,7 @@ import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterSer
 import { loadOutlineContent } from '@/services/outlineService'
 import { logError } from '@/utils/logger'
 import { stripHtml } from '@/utils/textUtils'
+import { headingMd, headingSm, captionText } from '@/components/common/styles'
 import { os, ost, osb } from './constants'
 import { ChapterCard } from './ChapterCard'
 import { ChapterEditModal } from './dialogs/ChapterEditModal'
@@ -210,7 +212,7 @@ export default function DetailedOutlinePage() {
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* Left: Global outline reference */}
-      <div style={{
+      <div className="glass" style={{
         width: '30%',
         borderRight: '1px solid rgba(0,0,0,0.05)',
         display: 'flex',
@@ -218,7 +220,7 @@ export default function DetailedOutlinePage() {
         overflow: 'hidden',
       }}>
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>全局大纲参考</h3>
+          <h3 style={headingSm}>全局大纲参考</h3>
         </div>
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 12 }}>
           {(!outlineContent && !worldbuildingContent && characters.length === 0) ? (
@@ -263,7 +265,7 @@ export default function DetailedOutlinePage() {
           justifyContent: 'space-between',
           padding: '20px 28px 16px',
         }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#2d2520' }}>
+          <h2 style={headingMd}>
             章节细纲（{detailedChapters.length}章）
           </h2>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -284,27 +286,25 @@ export default function DetailedOutlinePage() {
             minWidth: 0,
           }}>
             {detailedChapters.map((ch, idx) => (
-              <ChapterCard
-                key={ch.id}
-                chapter={ch}
-                index={idx}
-                allChapters={detailedChapters}
-                previewText={previewText}
-                charPreview={charPreview}
-                onOpen={openEditor}
-                onDelete={handleDeleteChapter}
-                onReorder={(updated) => {
-                  setDetailedChapters(updated)
-                  updated.forEach(c => saveDetailedChapterToFile(c))
-                }}
-              />
+              <div key={ch.id} className="stagger-item">
+                <ChapterCard
+                  chapter={ch}
+                  index={idx}
+                  allChapters={detailedChapters}
+                  previewText={previewText}
+                  charPreview={charPreview}
+                  onOpen={openEditor}
+                  onDelete={handleDeleteChapter}
+                  onReorder={(updated) => {
+                    setDetailedChapters(updated)
+                    updated.forEach(c => saveDetailedChapterToFile(c))
+                  }}
+                />
+              </div>
             ))}
           </div>
           {detailedChapters.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
-              <DocumentTextIcon style={{ width: 48, height: 48, margin: '0 auto 12px', opacity: 0.3 }} />
-              <p style={{ fontSize: 14 }}>暂无章节，点击"新建章节"创建</p>
-            </div>
+            <EmptyState icon="📄" title="暂无章节" description="点击新建章节开始创建细纲" action={{ label: '新建章节', onClick: handleNewChapter }} />
           )}
         </ScrollArea>
       </div>

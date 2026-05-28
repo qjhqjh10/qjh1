@@ -423,11 +423,11 @@ export default function ContinuationWorkspacePage() {
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={() => navigate('/continuation')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84' }}><ArrowLeftIcon style={{ width: 18, height: 18 }} /></button>
+        <Button variant="ghost" size="sm" onClick={() => navigate('/continuation')} icon={<ArrowLeftIcon style={{ width: 16, height: 16 }} />}>返回</Button>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>{project.name}</span>
         <div style={{ display: 'flex', gap: 0, marginLeft: 16 }}>
           {stepLabels.map((label, i) => (
-            <div key={i} onClick={() => setStep((i + 1) as Step)} style={{
+            <div key={i} onClick={() => setStep((i + 1) as Step)} className="interactive-accent" style={{
               padding: '4px 10px', fontSize: 11, cursor: 'pointer', borderRadius: 6,
               color: step > i + 1 ? '#16a34a' : step === i + 1 ? '#7c3aed' : '#9b8e84',
               fontWeight: step === i + 1 ? 700 : 400, background: step === i + 1 ? 'rgba(124,58,237,0.06)' : 'transparent',
@@ -438,13 +438,13 @@ export default function ContinuationWorkspacePage() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ width: 210, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
+        <div className="glass" style={{ width: 210, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>章节 ({analyzedCount}/{chapters.length})</span>
-            <button onClick={() => {
+            <Button variant="ghost" size="sm" onClick={() => {
               if (selectedChapterIds.size === chapters.length) setSelectedChapterIds(new Set())
               else setSelectedChapterIds(new Set(chapters.map((_, i) => i)))
-            }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#7c3aed' }}>{selectedChapterIds.size === chapters.length ? '取消全选' : '全选'}</button>
+            }} style={{ fontSize: 10, padding: '1px 6px' }}>{selectedChapterIds.size === chapters.length ? '取消全选' : '全选'}</Button>
           </div>
           <ScrollArea style={{ flex: 1 }}>
             {chapters.map((ch, i) => (
@@ -462,7 +462,7 @@ export default function ContinuationWorkspacePage() {
           <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
               <span style={{ fontSize: 9, color: '#9b8e84' }}>分析维度({enabledDims.size}/{CONTINUATION_DIMS.length})</span>
-              <button onClick={() => setShowDimDialog(true)} style={{ fontSize: 9, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600, fontFamily: 'inherit' }}>选择</button>
+              <Button variant="ghost" size="sm" onClick={() => setShowDimDialog(true)} style={{ fontSize: 9, padding: '1px 4px' }}>选择</Button>
             </div>
             <Button size="sm" onClick={handleAnalyzeRemaining} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>{analyzing ? '分析中...' : '分析剩余章节'}</Button>
             {selectedChapterIds.size > 0 && <Button size="sm" variant="secondary" onClick={handleAnalyzeSelected} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>分析选中({selectedChapterIds.size})</Button>}

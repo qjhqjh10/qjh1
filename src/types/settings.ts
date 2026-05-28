@@ -171,13 +171,15 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   ],
 }
 
+export type ThemeId = 'warm-purple' | 'cyberpunk' | 'steampunk' | 'british' | 'ink-wash' | 'neon-dark'
+
 export interface DisplaySettings {
   sidebarFontSize: string
   cardTitleFontSize: string
   buttonFontSize: string
   editorFontSize: string
   toolbarFontSize: string
-  theme: 'light' | 'dark'
+  theme: ThemeId
 }
 
 export interface ProviderPreset { name: string; label: string; apiUrl: string }
@@ -288,5 +290,5 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   buttonFontSize: '15px',
   editorFontSize: '16px',
   toolbarFontSize: '12px',
-  theme: 'light',
+  theme: 'warm-purple',
 }

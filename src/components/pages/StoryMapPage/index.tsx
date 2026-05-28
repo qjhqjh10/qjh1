@@ -234,7 +234,7 @@ export default function StoryMapPage() {
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '16px 20px' }}>
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid rgba(0,0,0,0.04)', flexWrap: 'wrap' }}>
             {TABS.map(tab => (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)} className="interactive-accent" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '10px 16px', border: 'none', background: 'transparent',
                 fontSize: 12, fontWeight: activeTab === tab.key ? 700 : 500,

@@ -22,7 +22,7 @@ export interface ToolCallResult {
 const MAX_READ_CHARS = 500_000
 const MAX_WRITE_CHARS = 500_000
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB for edit/backup
-const MAX_SEARCH_RESULTS = 200
+const MAX_SEARCH_RESULTS = 500
 const BACKUP_DIR = '.ai_backups'
 const MAX_BACKUPS_PER_FILE = 10
 const BACKUP_SEPARATOR = '___'
@@ -370,7 +370,7 @@ export async function executeFileTool(
         if (relPath.endsWith('.json')) {
           const validation = validateFileContent(relPath, content)
           if (!validation.valid) {
-            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')
             return {
               callId, toolName, status: 'error',
               summary: `格式校验不通过 — 文件未创建，请修正后重试`,
@@ -426,7 +426,7 @@ export async function executeFileTool(
           if (relPathFull.endsWith('.json')) {
             const validation = validateFileContent(relPathFull, newStr)
             if (!validation.valid) {
-              const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+              const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')
               return { callId, toolName, status: 'error', summary: '全量替换后的格式不正确', detail: `文件: ${args.file_path}\n\n${errorDetail}` }
             }
           }
@@ -529,7 +529,7 @@ export async function executeFileTool(
         if (relPathEdit.endsWith('.json')) {
           const validation = validateFileContent(relPathEdit, newContent)
           if (!validation.valid) {
-            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}`).join('\n')
+            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')
             return {
               callId, toolName, status: 'error',
               summary: `编辑后的格式不正确 — 修改未保存，请修正后重试`,

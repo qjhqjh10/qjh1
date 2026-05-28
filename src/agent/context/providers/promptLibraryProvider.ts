@@ -5,7 +5,7 @@ export const promptLibraryProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/提示词|prompt|模板.*格式|提示.*库/i.test(userMessage)) return 0.8
     if (/切换.*提示词|启用.*模板|修改.*提示词/.test(userMessage)) return 1.0
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

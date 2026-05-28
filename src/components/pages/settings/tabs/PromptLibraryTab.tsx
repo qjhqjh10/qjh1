@@ -44,7 +44,7 @@ export function PromptLibraryTab() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <h3 style={{ fontSize: 14, fontWeight: 600, color: '#2d2520' }}>提示词模板</h3>
         <Button size="sm" onClick={handleNew} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>
@@ -57,6 +57,7 @@ export function PromptLibraryTab() {
           {prompts.map(prompt => (
             <div
               key={prompt.id}
+              className="stagger-item"
               style={{
                 padding: 20,
                 borderRadius: 20,
@@ -71,6 +72,7 @@ export function PromptLibraryTab() {
                 type="text"
                 value={prompt.title}
                 onChange={e => updatePrompt(prompt.id, { title: e.target.value })}
+                className="focus-ring"
                 style={{
                   border: 'none',
                   borderBottom: '1px solid rgba(0,0,0,0.06)',
@@ -87,6 +89,7 @@ export function PromptLibraryTab() {
                 <select
                   value={prompt.type}
                   onChange={e => updatePrompt(prompt.id, { type: e.target.value as PromptType })}
+                  className="focus-ring"
                   style={{
                     padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
                     fontSize: 12, color: '#4a3f38', background: '#faf9f8', cursor: 'pointer', width: 'fit-content',

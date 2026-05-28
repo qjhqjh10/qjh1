@@ -11,6 +11,7 @@
 export interface SchemaError {
   field: string
   message: string
+  fix?: string
 }
 
 export interface ValidationResult {
@@ -50,7 +51,8 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
   if (foundNested.length > 0) {
     errors.push({
       field: foundNested.join(', '),
-      message: `使用了嵌套对象格式（${foundNested.join('、')}），角色JSON必须是16个平铺字段。请 read_file("characters/zhangming.json") 看正确格式后重写。`,
+      message: `使用了嵌套对象格式（${foundNested.join('、')}），角色JSON必须是16个平铺字段。`,
+      fix: `read_file("characters/zhangming.json") 查看正确格式，然后用 __FULL_REPLACE__ 重写为平铺结构。`,
     })
     return { valid: false, errors }
   }
@@ -58,12 +60,12 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
   // Check required fields
   for (const field of CHARACTER_FIELDS) {
     if (field.required && !(field.key in obj)) {
-      errors.push({ field: field.key, message: `缺少必填字段: ${field.key}。参考格式: read_file("characters/zhangming.json")` })
+      errors.push({ field: field.key, message: `缺少必填字段: ${field.key}`, fix: `添加 "${field.key}": ${field.type === 'string' ? '"..."' : field.type === 'number' ? '0' : '[]'} 到JSON对象中` })
       continue
     }
     const val = obj[field.key]
     if (field.required && (val === null || val === undefined || val === '')) {
-      errors.push({ field: field.key, message: `必填字段不能为空: ${field.key}` })
+      errors.push({ field: field.key, message: `必填字段不能为空: ${field.key}`, fix: `为 "${field.key}" 赋一个非空${field.type === 'string' ? '字符串' : field.type === 'number' ? '数字' : '数组'}值` })
       continue
     }
     // Skip type check for optional fields that are not present
@@ -84,7 +86,8 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
   if (typeof obj.role === 'string' && !(CHARACTER_ROLES as readonly string[]).includes(obj.role)) {
     errors.push({
       field: 'role',
-      message: `"${obj.role}" 不是合法值。role 必须严格从这6个中选一: ${CHARACTER_ROLES.join('|')}。禁止自创如"男主角""女主角·第一目标"`,
+      message: `"${obj.role}" 不是合法值。role 必须从以下6个中选一: ${CHARACTER_ROLES.join('、')}`,
+      fix: `将 role 改为 "男主"、"女主"、"男配"、"女配"、"反派" 或 "其他" 之一`,
     })
   }
 
@@ -92,7 +95,8 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
   if (typeof obj.abilities === 'object' && obj.abilities !== null && !Array.isArray(obj.abilities)) {
     errors.push({
       field: 'abilities',
-      message: 'abilities 必须是纯文本字符串，不能是对象。请把能力描述写成字符串，如 "异能类型：...；等级：..."',
+      message: 'abilities 必须是纯文本字符串，不能是对象',
+      fix: '将 abilities 从对象改为字符串，如 "异能类型：空间系；等级：A级；能力描述：..."',
     })
   }
 
@@ -135,14 +139,15 @@ function validateDetailedOutline(obj: Record<string, unknown>): ValidationResult
   }
 
   if (typeof obj.status === 'string' && !['incomplete', 'completed'].includes(obj.status)) {
-    errors.push({ field: 'status', message: `status 必须是 incomplete 或 completed，当前: ${obj.status}` })
+    errors.push({ field: 'status', message: `status 必须是 incomplete 或 completed，当前: ${obj.status}`, fix: '将 status 改为 "incomplete" 或 "completed"' })
   }
 
   // Detect .md file being used as detailed_outline (AI anti-pattern)
   if (!obj.id || !obj.title || typeof obj.order !== 'number') {
     errors.push({
       field: '(整体)',
-      message: '细纲必须是 JSON 格式（.json），禁止创建 .md 文件。参考: read_file("detailed_outline/chapter1.json")',
+      message: '细纲必须是 JSON 格式（.json），禁止创建 .md 文件',
+      fix: 'read_file("detailed_outline/chapter1.json") 查看正确格式，用 create_file 创建 .json 文件',
     })
   }
 

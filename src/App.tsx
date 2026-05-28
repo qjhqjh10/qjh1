@@ -8,6 +8,7 @@ import type { ModelConfig } from '@/types/settings'
 import { DEFAULT_PROMPTS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { injectThemeVars } from '@/theme'
+import { getTheme } from '@/themes'
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
   constructor(props: { children: React.ReactNode }) { super(props); this.state = { error: null } }
@@ -200,12 +201,9 @@ export default function App() {
     document.documentElement.style.setProperty('--button-font-size', displaySettings.buttonFontSize)
     document.documentElement.style.setProperty('--toolbar-font-size', displaySettings.toolbarFontSize)
 
-    // Dark mode
-    if (displaySettings.theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    // Apply theme via new multi-theme system
+    const theme = getTheme(displaySettings.theme)
+    injectThemeVars(theme)
   }, [displaySettings])
 
   return (

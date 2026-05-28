@@ -47,32 +47,32 @@ export function TokenStatsTab() {
   const days = Array.from({ length: 31 }, (_, i) => i + 1)
 
   return (
-    <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }} className="custom-scrollbar" >
+    <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }} className="custom-scrollbar page-enter" >
       <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>Token 用量统计</h4>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={filterConfigId} onChange={e => setFilterConfigId(e.target.value)} style={miniSelect}>
+        <select value={filterConfigId} onChange={e => setFilterConfigId(e.target.value)} className="focus-ring" style={miniSelect}>
           <option value="">全部配置</option>
           {configs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select value={filterModel} onChange={e => setFilterModel(e.target.value)} style={miniSelect}>
+        <select value={filterModel} onChange={e => setFilterModel(e.target.value)} className="focus-ring" style={miniSelect}>
           <option value="">全部模型</option>
           {models.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-        <select value={filterYear ?? ''} onChange={e => { setFilterYear(e.target.value ? parseInt(e.target.value) : undefined); setFilterMonth(undefined); setFilterDay(undefined) }} style={miniSelect}>
+        <select value={filterYear ?? ''} onChange={e => { setFilterYear(e.target.value ? parseInt(e.target.value) : undefined); setFilterMonth(undefined); setFilterDay(undefined) }} className="focus-ring" style={miniSelect}>
           <option value="">全部年份</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={filterMonth ?? ''} onChange={e => { setFilterMonth(e.target.value ? parseInt(e.target.value) : undefined); setFilterDay(undefined) }} disabled={!filterYear} style={miniSelect}>
+        <select value={filterMonth ?? ''} onChange={e => { setFilterMonth(e.target.value ? parseInt(e.target.value) : undefined); setFilterDay(undefined) }} disabled={!filterYear} className="focus-ring" style={miniSelect}>
           <option value="">全部月份</option>
           {months.map(m => <option key={m} value={m}>{m}月</option>)}
         </select>
-        <select value={filterDay ?? ''} onChange={e => setFilterDay(e.target.value ? parseInt(e.target.value) : undefined)} disabled={!filterMonth} style={miniSelect}>
+        <select value={filterDay ?? ''} onChange={e => setFilterDay(e.target.value ? parseInt(e.target.value) : undefined)} disabled={!filterMonth} className="focus-ring" style={miniSelect}>
           <option value="">全部日期</option>
           {days.map(d => <option key={d} value={d}>{d}日</option>)}
         </select>
-        <button onClick={() => { setFilterConfigId(''); setFilterModel(''); setFilterYear(undefined); setFilterMonth(undefined); setFilterDay(undefined) }} style={{ ...miniSelect, cursor: 'pointer', border: 'none', background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>重置</button>
+        <button onClick={() => { setFilterConfigId(''); setFilterModel(''); setFilterYear(undefined); setFilterMonth(undefined); setFilterDay(undefined) }} className="interactive" style={{ ...miniSelect, cursor: 'pointer', border: 'none', background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>重置</button>
       </div>
 
       {/* View mode tabs */}

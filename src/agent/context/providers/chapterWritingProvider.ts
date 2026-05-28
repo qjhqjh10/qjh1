@@ -5,7 +5,7 @@ export const chapterWritingProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/章节|写作|chapter|生成.*章|写.*章|正文|续写|创作/i.test(userMessage)) return 0.8
     if (/生成.*正文|写本章|生成本章|写.*第.*章/.test(userMessage)) return 1.0
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

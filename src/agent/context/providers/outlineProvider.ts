@@ -5,7 +5,7 @@ export const outlineProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/大纲|剧情|情节|故事线|世界观|设定|worldbuilding|outline|plot/i.test(userMessage)) return 0.9
     if (/修改.*outline|编辑.*大纲|写.*大纲/.test(userMessage)) return 1.0
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

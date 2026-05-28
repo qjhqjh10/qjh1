@@ -5,7 +5,7 @@ export const notesProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/笔记|草稿|note|灵感|暂存|记录.*想法/i.test(userMessage)) return 0.8
     if (/记下|记录下来|保存.*草稿|写.*笔记/.test(userMessage)) return 1.0
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

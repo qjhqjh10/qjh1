@@ -4,7 +4,7 @@ export const detailedOutlineProvider: ContextProvider = {
   domain: 'detailed-outline',
   relevance: (userMessage) => {
     if (/细纲|章节.*卡|卡片|detailed.*outline|每章/.test(userMessage)) return 0.9
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

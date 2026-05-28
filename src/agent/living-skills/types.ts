@@ -12,6 +12,7 @@ export type SkillCategory =
   | 'format_error' | 'path_error' | 'permission_error' | 'conflict_error'
   | 'timeout_error' | 'hallucination'
   | 'efficient_workflow' | 'user_preference' | 'best_practice' | 'project_convention'
+  | 'character_voice_drift' | 'style_mismatch' | 'pacing_issue' | 'plot_violation'
 
 export type SkillSource = 'error' | 'success' | 'user_preference' | 'pattern_noticed'
 

@@ -1,7 +1,26 @@
 {
-  "currentVersion": "8.1.0",
+  "currentVersion": "8.2.0",
   "currentDate": "2026-05-28",
   "history": [
+    {
+      "version": "8.2.0",
+      "date": "2026-05-28",
+      "features": [
+        "AI写作助手彻底改造: 移除isTaskMessage关键词门控，始终给AI工具，由AI自主决定是否调用",
+        "系统提示词重写: 从技术规则手册改为角色定义+项目导航(Map Not Manual)，新增小说完整性协议和范围约束",
+        "项目摘要增强: 新增字数统计、细纲完成进度、一致性警告",
+        "Context Provider注册修复: useAgentRuntime从只注册coreRulesProvider改为注册全部10个provider",
+        "小说内容约束: 新增chapterRequiresOutline+nonEmptyChapter架构约束，characterNamingConvention+outlineFormat品味约束",
+        "GC Agent小说化: 新增孤儿角色扫描、情节连续性检查、章节覆盖检查、风格一致性检查，接入AgentChatBridge自动运行",
+        "评估管道小说化: 新增第5维度narrative_quality(权重0.3)，新增3个失败类别(narrative_inconsistency/style_drift/incomplete_scene)",
+        "Living Skills小说化: 新增4个技能类别(character_voice_drift/style_mismatch/pacing_issue/plot_violation)",
+        "Agent限制优化: maxContextTokens 8000→50000, fileSizeLimit 500→1000行, MAX_SEARCH_RESULTS 200→500",
+        "AgentRuntime修复: 最后一轮移除工具强制文字回复，双层兜底(assistant消息+tool结果摘要)",
+        "CLI Agent修复: agent-cli.mjs同步修复maxIterations空回复问题",
+        "SchemaValidation增强: 关键校验规则添加结构化fix修复指令",
+        "Task Detection扩充: 新增30+小说写作关键词覆盖常用表达"
+      ]
+    },
     {
       "version": "8.1.0",
       "date": "2026-05-28",

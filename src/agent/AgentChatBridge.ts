@@ -40,6 +40,7 @@ import { LivingSkillManager } from './living-skills/LivingSkillManager'
 import { CredentialBroker } from './security/CredentialBroker'
 import { SessionManager } from './sessions/SessionManager'
 import { EvaluationPipeline } from './evaluators/EvaluationPipeline'
+import { GCAgent } from './gc/GCAgent'
 import { MetricsCollector } from './metrics/MetricsCollector'
 import { PostSessionAnalyzer } from './metrics/PostSessionAnalyzer'
 import { FeedbackChannel } from './feedback/FeedbackChannel'
@@ -117,6 +118,7 @@ export class AgentChatBridge {
   private evaluationPipeline = new EvaluationPipeline()
   private metricsCollector = new MetricsCollector()
   private postSessionAnalyzer = new PostSessionAnalyzer()
+  private gcAgent = new GCAgent()
   private feedbackChannel = new FeedbackChannel()
 
   private initialized = false
@@ -364,6 +366,13 @@ export class AgentChatBridge {
     this.runtime.setHallucinationCallback((text) => {
       this.skillLearner.recordError('hallucination', text, 'hallucination')
     })
+    this.runtime.setEvaluationPipeline(this.evaluationPipeline)
+    this.runtime.setGCAgent(this.gcAgent)
+    // Run novel-specific GC scans (orphan characters, plot continuity, etc.)
+    if (this.projectId) {
+      this.gcAgent.reset()
+      this.gcAgent.runNovelScans(this.projectId).catch(() => {})
+    }
     this.livingSkillManager.startSession(this.runId, this.projectId)
     this.circuitBreaker.reset()
     this.auditTrail.startSession(this.runId)

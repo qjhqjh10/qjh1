@@ -6,14 +6,42 @@ interface Props {
   style?: React.CSSProperties
   onClick?: () => void
   hover?: boolean
-  depth?: 0 | 1 | 2  // 0=flat, 1=standard, 2=elevated
+  depth?: 0 | 1 | 2
   glow?: boolean
 }
 
 const depthStyles = {
-  0: { background: 'rgba(255,255,255,0.4)', boxShadow: 'none', border: '1px solid rgba(0,0,0,0.03)' },
-  1: { background: 'rgba(255,255,255,0.7)', boxShadow: '0 2px 8px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)', border: '1px solid rgba(255,255,255,0.5)' },
-  2: { background: 'rgba(255,255,255,0.85)', boxShadow: '0 8px 24px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)', border: '1px solid rgba(255,255,255,0.6)' },
+  0: {
+    background: 'var(--theme-glass-bg-light)',
+    boxShadow: 'none',
+    border: '1px solid var(--theme-border)',
+    backdropFilter: undefined as string | undefined,
+  },
+  1: {
+    background: 'var(--theme-glass-bg)',
+    boxShadow: 'var(--theme-shadow-sm)',
+    border: '1px solid var(--theme-glass-border)',
+    backdropFilter: 'blur(var(--theme-glass-blur))',
+  },
+  2: {
+    background: 'var(--theme-bg-card)',
+    boxShadow: 'var(--theme-shadow-md)',
+    border: '1px solid var(--theme-glass-border)',
+    backdropFilter: 'blur(var(--theme-glass-blur))',
+  },
+}
+
+// Progressive hover: each depth lifts to the next shadow level
+const hoverShadows = {
+  0: 'var(--theme-shadow-sm)',
+  1: 'var(--theme-shadow-md)',
+  2: 'var(--theme-shadow-lg)',
+}
+
+const hoverLifts = {
+  0: 'translateY(-2px)',
+  1: 'translateY(-3px)',
+  2: 'translateY(-4px)',
 }
 
 export default function GlassCard({ children, className = '', style, onClick, hover = true, depth = 1, glow = false }: Props) {
@@ -22,29 +50,30 @@ export default function GlassCard({ children, className = '', style, onClick, ho
   return (
     <div
       onClick={onClick}
-      className={`${className} ${hover ? 'hover-lift' : ''}`}
+      className={`${className} touch-lift`}
       style={{
         padding: 20,
-        borderRadius: 20,
+        borderRadius: 'var(--theme-radius-xxl)',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-        backdropFilter: depth > 0 ? 'blur(12px)' : undefined,
-        WebkitBackdropFilter: depth > 0 ? 'blur(12px)' : undefined,
+        WebkitBackdropFilter: d.backdropFilter,
         ...d,
         ...style,
       }}
       onMouseEnter={e => {
-        if (hover && !glow) {
-          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)'
-        }
+        if (!hover) return
         if (glow) {
-          e.currentTarget.style.boxShadow = '0 0 20px rgba(124,58,237,0.12), 0 4px 12px rgba(0,0,0,0.06)'
-          e.currentTarget.style.borderColor = 'rgba(124,58,237,0.15)'
+          e.currentTarget.style.boxShadow = 'var(--theme-shadow-glow)'
+          e.currentTarget.style.borderColor = 'var(--theme-border-accent)'
+        } else {
+          e.currentTarget.style.boxShadow = hoverShadows[depth]
         }
+        e.currentTarget.style.transform = hoverLifts[depth]
       }}
       onMouseLeave={e => {
         e.currentTarget.style.boxShadow = d.boxShadow
-        if (glow) e.currentTarget.style.borderColor = d.border
+        e.currentTarget.style.transform = 'translateY(0)'
+        if (glow) e.currentTarget.style.borderColor = d.border.split(' ').pop() || ''
       }}
     >
       {children}

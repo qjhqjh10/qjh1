@@ -593,7 +593,9 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations) 
     iteration++
     process.stdout.write(`\n\x1b[36m[第 ${iteration} 轮]\x1b[0m `)
 
-    const response = await api.chatWithTools(messages, TOOLS)
+    // On last iteration, remove tools to force text response
+    const toolsForThisRound = iteration >= maxIterations ? [] : TOOLS
+    const response = await api.chatWithTools(messages, toolsForThisRound)
     const choice = response.choices?.[0]
     if (!choice) throw new Error('No response from API')
 
@@ -637,12 +639,44 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations) 
     }
   }
 
-  // Max iterations reached — get final response
+  // Max iterations reached — force text-only response (no tools)
   console.log(`\n\x1b[33m达到最大轮次 (${maxIterations})，获取最终回复...\x1b[0m`)
-  messages.push({ role: 'user', content: '请根据以上所有工具执行结果，提供最终回复。' })
-  const final = await api.chatWithTools(messages, [])
-  const finalText = final.choices?.[0]?.message?.content || ''
+
+  // Strategy 1: Ask AI for final summary without tools
+  messages.push({ role: 'user', content: '请根据以上所有工具执行结果，用中文提供简洁的最终回复。不要调用任何工具。' })
+  const final = await api.chatWithTools(messages, []) // no tools
+  let finalText = final.choices?.[0]?.message?.content || ''
   totalTokens += final.usage?.total_tokens || 0
+
+  // Strategy 2: If still empty, extract from last assistant message
+  if (!finalText.trim()) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].content?.trim()) {
+        finalText = messages[i].content
+        break
+      }
+    }
+  }
+
+  // Strategy 3: Synthesize from tool results
+  if (!finalText.trim()) {
+    const summaries = []
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'tool') {
+        try {
+          const parsed = JSON.parse(messages[i].content)
+          if (parsed.summary) summaries.push(parsed.summary)
+        } catch {}
+        if (summaries.length >= 3) break
+      }
+    }
+    if (summaries.length > 0) {
+      finalText = `操作完成：${summaries.reverse().join('；')}。`
+    } else {
+      finalText = '已达到最大轮次，AI 未能生成文字回复。请尝试简化任务后重试。'
+    }
+  }
+
   console.log(`\n\x1b[32m🤖 AI:\x1b[0m\n${finalText}`)
   return { text: finalText, totalTokens, toolCalls, iterations: iteration }
 }

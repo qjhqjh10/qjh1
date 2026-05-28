@@ -5,7 +5,7 @@ export const kbProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/知识库|kb|素材|资料|参考|保存|索引|embedding/i.test(userMessage)) return 0.8
     if (/保存.*知识库|添加到.*知识库|索引.*文件/.test(userMessage)) return 1.0
-    return 0
+    return 0.6
   },
 
   buildContext: async () => ({

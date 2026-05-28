@@ -64,21 +64,21 @@ export function ChapterCard({ chapter, index, allChapters, previewText, charPrev
           </span>
           {/* Action buttons */}
           <button onClick={e => { e.stopPropagation(); navigate(`/chapter/${chapter.id}`) }}
-            title="撰写本章" style={{
+            title="撰写本章" className="interactive" style={{
               display: 'inline-flex', alignItems: 'center', gap: 2,
               padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.2)',
               background: 'rgba(124,58,237,0.04)', cursor: 'pointer',
               fontFamily: 'inherit', fontSize: 10, fontWeight: 600, color: '#7c3aed',
-              flexShrink: 0, transition: 'all 0.1s',
+              flexShrink: 0,
             }}>
             <PencilIcon style={{ width: 11, height: 11 }} /> 撰写
           </button>
           <button onClick={e => { e.stopPropagation(); onDelete(chapter) }}
-            title="删除本章细纲" style={{
+            title="删除本章细纲" className="interactive" style={{
               display: 'inline-flex', alignItems: 'center',
               padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)',
               background: 'transparent', cursor: 'pointer',
-              flexShrink: 0, transition: 'all 0.1s',
+              flexShrink: 0,
             }}>
             <TrashIcon style={{ width: 13, height: 13, color: '#ef4444' }} />
           </button>

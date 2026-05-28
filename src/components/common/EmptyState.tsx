@@ -16,29 +16,30 @@ export default function EmptyState({ icon = '📭', title, description, action }
       textAlign: 'center',
     }}>
       <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.7 }}>{icon}</div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--theme-text-secondary, #6b5e54)', marginBottom: 4 }}>{title}</div>
       {description && (
-        <div style={{ fontSize: 12, color: '#9b8e84', lineHeight: 1.6, maxWidth: 280, marginBottom: action ? 16 : 0 }}>
+        <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #9b8e84)', lineHeight: 1.6, maxWidth: 280, marginBottom: action ? 16 : 0 }}>
           {description}
         </div>
       )}
       {action && (
         <button
           onClick={action.onClick}
+          className="touch-press"
           style={{
             padding: '8px 20px',
-            borderRadius: 10,
-            border: '1px solid rgba(124,58,237,0.2)',
-            background: 'rgba(124,58,237,0.06)',
-            color: '#7c3aed',
+            borderRadius: 'var(--theme-radius-md, 10px)',
+            border: '1px solid var(--theme-border-accent, rgba(124,58,237,0.2))',
+            background: 'var(--theme-accent-bg, rgba(124,58,237,0.06))',
+            color: 'var(--theme-accent, #7c3aed)',
             fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
             transition: 'all 0.15s ease',
             fontFamily: 'inherit',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--theme-accent-light, rgba(124,58,237,0.12))' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--theme-accent-bg, rgba(124,58,237,0.06))' }}
         >
           {action.label}
         </button>

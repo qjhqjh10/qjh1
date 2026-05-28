@@ -93,7 +93,7 @@ export function ModelSettingsTab() {
   }, [showModelDropdown])
 
   return (
-    <div style={{ display: 'flex', height: '100%', gap: 24 }}>
+    <div className="page-enter" style={{ display: 'flex', height: '100%', gap: 24 }}>
       {/* Left: Template list */}
       <div style={{ width: '40%', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

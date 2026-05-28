@@ -419,8 +419,11 @@ export default function AIChatWindow() {
         kbEnabled, webSearchEnabled, selectedRefs,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
+          const fallbackText = runResult.toolsUsed.length > 0
+            ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。`
+            : 'AI 未生成回复，请重试或换一种方式提问。'
           setMessages(prev => [...prev, {
-            id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || '(Agent 已完成操作)', timestamp: Date.now(),
+            id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed, usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
           }])
         },

@@ -80,9 +80,9 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
               position: 'relative',
               left: dragPos.x,
               top: dragPos.y,
-              background: '#fff',
-              borderRadius: 24,
-              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.14)',
+              background: 'var(--theme-bg-card-solid, #fff)',
+              borderRadius: 'var(--theme-radius-xxl, 24px)',
+              boxShadow: 'var(--theme-shadow-lg, 0 24px 64px rgba(0, 0, 0, 0.14))',
               width,
               maxWidth: '95vw',
               maxHeight,
@@ -99,7 +99,7 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '20px 24px 16px',
-                  borderBottom: '1px solid #f0ece8',
+                  borderBottom: '1px solid var(--theme-border, #f0ece8)',
                   cursor: draggable ? 'grab' : 'default',
                   userSelect: 'none',
                 }}
@@ -115,7 +115,7 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
                     padding: 6,
                     borderRadius: 8,
                     display: 'flex',
-                    color: '#9b8e84',
+                    color: 'var(--theme-text-muted, #9b8e84)',
                   }}
                 >
                   <XMarkIcon style={{ width: 20, height: 20 }} />

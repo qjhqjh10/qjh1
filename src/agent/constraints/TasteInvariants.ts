@@ -71,8 +71,53 @@ export const markdownHeadings: TasteInvariant = {
   },
 }
 
+/**
+ * Invariant: character file naming
+ * Character files should use pinyin IDs, not Chinese characters.
+ */
+export const characterNamingConvention: TasteInvariant = {
+  id: 'character-naming-convention',
+  description: '角色文件名应使用拼音',
+  check: (args: ToolCallArgs) => {
+    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    const fp = (args.file_path as string) || ''
+    if (!fp.startsWith('characters/') || !fp.endsWith('.json')) return { passed: true, message: '' }
+    const fileName = fp.replace('characters/', '').replace('.json', '')
+    if (/[一-鿿]/.test(fileName)) {
+      return {
+        passed: false,
+        message: `角色文件名 "${fileName}" 包含中文字符。请使用拼音 ID，如 "linwaner.json"、"zhangming.json"。`,
+      }
+    }
+    return { passed: true, message: '' }
+  },
+}
+
+/**
+ * Invariant: detailed outline format
+ * Detailed outline files must be JSON, not Markdown.
+ */
+export const outlineFormat: TasteInvariant = {
+  id: 'outline-format',
+  description: '细纲文件必须是 JSON 格式',
+  check: (args: ToolCallArgs) => {
+    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    const fp = (args.file_path as string) || ''
+    if (!fp.startsWith('detailed_outline/')) return { passed: true, message: '' }
+    if (!fp.endsWith('.json')) {
+      return {
+        passed: false,
+        message: `细纲文件必须是 JSON 格式（.json），当前: ${fp}。参考已有细纲文件格式。`,
+      }
+    }
+    return { passed: true, message: '' }
+  },
+}
+
 export const ALL_TASTE_INVARIANTS: TasteInvariant[] = [
   namingConvention,
   noEmptyFiles,
   markdownHeadings,
+  characterNamingConvention,
+  outlineFormat,
 ]

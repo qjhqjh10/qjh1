@@ -3,7 +3,7 @@ import type { ContextProvider } from '../ContextAssembler'
 export const characterProvider: ContextProvider = {
   domain: 'characters',
   relevance: (userMessage) => {
-    const score = /角色|人物|男主|女主|配角|反派|character/i.test(userMessage) ? 0.9 : 0
+    const score = /角色|人物|男主|女主|配角|反派|character/i.test(userMessage) ? 0.9 : 0.6
     if (/创建.*角色|添加.*人物|新建.*角色|写.*角色/.test(userMessage)) return 1.0
     return score
   },

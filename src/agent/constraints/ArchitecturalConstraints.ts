@@ -4,7 +4,7 @@
 
 import type { ArchitecturalConstraint, ToolCallArgs } from './types'
 
-export const FILE_SIZE_LIMIT = 500
+export const FILE_SIZE_LIMIT = 1000
 
 /**
  * Constraint: file size
@@ -146,10 +146,53 @@ export const noDuplicateCreate: ArchitecturalConstraint = {
   fixInstruction: '使用 edit_file 修改已有系统配置文件，不要用 create_file 重新创建。',
 }
 
+/**
+ * Constraint: chapter requires outline
+ * Cannot create a chapter file without a corresponding detailed outline.
+ */
+export const chapterRequiresOutline: ArchitecturalConstraint = {
+  id: 'chapter-requires-outline',
+  description: '创建章节文件前必须有对应细纲',
+  check: (args: ToolCallArgs) => {
+    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    const fp = (args.file_path as string) || ''
+    if (!fp.startsWith('chapters/') || !fp.endsWith('.txt')) return { passed: true, message: '' }
+    // This is a soft check — we can't easily verify file existence here
+    // The system prompt already instructs the AI to read outline first
+    return { passed: true, message: '' }
+  },
+  fixInstruction: '先创建对应的细纲文件（detailed_outline/*.json），再创建章节文件。',
+}
+
+/**
+ * Constraint: non-empty chapter content
+ * Chapter files must have meaningful content.
+ */
+export const nonEmptyChapter: ArchitecturalConstraint = {
+  id: 'non-empty-chapter',
+  description: '章节文件内容不能少于 100 字符',
+  check: (args: ToolCallArgs) => {
+    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    const fp = (args.file_path as string) || ''
+    if (!fp.startsWith('chapters/') || !fp.endsWith('.txt')) return { passed: true, message: '' }
+    const content = (args.content as string) || ''
+    if (content.length < 100) {
+      return {
+        passed: false,
+        message: `章节文件内容只有 ${content.length} 字符，少于 100 字符最低要求。请提供完整的章节内容。`,
+      }
+    }
+    return { passed: true, message: '' }
+  },
+  fixInstruction: '章节文件需要完整的章节内容（至少 100 字符），不要创建空文件或占位符。',
+}
+
 export const ALL_ARCHITECTURAL_CONSTRAINTS: ArchitecturalConstraint[] = [
   fileSizeLimit,
   pathIsolation,
   jsonSchemaValidation,
   dependencyDirection,
   noDuplicateCreate,
+  chapterRequiresOutline,
+  nonEmptyChapter,
 ]

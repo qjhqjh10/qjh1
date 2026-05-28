@@ -292,7 +292,7 @@ export default function Sidebar() {
                 key={item.path}
                 onClick={() => handleNav(item.path)}
                 title={collapsed ? item.label : undefined}
-                className="interactive"
+                className="interactive touch-press"
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -300,35 +300,35 @@ export default function Sidebar() {
                   justifyContent: collapsed ? 'center' : undefined,
                   gap: 10,
                   padding: collapsed ? '10px 0' : '10px 12px',
-                  borderRadius: 14,
+                  borderRadius: 'var(--theme-radius-lg, 14px)',
                   border: 'none',
-                  background: active ? 'rgba(124, 58, 237, 0.1)' : 'transparent',
+                  background: active ? 'var(--theme-accent-bg, rgba(124,58,237,0.1))' : 'transparent',
                   cursor: 'pointer',
                   fontSize: 'var(--sidebar-font-size, 13px)',
-                  color: active ? '#7c3aed' : '#4a3f38',
+                  color: active ? 'var(--theme-accent, #7c3aed)' : 'var(--theme-text-primary, #4a3f38)',
                   fontWeight: active ? 600 : 400,
                   transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                   marginBottom: 2,
                   textAlign: 'left' as const,
-                  boxShadow: active ? '0 0 12px rgba(124,58,237,0.08)' : 'none',
+                  boxShadow: active ? 'var(--theme-shadow-glow, 0 0 12px rgba(124,58,237,0.08))' : 'none',
                   position: 'relative' as const,
                 }}
                 onMouseEnter={e => {
                   if (!active) {
-                    e.currentTarget.style.background = 'rgba(0,0,0,0.03)'
+                    e.currentTarget.style.background = 'var(--theme-bg-hover, rgba(0,0,0,0.03))'
                     e.currentTarget.style.transform = 'translateX(2px)'
                   }
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.background = active ? 'rgba(124, 58, 237, 0.1)' : 'transparent'
+                  e.currentTarget.style.background = active ? 'var(--theme-accent-bg, rgba(124,58,237,0.1))' : 'transparent'
                   e.currentTarget.style.transform = 'translateX(0)'
                 }}
               >
                 {active && (
-                  <span style={{
+                  <span className="breathe" style={{
                     position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
                     width: 3, height: 16, borderRadius: 2,
-                    background: 'linear-gradient(180deg, #7c3aed, #a78bfa)',
+                    background: 'linear-gradient(180deg, var(--theme-accent, #7c3aed), var(--theme-accent-light, #a78bfa))',
                   }} />
                 )}
                 <item.icon style={{ width: 18, height: 18, flexShrink: 0, transition: 'transform 0.2s ease' }} />
@@ -351,11 +351,10 @@ export default function Sidebar() {
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.5)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.3)' }}
           >
-            <span style={{
+            <span className={connectionStatus === 'connected' ? 'breathe-dot' : ''} style={{
               width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-              background: connectionStatus === 'connected' ? '#16a34a' : connectionStatus === 'disconnected' ? '#dc2626' : '#f59e0b',
-              boxShadow: connectionStatus === 'connected' ? '0 0 6px rgba(22,163,74,0.4)' : 'none',
-              animation: connectionStatus === 'checking' ? 'pulse 1.5s infinite' : 'none',
+              background: connectionStatus === 'connected' ? 'var(--theme-success, #16a34a)' : connectionStatus === 'disconnected' ? 'var(--theme-error, #dc2626)' : 'var(--theme-warning, #f59e0b)',
+              animation: connectionStatus === 'checking' ? 'pulse 1.5s infinite' : undefined,
             }} />
             <span style={{ fontSize: 11, color: '#6b5e54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {connectionStatus === 'connected' ? `已连接 ${connectedModel}` : connectionStatus === 'disconnected' ? '无连接' : '检测中...'}

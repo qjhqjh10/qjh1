@@ -44,6 +44,8 @@ export interface AgentRunResult {
   success: boolean; text: string; messageCount: number; totalTokens: number; toolCalls: number; phase: AgentPhase
   thinkingPlan: unknown | null; toolsUsed: string[]; hallucinationWarnings: string[]
   kbSources: unknown[]; webSources: unknown[]; images: string[]; reasoningContent: string | null
+  evaluationScore?: number | null; evaluationSuggestions?: string[]
+  gcReport?: { totalIssues: number; issues: Array<{ type: string; severity: string; location: string; description: string; fixInstruction: string }>; summary: string } | null
 }
 
 // ── Tool Execution Contract ──
@@ -130,6 +132,8 @@ export class AgentRuntime {
   private credentialBroker: { verify(handleId: string, toolName: string, filePath?: string): { valid: boolean; reason?: string } } | null = null
   private capabilityHandleId: string | null = null
   private toolResultsBatch: ToolResult[] = []
+  private evaluationPipeline: { run(input: { taskDescription: string; toolResults: unknown[]; messages: Message[]; auditTrail: unknown; skillLearner: unknown; livingSkillManager: unknown }): Promise<{ report: { overallScore: number; summary: string; layer: string }; autoSuggestions: string[]; failures: unknown[]; dominantCategory: string | null }> } | null = null
+  private gcAgent: { generateReport(): { totalIssues: number; issues: Array<{ type: string; severity: string; location: string; description: string; fixInstruction: string }>; summary: string } } | null = null
 
   constructor(config: AgentConfig) {
     this.config = config
@@ -175,6 +179,8 @@ export class AgentRuntime {
   setConstraintEngine(ce: typeof this.constraintEngine): void { this.constraintEngine = ce }
   setPolicyEngine(pe: typeof this.policyEngine): void { this.policyEngine = pe }
   setHallucinationCallback(cb: typeof this.hallucinationCallback): void { this.hallucinationCallback = cb }
+  setEvaluationPipeline(ep: typeof this.evaluationPipeline): void { this.evaluationPipeline = ep }
+  setGCAgent(gc: typeof this.gcAgent): void { this.gcAgent = gc }
   setCredentialBroker(cb: typeof this.credentialBroker, handleId: string): void { this.credentialBroker = cb; this.capabilityHandleId = handleId }
 
   setHistory(messages: Message[]): void {
@@ -310,9 +316,10 @@ export class AgentRuntime {
             }
           }
 
-          // G1: Smart tool selection — pure chat gets 0 tools, saves ~5000 tokens/round
-          const isTaskMsg = /创建|新建|修改|编辑|删除|生成|写入|添加|追加|读取|查看|列出|搜索|笔记|草稿|知识库|kb|素材|图片|模板|风格|场景|提示词|prompt|项目|project|规则|学习/.test(input.userMessage)
-          const toolsForThisRound = isTaskMsg || iteration > 1 ? this.tools : []
+          // Always provide tools — the AI model decides whether to call them.
+          // On the LAST iteration, remove tools to force the AI to generate a text response.
+          const isLastIteration = iteration >= this.config.maxIterations
+          const toolsForThisRound = isLastIteration ? [] : this.tools
 
           const response = await this.aiService.chatWithTools(
             this.messagesForApi,
@@ -618,7 +625,71 @@ export class AgentRuntime {
       })
       store.endRun()
 
+      // ── Post-session: Evaluation Pipeline ──
+      let evaluationScore: number | null = null
+      let evaluationSuggestions: string[] = []
+      if (this.evaluationPipeline) {
+        try {
+          const pipelineOutput = await this.evaluationPipeline.run({
+            taskDescription: input.userMessage,
+            toolResults: this.toolResultsBatch,
+            messages: this.messagesForApi,
+            auditTrail: (this as any).auditTrail || null,
+            skillLearner: (this as any).skillLearner || null,
+            livingSkillManager: this.livingSkillManager,
+          })
+          evaluationScore = pipelineOutput.report.overallScore
+          evaluationSuggestions = pipelineOutput.autoSuggestions
+          if (evaluationScore < 0.6) {
+            console.log(`[Evaluation] 评分 ${evaluationScore} (${pipelineOutput.report.layer}) — ${pipelineOutput.report.summary}`)
+          }
+          if (evaluationSuggestions.length > 0) {
+            console.log(`[Evaluation] 建议:`, evaluationSuggestions.join('; '))
+          }
+        } catch { /* evaluation is best-effort */ }
+      }
+
+      // ── Post-session: GC Agent ──
+      let gcReport: { totalIssues: number; issues: Array<{ type: string; severity: string; location: string; description: string; fixInstruction: string }>; summary: string } | null = null
+      if (this.gcAgent) {
+        try {
+          gcReport = this.gcAgent.generateReport()
+          if (gcReport.totalIssues > 0) {
+            console.log(`[GCAgent] ${gcReport.totalIssues} 个问题 — ${gcReport.summary}`)
+          }
+        } catch { /* gc is best-effort */ }
+      }
+
       // G9: Rich result
+      // If collectedText is empty, try multiple fallback strategies:
+      if (!collectedText) {
+        // Strategy 1: Extract text from the last assistant message in API context
+        for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
+          const m = this.messagesForApi[i]
+          if (m.role === 'assistant' && m.content && typeof m.content === 'string' && m.content.trim()) {
+            collectedText = m.content
+            break
+          }
+        }
+      }
+      if (!collectedText) {
+        // Strategy 2: Summarize from tool results
+        const toolSummaries: string[] = []
+        for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
+          const m = this.messagesForApi[i]
+          if (m.role === 'tool' && m.content) {
+            try {
+              const parsed = JSON.parse(m.content)
+              if (parsed.summary) toolSummaries.push(parsed.summary)
+            } catch { /* not JSON */ }
+            if (toolSummaries.length >= 3) break
+          }
+        }
+        if (toolSummaries.length > 0) {
+          collectedText = `操作完成：${toolSummaries.reverse().join('；')}。`
+        }
+      }
+
       const lastResponse = this.fsm.currentState.lastApiResponse
       return {
         success: this.fsm.currentPhase !== 'ABORTED',
@@ -627,6 +698,8 @@ export class AgentRuntime {
         thinkingPlan: null, toolsUsed, hallucinationWarnings: [],
         kbSources: [], webSources: [], images: [],
         reasoningContent: (lastResponse as unknown as Record<string, unknown>)?.reasoning_content as string || null,
+        evaluationScore, evaluationSuggestions,
+        gcReport,
       }
 
     } catch (err) {

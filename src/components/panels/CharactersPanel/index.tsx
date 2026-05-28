@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid'
 import Modal from '@/components/common/Modal'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
+import { SkeletonList } from '@/components/common/Skeleton'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import CharacterForm from '../CharacterForm'
 import RelationshipGraphModal from '@/components/common/RelationshipGraphModal'
@@ -39,6 +40,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const [showModal, setShowModal] = useState(false)
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState('')
+  const [loading, setLoading] = useState(true)
 
   const [showAIGen, setShowAIGen] = useState(false)
   const [aiGenDesc, setAiGenDesc] = useState('')
@@ -69,7 +71,8 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         if (c) useStore.getState().setWorldbuildingContent(c)
       })
     }
-    loadCharacters(pp).then(setCharacters)
+    setLoading(true)
+    loadCharacters(pp).then(setCharacters).finally(() => setLoading(false))
   }, [activeProjectId, projectsBasePath])
 
   useEffect(() => {
@@ -156,7 +159,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   if (!activeProjectId) return null
 
   return (
-    <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+    <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* Left: Worldbuilding reference */}
       {showWorldbuildingPanel && (
         <div className="glass" style={{ width: '30%', borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
@@ -172,7 +175,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
       )}
 
       {/* Right: Character grid */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="glass" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 28px 16px' }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: '#2d2520' }}>角色档案库</h2>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -186,8 +189,12 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         </div>
         <div style={{ margin: '0 28px', height: 1, background: 'rgba(0,0,0,0.06)' }} />
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 24 }}>
-          <CharacterGrid characters={characters} projectPath={projectPath}
-            onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} />
+          {loading ? (
+            <div style={{ maxWidth: 600, margin: '0 auto' }}><SkeletonList count={6} /></div>
+          ) : (
+            <CharacterGrid characters={characters} projectPath={projectPath}
+              onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} />
+          )}
         </ScrollArea>
       </div>
 

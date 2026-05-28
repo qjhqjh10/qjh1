@@ -9,6 +9,7 @@ import { DIMENSION_META, NOVEL_TYPE_DIMS, NOVEL_TYPES, NOVEL_TYPE_LABELS } from 
 import { getTemplateDims } from '@/types/styleTemplate';
 import { SparklesIcon, PlusIcon, TrashIcon, XMarkIcon, DocumentTextIcon, PaintBrushIcon, FolderOpenIcon, MagnifyingGlassIcon, ArrowsUpDownIcon, ArrowPathIcon, TagIcon } from '@heroicons/react/24/outline';
 import { FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, presetBtn, linkBtn, labelStyle, cardActionBtn } from '../constants';
+import EmptyState from '@/components/common/EmptyState';
 
 export function LibraryView({ ws }: { ws: any }) {
   return (
@@ -22,12 +23,12 @@ export function LibraryView({ ws }: { ws: any }) {
                 ['archives', '风格档案', PaintBrushIcon],
                 ['ws.templates', '风格模板', TagIcon],
               ] as [WorkspaceTab, string, React.ComponentType<{ style?: React.CSSProperties }>][]).map(([tab, label, Icon]) => (
-                <button key={tab} onClick={() => ws.setWorkspaceTab(tab)} style={{
+                <button key={tab} onClick={() => ws.setWorkspaceTab(tab)} className="interactive-accent" style={{
                   padding: '9px 22px', borderRadius: 11, border: 'none',
                   background: ws.workspaceTab === tab ? '#fff' : 'transparent',
                   color: ws.workspaceTab === tab ? '#7c3aed' : '#9b8e84',
                   fontSize: 13, fontWeight: ws.workspaceTab === tab ? 700 : 500,
-                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
+                  cursor: 'pointer', fontFamily: 'inherit',
                   boxShadow: ws.workspaceTab === tab ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                 }}>
@@ -57,15 +58,11 @@ export function LibraryView({ ws }: { ws: any }) {
                 <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>导入名家作品，AI分析提取写作风格</p>
               </div>
               {ws.projects.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 80, color: '#9b8e84' }}>
-                  <PaintBrushIcon style={{ width: 56, height: 56, margin: '0 auto 16px', opacity: 0.2 }} />
-                  <p style={{ fontSize: 15 }}>暂无风格档案</p>
-                  <p style={{ fontSize: 12, marginTop: 4 }}>导入TXT小说开始分析</p>
-                </div>
+                <EmptyState icon="🎨" title="暂无风格档案" description="导入名家作品，AI分析提取写作风格" action={{ label: '导入TXT小说', onClick: ws.handleImport }} />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {ws.projects.map(p => (
-                    <GlassCard key={p.id} hover={false} style={{ padding: 20 }}>
+                    <GlassCard key={p.id} hover={false} className="stagger-item" style={{ padding: 20 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                         <div style={{ flex: 1 }}>
                           <h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', marginBottom: 6 }}>{p.name}</h3>
@@ -87,7 +84,7 @@ export function LibraryView({ ws }: { ws: any }) {
                               setTimeout(() => handleSaveAsTemplate(), 100)
                             }}>存为模板</Button>
                           )}
-                          <button onClick={() => ws.handleDeleteProject(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4' }}>
+                          <button onClick={() => ws.handleDeleteProject(p)} className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4', borderRadius: 6 }}>
                             <TrashIcon style={{ width: 16, height: 16 }} />
                           </button>
                         </div>
@@ -109,17 +106,16 @@ export function LibraryView({ ws }: { ws: any }) {
 
               {/* Search + Sort bar */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-                <div style={{
+                <div className="glass" style={{
                   flex: 1, display: 'flex', alignItems: 'center', gap: 8,
                   padding: '8px 14px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(0,0,0,0.06)',
-                  backdropFilter: 'blur(8px)',
                 }}>
                   <MagnifyingGlassIcon style={{ width: 16, height: 16, color: '#9b8e84', flexShrink: 0 }} />
                   <input
                     value={ws.templateSearch}
                     onChange={e => ws.setTemplateSearch(e.target.value)}
                     placeholder="搜索模板名称或描述..."
+                    className="focus-ring"
                     style={{
                       flex: 1, border: 'none', outline: 'none', background: 'transparent',
                       fontSize: 13, color: '#2d2520', fontFamily: 'inherit',

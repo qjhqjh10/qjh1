@@ -54,10 +54,10 @@ export function CharacterCard({ char, projectPath, onEdit, onDelete, onLightbox 
             {char.name || '未命名角色'}
           </h4>
           <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
-            <button onClick={e => { e.stopPropagation(); onEdit(char) }} title="编辑" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex', borderRadius: 4 }}>
+            <button onClick={e => { e.stopPropagation(); onEdit(char) }} title="编辑" className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex', borderRadius: 4 }}>
               <PencilIcon style={{ width: 13, height: 13 }} />
             </button>
-            <button onClick={e => { e.stopPropagation(); onDelete(char) }} title="删除" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex', borderRadius: 4 }}>
+            <button onClick={e => { e.stopPropagation(); onDelete(char) }} title="删除" className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex', borderRadius: 4 }}>
               <TrashIcon style={{ width: 13, height: 13 }} />
             </button>
           </div>
