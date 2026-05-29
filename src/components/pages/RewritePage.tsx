@@ -8,8 +8,12 @@ import { buildRewriteAnalysisPrompt } from '@/services/continuationService'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
+import PolishPreview from '@/components/common/PolishPreview'
 import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
+import { parseAiErrorMessage } from '@/utils/textUtils'
+import { useRewriteInsertion } from '@/hooks/useRewriteInsertion'
+import { aiCapability } from '@/services/aiCapabilityService'
 
 interface RewriteProject { id: string; name: string; chapterCount: number; charCount: number; analyzedCount: number; createdAt: string; updatedAt: string }
 interface Chapter { id: string; chapterNumber: number; title: string; content: string }
@@ -20,8 +24,6 @@ type Step = 1 | 2 | 3
 export default function RewritePage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const setActivePage = useStore(s => s.setActivePage)
-  const insertionAction = useStore(s => s.insertionAction)
-  const setInsertionAction = useStore(s => s.setInsertionAction)
   const setRewriteContent = useStore(s => s.setRewriteContent)
 
   const [projects, setProjects] = useState<RewriteProject[]>([])
@@ -34,32 +36,48 @@ export default function RewritePage() {
   const [analyses, setAnalyses] = useState<Record<string, ChapterAnalysis>>({})
   const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
+  // AI改写/润色/续写
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiResult, setAiResult] = useState<string | null>(null)
+  const [aiTitle, setAiTitle] = useState('')
+  const [aiError, setAiError] = useState('')
+  const [selectedRewriteText, setSelectedRewriteText] = useState('')
+
+  const prompts = useSettingsStore(s => s.prompts)
+
+  const doAiEdit = async (mode: '改写' | '润色' | '续写') => {
+    const sel = window.getSelection()?.toString()?.trim()
+    if (!activeConfigId || !sel || sel.length < 2) return
+    setSelectedRewriteText(sel)
+    setAiLoading(true); setAiTitle(`${mode}结果`); setAiError('')
+    const tpl = prompts.find(p => p.type === mode && p.enabled)
+    const defs: Record<string, string> = {
+      '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。',
+      '润色': '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
+      '续写': '请根据以下内容自然续写，保持风格一致。',
+    }
+    const result = await aiCapability.generate(
+      `${tpl?.content || defs[mode]}\n\n${sel}`,
+      { configId: activeConfigId, projectId: projectId || undefined }
+    )
+    if (result.success) setAiResult(result.content)
+    else setAiError(result.error || '请求失败')
+    setAiLoading(false)
+  }
+  const handleRewrite = () => doAiEdit('改写')
+  const handlePolish = () => doAiEdit('润色')
+  const handleContinuePage = () => doAiEdit('续写')
+  const handleApplyAi = (text: string, append?: boolean) => {
+    if (append) setChapterContent(prev => prev + '\n\n' + text)
+    else setChapterContent(text)
+    setAiResult(null)
+  }
 
   // Set activePage for AI assistant
   useEffect(() => { setActivePage('rewrite') }, [])
 
-  // Handle insertion action from AI assistant (rewrite: red/blue)
-  useEffect(() => {
-    if (!insertionAction || !chapterContent) return
-    const { keyword, content: insContent, mode } = insertionAction
-    if (!insContent || !keyword) { setInsertionAction(null); return }
-    const idx = chapterContent.indexOf(keyword)
-    if (idx !== -1) {
-      const isRewrite = mode === 'rewrite'
-      let newText: string
-      if (isRewrite) {
-        const before = chapterContent.slice(0, idx)
-        const original = chapterContent.slice(idx, idx + keyword.length)
-        const after = chapterContent.slice(idx + keyword.length)
-        newText = before + '<span style="color: #dc2626; background: rgba(220,38,38,0.06)">' + original + '</span>' + '\n\n' + '<span style="color: #3b82f6; background: rgba(59,130,246,0.06)">【改写建议】\n' + insContent + '</span>' + after
-      } else {
-        const insertPos = idx + keyword.length
-        newText = chapterContent.slice(0, insertPos) + '\n\n' + insContent + chapterContent.slice(insertPos)
-      }
-      setChapterContent(newText)
-    }
-    setInsertionAction(null)
-  }, [insertionAction])
+  // Handle insertion action from AI assistant (rewrite: red/blue annotation)
+  useRewriteInsertion(() => chapterContent, setChapterContent)
 
   useEffect(() => { if (rewriteService) loadProjects() }, [])
 
@@ -302,9 +320,14 @@ export default function RewritePage() {
             </div>
             {/* Center: editable content */}
             <div style={{ flex: 1, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>第{ch?.chapterNumber}章</span>
-                <Button size="sm" variant="secondary" onClick={handleSaveContent} style={{ fontSize: 10, padding: '2px 8px' }}>保存</Button>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <Button size="sm" variant="ghost" onClick={handleRewrite} disabled={!activeConfigId || aiLoading} style={{ fontSize: 10, padding: '2px 8px' }} >✏️ 改写</Button>
+                  <Button size="sm" variant="ghost" onClick={handlePolish} disabled={!activeConfigId || aiLoading} style={{ fontSize: 10, padding: '2px 8px' }}>✨ 润色</Button>
+                  <Button size="sm" variant="ghost" onClick={handleContinuePage} disabled={!activeConfigId || aiLoading} style={{ fontSize: 10, padding: '2px 8px' }}>📝 续写</Button>
+                  <Button size="sm" variant="secondary" onClick={handleSaveContent} style={{ fontSize: 10, padding: '2px 8px' }}>保存</Button>
+                </div>
               </div>
               <div style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center' }}>
                 <RichTextEditor content={chapterContent} onContentChange={(c) => { setChapterContent(c); setRewriteContent(c) }} placeholder="章节内容..." />
@@ -340,6 +363,21 @@ export default function RewritePage() {
             </ScrollArea>
           </div>
         )}
+
+        {/* AI改写/润色/续写 结果预览 */}
+        {aiError && (
+          <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 300, padding: '10px 18px', borderRadius: 10, background: '#fef2f2', border: '1px solid rgba(239,68,68,0.2)', color: '#dc2626', fontSize: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+            {aiError} <button onClick={() => setAiError('')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 600 }}>✕</button>
+          </div>
+        )}
+        <PolishPreview
+          isOpen={aiResult !== null}
+          title={aiTitle}
+          original={selectedRewriteText}
+          result={aiResult || ''}
+          onApply={handleApplyAi}
+          onClose={() => setAiResult(null)}
+        />
       </div>
     </div>
   )

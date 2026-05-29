@@ -530,6 +530,7 @@ export default function ChapterWritingPage() {
               content={content}
               onContentChange={setContent}
               onBlur={handleSave}
+              projectPath={projectPath}
               placeholder={!content.trim() && detailedChapter?.description ? '本章细纲已就绪，点击上方 AI生成 开始写作，或手动输入内容...' : '开始创作你的章节内容...'}
             />
           </div>

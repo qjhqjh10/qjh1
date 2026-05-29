@@ -104,11 +104,12 @@ export default function SceneWorkshopPage() {
   }
 
   const handleNewTemplate = () => {
-    setEditingTemplate(null); setTemplateName('')
+    setEditingTemplate(null); setTemplateName(''); setEditTagMode(false)
     setEroticConfig(DEFAULT_EROTIC); setNovelConfig(DEFAULT_NOVEL); setNovelGenreType('都市'); setShowEditor(true)
   }
 
   const handleEditTemplate = (tpl: SceneTemplate) => {
+    setEditTagMode(false)
     const isErotic = tpl.type === '情色小说'
     setEditorType(isErotic ? 'erotic' : 'novel')
     setTemplateType(tpl.type || '普通小说')
@@ -132,8 +133,10 @@ export default function SceneWorkshopPage() {
       config: editorType === 'erotic' ? eroticConfig : novelConfig,
       createdAt: editingTemplate?.createdAt || new Date().toISOString(),
     } as SceneTemplate
-    await templateService.save(tpl)
-    setShowEditor(false); loadTemplates()
+    try {
+      await templateService.save(tpl)
+      setShowEditor(false); loadTemplates()
+    } catch { alert('保存失败，请重试') }
   }
 
   const handleDeleteTemplate = async (id: string) => {
@@ -142,6 +145,7 @@ export default function SceneWorkshopPage() {
   }
 
   const handleDuplicateTemplate = (tpl: SceneTemplate) => {
+    setEditTagMode(false)
     const isErotic = tpl.type === '情色小说'
     setEditorType(isErotic ? 'erotic' : 'novel')
     setTemplateType(tpl.type || '普通小说')

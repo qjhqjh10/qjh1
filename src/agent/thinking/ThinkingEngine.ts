@@ -1,21 +1,6 @@
-// ── Structured Thinking Protocol ──
+import type { ThinkingPlan, ThinkingStep } from '../state/types'
 
-export interface ThinkingStep {
-  id: string
-  tool: string
-  action: string
-  args: Record<string, unknown>
-  expectedOutcome: string
-  status: 'pending' | 'in_progress' | 'completed' | 'failed'
-  retryCount: number
-}
-
-export interface ThinkingPlan {
-  intent: string
-  steps: ThinkingStep[]
-  estimatedTokens: number
-  dependencies: number[][] // step indices: which steps depend on which
-}
+// ── Engine ──
 
 export interface ValidationResult {
   valid: boolean
@@ -31,17 +16,14 @@ export interface ProgressReport {
   currentStep: ThinkingStep | null
 }
 
-// ── Engine ──
-
 export class ThinkingEngine {
   /**
    * Parse thinking plan from AI response text.
    * Supports two formats:
-   * 1. Old: [思考计划]...text...[/思考计划] markdown convention
-   * 2. New: ```thinking ... JSON ... ``` code block
+   * 1. New: ```thinking ... JSON ... ``` code block
+   * 2. Old: [思考计划]...text...[/思考计划] markdown convention
    */
   parseFromResponse(text: string): ThinkingPlan | null {
-    // Try JSON format first
     const jsonMatch = text.match(/```thinking\s*([\s\S]*?)```/)
     if (jsonMatch) {
       try {
@@ -50,7 +32,6 @@ export class ThinkingEngine {
       } catch { /* fall through to markdown format */ }
     }
 
-    // Fallback: parse markdown convention
     const markdownMatch = text.match(/\[思考计划\]([\s\S]*?)\[\/思考计划\]/)
     if (markdownMatch) {
       return this.parseMarkdownPlan(markdownMatch[1])
@@ -70,6 +51,8 @@ export class ThinkingEngine {
         expectedOutcome: String(s.expectedOutcome || ''),
         status: 'pending' as const,
         retryCount: 0,
+        approvalStatus: 'pending' as const,
+        userFeedback: undefined,
       })) : [],
       estimatedTokens: Number(raw.estimatedTokens) || 0,
       dependencies: Array.isArray(raw.dependencies) ? raw.dependencies as number[][] : [],
@@ -80,7 +63,6 @@ export class ThinkingEngine {
     const lines = text.trim().split('\n').filter(l => l.trim())
     const steps: ThinkingStep[] = lines.map((line, i) => {
       const cleaned = line.replace(/^[\d]+[\.\)、]\s*/, '').trim()
-      // Try to extract tool name from line like "read_file: 读取大纲"
       const toolMatch = cleaned.match(/^(\w+)[:：]/)
       return {
         id: `step_${i}`,
@@ -90,6 +72,7 @@ export class ThinkingEngine {
         expectedOutcome: '',
         status: 'pending' as const,
         retryCount: 0,
+        approvalStatus: 'pending' as const,
       }
     })
     return {
@@ -137,6 +120,77 @@ export class ThinkingEngine {
       `[当前计划] 目标: ${plan.intent}`,
       `执行步骤:\n${steps}`,
       '状态: ' + this.trackProgress(plan).percentComplete + '% 完成',
+    ].join('\n')
+  }
+
+  // ── Plan enforcement ──
+
+  /**
+   * Find the matching plan step for a tool call.
+   * Returns null if the tool call is not in the plan (deviation).
+   */
+  findMatchingStep(plan: ThinkingPlan, toolName: string, args: Record<string, unknown>): ThinkingStep | null {
+    return plan.steps.find(s => {
+      if (s.tool !== toolName) return false
+      const planFilePath = String(s.args?.['file_path'] ?? s.args?.['path'] ?? '')
+      const callFilePath = String(args?.['file_path'] ?? args?.['path'] ?? '')
+      if (planFilePath && callFilePath) {
+        return planFilePath.includes(callFilePath) || callFilePath.includes(planFilePath)
+      }
+      return true
+    }) ?? null
+  }
+
+  /**
+   * Build the plan enforcement system inject for API context after plan approval.
+   */
+  buildPlanEnforcementInject(plan: ThinkingPlan): string {
+    const approved = plan.steps.filter(s => s.approvalStatus === 'approved')
+    const rejected = plan.steps.filter(s => s.approvalStatus === 'rejected')
+
+    const parts: string[] = [
+      '[计划执行] 以下已批准的计划步骤必须执行，不得执行计划外的操作:',
+      ...approved.map((s, i) =>
+        `${i + 1}. [${s.tool}] ${s.action} → 预期结果: ${s.expectedOutcome}`),
+    ]
+
+    if (rejected.length > 0) {
+      parts.push('\n以下步骤已被用户拒绝，必须跳过:')
+      rejected.forEach(s =>
+        parts.push(`- [${s.tool}] ${s.action}: ${s.userFeedback || '用户未提供原因'}`))
+    }
+
+    parts.push('\n严格遵循批准的计划。如需偏离，在回复中说明原因并请求批准新步骤。')
+    return parts.join('\n')
+  }
+
+  /**
+   * Generate the plan-first instruction injected before the first API call.
+   */
+  generatePlanPrompt(): string {
+    return [
+      '[执行前规划] 在采取任何行动前，请先输出一个结构化的执行计划（不要同时调用工具）。',
+      '使用以下 JSON 格式，包裹在 ```thinking 代码块中:',
+      '```thinking',
+      JSON.stringify({
+        intent: '用户意图的一句话描述',
+        steps: [
+          {
+            id: 'step_1',
+            tool: '工具名称',
+            action: '描述要做什么',
+            args: { file_path: '相对文件路径' },
+            expectedOutcome: '预期的结果',
+          },
+        ],
+        dependencies: [],
+        estimatedTokens: 500,
+      }, null, 2),
+      '```',
+      '注意:',
+      '- 先输出计划，等待用户批准后再执行（不要在同一轮回复中既输出计划又调用工具）',
+      '- 如果是问候、闲聊等不需要工具的消息，直接回复即可，不需要输出计划',
+      '- 计划中的每个步骤应该是独立可执行的具体工具调用',
     ].join('\n')
   }
 }

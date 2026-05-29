@@ -116,13 +116,40 @@ export function DetailView({ ws }: { ws: any }) {
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {Object.entries(FEATURE_LABELS).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, label]) => (
+                      {Object.entries(FEATURE_LABELS).filter(([k]) => !['narrativeTone','descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, label]) => (
                         <div key={k} style={{ fontSize: 11 }}>
                           <span style={{ fontWeight: 600, color: '#7c3aed' }}>{label}:</span>
                           <span style={{ color: '#4a3f38' }}> {(ch.analysis![k as keyof ChapterAnalysis] as string) || '未检测到'}</span>
                         </div>
                       ))}
                     </div>
+                    {/* dimAnalyses: 显示所有 V1 字符串字段之外的维度（情色专属/泛用技法等） */}
+                    {ch.analysis!.dimAnalyses && Object.keys(ch.analysis!.dimAnalyses).length > 0 && (() => {
+                      const v1StringKeys = ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','subtextStyle']
+                      const extraDims = Object.entries(ch.analysis!.dimAnalyses!).filter(([k]) => !v1StringKeys.includes(k))
+                      if (extraDims.length === 0) return null
+                      return (
+                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>深度分析维度:</div>
+                          {extraDims.map(([dk, da]) => (
+                            <div key={dk} style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11, lineHeight: 1.5, color: '#4a3f38' }}>
+                              <span style={{ fontWeight: 700, color: '#7c3aed' }}>{FEATURE_LABELS[dk] || DIMENSION_META[dk]?.label || dk}:</span>
+                              <span> {da.description?.slice(0, 200) || '(无描述)'}</span>
+                              {da.vocabularyList && da.vocabularyList.length > 0 && (
+                                <div style={{ marginTop: 3, fontSize: 10, color: '#9b8e84' }}>
+                                  词汇: {da.vocabularyList.slice(0, 10).join('、')}{da.vocabularyList.length > 10 ? ` 等${da.vocabularyList.length}个` : ''}
+                                </div>
+                              )}
+                              {da.writingRules && da.writingRules.length > 0 && (
+                                <div style={{ marginTop: 2, fontSize: 10, color: '#9b8e84' }}>
+                                  规则: {da.writingRules.slice(0, 3).join('；')}{da.writingRules.length > 3 ? ` 等${da.writingRules.length}条` : ''}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
                     {ch.analysis!.descriptionPattern && (
                       <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
                         <span style={{ fontWeight: 700, color: '#7c3aed' }}>描写结构:</span> {ch.analysis!.descriptionPattern.bodyOrder?.join('→')}
@@ -188,7 +215,7 @@ export function DetailView({ ws }: { ws: any }) {
                     <strong>风格综述：</strong>{ws.selectedProject.profile.fullDescription}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    {Object.entries(ws.selectedProject.profile.features).filter(([k]) => !['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, v]) => (
+                    {Object.entries(ws.selectedProject.profile.features).filter(([k]) => !['narrativeTone','descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop','sceneMechanics','somaticTension','identityDissolution'].includes(k)).map(([k, v]) => (
                       <div key={k} style={{ padding: '10px 12px', borderRadius: 8, background: '#faf9f8', fontSize: 12 }}>
                         <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>{FEATURE_LABELS[k]}</div>
                         <div style={{ color: '#4a3f38', lineHeight: 1.6 }}>{(v as string) || '未检测到'}</div>
@@ -286,6 +313,43 @@ export function DetailView({ ws }: { ws: any }) {
                       </div>
                     </div>
                   )}
+                  {/* dimAnalyses: 显示 features 复杂字段为 null、但 dimAnalyses 中有数据的维度 */}
+                  {ws.selectedProject.profile.dimAnalyses && Object.keys(ws.selectedProject.profile.dimAnalyses).length > 0 && (() => {
+                    const v1ShownKeys = ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','subtextStyle']
+                    const complexKeys = ['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','sceneMechanics','somaticTension','identityDissolution','shameVoyeurLoop']
+                    const extraDims = Object.entries(ws.selectedProject.profile.dimAnalyses!).filter(([k]) => !v1ShownKeys.includes(k))
+                    if (extraDims.length === 0) return null
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#6b5e54', marginTop: 4 }}>深度分析维度 ({extraDims.length}维)</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          {extraDims.map(([dk, da]) => {
+                            const isErotic = DIMENSION_META[dk]?.category === '情色专属'
+                            const isComplex = complexKeys.includes(dk)
+                            const accentColor = isErotic ? '#ec4899' : '#7c3aed'
+                            const bgColor = isErotic ? 'rgba(236,72,153,0.03)' : 'rgba(124,58,237,0.03)'
+                            const borderColor = isErotic ? 'rgba(236,72,153,0.12)' : 'rgba(124,58,237,0.1)'
+                            return (
+                              <div key={dk} style={{ padding: '10px 14px', borderRadius: 10, background: bgColor, border: `1px solid ${borderColor}`, fontSize: 12, lineHeight: 1.7 }}>
+                                <div style={{ fontWeight: 700, color: accentColor, marginBottom: 4 }}>{FEATURE_LABELS[dk] || DIMENSION_META[dk]?.label || dk}</div>
+                                <div style={{ color: '#4a3f38' }}>{da.description?.slice(0, 250) || '(无描述)'}</div>
+                                {da.vocabularyList && da.vocabularyList.length > 0 && (
+                                  <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84', borderTop: '1px solid rgba(0,0,0,0.04)', paddingTop: 4 }}>
+                                    <strong>词汇:</strong> {da.vocabularyList.slice(0, 15).join('、')}{da.vocabularyList.length > 15 ? ` 等${da.vocabularyList.length}个` : ''}
+                                  </div>
+                                )}
+                                {da.writingRules && da.writingRules.length > 0 && (
+                                  <div style={{ marginTop: 4, fontSize: 10, color: '#9b8e84' }}>
+                                    <strong>规则:</strong> {da.writingRules.slice(0, 5).map((r, i) => <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {r}</div>)}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div style={{ fontSize: 10, color: '#9b8e84' }}>
                     总结时间: {new Date(ws.selectedProject.profile.analyzedAt).toLocaleString()} · 分析章节: {ws.selectedProject.profile.analyzedChapterCount}章
                   </div>
@@ -360,12 +424,12 @@ export function DetailView({ ws }: { ws: any }) {
           {/* Presets */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>预设:</span>
-            <button onClick={() => ws.setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法','泛用技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
+            <button onClick={() => ws.setEnabledDimensions(Object.keys(DIMENSION_META).filter(k => ['基础文风','进阶技法'].includes(DIMENSION_META[k].category)))} style={presetBtn}>✨ 基础通用</button>
             <button onClick={() => ws.setEnabledDimensions(NOVEL_TYPE_DIMS['情色'] || [])} style={presetBtn}>🔞 情色全维</button>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginLeft: 8 }}>类型:</span>
             {['通用','情色','玄幻','奇幻','灵异','游戏','末世','轻小说','都市','修仙','恋爱','古风','悬疑'].map(genre => (
               <button key={genre} onClick={() => {
-                let dims = ws.enabledDimensions.filter(k => DIMENSION_META[k].category !== '类型专属')
+                let dims = ws.enabledDimensions.filter(k => DIMENSION_META[k].category !== '类型专属' && DIMENSION_META[k].category !== '情色专属')
                 if (genre === '情色') { ws.setEnabledDimensions(NOVEL_TYPE_DIMS['情色'] || []) }
                 else if (genre === '通用') { ws.setEnabledDimensions(dims) }
                 else {

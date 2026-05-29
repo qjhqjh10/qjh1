@@ -49,12 +49,16 @@ export const httpTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
+        let headers: Record<string, string> | undefined
+        if (args.headers) {
+          try { headers = JSON.parse(String(args.headers)) } catch { return { status: 'error', summary: '请求头 JSON 格式无效，请检查语法' } }
+        }
         const { fileService } = await import('@/services/fileService')
         const result = await (fileService as any).httpFetch?.(
           String(args.url),
           {
             method: String(args.method || 'GET'),
-            headers: args.headers ? JSON.parse(String(args.headers)) : undefined,
+            headers,
             body: args.body ? String(args.body) : undefined,
           },
         )

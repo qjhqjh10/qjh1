@@ -1,13 +1,20 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { buildProjectSummary } from '../projectSummary'
+import { extractSummary } from '../contentExtractor'
+
+// Only scan project when user message indicates a task (not casual chat)
+const TASK_PATTERN = /写|续|创|建|编|改|删|查|看|读|搜|找|角色|大纲|细纲|章节|风格|场景|知识库|笔记|分析|检查|矛盾|一致|生成|规划|整理|导出|plot|character|chapter|outline|create|edit|delete|read|search|write|check|analyze|generate/i
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
   relevance: () => 1.0,
 
-  buildContext: async (projectId) => {
+  buildContext: async (projectId, userMessage) => {
+    // Only scan project directories when the user has a task (not casual chat like "你好")
+    const isTask = userMessage && TASK_PATTERN.test(userMessage)
+
     let projectSummary = ''
-    if (projectId) {
+    if (projectId && isTask) {
       try {
         projectSummary = await buildProjectSummary(projectId)
       } catch { /* best effort */ }
@@ -21,7 +28,7 @@ export const coreRulesProvider: ContextProvider = {
         const sections = raw.split('## 自动反馈')
         const lastSection = sections[sections.length - 1]
         if (lastSection && lastSection.trim().length > 20) {
-          feedbackContent = '\n\n## 历史经验\n' + lastSection.slice(0, 1500)
+          feedbackContent = '\n\n## 历史经验\n' + extractSummary(lastSection, 500)
         }
       }
     } catch { /* first session */ }
@@ -38,10 +45,13 @@ export const coreRulesProvider: ContextProvider = {
 
         '## 工作方式',
         '1. 理解用户的创作意图，不要拘泥于字面表达',
-        '2. 需要操作文件时，先用 read_file 或 list_directory 了解现状',
-        '3. 编辑用 edit_file 精确替换（old_string 必须与原文完全匹配）；匹配失败时用 old_string="__FULL_REPLACE__" 全量替换',
-        '4. 创建 JSON 文件时系统自动校验格式，校验失败会返回修复指令',
-        '5. 完成后向用户报告结果',
+        '2. 如果用户只是想查看/了解内容，直接用 read_file 读取对应文件，不要先 list_directory',
+        '3. 如果用户要编辑/修改，先 read_file 确认当前内容，再用 edit_file 精确替换',
+        '4. edit_file 的 old_string 必须与原文完全匹配；匹配失败时用 old_string="__FULL_REPLACE__" 全量替换',
+        '5. 创建 JSON 文件时系统自动校验格式，校验失败会返回修复指令',
+        '6. 完成后向用户报告结果',
+        '7. 不要反复调用同一个工具（如多次 list_directory），拿到结果后立即使用',
+        '8. 如果已经读取了文件内容，直接回复用户，不要再调用其他工具',
 
         '## 小说完整性协议',
         '- 不得擅自更改已确立的角色特征（性别、性格、能力等），除非用户明确指示',

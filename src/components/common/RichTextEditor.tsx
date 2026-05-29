@@ -17,8 +17,10 @@ import FindReplace from '@/components/common/FindReplace'
 import ContextMenu from '@/components/common/ContextMenu'
 import PolishPreview from '@/components/common/PolishPreview'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService } from '@/services/fileService'
+import { aiService, fileService } from '@/services/fileService'
+import { aiCapability } from '@/services/aiCapabilityService'
 import { parseAiErrorMessage } from '@/utils/textUtils'
+import { logError } from '@/utils/logger'
 
 interface Props {
   content: string
@@ -27,9 +29,10 @@ interface Props {
   placeholder?: string
   showFind?: boolean
   onToggleFind?: () => void
+  projectPath?: string
 }
 
-export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind }: Props) {
+export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind, projectPath }: Props) {
   const [showSymbols, setShowSymbols] = useState(false)
   const [showFind, setShowFind] = useState(false)
   const effectiveShowFind = externalShowFind !== undefined ? externalShowFind : showFind
@@ -69,6 +72,58 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
         style: `outline: none; min-height: 500px; padding: 48px 56px; font-size: var(--editor-font-size, 16px); line-height: 2; font-family: "PingFang SC", "Microsoft YaHei", "Noto Serif SC", Georgia, serif; color: #2d2520;`,
         class: 'rich-editor-content',
       },
+      // Ctrl+V paste image support
+      handlePaste: (view, event) => {
+        const items = event.clipboardData?.items
+        if (!items) return false
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith('image/')) {
+            event.preventDefault()
+            const file = item.getAsFile()
+            if (!file) continue
+            const reader = new FileReader()
+            reader.onload = async () => {
+              const dataUrl = reader.result as string
+              let src = dataUrl
+              if (projectPath) {
+                try {
+                  const fn = await fileService.saveImageUrl(dataUrl, projectPath)
+                  if (fn) src = `images/${fn}`
+                } catch { /* fallback to base64 */ }
+              }
+              const node = view.state.schema.nodes.image.create({ src })
+              view.dispatch(view.state.tr.replaceSelectionWith(node))
+            }
+            reader.readAsDataURL(file)
+            return true
+          }
+        }
+        return false
+      },
+      // Drag-and-drop image support
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false
+        const files = event.dataTransfer?.files
+        if (!files || files.length === 0) return false
+        const file = files[0]
+        if (!file.type.startsWith('image/')) return false
+        event.preventDefault()
+        const reader = new FileReader()
+        reader.onload = async () => {
+          const dataUrl = reader.result as string
+          let src = dataUrl
+          if (projectPath) {
+            try {
+              const fn = await fileService.saveImageUrl(dataUrl, projectPath)
+              if (fn) src = `images/${fn}`
+            } catch { /* fallback to base64 */ }
+          }
+          const node = view.state.schema.nodes.image.create({ src })
+          view.dispatch(view.state.tr.replaceSelectionWith(node))
+        }
+        reader.readAsDataURL(file)
+        return true
+      },
     },
     content,
     onUpdate: ({ editor }) => { onContentChangeRef.current(editor.getHTML()) },
@@ -102,22 +157,34 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
 
-  // Image insertion
-  const handleInsertImage = useCallback(() => {
+  // Shared helper: save image file to project images/ dir, return src path
+  const saveImageFile = useCallback(async (dataUrl: string): Promise<string> => {
+    if (projectPath) {
+      try {
+        const fn = await fileService.saveImageUrl(dataUrl, projectPath)
+        if (fn) return `images/${fn}`
+      } catch (err) { logError('保存图片到项目失败，降级为base64', err) }
+    }
+    return dataUrl // fallback to base64
+  }, [projectPath])
+
+  // Image insertion via toolbar button
+  const handleInsertImage = useCallback(async () => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/*'
-    input.onchange = () => {
+    input.onchange = async () => {
       const file = input.files?.[0]
       if (!file || !editor) return
       const reader = new FileReader()
-      reader.onload = () => {
-        editor.chain().focus().setImage({ src: reader.result as string }).run()
+      reader.onload = async () => {
+        const src = await saveImageFile(reader.result as string)
+        editor.chain().focus().setImage({ src }).run()
       }
       reader.readAsDataURL(file)
     }
     input.click()
-  }, [editor])
+  }, [editor, saveImageFile])
 
   // Image alignment
   const handleImageAlign = useCallback((align: 'left' | 'center' | 'right') => {
@@ -159,50 +226,49 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   // AI generation guard
   const generationRef = useRef(0)
 
-  // Polish
-  const handlePolish = useCallback(async () => {
+  // Unified AI text editing: polish / rewrite / continue
+  const doAiEdit = useCallback(async (mode: '润色' | '改写' | '续写') => {
     setCtxMenu(null)
     if (!activeConfigId || !selectedText) return
     setPolishLoading(true)
-    setPolishTitle('润色结果')
+    setPolishTitle(`${mode}结果`)
     setPolishError('')
     const genId = ++generationRef.current
     try {
-      const polishPrompt = prompts.find(p => p.type === '润色' && p.enabled)
-      const msg = polishPrompt?.content || '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。'
-      const reply = await aiService.chat([{ role: 'user', content: `${msg}\n\n${selectedText}` }], activeConfigId, activeProjectId || undefined)
-      if (genId === generationRef.current) setPolishResult(reply)
-    } catch (err) {
-      if (genId === generationRef.current) {
-        setPolishError(parseAiErrorMessage(err, '请求失败，请检查 AI 配置'))
+      const tpl = prompts.find(p => p.type === mode && p.enabled)
+      const defs: Record<string, string> = {
+        '润色': '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
+        '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。',
+        '续写': '请根据以下内容自然续写，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性。',
       }
+      const result = await aiCapability.generate(
+        `${tpl?.content || defs[mode]}\n\n${selectedText}`,
+        { configId: activeConfigId, projectId: activeProjectId || undefined }
+      )
+      if (genId === generationRef.current) {
+        if (result.success) setPolishResult(result.content)
+        else setPolishError(result.error || '请求失败')
+      }
+    } catch (err) {
+      if (genId === generationRef.current) setPolishError(parseAiErrorMessage(err, '请求失败'))
     }
     if (genId === generationRef.current) setPolishLoading(false)
   }, [activeConfigId, selectedText, prompts, activeProjectId])
 
-  // Continue
-  const handleContinue = useCallback(async () => {
-    setCtxMenu(null)
-    if (!activeConfigId || !selectedText) return
-    setPolishLoading(true)
-    setPolishTitle('续写结果')
-    setPolishError('')
-    const genId = ++generationRef.current
-    try {
-      const continuePrompt = prompts.find(p => p.type === '续写' && p.enabled)
-      const msg = continuePrompt?.content || '请根据以下内容自然续写，保持风格一致。'
-      const reply = await aiService.chat([{ role: 'user', content: `${msg}\n\n${selectedText}` }], activeConfigId, activeProjectId || undefined)
-      if (genId === generationRef.current) setPolishResult(reply)
-    } catch (err) {
-      if (genId === generationRef.current) {
-        setPolishError(parseAiErrorMessage(err, '请求失败，请检查 AI 配置'))
-      }
-    }
-    if (genId === generationRef.current) setPolishLoading(false)
-  }, [activeConfigId, selectedText, prompts, activeProjectId])
+  const handlePolish = () => doAiEdit('润色')
+  const handleRewrite = () => doAiEdit('改写')
+  const handleContinue = () => doAiEdit('续写')
 
-  const handleApplyPolish = (text: string) => {
-    if (editor) editor.chain().focus().deleteSelection().insertContent(text).run()
+  const handleApplyPolish = (text: string, append?: boolean) => {
+    if (!editor) return
+    if (append) {
+      // 续写: 追加在选中内容之后，不删除原文
+      const { from, to } = editor.state.selection
+      editor.chain().focus().setTextSelection(to).insertContent('\n\n' + text).run()
+    } else {
+      // 改写/润色: 替换选中内容
+      editor.chain().focus().deleteSelection().insertContent(text).run()
+    }
     setPolishResult(null)
   }
 
@@ -280,6 +346,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
         <ContextMenu
           x={ctxMenu.x} y={ctxMenu.y}
           onPolish={handlePolish}
+          onRewrite={handleRewrite}
           onContinue={handleContinue}
           onClose={closeCtxMenu}
         />

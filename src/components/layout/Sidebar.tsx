@@ -157,7 +157,7 @@ export default function Sidebar() {
               whiteSpace: 'nowrap',
             }}
           >
-            AI 小说写作助手
+            AI写作助手
           </h1>
         )}
         <button

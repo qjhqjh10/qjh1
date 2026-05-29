@@ -7,11 +7,12 @@ interface Props {
   title: string
   original: string
   result: string
-  onApply: (text: string) => void
+  onApply: (text: string, append?: boolean) => void
   onClose: () => void
 }
 
 export default function PolishPreview({ isOpen, title, original, result, onApply, onClose }: Props) {
+  const isAppend = title.includes('续写')
   const [edited, setEdited] = useState(result)
 
   useEffect(() => { if (isOpen) setEdited(result) }, [isOpen, result])
@@ -44,7 +45,7 @@ export default function PolishPreview({ isOpen, title, original, result, onApply
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
           <Button variant="secondary" onClick={onClose}>取消</Button>
-          <Button onClick={() => onApply(edited)}>应用</Button>
+          <Button onClick={() => onApply(edited, isAppend)}>应用</Button>
         </div>
       </div>
     </Modal>

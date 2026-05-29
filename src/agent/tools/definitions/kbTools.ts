@@ -11,10 +11,12 @@ export const kbTools: ToolDefinition[] = [
     category: 'kb',
     availableInPlanMode: true,
     executor: async (_args) => {
-      const { kbService } = await import('@/services/fileService')
-      const meta = await kbService.list() as { files: { id: string; originalName: string; type: string }[] }
-      const fileList = meta.files.map(f => `${f.originalName} (id: ${f.id}, 类型: ${f.type})`).join('\n')
-      return { status: 'success', summary: `${meta.files.length} 个文件`, detail: fileList || '(知识库为空)' }
+      try {
+        const { kbService } = await import('@/services/fileService')
+        const meta = await kbService.list() as { files: { id: string; originalName: string; type: string }[] }
+        const fileList = meta.files.map(f => `${f.originalName} (id: ${f.id}, 类型: ${f.type})`).join('\n')
+        return { status: 'success', summary: `${meta.files.length} 个文件`, detail: fileList || '(知识库为空)' }
+      } catch (e) { return { status: 'error', summary: `知识库列表失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -33,13 +35,19 @@ export const kbTools: ToolDefinition[] = [
     permission: 'READ_ASK',
     category: 'kb',
     availableInPlanMode: true,
-    executor: async (args) => {
-      const { kbService } = await import('@/services/fileService')
-      const result = await kbService.create(
-        (args.name as string) || '未命名.md',
-        (args.content as string) || '',
-      )
-      return { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}` }
+    executor: async (args, ctx) => {
+      try {
+        const { kbService } = await import('@/services/fileService')
+        const result = await kbService.create(
+          (args.name as string) || '未命名.md',
+          (args.content as string) || '',
+          ctx.projectId || undefined,
+        )
+        if (ctx.configId) {
+          try { await kbService.index(result.id, ctx.configId) } catch { /* best-effort */ }
+        }
+        return { status: 'success', summary: `已创建知识库文件: ${result.name}`, detail: `文件ID: ${result.id}` }
+      } catch (e) { return { status: 'error', summary: `创建知识库文件失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -58,10 +66,12 @@ export const kbTools: ToolDefinition[] = [
     permission: 'READ_ASK',
     category: 'kb',
     availableInPlanMode: true,
-    executor: async (args) => {
-      const { kbService } = await import('@/services/fileService')
-      await kbService.append(args.file_id as string, args.content as string)
-      return { status: 'success', summary: '已追加到知识库文件' }
+    executor: async (args, ctx) => {
+      try {
+        const { kbService } = await import('@/services/fileService')
+        await kbService.append(args.file_id as string, args.content as string, ctx.projectId || undefined)
+        return { status: 'success', summary: '已追加到知识库文件' }
+      } catch (e) { return { status: 'error', summary: `追加知识库文件失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -78,10 +88,12 @@ export const kbTools: ToolDefinition[] = [
     category: 'kb',
     availableInPlanMode: true,
     executor: async (args, ctx) => {
-      const { kbService } = await import('@/services/fileService')
-      const fileId = String(args.file_id || '')
-      const result = await kbService.index(fileId, ctx.configId)
-      return { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段` }
+      try {
+        const { kbService } = await import('@/services/fileService')
+        const fileId = String(args.file_id || '')
+        const result = await kbService.index(fileId, ctx.configId)
+        return { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段` }
+      } catch (e) { return { status: 'error', summary: `索引失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
 ]

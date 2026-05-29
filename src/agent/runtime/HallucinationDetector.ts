@@ -1,27 +1,35 @@
 // ── Hallucination Detector ──
 // Detects when AI claims to have performed an action but did not actually call a tool.
 
+interface ActionCheck {
+  pattern: RegExp
+  tools: string[]
+  label: string
+}
+
 export class HallucinationDetector {
-  // Keywords that suggest the AI is claiming an action was done (Chinese + English)
-  private actionClaims = /已创建|已修改|已编辑|已删除|已生成|已写入|已完成|已保存|已添加|已追加|已读取|已列出|created|modified|edited|deleted|generated|written|saved|added|appended|listed|wrote to|file has been/
+  private checks: ActionCheck[] = [
+    { pattern: /(?:已经|已).{0,10}(创建|新建|生成|写入|写好|做好|添加了)/, tools: ['create_file', 'create_project', 'create_style_template', 'create_scene_template', 'generate_image', 'kb_create_file'], label: '创建/生成' },
+    { pattern: /(?:已经|已).{0,10}(修改|编辑|更新|替换|改写|改成|调整了|调整好)/, tools: ['edit_file', 'rename_file', 'create_file'], label: '修改/编辑' },
+    { pattern: /(?:已经|已).{0,10}(读取|查看|读过|看过|查阅)/, tools: ['read_file', 'list_directory'], label: '读取/查看' },
+    { pattern: /(?:已经|已).{0,10}(删除|移除|去掉)/, tools: ['delete_file'], label: '删除' },
+    { pattern: /(?:已经|已).{0,10}(保存|存储)/, tools: ['create_file', 'edit_file', 'kb_create_file', 'kb_append_file'], label: '保存/写入' },
+    { pattern: /(?:已经|已).{0,10}(搜索|检索|查找|找到)/, tools: ['search_files', 'search_content'], label: '搜索' },
+    { pattern: /(?:已经|已).{0,10}(追加|写入)/, tools: ['edit_file', 'create_file', 'kb_append_file'], label: '追加/写入' },
+    // English patterns
+    { pattern: /\b(?:has been|have been|already)\s+(created|modified|edited|deleted|generated|written|saved|added)/i, tools: ['create_file', 'edit_file', 'delete_file'], label: 'action claimed' },
+  ]
 
   detect(text: string, knownTools: Set<string>): string | null {
     if (!text || typeof text !== 'string') return null
-    if (!this.actionClaims.test(text)) return null
 
-    // Check if the text claims tool-like actions but no tools were called
-    const claimedActions: string[] = []
-    if (/已创建|created/i.test(text)) claimedActions.push('创建文件')
-    if (/已修改|已编辑|modified|edited/i.test(text)) claimedActions.push('编辑文件')
-    if (/已删除|deleted/i.test(text)) claimedActions.push('删除文件')
-    if (/已生成|generated/i.test(text)) claimedActions.push('生成内容')
-    if (/已写入|written|wrote to/i.test(text)) claimedActions.push('写入文件')
-    if (/已保存|saved/i.test(text)) claimedActions.push('保存内容')
-    if (/已添加|已追加|added|appended/i.test(text)) claimedActions.push('添加内容')
-    if (/已列出|listed/i.test(text)) claimedActions.push('列出内容')
-
-    if (claimedActions.length > 0 && knownTools.size === 0) {
-      return `检测到你在回复中声称了这些操作: ${claimedActions.join('、')}，但你没有调用任何工具。请立即调用对应工具完成操作。`
+    for (const check of this.checks) {
+      if (check.pattern.test(text)) {
+        const hasTool = check.tools.some(t => knownTools.has(t))
+        if (!hasTool) {
+          return `检测到你在回复中声称"${check.label}"操作，但未实际调用对应工具。请立即调用对应工具完成操作。`
+        }
+      }
     }
 
     return null

@@ -21,12 +21,15 @@ import ImageLightbox from '@/components/common/ImageLightbox'
 
 import { makeConversation } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
-import { BatchApprovalPanel, FileGroup, batchBtnStyle } from "./components/BatchApprovalPanel";
+import { BatchApprovalPanel, FileGroup, batchBtnStyle, type BatchCard } from "./components/BatchApprovalPanel";
+import { PlanCard } from './components/PlanCard'
+import { VerificationPanel } from './components/VerificationPanel'
 import { AgentChatBridge } from '@/agent/AgentChatBridge'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStateBar } from './components/AgentStateBar'
 import { AgentThinkingPanel } from './components/AgentThinkingPanel'
 import { ToolExecutionPanel } from './components/ToolExecutionCard'
+import { DiagnosticPanel } from './components/DiagnosticPanel'
 
 
 export default function AIChatWindow() {
@@ -66,7 +69,7 @@ export default function AIChatWindow() {
   const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
   const [kbEnabled, setKbEnabled] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
-  const [toolInvokeEnabled, setToolInvokeEnabled] = useState(false)
+  const [toolInvokeEnabled, setToolInvokeEnabled] = useState(true)
   const [showToolHint, setShowToolHint] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
   const lastApiCheck = useRef(0)
@@ -209,18 +212,6 @@ export default function AIChatWindow() {
     batch.onResolve(false, feedback || undefined)
   }
 
-  type BatchCard = {
-    id: string
-    summary: { reads: string[]; writes: string[]; creates: string[]; deletes: string[]; lists: string[]; settings: string[]; templates: string[]; images: string[] }
-    previews: { editDiffs: Array<{ path: string; old: string; new: string }>; createPreviews: Array<{ path: string; content: string }> }
-    thinkingPlan: string
-  }
-
-  const batchBtnStyle = (bg: string, fg: string): React.CSSProperties => ({
-    padding: '6px 16px', borderRadius: 10, border: bg === '#fff' ? '1px solid rgba(0,0,0,0.08)' : 'none',
-    background: bg, color: fg, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-  })
-
   const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleThinking = (id: string) => setExpandedThinking(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const togglePlan = (id: string) => setExpandedPlans(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -299,8 +290,21 @@ export default function AIChatWindow() {
     return firstUser ? firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '') : '新对话'
   }
 
+  // Build history messages for the bridge: include user/assistant, and strip tool_calls without matching tool results
+  function buildHistoryMessages(msgs: Message[]) {
+    const filtered = msgs.filter(m => m.role === 'user' || m.role === 'assistant')
+    // If an assistant message has tool_calls, strip them (tool results are not in history)
+    // This prevents API errors from providers that require tool_calls/tool_result pairs
+    return filtered.map(m => {
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+        return { role: m.role, content: m.content } // drop tool_calls to avoid unmatched pairs
+      }
+      return { role: m.role, content: m.content }
+    })
+  }
+
   const abortToolLoop = () => { abortRef.current = true; aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); setActiveConversationId(convId); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
   const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
   const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); setCumulativeTokens(0); setLastPromptTokens(0); setPeakPromptTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
@@ -381,6 +385,11 @@ export default function AIChatWindow() {
   // ── Agent mode refs ──
   const bridgeRef = useRef<AgentChatBridge | null>(null)
 
+  // Cleanup bridge on component unmount
+  useEffect(() => {
+    return () => { bridgeRef.current?.destroy(); bridgeRef.current = null }
+  }, [])
+
   const handleSend = async () => {
     const isRetry = !!pendingCorrection.current
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
@@ -399,7 +408,7 @@ export default function AIChatWindow() {
         attachText = `[上传文件: ${attachment.name}]\n文件已保存到全局 uploads 目录。如需读取内容，请用 read_file("${attachment.name}")。`
       } else { attachText = attachment.content }
     }
-    const fullContent = isRetry ? '[系统指令] 请执行上述纠错指令中的操作。' : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
+    const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
@@ -409,22 +418,26 @@ export default function AIChatWindow() {
     // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
     if (!bridgeRef.current) {
       bridgeRef.current = new AgentChatBridge()
-      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, workMode: aiSettings.workMode, maxIterations: 8, historyMessages: messages.filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })) })
+      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, workMode: aiSettings.workMode, maxIterations: 20, historyMessages: buildHistoryMessages(messages) })
     } else {
-      bridgeRef.current.updateHistory(messages.filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })))
+      bridgeRef.current.updateHistory(buildHistoryMessages(messages))
     }
     let collectedText = ''
     try {
       const result = await bridgeRef.current.sendMessage(fullContent, {
-        kbEnabled, webSearchEnabled, selectedRefs,
+        kbEnabled, webSearchEnabled, toolsEnabled: toolInvokeEnabled, selectedRefs, selectedKbFileIds: kbEnabled ? selectedFileIds : [],
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           const fallbackText = runResult.toolsUsed.length > 0
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。`
             : 'AI 未生成回复，请重试或换一种方式提问。'
+          // Convert contextBreakdown to the format expected by the token breakdown modal
+          const breakdown = runResult.contextBreakdown?.map(b => ({ label: b.domain, chars: b.tokens * 2 }))
           setMessages(prev => [...prev, {
             id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
-            toolsUsed: runResult.toolsUsed, usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
+            toolsUsed: runResult.toolsUsed, reasoningContent: runResult.reasoningContent || undefined,
+            breakdown: breakdown && breakdown.length > 0 ? breakdown : undefined,
+            usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -725,6 +738,50 @@ export default function AIChatWindow() {
             <AgentStateBar />
             <AgentThinkingPanel />
             <ToolExecutionPanel />
+            <DiagnosticPanel />
+
+            {/* ── Plan card (Plan→Approve→Execute→Verify workflow) ── */}
+            {(() => {
+              const planPhase = useAgentStore.getState().run.planPhase
+              const execPlan = useAgentStore.getState().run.executionPlan
+              const verifyReports = useAgentStore.getState().run.verificationReports
+              if (planPhase === 'awaiting_approval' && execPlan) {
+                return (
+                  <PlanCard
+                    plan={execPlan}
+                    onApproveAll={() => {
+                      execPlan.steps.forEach(s => { s.approvalStatus = 'approved' })
+                      useAgentStore.getState().setPlanPhase('approved')
+                      useAgentStore.getState().setExecutionPlan({ ...execPlan, steps: [...execPlan.steps] })
+                      handleBatchApprove()
+                    }}
+                    onRejectAll={(feedback) => {
+                      useAgentStore.getState().setPlanPhase('rejected')
+                      if (feedback) {
+                        handleBatchDeny(feedback)
+                      } else {
+                        handleBatchDeny()
+                      }
+                    }}
+                    onToggleStep={(stepId, approved) => {
+                      execPlan.steps.forEach(s => {
+                        if (s.id === stepId) s.approvalStatus = approved ? 'approved' : 'rejected'
+                      })
+                      useAgentStore.getState().setExecutionPlan({ ...execPlan, steps: [...execPlan.steps] })
+                    }}
+                  />
+                )
+              }
+              if (verifyReports.length > 0) {
+                return (
+                  <VerificationPanel
+                    reports={verifyReports}
+                    onDismiss={() => useAgentStore.getState().setVerificationReports([])}
+                  />
+                )
+              }
+              return null
+            })()}
 
             {/* Hook feedback indicator */}
             {agentHookFeedback && (
@@ -857,8 +914,11 @@ export default function AIChatWindow() {
                     maxWidth: '82%', padding: '10px 14px', borderRadius: 16,
                     background: msg.role === 'user' ? 'rgba(124,58,237,0.08)'
                       : msg.role === 'tool' ? 'rgba(22,163,74,0.04)'
-                      : 'rgba(0,0,0,0.03)',
-                    border: msg.role === 'tool' ? '1px solid rgba(22,163,74,0.1)' : undefined,
+                      : (msg.toolsUsed && msg.toolsUsed.length > 0) ? 'rgba(22,163,74,0.06)'
+                      : '#ffffff',
+                    border: msg.role === 'tool' ? '1px solid rgba(22,163,74,0.1)'
+                      : (msg.toolsUsed && msg.toolsUsed.length > 0) ? '1px solid rgba(22,163,74,0.15)'
+                      : undefined,
                     fontSize: msg.role === 'tool' ? 11 : 13, lineHeight: 1.6, color: '#2d2520', whiteSpace: 'pre-wrap',
                   }}>
                     {/* Hallucination warning banner */}
@@ -874,7 +934,7 @@ export default function AIChatWindow() {
                           <span style={{ fontWeight: 700 }}>检测到 AI 可能未执行操作</span>
                         </div>
                         <div style={{ color: '#991b1b', marginBottom: 6 }}>{msg.hallucinationWarning}</div>
-                        <button onClick={() => { setToolInvokeEnabled(true); pendingCorrection.current = `[纠错指令] 你上一条回复中声称执行了操作但实际没有调用工具。现在请立即调用对应工具完成。`; setTimeout(() => handleSend(), 200) }} style={{
+                        <button onClick={() => { if (!toolInvokeEnabled) setToolInvokeEnabled(true); pendingCorrection.current = `[纠错指令] 你上一条回复中声称执行了操作但实际没有调用工具。现在请立即调用对应工具完成。`; setTimeout(() => handleSend(), 200) }} style={{
                           padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
                           background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer',
                         }}>🔄 重试（开启调用工具模式）</button>
@@ -1144,10 +1204,11 @@ export default function AIChatWindow() {
               {batchCard && (
                 <BatchApprovalPanel
                   batchCard={batchCard}
-                  showFeedback={showBatchFeedback}
-                  feedback={batchFeedback}
+                  showBatchFeedback={showBatchFeedback}
+                  batchFeedback={batchFeedback}
                   onFeedbackChange={setBatchFeedback}
                   onShowFeedback={setShowBatchFeedback}
+                  onToggleFeedback={() => setShowBatchFeedback(!showBatchFeedback)}
                   onApprove={handleBatchApprove}
                   onApproveAll={() => { planApprovedRef.current = true; handleBatchApprove() }}
                   onDeny={handleBatchDeny}
@@ -1339,7 +1400,7 @@ function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode;
       color: active ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: active ? 600 : 400,
       cursor: 'pointer', transition: 'all 0.1s ease',
     }}>
-      {icon} {label} {active ? 'ON' : 'OFF'}
+      {icon} {label}
     </button>
   )
 }

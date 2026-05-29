@@ -70,7 +70,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Update file content
-  ipcMain.handle('kb:write', async (_event, fileId: string, content: string) => {
+  ipcMain.handle('kb:write', async (_event, fileId: string, content: string, configId?: string) => {
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
@@ -78,27 +78,24 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const filePath = safeKBFilePath(file)
     await fs.writeFile(filePath, content, 'utf-8')
 
-    // Remove old chunks
+    // Remove old chunks + re-chunk
     const index = await loadIndex()
     index.chunks = index.chunks.filter(c => c.fileId !== fileId)
-
-    // Re-chunk
     const chunks = chunkText(content)
     for (const c of chunks) {
       index.chunks.push({
-        id: `${fileId}_chunk_${c.charStart}`,
-        fileId,
-        fileName: file.originalName,
-        content: c.content,
-        embedding: [],
-        charStart: c.charStart,
-        charEnd: c.charEnd,
+        id: `${fileId}_chunk_${c.charStart}`, fileId, fileName: file.originalName,
+        content: c.content, embedding: [], charStart: c.charStart, charEnd: c.charEnd,
       })
     }
-
     await saveIndex(index)
-    meta.files.find(f => f.id === fileId)!.chunkCount = chunks.length
+    file.chunkCount = chunks.length
     await saveMetadata(meta)
+
+    // Auto-reindex if configId provided
+    if (configId) {
+      try { await indexFile(file, configId) } catch { /* silent — index is best-effort */ }
+    }
   })
 
   // Create a new KB file
@@ -123,7 +120,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Append content to an existing KB file
-  ipcMain.handle('kb:append', async (_event, fileId: string, content: string) => {
+  ipcMain.handle('kb:append', async (_event, fileId: string, content: string, configId?: string) => {
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
@@ -137,26 +134,28 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     file.uploadedAt = new Date().toISOString()
     await saveMetadata(meta)
 
-    // Remove old chunks so they can be re-indexed
+    // Remove old chunks + re-chunk
     const index = await loadIndex()
     index.chunks = index.chunks.filter(c => c.fileId !== fileId)
     const chunks = chunkText(newContent)
     for (const c of chunks) {
       index.chunks.push({
-        id: `${fileId}_chunk_${c.charStart}`,
-        fileId, fileName: file.originalName,
-        content: c.content, embedding: [],
-        charStart: c.charStart, charEnd: c.charEnd,
+        id: `${fileId}_chunk_${c.charStart}`, fileId, fileName: file.originalName,
+        content: c.content, embedding: [], charStart: c.charStart, charEnd: c.charEnd,
       })
     }
     file.chunkCount = chunks.length
     await saveIndex(index)
     await saveMetadata(meta)
+
+    // Auto-reindex if configId provided
+    if (configId) {
+      try { await indexFile(file, configId) } catch { /* silent */ }
+    }
   })
 
-  // Index a file (chunk + embed)
-  ipcMain.handle('kb:index', async (_event, fileId: string, configId: string) => {
-    // Look up config from electron-store (like ai:chat does)
+  // Shared helper: index a file (used by kb:index, kb:write, kb:append)
+  async function indexFile(file: KnowledgeFile, configId: string): Promise<void> {
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
     const config = configs.find(c => c.id === configId)
@@ -166,42 +165,38 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const apiUrl = config.apiUrl
     const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
 
-    const meta = await loadMetadata()
-    const file = meta.files.find(f => f.id === fileId)
-    if (!file) throw new Error('File not found')
-
     const filePath = safeKBFilePath(file)
     const content = await parseFile(filePath, file.type)
     const chunks = chunkText(content)
 
-    // Remove old chunks for this file
     const index = await loadIndex()
-    index.chunks = index.chunks.filter(c => c.fileId !== fileId)
+    index.chunks = index.chunks.filter(c => c.fileId !== file.id)
 
-    // Embed each chunk
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i]
       let embedding: number[] = []
       try {
         embedding = await getEmbedding(c.content, apiUrl, apiKey, embeddingModel)
-      } catch (err) {
-        logError(`Embedding 失败 (chunk ${i})`, err)
-      }
+      } catch (err) { logError(`Embedding 失败 (chunk ${i})`, err) }
       index.chunks.push({
-        id: `${fileId}_chunk_${c.charStart}`,
-        fileId,
-        fileName: file.originalName,
-        content: c.content,
-        embedding,
-        charStart: c.charStart,
-        charEnd: c.charEnd,
+        id: `${file.id}_chunk_${c.charStart}`, fileId: file.id, fileName: file.originalName,
+        content: c.content, embedding, charStart: c.charStart, charEnd: c.charEnd,
       })
     }
 
     await saveIndex(index)
-    file.chunkCount = chunks.length
+    const meta = await loadMetadata()
+    const f = meta.files.find(x => x.id === file.id)
+    if (f) f.chunkCount = chunks.length
     await saveMetadata(meta)
-    return { chunkCount: chunks.length }
+  }
+
+  // Index a file (chunk + embed)
+  ipcMain.handle('kb:index', async (_event, fileId: string, configId: string) => {
+    const meta = await loadMetadata()
+    const file = meta.files.find(f => f.id === fileId)
+    if (!file) throw new Error('File not found')
+    await indexFile(file, configId)
   })
 
   // Semantic search
@@ -369,6 +364,50 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       return results
     } catch (err) {
       logError('网页搜索失败', err)
+      return []
+    }
+  })
+
+  // ── Notes (Scratchpad) Semantic Search ──
+  ipcMain.handle('notes:search', async (_event, query: string, configId: string, topK = 3) => {
+    try {
+      const notesDir = path.join(path.dirname(pBasePath), 'notes')
+      const files = await fs.readdir(notesDir).catch(() => [] as string[])
+      const mdFiles = files.filter(f => f.endsWith('.md'))
+      if (mdFiles.length === 0) return []
+
+      // Get config for embedding
+      const store = await getConfigStore()
+      const configs = store.get('configs', []) as StoredConfig[]
+      const config = configs.find(c => c.id === configId)
+      if (!config || !config.apiKey) return []
+
+      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
+
+      // Get query embedding
+      const queryEmbedding = await getEmbedding(query.slice(0, 500), config.apiUrl, apiKey, embeddingModel)
+
+      // Chunk + embed all notes
+      const chunks: { content: string; fileName: string; embedding: number[] }[] = []
+      for (const f of mdFiles) {
+        const filePath = path.join(notesDir, f)
+        const content = await fs.readFile(filePath, 'utf-8')
+        const fileChunks = chunkText(content)
+        for (const c of fileChunks) {
+          try {
+            const emb = await getEmbedding(c.content, config.apiUrl, apiKey, embeddingModel)
+            chunks.push({ content: c.content, fileName: f, embedding: emb })
+          } catch { /* skip failed chunks */ }
+        }
+      }
+
+      // Rank by cosine similarity
+      const scored = chunks.map(c => ({ ...c, score: cosineSimilarity(queryEmbedding, c.embedding) }))
+      scored.sort((a, b) => b.score - a.score)
+      return scored.slice(0, topK).map(c => ({ content: c.content, fileName: c.fileName, score: c.score }))
+    } catch (err) {
+      logError('笔记搜索失败', err)
       return []
     }
   })

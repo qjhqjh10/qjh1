@@ -10,18 +10,20 @@ interface CharacterCardProps {
   onEdit: (char: Character) => void
   onDelete: (char: Character) => void
   onLightbox: (image: string, projectPath: string) => void
+  onUploadImage?: (char: Character) => void
 }
 
-export function CharacterCard({ char, projectPath, onEdit, onDelete, onLightbox }: CharacterCardProps) {
+export function CharacterCard({ char, projectPath, onEdit, onDelete, onLightbox, onUploadImage }: CharacterCardProps) {
   return (
     <GlassCard key={char.id} onClick={() => onEdit(char)} className="char-card" style={{ display: 'flex', gap: 14, padding: 14, minHeight: 150 }}>
       {/* 形象图 — 左侧，点击放大 */}
-      <div onClick={e => { e.stopPropagation(); if (char.image) onLightbox(char.image, projectPath) }}
+      <div onClick={e => { e.stopPropagation(); if (char.image) { onLightbox(char.image, projectPath) } else if (onUploadImage) { onUploadImage(char) } }}
         className="char-img-box"
+        title={char.image ? '点击放大' : '点击上传形象图'}
         style={{
           width: 100, minHeight: 130, maxHeight: 160, borderRadius: 12,
           overflow: 'hidden', flexShrink: 0,
-          cursor: char.image ? 'pointer' : 'default',
+          cursor: 'pointer',
           border: '1px solid rgba(0,0,0,0.06)', position: 'relative',
         }}>
         {char.image ? (

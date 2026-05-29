@@ -1,4 +1,6 @@
 import type { ToolDefinition } from '../ToolRegistry'
+import type { StyleTemplate } from '@/types/styleTemplate'
+import type { DimAnalysis } from '@/types/story'
 
 export const templateTools: ToolDefinition[] = [
   {
@@ -12,6 +14,7 @@ export const templateTools: ToolDefinition[] = [
           type: { type: 'string', description: '小说类型' },
           worldType: { type: 'string', description: '世界观类型' },
           description: { type: 'string', description: '简短描述' },
+          fullDescription: { type: 'string', description: '完整风格综述（可选）' },
           dimensions: { type: 'object', description: '各维度分析结果' },
           vocabularyList: { type: 'array', items: { type: 'string' }, description: '词汇清单' },
           writingRules: { type: 'array', items: { type: 'string' }, description: '写作规则' },
@@ -24,28 +27,31 @@ export const templateTools: ToolDefinition[] = [
     category: 'template',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { styleTemplateService } = await import('@/services/fileService')
-      let dims = args.dimensions || {}
-      if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { /* keep */ } }
-      let tone = args.tone || {}
-      if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { /* keep */ } }
-      const rules = ((args.writingRules as unknown[]) || []).map((r: unknown) => Array.isArray(r) ? (r as string[])[0] || '' : String(r))
+      try {
+        const { styleTemplateService } = await import('@/services/fileService')
+        let dims = args.dimensions || {}
+        if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { /* keep */ } }
+        let tone = args.tone || {}
+        if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { /* keep */ } }
+        const rules = ((args.writingRules as unknown[]) || []).map((r: unknown) => Array.isArray(r) ? (r as string[])[0] || '' : String(r))
 
-      const tmpl = {
-        name: args.name || '未命名模板',
-        type: args.type || '普通小说',
-        worldType: args.worldType || '',
-        description: args.description || '',
-        dimensions: dims,
-        vocabularyList: args.vocabularyList || [],
-        writingRules: rules,
-        tone,
-        source: 'ai-generated',
-        createdAt: '', updatedAt: '',
-        id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-      }
-      const saved = await styleTemplateService.save(tmpl) as { name: string; id: string }
-      return { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}` }
+        const tmpl: StyleTemplate = {
+          name: String(args.name || '未命名模板'),
+          type: String(args.type || '普通小说') as StyleTemplate['type'],
+          worldType: String(args.worldType || ''),
+          description: String(args.description || ''),
+          fullDescription: String(args.fullDescription || args.description || ''),
+          dimensions: dims as Record<string, DimAnalysis>,
+          vocabularyList: (Array.isArray(args.vocabularyList) ? args.vocabularyList : []) as string[],
+          writingRules: rules,
+          tone: tone as { word: string; description: string; attitude: string },
+          source: 'ai-generated',
+          createdAt: '', updatedAt: '',
+          id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        } as StyleTemplate
+        const saved = await styleTemplateService.save(tmpl)
+        return { status: 'success', summary: `已创建风格模板: ${saved.name || tmpl.name}`, detail: `模板ID: ${saved.id}` }
+      } catch (e) { return { status: 'error', summary: `创建风格模板失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -84,36 +90,38 @@ export const templateTools: ToolDefinition[] = [
     category: 'template',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { templateService } = await import('@/services/fileService')
-      const name = String(args.name || '未命名场景模板')
-      const type = String(args.type || '普通小说')
-      const config: Record<string, unknown> = {
-        sceneType: String(args.sceneType || '日常'),
-        conflictType: String(args.conflictType || '无冲突'),
-        characters: String(args.characters || ''),
-        location: String(args.location || ''),
-        time: String(args.time || '不限'),
-        weather: String(args.weather || '不限'),
-        atmosphere: String(args.atmosphere || '不限'),
-        wordTarget: Number(args.wordTarget || 3000),
-        narrativePOV: String(args.narrativePOV || '第三人称'),
-        pacing: String(args.pacing || '渐进'),
-        detail: String(args.detail || ''),
-        autoFields: Array.isArray(args.autoFields) ? args.autoFields : [],
-      }
-      if (args.eroticIntensity) config.intensity = args.eroticIntensity
-      if (args.selectedKinks) config.selectedKinks = args.selectedKinks
-      const tmpl = {
-        id: `sc_${Date.now().toString(36)}`,
-        name,
-        type,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        config,
-        source: 'ai-generated' as const,
-      }
-      await templateService.save(tmpl as any)
-      return { status: 'success', summary: `已创建场景模板: ${name}`, detail: `模板ID: ${tmpl.id}` }
+      try {
+        const { templateService } = await import('@/services/fileService')
+        const name = String(args.name || '未命名场景模板')
+        const type = String(args.type || '普通小说')
+        const config: Record<string, unknown> = {
+          sceneType: String(args.sceneType || '日常'),
+          conflictType: String(args.conflictType || '无冲突'),
+          characters: String(args.characters || ''),
+          location: String(args.location || ''),
+          time: String(args.time || '不限'),
+          weather: String(args.weather || '不限'),
+          atmosphere: String(args.atmosphere || '不限'),
+          wordTarget: Number(args.wordTarget || 3000),
+          narrativePOV: String(args.narrativePOV || '第三人称'),
+          pacing: String(args.pacing || '渐进'),
+          detail: String(args.detail || ''),
+          autoFields: Array.isArray(args.autoFields) ? args.autoFields : [],
+        }
+        if (args.eroticIntensity) config.intensity = args.eroticIntensity
+        if (args.selectedKinks) config.selectedKinks = args.selectedKinks
+        const tmpl = {
+          id: `sc_${Date.now().toString(36)}`,
+          name,
+          type,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          config,
+          source: 'ai-generated' as const,
+        }
+        await templateService.save(tmpl as any)
+        return { status: 'success', summary: `已创建场景模板: ${name}`, detail: `模板ID: ${tmpl.id}` }
+      } catch (e) { return { status: 'error', summary: `创建场景模板失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
 ]

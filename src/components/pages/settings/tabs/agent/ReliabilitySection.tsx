@@ -22,11 +22,11 @@ export function ReliabilitySection() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const files = await fileService.listDir('agent-sessions')
+      const files = await fileService.listDir('../agent-sessions')
       const loaded: SessionFile[] = []
       for (const f of files.filter(f => f.endsWith('.json')).slice(-10)) {
         try {
-          const raw = await fileService.read(`agent-sessions/${f}`)
+          const raw = await fileService.read(`../agent-sessions/${f}`)
           const data = JSON.parse(raw)
           loaded.push({ id: f.replace('.json', ''), meta: data.meta })
         } catch { /* skip */ }

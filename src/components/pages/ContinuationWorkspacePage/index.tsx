@@ -96,6 +96,7 @@ export default function ContinuationWorkspacePage() {
         setPlotDirection(found.plotDirection || [])
         setOutlineMerge(found.outlineMerge || null)
         setContinuationPlan(found.continuationPlan || null)
+        if (found.styleTemplateId) setSelectedStyleTplId(found.styleTemplateId)
         const s = found.status
         setStep(s === 'writing' ? 7 : s === 'planned' ? 6 : s === 'merged' ? 5 : s === 'outlining' ? 4 : s === 'analyzed' ? 3 : 1)
       }
@@ -356,7 +357,9 @@ export default function ContinuationWorkspacePage() {
     if (!activeConfigId) return
     setWritingLoading(true); setWritingContent('')
     const prevChs = project?.writtenChapters || []
-    const prevSummary = prevChs.length > 0 ? prevChs.map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n') : chapters.slice(-3).map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n')
+    const prevSummary = prevChs.length > 0
+      ? prevChs.slice(-5).map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n')
+      : chapters.slice(-3).map(c => `第${c.chapterNumber}章: ${c.content.slice(0, 200)}...`).join('\n')
     const chars = storyUnderstand?.characterArcs?.map(c => `${c.name}: ${c.currentState}`).join('\n') || ''
     const rules = storyUnderstand?.worldRules?.join('\n') || ''
 
@@ -409,7 +412,7 @@ export default function ContinuationWorkspacePage() {
 
   const handleSaveWritten = async () => {
     if (!writingChapter || !project) return
-    const updated = { ...project, writtenChapters: [...project.writtenChapters.filter(c => c.chapterNumber !== writingChapter.chapterNumber), writingChapter].sort((a, b) => a.chapterNumber - b.chapterNumber) }
+    const updated = { ...project, styleTemplateId: selectedStyleTplId || undefined, writtenChapters: [...project.writtenChapters.filter(c => c.chapterNumber !== writingChapter.chapterNumber), writingChapter].sort((a, b) => a.chapterNumber - b.chapterNumber) }
     const saved = await continuationService.save(updated)
     setProject(saved)
     setWritingChapter(null); setWritingContent('')
@@ -427,8 +430,8 @@ export default function ContinuationWorkspacePage() {
         <span style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>{project.name}</span>
         <div style={{ display: 'flex', gap: 0, marginLeft: 16 }}>
           {stepLabels.map((label, i) => (
-            <div key={i} onClick={() => setStep((i + 1) as Step)} className="interactive-accent" style={{
-              padding: '4px 10px', fontSize: 11, cursor: 'pointer', borderRadius: 6,
+            <div key={i} onClick={() => { if (i + 1 <= step) setStep((i + 1) as Step) }} className="interactive-accent" style={{
+              padding: '4px 10px', fontSize: 11, cursor: (i + 1 <= step) ? 'pointer' : 'default', borderRadius: 6, opacity: (i + 1 <= step) ? 1 : 0.5,
               color: step > i + 1 ? '#16a34a' : step === i + 1 ? '#7c3aed' : '#9b8e84',
               fontWeight: step === i + 1 ? 700 : 400, background: step === i + 1 ? 'rgba(124,58,237,0.06)' : 'transparent',
               display: 'flex', alignItems: 'center', gap: 2,
@@ -659,7 +662,7 @@ export default function ContinuationWorkspacePage() {
                 {/* 模板注入选择器 */}
                 <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)' }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>模板注入</div>
-                  <select value={selectedStyleTplId} onChange={e => setSelectedStyleTplId(e.target.value)} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit', marginBottom: 4 }}>
+                  <select value={selectedStyleTplId} onChange={e => { const v = e.target.value; setSelectedStyleTplId(v); if (project) setProject({ ...project, styleTemplateId: v || undefined }) }} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit', marginBottom: 4 }}>
                     <option value="">风格: 无</option>
                     {styleTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>

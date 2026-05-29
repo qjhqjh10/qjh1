@@ -16,6 +16,11 @@ export class ToolCache {
   get<T>(key: string): T | undefined {
     const entry = this.store.get(key)
     if (!entry) return undefined
+    // TTL: 60 seconds
+    if (Date.now() - entry.timestamp > 60000) {
+      this.store.delete(key)
+      return undefined
+    }
     entry.accessCount++
     return entry.data as T
   }
@@ -37,7 +42,14 @@ export class ToolCache {
   }
 
   has(key: string): boolean {
-    return this.store.has(key)
+    const entry = this.store.get(key)
+    if (!entry) return false
+    // TTL: 60 seconds
+    if (Date.now() - entry.timestamp > 60000) {
+      this.store.delete(key)
+      return false
+    }
+    return true
   }
 
   /** Invalidate entries matching a path prefix */

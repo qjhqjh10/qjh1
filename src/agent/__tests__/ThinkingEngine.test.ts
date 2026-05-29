@@ -32,8 +32,8 @@ describe('ThinkingEngine', () => {
     const plan = {
       intent: 'test',
       steps: [
-        { id: '1', tool: 'read_file', action: 'read', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
-        { id: '2', tool: 'unknown_tool', action: 'unknown', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
+        { id: '1', tool: 'read_file', action: 'read', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
+        { id: '2', tool: 'unknown_tool', action: 'unknown', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
       dependencies: [],
@@ -48,7 +48,7 @@ describe('ThinkingEngine', () => {
     const plan = {
       intent: 'test',
       steps: [
-        { id: '1', tool: 'read_file', action: 'read', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
+        { id: '1', tool: 'read_file', action: 'read', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
       dependencies: [],
@@ -60,10 +60,10 @@ describe('ThinkingEngine', () => {
     const plan = {
       intent: 'test',
       steps: [
-        { id: '1', tool: 'read_file', action: 'step 1', args: {}, expectedOutcome: '', status: 'completed' as const, retryCount: 0 },
-        { id: '2', tool: 'edit_file', action: 'step 2', args: {}, expectedOutcome: '', status: 'in_progress' as const, retryCount: 0 },
-        { id: '3', tool: 'write_note', action: 'step 3', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
-        { id: '4', tool: 'edit_file', action: 'step 4', args: {}, expectedOutcome: '', status: 'failed' as const, retryCount: 1 },
+        { id: '1', tool: 'read_file', action: 'step 1', args: {}, expectedOutcome: '', status: 'completed' as const, retryCount: 0, approvalStatus: 'pending' as const },
+        { id: '2', tool: 'edit_file', action: 'step 2', args: {}, expectedOutcome: '', status: 'in_progress' as const, retryCount: 0, approvalStatus: 'pending' as const },
+        { id: '3', tool: 'write_note', action: 'step 3', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
+        { id: '4', tool: 'edit_file', action: 'step 4', args: {}, expectedOutcome: '', status: 'failed' as const, retryCount: 1, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 100,
       dependencies: [],
@@ -81,8 +81,8 @@ describe('ThinkingEngine', () => {
     const plan = {
       intent: '创建角色文件',
       steps: [
-        { id: '1', tool: 'read_file', action: '查看已有角色', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
-        { id: '2', tool: 'create_file', action: '创建新角色', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0 },
+        { id: '1', tool: 'read_file', action: '查看已有角色', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
+        { id: '2', tool: 'create_file', action: '创建新角色', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
       dependencies: [],

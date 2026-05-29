@@ -1,5 +1,8 @@
 // AI prompt builders for novel continuation analysis pipeline
 
+import { CONTINUATION_DIMS } from '@/types/continuation'
+const CONTINUATION_DIM_KEYS = CONTINUATION_DIMS.map(d => d.key)
+
 export function buildChapterAnalysisPrompt(
   chapterTitle: string,
   chapterContent: string,
@@ -50,8 +53,6 @@ ${requirements.join('\n')}
 【第${chapterNumber}章】${chapterTitle}
 ${chapterContent.slice(0, 15000)}`
 }
-
-const CONTINUATION_DIM_KEYS = ['charactersAppeared', 'plotEvents', 'foreshadowingPlanted', 'foreshadowingResolved', 'worldbuildingRevealed', 'powerSystemMentions', 'itemsMentioned', 'factionsMentioned', 'locationsMentioned', 'emotionalTone', 'timelinePosition', 'chapterRole', 'unresolvedQuestions']
 
 export function buildAggregationPrompt(chapterAnalyses: string[], totalChapters: number): string {
   return `你是顶级的小说故事分析师。以下是${totalChapters}章小说逐章分析结果的摘要。请基于这些信息，进行全局故事理解。输出JSON：

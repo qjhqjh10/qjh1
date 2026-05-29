@@ -16,8 +16,9 @@ export function registerFileHandlers(
   onFileWrite = onWrite || null
   if (basePath) projectsBasePath = basePath
   const globalNotesPath = path.join(path.dirname(projectsBasePath), 'notes')
+  const globalSessionsPath = path.join(path.dirname(projectsBasePath), 'agent-sessions')
 
-  // Allow paths within projects dir, global notes dir, or global uploads dir
+  // Allow paths within projects dir, global notes dir, global sessions dir, or global uploads dir
   const globalUploadsPath = path.join(path.dirname(projectsBasePath), 'uploads')
   // Normalize: strip leading slashes (AI sometimes generates /outline/plot.md)
   // and resolve relative to allowed directories. Must match safeResolve in fileToolHandlers.
@@ -31,6 +32,7 @@ export function registerFileHandlers(
     const resolved = path.resolve(projectsBasePath, cleaned)
     if (isSafePath(resolved, projectsBasePath)
       || isSafePath(resolved, globalNotesPath)
+      || isSafePath(resolved, globalSessionsPath)
       || isSafePath(resolved, globalUploadsPath)) {
       return resolved
     }
@@ -44,8 +46,9 @@ export function registerFileHandlers(
       const stat = await fs.stat(resolved)
       if (stat.size > MAX_FILE_SIZE) throw new Error(`File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB > 50MB)`)
       return await fs.readFile(resolved, 'utf-8')
-    } catch {
-      return ''
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') return ''  // File not found → return empty (callers check for empty)
+      throw err  // Other errors (permission, lock) → propagate to caller
     }
   })
 
@@ -129,17 +132,13 @@ export function registerFileHandlers(
   ipcMain.handle('files:deleteFile', async (_event, filePath: string) => {
     const resolved = resolvePath(filePath)
     if (!resolved) throw new Error('Access denied')
-    try {
-      await fs.unlink(resolved)
-    } catch { /* ignore */ }
+    await fs.unlink(resolved)
   })
 
   ipcMain.handle('files:deleteDir', async (_event, dirPath: string) => {
     const resolved = resolvePath(dirPath)
     if (!resolved) throw new Error('Access denied')
-    try {
-      await fs.rm(resolved, { recursive: true, force: true })
-    } catch { /* ignore */ }
+    await fs.rm(resolved, { recursive: true, force: true })
   })
 
 }

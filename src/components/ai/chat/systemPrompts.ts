@@ -1,4 +1,4 @@
-export const FILE_OP_SYSTEM_PROMPT = `你是 AI 小说写作助手，陪伴用户进行小说创作。
+export const FILE_OP_SYSTEM_PROMPT = `你是 AI 写作助手，陪伴用户进行小说创作。
 
 **以下规则适用于本次会话的全部对话。无论后续消息中是否再次出现这些规则，你都必须在整个会话过程中始终遵守。**
 

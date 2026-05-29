@@ -25,11 +25,13 @@ export const noteTools: ToolDefinition[] = [
     category: 'note',
     availableInPlanMode: true,
     executor: async () => {
-      const { fileService } = await import('@/services/fileService')
-      const dir = await getNotesDir()
-      const files = await fileService.listDir(dir)
-      const mdFiles = files.filter((f: string) => f.endsWith('.md'))
-      return { status: 'success', summary: `${mdFiles.length} 个草稿`, detail: mdFiles.join('\n') || '(无草稿)' }
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const dir = await getNotesDir()
+        const files = await fileService.listDir(dir)
+        const mdFiles = files.filter((f: string) => f.endsWith('.md'))
+        return { status: 'success', summary: `${mdFiles.length} 个草稿`, detail: mdFiles.join('\n') || '(无草稿)' }
+      } catch (e) { return { status: 'error', summary: `列出草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -46,12 +48,14 @@ export const noteTools: ToolDefinition[] = [
     category: 'note',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { fileService } = await import('@/services/fileService')
-      const noteName = sanitizeFileName(args.note_name as string)
-      if (!noteName) return { status: 'error', summary: '草稿名称无效' }
-      const dir = await getNotesDir()
-      const content = await fileService.read(`${dir}/${noteName}`)
-      return { status: 'success', summary: `已读取: ${noteName}`, detail: content || '(草稿为空)' }
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const noteName = sanitizeFileName(args.note_name as string)
+        if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        const dir = await getNotesDir()
+        const content = await fileService.read(`${dir}/${noteName}`)
+        return { status: 'success', summary: `已读取: ${noteName}`, detail: content || '(草稿为空)' }
+      } catch (e) { return { status: 'error', summary: `读取草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -71,14 +75,16 @@ export const noteTools: ToolDefinition[] = [
     category: 'note',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { fileService } = await import('@/services/fileService')
-      const noteName = sanitizeFileName(args.note_name as string)
-      if (!noteName) return { status: 'error', summary: '草稿名称无效' }
-      const dir = await getNotesDir()
-      const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
-      const content = String(args.content || '')
-      await fileService.write(filePath, content)
-      return { status: 'success', summary: `已写入草稿: ${noteName} (${content.length} 字符)` }
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const noteName = sanitizeFileName(args.note_name as string)
+        if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        const dir = await getNotesDir()
+        const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
+        const content = String(args.content || '')
+        await fileService.write(filePath, content)
+        return { status: 'success', summary: `已写入草稿: ${noteName} (${content.length} 字符)` }
+      } catch (e) { return { status: 'error', summary: `写入草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -98,17 +104,19 @@ export const noteTools: ToolDefinition[] = [
     category: 'note',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { fileService } = await import('@/services/fileService')
-      const noteName = sanitizeFileName(args.note_name as string)
-      if (!noteName) return { status: 'error', summary: '草稿名称无效' }
-      const dir = await getNotesDir()
-      const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
-      const newContent = String(args.content || '')
-      let existing = ''
-      try { existing = await fileService.read(filePath) } catch { /* new file */ }
-      const combined = existing ? existing + '\n\n' + newContent : newContent
-      await fileService.write(filePath, combined)
-      return { status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const noteName = sanitizeFileName(args.note_name as string)
+        if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        const dir = await getNotesDir()
+        const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
+        const newContent = String(args.content || '')
+        let existing = ''
+        try { existing = await fileService.read(filePath) } catch { /* new file */ }
+        const combined = existing ? existing + '\n\n' + newContent : newContent
+        await fileService.write(filePath, combined)
+        return { status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
+      } catch (e) { return { status: 'error', summary: `追加草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -121,17 +129,50 @@ export const noteTools: ToolDefinition[] = [
         required: ['note_name'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'DANGEROUS_ASK',
     category: 'note',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { fileService } = await import('@/services/fileService')
-      const noteName = sanitizeFileName(args.note_name as string)
-      if (!noteName) return { status: 'error', summary: '草稿名称无效' }
-      const dir = await getNotesDir()
-      const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
-      await fileService.deleteFile(filePath)
-      return { status: 'success', summary: `已删除草稿: ${noteName}` }
+      try {
+        const { fileService } = await import('@/services/fileService')
+        const noteName = sanitizeFileName(args.note_name as string)
+        if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        const dir = await getNotesDir()
+        const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
+        await fileService.deleteFile(filePath)
+        return { status: 'success', summary: `已删除草稿: ${noteName}` }
+      } catch (e) { return { status: 'error', summary: `删除草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
+    },
+  },
+  {
+    schema: {
+      name: 'search_notes',
+      description: '在草稿中语义搜索相关内容。支持中文自然语言查询，返回最相关的笔记片段。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索查询（支持中文）' },
+          topK: { type: 'number', description: '返回结果数量（默认3）' },
+        },
+        required: ['query'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'note',
+    availableInPlanMode: true,
+    executor: async (args, ctx) => {
+      try {
+        const results = await (window as any).electron?.notes?.search(
+          args.query as string,
+          ctx.configId,
+          (args.topK as number) || 3,
+        ) || []
+        if (!Array.isArray(results) || results.length === 0) {
+          return { status: 'success', summary: '未找到相关笔记', detail: '[]' }
+        }
+        const detail = results.map((r: any) => `[${r.fileName}] (相关度:${(r.score * 100).toFixed(0)}%)\n${r.content}`).join('\n---\n')
+        return { status: 'success', summary: `找到${results.length}条相关笔记`, detail }
+      } catch (e) { return { status: 'error', summary: `搜索笔记失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
 ]

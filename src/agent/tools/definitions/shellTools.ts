@@ -31,7 +31,7 @@ export const shellTools: ToolDefinition[] = [
   {
     schema: {
       name: 'shell_run_script',
-      description: '执行 .aiharness/scripts/ 目录下的预置脚本（node 运行）。脚本已经过人工审计，无需额外确认。',
+      description: '执行 .aiharness/scripts/ 目录下的预置脚本（node 运行）。需要用户确认后执行。',
       parameters: {
         type: 'object',
         properties: {

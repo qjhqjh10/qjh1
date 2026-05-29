@@ -30,13 +30,15 @@ describe('CircuitBreaker', () => {
     for (let i = 0; i < 3; i++) cb.recordFailure()
     expect(cb.currentState).toBe('OPEN')
     await new Promise(r => setTimeout(r, 150))
-    expect(cb.currentState).toBe('HALF_OPEN')
+    // beforeCall triggers the OPEN → HALF_OPEN transition
     expect(cb.beforeCall().allowed).toBe(true)
+    expect(cb.currentState).toBe('HALF_OPEN')
   })
 
   it('recovers to CLOSED after success in HALF_OPEN', async () => {
     for (let i = 0; i < 3; i++) cb.recordFailure()
     await new Promise(r => setTimeout(r, 150))
+    cb.beforeCall() // trigger OPEN → HALF_OPEN
     expect(cb.currentState).toBe('HALF_OPEN')
     cb.recordSuccess()
     expect(cb.currentState).toBe('CLOSED')
@@ -45,6 +47,7 @@ describe('CircuitBreaker', () => {
   it('re-opens on failure in HALF_OPEN', async () => {
     for (let i = 0; i < 3; i++) cb.recordFailure()
     await new Promise(r => setTimeout(r, 150))
+    cb.beforeCall() // trigger OPEN → HALF_OPEN
     expect(cb.currentState).toBe('HALF_OPEN')
     cb.recordFailure()
     expect(cb.currentState).toBe('OPEN')
@@ -68,5 +71,60 @@ describe('CircuitBreaker', () => {
     const check = cb.beforeCall()
     expect(check.allowed).toBe(false)
     expect(check.reason).toContain('断路保护')
+  })
+
+  it('decays failure count on success in CLOSED state', () => {
+    cb.recordFailure()
+    cb.recordFailure()
+    expect(cb.stats.failures).toBe(2)
+    cb.recordSuccess()
+    expect(cb.stats.failures).toBe(1)
+    cb.recordSuccess()
+    expect(cb.stats.failures).toBe(0)
+    // Should not go below 0
+    cb.recordSuccess()
+    expect(cb.stats.failures).toBe(0)
+  })
+
+  it('failure count decay prevents premature OPEN', () => {
+    // 3 failures then 3 successes should reset, then 2 more failures should NOT open
+    cb.recordFailure()
+    cb.recordFailure()
+    cb.recordSuccess() // decay to 1
+    cb.recordSuccess() // decay to 0
+    cb.recordFailure()
+    cb.recordFailure()
+    expect(cb.currentState).toBe('CLOSED') // total effective failures = 2, max is 3
+  })
+
+  it('HALF_OPEN allows only one concurrent call', async () => {
+    for (let i = 0; i < 3; i++) cb.recordFailure()
+    await new Promise(r => setTimeout(r, 150))
+
+    // First call triggers OPEN → HALF_OPEN and should be allowed
+    const first = cb.beforeCall()
+    expect(first.allowed).toBe(true)
+    expect(cb.currentState).toBe('HALF_OPEN')
+
+    // Second concurrent call should be blocked
+    const second = cb.beforeCall()
+    expect(second.allowed).toBe(false)
+    expect(second.reason).toContain('试探调用进行中')
+  })
+
+  it('HALF_OPEN resets concurrency flag after success', async () => {
+    for (let i = 0; i < 3; i++) cb.recordFailure()
+    await new Promise(r => setTimeout(r, 150))
+    cb.beforeCall() // trigger OPEN → HALF_OPEN, sets halfOpenCallInProgress
+    cb.recordSuccess() // should reset the flag
+    expect(cb.currentState).toBe('CLOSED')
+  })
+
+  it('HALF_OPEN resets concurrency flag after failure', async () => {
+    for (let i = 0; i < 3; i++) cb.recordFailure()
+    await new Promise(r => setTimeout(r, 150))
+    cb.beforeCall() // trigger OPEN → HALF_OPEN, sets halfOpenCallInProgress
+    cb.recordFailure() // should reset the flag and re-open
+    expect(cb.currentState).toBe('OPEN')
   })
 })

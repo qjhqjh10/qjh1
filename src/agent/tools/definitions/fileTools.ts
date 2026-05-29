@@ -3,9 +3,12 @@ import type { ToolResult, ToolExecutionContext } from '../../runtime/AgentRuntim
 
 // ── Helper: IPC call for backend file tools ──
 async function ipcExecute(toolName: string, args: Record<string, unknown>, projectId: string | null): Promise<ToolResult> {
-  const { aiService } = await import('@/services/fileService')
-  const results = await aiService.executeFileTools([{ callId: 'tool', toolName, args }])
-  return results[0] || { status: 'error', summary: '无响应' }
+  try {
+    const { aiService } = await import('@/services/fileService')
+    const callId = `${toolName}_${Date.now().toString(36)}`
+    const results = await aiService.executeFileTools([{ callId, toolName, args }])
+    return results[0] || { status: 'error', summary: '无响应' }
+  } catch (e) { return { status: 'error', summary: `${toolName} 失败: ${e instanceof Error ? e.message : '未知错误'}` } }
 }
 
 export const fileTools: ToolDefinition[] = [
@@ -110,9 +113,11 @@ export const fileTools: ToolDefinition[] = [
     category: 'file',
     availableInPlanMode: false,
     executor: async (args, ctx) => {
-      const { aiService } = await import('@/services/fileService')
-      const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'create_file', args, confirmed: true }])
-      return results[0] || { status: 'error', summary: '无响应' }
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'create_file', args, confirmed: true }])
+        return results[0] || { status: 'error', summary: '无响应' }
+      } catch (e) { return { status: 'error', summary: `创建文件失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -129,9 +134,11 @@ export const fileTools: ToolDefinition[] = [
     category: 'file',
     availableInPlanMode: false,
     executor: async (args, ctx) => {
-      const { aiService } = await import('@/services/fileService')
-      const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'delete_file', args, confirmed: true }])
-      return results[0] || { status: 'error', summary: '无响应' }
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'delete_file', args, confirmed: true }])
+        return results[0] || { status: 'error', summary: '无响应' }
+      } catch (e) { return { status: 'error', summary: `删除文件失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -151,9 +158,11 @@ export const fileTools: ToolDefinition[] = [
     category: 'file',
     availableInPlanMode: false,
     executor: async (args, ctx) => {
-      const { aiService } = await import('@/services/fileService')
-      const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'rename_file', args, confirmed: true }])
-      return results[0] || { status: 'error', summary: '无响应' }
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([{ callId: 'tool', toolName: 'rename_file', args, confirmed: true }])
+        return results[0] || { status: 'error', summary: '无响应' }
+      } catch (e) { return { status: 'error', summary: `重命名失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
 ]

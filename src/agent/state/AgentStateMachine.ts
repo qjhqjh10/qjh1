@@ -1,4 +1,4 @@
-import type { AgentState, AgentPhase, StateTransition, ApiResponse } from './types'
+import type { AgentState, AgentPhase, StateTransition, ApiResponse, ThinkingPlan, VerificationReport } from './types'
 import { DEFAULT_MAX_ITERATIONS } from './types'
 
 export type StateChangeListener = (from: AgentPhase, to: AgentPhase, state: AgentState) => void
@@ -17,6 +17,9 @@ export class AgentStateMachine {
       errors: [],
       lastApiResponse: null,
       shouldContinue: true,
+      executionPlan: null,
+      planPhase: 'none',
+      verificationReports: [],
     }
     this.transitions = this.buildTransitions()
   }
@@ -39,10 +42,20 @@ export class AgentStateMachine {
       // Normal flow
       { from: 'THINKING', to: 'ASSEMBLING_CONTEXT' },
       { from: 'ASSEMBLING_CONTEXT', to: 'CALLING_API' },
-      { from: 'CALLING_API', to: 'AWAITING_TOOLS' },
-      { from: 'CALLING_API', to: 'RESPONDING' },       // no tool calls
 
-      // Approval gate: check before executing
+      // Planning phase (new)
+      { from: 'ASSEMBLING_CONTEXT', to: 'PLANNING' },
+
+      // Call completion branches
+      { from: 'CALLING_API', to: 'AWAITING_TOOLS' },
+      { from: 'CALLING_API', to: 'RESPONDING' },
+
+      // Planning resolution
+      { from: 'PLANNING', to: 'AWAITING_APPROVAL' },
+      { from: 'PLANNING', to: 'CALLING_API' },
+      { from: 'PLANNING', to: 'RESPONDING' },
+
+      // Approval gate
       { from: 'AWAITING_TOOLS', to: 'AWAITING_APPROVAL' },
       { from: 'AWAITING_TOOLS', to: 'EXECUTING' },
 
@@ -50,18 +63,26 @@ export class AgentStateMachine {
       { from: 'EXECUTING', to: 'REFLECTING', guard: (s) => s.pendingToolCalls.length === 0 },
 
       // Approval resolution
-      { from: 'AWAITING_APPROVAL', to: 'EXECUTING' },   // approved
-      { from: 'AWAITING_APPROVAL', to: 'REFLECTING' },  // denied
+      { from: 'AWAITING_APPROVAL', to: 'EXECUTING' },
+      { from: 'AWAITING_APPROVAL', to: 'REFLECTING' },
 
-      // Reflection → loop or respond
+      // Reflection → loop, respond, or verify
       {
         from: 'REFLECTING', to: 'CALLING_API',
         guard: (s) => s.shouldContinue && s.iteration < s.maxIterations,
       },
       {
-        from: 'REFLECTING', to: 'RESPONDING',
-        guard: (s) => !s.shouldContinue || s.iteration >= s.maxIterations,
+        from: 'REFLECTING', to: 'VERIFYING',
+        guard: (s) => !s.shouldContinue && s.planPhase === 'approved' && s.executionPlan !== null,
       },
+      {
+        from: 'REFLECTING', to: 'RESPONDING',
+        guard: (s) => !s.shouldContinue,
+      },
+
+      // Verification completion
+      { from: 'VERIFYING', to: 'RESPONDING' },
+      { from: 'VERIFYING', to: 'CALLING_API' },
 
       // Terminal states
       { from: 'RESPONDING', to: 'IDLE' },
@@ -73,8 +94,10 @@ export class AgentStateMachine {
       { from: 'EXECUTING', to: 'ERROR' },
       { from: 'AWAITING_TOOLS', to: 'ERROR' },
       { from: 'AWAITING_APPROVAL', to: 'ERROR' },
+      { from: 'PLANNING', to: 'ERROR' },
       { from: 'REFLECTING', to: 'ERROR' },
       { from: 'RESPONDING', to: 'ERROR' },
+      { from: 'VERIFYING', to: 'ERROR' },
       { from: 'ERROR', to: 'IDLE' },
       { from: 'ERROR', to: 'CALLING_API', guard: (s) => s.iteration < s.maxIterations },
 
@@ -85,6 +108,8 @@ export class AgentStateMachine {
       { from: 'EXECUTING', to: 'ABORTED' },
       { from: 'REFLECTING', to: 'ABORTED' },
       { from: 'RESPONDING', to: 'ABORTED' },
+      { from: 'PLANNING', to: 'ABORTED' },
+      { from: 'VERIFYING', to: 'ABORTED' },
       { from: 'ABORTED', to: 'IDLE' },
     ]
   }
@@ -115,7 +140,7 @@ export class AgentStateMachine {
     this.notifyListeners(from, to)
   }
 
-  // ── State Mutations (called by AgentRuntime) ──
+  // ── State Mutations ──
 
   setIteration(n: number): void {
     this._state.iteration = n
@@ -145,6 +170,18 @@ export class AgentStateMachine {
     this._state.shouldContinue = v
   }
 
+  setExecutionPlan(plan: ThinkingPlan | null): void {
+    this._state.executionPlan = plan
+  }
+
+  setPlanPhase(phase: AgentState['planPhase']): void {
+    this._state.planPhase = phase
+  }
+
+  setVerificationReports(reports: VerificationReport[]): void {
+    this._state.verificationReports = reports
+  }
+
   reset(): void {
     this._state = {
       phase: 'IDLE',
@@ -154,6 +191,9 @@ export class AgentStateMachine {
       errors: [],
       lastApiResponse: null,
       shouldContinue: true,
+      executionPlan: null,
+      planPhase: 'none',
+      verificationReports: [],
     }
   }
 

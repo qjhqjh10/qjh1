@@ -112,7 +112,7 @@ const api = {
     uploadFiles: (filePaths: string[], activeProjectId: string): Promise<KnowledgeFile[]> =>
       ipcRenderer.invoke('kb:uploadFiles', filePaths, activeProjectId),
     delete: (fileId: string): Promise<void> => ipcRenderer.invoke('kb:delete', fileId),
-    write: (fileId: string, content: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content),
+    write: (fileId: string, content: string, configId?: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content, configId),
     index: (fileId: string, configId: string): Promise<{ chunkCount: number }> =>
       ipcRenderer.invoke('kb:index', fileId, configId),
     search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]): Promise<KBSearchResult[]> =>
@@ -128,10 +128,14 @@ const api = {
     estimate: (filePath: string): Promise<KBFileEstimate> => ipcRenderer.invoke('kb:estimate', filePath),
     create: (name: string, content: string, projectId?: string): Promise<{ id: string; name: string }> =>
       ipcRenderer.invoke('kb:create', name, content, projectId),
-    append: (fileId: string, content: string): Promise<void> =>
-      ipcRenderer.invoke('kb:append', fileId, content),
+    append: (fileId: string, content: string, configId?: string): Promise<void> =>
+      ipcRenderer.invoke('kb:append', fileId, content, configId),
     webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]): Promise<KBWebSearchResult[]> =>
       ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5, safeSearch ?? 'moderate', prioritySites ?? []),
+  },
+  notes: {
+    search: (query: string, configId: string, topK?: number): Promise<{ content: string; fileName: string; score: number }[]> =>
+      ipcRenderer.invoke('notes:search', query, configId, topK ?? 3),
   },
   stats: {
     getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }): Promise<UsageResult> =>

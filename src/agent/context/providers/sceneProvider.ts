@@ -5,7 +5,7 @@ export const sceneProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/场景|scene|情色|erotic|场景模板|场景配置/.test(userMessage)) return 0.9
     if (/创建.*场景|配置.*场景|场景.*卡/.test(userMessage)) return 1.0
-    return 0.6
+    return 0.2
   },
 
   buildContext: async () => ({

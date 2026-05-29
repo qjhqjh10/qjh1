@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useStore } from '@/store'
+import { useAgentStore } from '@/agent/store/AgentStore'
 import { SparklesIcon } from '@heroicons/react/24/outline'
 
 const POS_STORAGE_KEY = 'floating-ai-button-pos'
@@ -24,6 +25,7 @@ function loadPosition(): { x: number; y: number } {
 export default function FloatingAIButton() {
   const isOpen = useStore(s => s.isAIChatOpen)
   const toggleAIChat = useStore(s => s.toggleAIChat)
+  const isAgentRunning = useAgentStore(s => s.run.isRunning)
 
   const [pos, setPos] = useState(loadPosition)
   const posRef = useRef(pos)
@@ -76,39 +78,53 @@ export default function FloatingAIButton() {
   }, [toggleAIChat])
 
   return (
-    <button
-      onClick={handleClick}
-      onMouseDown={handleMouseDown}
-      title="AI写作助手（可拖动）"
-      style={{
-        position: 'fixed',
-        bottom: pos.y,
-        right: pos.x,
-        width: 56, height: 56,
-        borderRadius: '50%',
-        border: 'none',
-        background: isOpen
-          ? 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)'
-          : 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
-        color: '#fff',
-        cursor: 'grab',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: '0 8px 32px rgba(124, 58, 237, 0.3)',
-        transition: 'box-shadow 0.2s ease',
-        zIndex: 50, userSelect: 'none',
-      }}
-      onMouseEnter={e => {
-        if (!dragging.current) {
-          e.currentTarget.style.transform = 'scale(1.08)'
-          e.currentTarget.style.boxShadow = '0 12px 40px rgba(124, 58, 237, 0.4)'
-        }
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.transform = 'scale(1)'
-        e.currentTarget.style.boxShadow = '0 8px 32px rgba(124, 58, 237, 0.3)'
-      }}
-    >
-      <SparklesIcon style={{ width: 26, height: 26 }} />
-    </button>
+    <div style={{ position: 'fixed', bottom: pos.y, right: pos.x, zIndex: 50 }}>
+      {/* Pulsing ring when agent is working */}
+      {isAgentRunning && (
+        <div style={{
+          position: 'absolute', top: -6, left: -6, right: -6, bottom: -6,
+          borderRadius: '50%', border: '2px solid rgba(124, 58, 237, 0.4)',
+          animation: 'aiButtonPulse 2s ease-in-out infinite',
+          pointerEvents: 'none',
+        }} />
+      )}
+      <button
+        onClick={handleClick}
+        onMouseDown={handleMouseDown}
+        title={isAgentRunning ? 'AI写作助手 — 工作中...' : 'AI写作助手（可拖动）'}
+        style={{
+          width: 56, height: 56,
+          borderRadius: '50%',
+          border: isAgentRunning ? '2px solid rgba(124, 58, 237, 0.6)' : 'none',
+          background: isAgentRunning
+            ? 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)'
+            : isOpen
+              ? 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)'
+              : 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
+          color: '#fff',
+          cursor: 'grab',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: isAgentRunning
+            ? '0 0 20px rgba(124, 58, 237, 0.5), 0 8px 32px rgba(124, 58, 237, 0.3)'
+            : '0 8px 32px rgba(124, 58, 237, 0.3)',
+          transition: 'box-shadow 0.3s ease, border 0.3s ease, background 0.3s ease',
+          userSelect: 'none',
+        }}
+        onMouseEnter={e => {
+          if (!dragging.current) {
+            e.currentTarget.style.transform = 'scale(1.08)'
+            e.currentTarget.style.boxShadow = '0 12px 40px rgba(124, 58, 237, 0.4)'
+          }
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'scale(1)'
+          e.currentTarget.style.boxShadow = isAgentRunning
+            ? '0 0 20px rgba(124, 58, 237, 0.5), 0 8px 32px rgba(124, 58, 237, 0.3)'
+            : '0 8px 32px rgba(124, 58, 237, 0.3)'
+        }}
+      >
+        <SparklesIcon style={{ width: 26, height: 26 }} />
+      </button>
+    </div>
   )
 }

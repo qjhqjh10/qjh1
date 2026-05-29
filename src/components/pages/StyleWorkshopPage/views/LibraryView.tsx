@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '@/components/common/GlassCard';
 import Button from '@/components/common/Button';
@@ -10,8 +9,14 @@ import { getTemplateDims } from '@/types/styleTemplate';
 import { SparklesIcon, PlusIcon, TrashIcon, XMarkIcon, DocumentTextIcon, PaintBrushIcon, FolderOpenIcon, MagnifyingGlassIcon, ArrowsUpDownIcon, ArrowPathIcon, TagIcon } from '@heroicons/react/24/outline';
 import { FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, presetBtn, linkBtn, labelStyle, cardActionBtn } from '../constants';
 import EmptyState from '@/components/common/EmptyState';
+import type { DimAnalysis, StyleProject } from '@/types/story';
+import { styleProjectService, aiService } from '@/services/fileService';
+import { useSettingsStore } from '@/store';
+import { logError } from '@/utils/logger';
+import type { WorkspaceTab } from '../constants';
 
 export function LibraryView({ ws }: { ws: any }) {
+  const activeConfigId = useSettingsStore(s => s.activeConfigId)
   return (
       <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
         <ScrollArea style={{ flex: 1 }}>
@@ -61,7 +66,7 @@ export function LibraryView({ ws }: { ws: any }) {
                 <EmptyState icon="🎨" title="暂无风格档案" description="导入名家作品，AI分析提取写作风格" action={{ label: '导入TXT小说', onClick: ws.handleImport }} />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {ws.projects.map(p => (
+                  {ws.projects.map((p: any) => (
                     <GlassCard key={p.id} hover={false} className="stagger-item" style={{ padding: 20 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                         <div style={{ flex: 1 }}>
@@ -76,12 +81,12 @@ export function LibraryView({ ws }: { ws: any }) {
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <Button size="sm" onClick={() => ws.handleEnterProject(p)}>查看详情</Button>
-                          <Button size="sm" variant="ghost" onClick={() => { ws.handleEnterProject(p); setTimeout(() => setShowApply(true), 100) }}>应用</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { ws.handleEnterProject(p); setTimeout(() => ws.setShowApply(true), 100) }}>应用</Button>
                           {p.hasProfile && (
                             <Button size="sm" variant="ghost" onClick={async () => {
                               const proj = await styleProjectService.loadProject(p.id) as StyleProject
                               ws.setSelectedProject(proj)
-                              setTimeout(() => handleSaveAsTemplate(), 100)
+                              setTimeout(() => ws.handleSaveAsTemplate(), 100)
                             }}>存为模板</Button>
                           )}
                           <button onClick={() => ws.handleDeleteProject(p)} className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4', borderRadius: 6 }}>
@@ -213,7 +218,7 @@ export function LibraryView({ ws }: { ws: any }) {
                   variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.04 } } }}
                   style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}
                 >
-                  {ws.filteredAndSortedTemplates.map(t => {
+                  {ws.filteredAndSortedTemplates.map((t: any) => {
                     const totalDims = getTemplateDims(t.type).length
                     const filledDims = Object.values(t.dimensions || {}).filter(d => (d as DimAnalysis)?.description).length
                     const fillPct = totalDims > 0 ? Math.round((filledDims / totalDims) * 100) : 0
@@ -340,7 +345,7 @@ export function LibraryView({ ws }: { ws: any }) {
                       key={type}
                       whileHover={{ scale: 1.03, y: -2 }}
                       whileTap={{ scale: 0.97 }}
-                      onClick={() => ws.handleCreateFromType(type)}
+                      onClick={() => { const inp = document.getElementById('newTmplName') as HTMLInputElement | null; ws.handleCreateFromType(type, inp?.value || '') }}
                       style={{
                         padding: '14px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
                         border: isErotic ? '1px solid rgba(239,68,68,0.15)' : '1px solid rgba(124,58,237,0.1)',
@@ -362,8 +367,8 @@ export function LibraryView({ ws }: { ws: any }) {
 
         {/* ───── 编辑模板 Modal ───── */}
         <AnimatePresence>
-          {ws.editTemplate !== null && (
-            <Modal isOpen={true} onClose={() => { ws.setEditTemplate(null); setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={ws.editTemplate.id ? `编辑模板 — ${ws.editTemplate.name}` : '新建模板'} width={720}>
+          {ws.editTemplate !== null && (() => { const editTemplate = ws.editTemplate!; return (
+            <Modal isOpen={true} onClose={() => { ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={720}>
               <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }} className="custom-scrollbar">
                 {/* Basic info */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
@@ -507,7 +512,7 @@ export function LibraryView({ ws }: { ws: any }) {
                         const m = reply.match(/\{[\s\S]*\}/)
                         if (m) {
                           const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
-                          ws.setEditTemplate(prev => prev ? {
+                          ws.setEditTemplate((prev: any) => prev ? {
                             ...prev,
                             fullDescription: json.fullDescription || prev.fullDescription,
                             tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
@@ -540,7 +545,7 @@ export function LibraryView({ ws }: { ws: any }) {
                     </span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
-                        onClick={() => setExpandedDims(new Set(getTemplateDims(ws.editTemplate.type)))}
+                        onClick={() => ws.setExpandedDims(new Set(getTemplateDims(ws.editTemplate.type)))}
                         style={{
                           padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.12)',
                           background: 'rgba(124,58,237,0.03)', color: '#7c3aed', fontSize: 10,
@@ -550,7 +555,7 @@ export function LibraryView({ ws }: { ws: any }) {
                         全部展开
                       </button>
                       <button
-                        onClick={() => setExpandedDims(new Set())}
+                        onClick={() => ws.setExpandedDims(new Set())}
                         style={{
                           padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)',
                           background: 'rgba(0,0,0,0.02)', color: '#6b5e54', fontSize: 10,
@@ -662,11 +667,11 @@ export function LibraryView({ ws }: { ws: any }) {
 
               {/* Footer */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #f0ece8' }}>
-                <Button variant="secondary" onClick={() => { ws.setEditTemplate(null); setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }}>取消</Button>
-                <Button onClick={ws.handleSaveTemplate} disabled={!ws.editTemplate.name.trim()}>保存模板</Button>
+                <Button variant="secondary" onClick={() => { ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }}>取消</Button>
+                <Button onClick={ws.handleSaveTemplate} disabled={!editTemplate.name.trim()}>保存模板</Button>
               </div>
             </Modal>
-          )}
+          ); })()}
         </AnimatePresence>
       </div>
   );

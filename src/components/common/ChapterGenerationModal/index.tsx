@@ -158,6 +158,17 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     const config = configs.find(c => c.id === genConfigId)
     if (!config) { setError('请先选择模型配置'); return }
     if (!genConfigId) { setError('请先选择模型配置'); return }
+    // Validate templates before sending to AI
+    const styleTemplate = selectedStyleTemplateId ? styleTemplates.find((t: any) => t.id === selectedStyleTemplateId) : null
+    const sceneTemplate = selectedSceneId ? sceneTemplates.find(t => t.id === selectedSceneId) : null
+    if (styleTemplate && !Object.keys(styleTemplate.dimensions || {}).length && !styleTemplate.tone?.word) {
+      setError('所选风格模板无有效维度数据（dimensions 和 tone 均为空），请选择有效模板或取消选择。')
+      return
+    }
+    if (sceneTemplate && !sceneTemplate.config) {
+      setError('所选场景模板无有效配置（config 为空），请选择有效模板或取消选择。')
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -185,7 +196,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         selectedStyleTemplate, styleStrength: cg.styleStrength || 'normal',
         chapterPrompt, wordTarget, replaceMode
       })
-      prompt = await injectKBContents(prompt, selectedKbFileIds)
+      const kbSearchQuery = [currentChapter?.description?.slice(0, 200), ...selectedCharacterIds].filter(Boolean).join(' ')
+      prompt = await injectKBContents(prompt, selectedKbFileIds, kbSearchQuery, activeProjectId || undefined, genConfigId)
 
       const messages = [{ role: 'user' as const, content: prompt }]
 

@@ -42,7 +42,7 @@ async function createWindow() {
     height: saved.height || 900,
     minWidth: 1100,
     minHeight: 700,
-    title: 'AI 小说写作助手',
+    title: 'AI写作软件—青剑',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

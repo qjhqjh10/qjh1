@@ -84,10 +84,13 @@ export class HookEngine {
           timeout: hook.timeout,
           cwd: this.projectRoot,
         }, (err, stdout, stderr) => {
+          // Exit code 2 = explicit block; any other non-zero = error (treated as block for safety)
+          const exitCode = err?.code ?? 0
+          const passed = exitCode === 0  // only exit code 0 is a pass
           resolve({
             hookName: hook.name, event: hook.event,
-            passed: !err || err.code !== 2,
-            feedback: stderr || stdout || '',
+            passed,
+            feedback: stderr || stdout || (err ? `Hook 脚本退出码: ${exitCode}` : ''),
             stdout: stdout || '',
             duration: 0,
           })

@@ -11,10 +11,12 @@ export const promptTools: ToolDefinition[] = [
     category: 'prompt',
     availableInPlanMode: true,
     executor: async () => {
-      const { useSettingsStore } = await import('@/store')
-      const prompts = useSettingsStore.getState().prompts
-      const lines = prompts.map(p => `[${p.enabled ? '✓启用' : '  关闭'}] ${p.id} | ${p.title} | 类型:${p.type}`)
-      return { status: 'success', summary: `${prompts.length} 个提示词模板`, detail: lines.join('\n') }
+      try {
+        const { useSettingsStore } = await import('@/store')
+        const prompts = useSettingsStore.getState().prompts
+        const lines = prompts.map(p => `[${p.enabled ? '✓启用' : '  关闭'}] ${p.id} | ${p.title} | 类型:${p.type}`)
+        return { status: 'success', summary: `${prompts.length} 个提示词模板`, detail: lines.join('\n') }
+      } catch (e) { return { status: 'error', summary: `列出提示词失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -34,23 +36,25 @@ export const promptTools: ToolDefinition[] = [
     category: 'prompt',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { useSettingsStore } = await import('@/store')
-      const store = useSettingsStore.getState()
-      const prompts = store.prompts
-      const pid = String(args.prompt_id || '')
-      const enable = args.enabled !== false
-      const target = prompts.find(p => p.id === pid)
+      try {
+        const { useSettingsStore } = await import('@/store')
+        const store = useSettingsStore.getState()
+        const prompts = store.prompts
+        const pid = String(args.prompt_id || '')
+        const enable = args.enabled !== false
+        const target = prompts.find(p => p.id === pid)
 
-      if (!target) return { status: 'error', summary: `未找到提示词: ${pid}` }
-      if (enable) {
-        const sameType = prompts.filter(p => p.type === target.type && p.id !== pid && p.enabled)
-        for (const p of sameType) store.updatePrompt(p.id, { enabled: false })
-        store.updatePrompt(pid, { enabled: true })
-        const disabled = sameType.map(p => p.title).join('、')
-        return { status: 'success', summary: `已启用「${target.title}」${disabled ? `（自动关闭: ${disabled}）` : ''}` }
-      }
-      store.updatePrompt(pid, { enabled: false })
-      return { status: 'success', summary: `已关闭「${target.title}」` }
+        if (!target) return { status: 'error', summary: `未找到提示词: ${pid}` }
+        if (enable) {
+          const sameType = prompts.filter(p => p.type === target.type && p.id !== pid && p.enabled)
+          for (const p of sameType) store.updatePrompt(p.id, { enabled: false })
+          store.updatePrompt(pid, { enabled: true })
+          const disabled = sameType.map(p => p.title).join('、')
+          return { status: 'success', summary: `已启用「${target.title}」${disabled ? `（自动关闭: ${disabled}）` : ''}` }
+        }
+        store.updatePrompt(pid, { enabled: false })
+        return { status: 'success', summary: `已关闭「${target.title}」` }
+      } catch (e) { return { status: 'error', summary: `切换提示词失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
   {
@@ -72,17 +76,19 @@ export const promptTools: ToolDefinition[] = [
     category: 'prompt',
     availableInPlanMode: true,
     executor: async (args) => {
-      const { useSettingsStore } = await import('@/store')
-      const store = useSettingsStore.getState()
-      const pid = String(args.prompt_id || '')
-      const updates: Record<string, unknown> = {}
-      if (args.title) updates.title = String(args.title)
-      if (args.content) updates.content = String(args.content)
-      if (args.type) updates.type = String(args.type)
-      if (Object.keys(updates).length === 0) return { status: 'error', summary: '没有提供要修改的字段' }
-      store.updatePrompt(pid, updates)
-      const fields = Object.keys(updates).join('、')
-      return { status: 'success', summary: `已更新提示词 ${fields}` }
+      try {
+        const { useSettingsStore } = await import('@/store')
+        const store = useSettingsStore.getState()
+        const pid = String(args.prompt_id || '')
+        const updates: Record<string, unknown> = {}
+        if (args.title) updates.title = String(args.title)
+        if (args.content) updates.content = String(args.content)
+        if (args.type) updates.type = String(args.type)
+        if (Object.keys(updates).length === 0) return { status: 'error', summary: '没有提供要修改的字段' }
+        store.updatePrompt(pid, updates)
+        const fields = Object.keys(updates).join('、')
+        return { status: 'success', summary: `已更新提示词 ${fields}` }
+      } catch (e) { return { status: 'error', summary: `更新提示词失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
   },
 ]

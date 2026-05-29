@@ -1,7 +1,7 @@
-import { kbService } from '@/services/fileService'
 import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
 import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
+import { injectKnowledge, injectKnowledgeFallback } from '@/services/knowledgePipeline'
 import type { SceneTemplate, EroticSceneConfig, NovelSceneConfig } from '@/types/story'
 import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import type { DetailedChapter } from '@/types/chapter'
@@ -135,21 +135,32 @@ export function normalizeParagraphs(text: string): string {
   return result.join('\n\n')
 }
 
-export async function injectKBContents(prompt: string, selectedKbFileIds: Set<string>): Promise<string> {
+/**
+ * 向 prompt 注入知识库内容。使用 KnowledgePipeline 语义搜索，
+ * 降级到全量转储。注入位置在"创作要求"之前。
+ */
+export async function injectKBContents(
+  prompt: string,
+  selectedKbFileIds: Set<string>,
+  searchQuery?: string,
+  projectId?: string,
+  configId?: string,
+  maxChunks = 5,
+): Promise<string> {
   if (selectedKbFileIds.size === 0) return prompt
-  const kpParts: string[] = []
-  let totalChars = 0
-  const maxKBChars = 50000
-  for (const fid of selectedKbFileIds) {
-    if (totalChars >= maxKBChars) break
-    try {
-      const result = await kbService.read(fid) as { file: { originalName: string }; content: string }
-      const sliceLen = Math.min(result.content.length, 10000, maxKBChars - totalChars)
-      kpParts.push(`【文件: ${result.file.originalName}】\n${result.content.slice(0, sliceLen)}`)
-      totalChars += sliceLen
-    } catch (e) { logError('读取知识库文件内容失败', e) }
+
+  // 优先语义搜索
+  if (searchQuery && projectId && configId) {
+    const result = await injectKnowledge(
+      prompt, searchQuery, projectId, configId,
+      [...selectedKbFileIds], maxChunks, 'before-writing',
+    )
+    if (result.chunksInjected > 0) return result.prompt
   }
-  return prompt + '\n' + kpParts.join('\n\n')
+
+  // 降级全量注入
+  const fallback = await injectKnowledgeFallback(prompt, [...selectedKbFileIds])
+  return fallback.prompt
 }
 
 export interface BuildPromptOptions {

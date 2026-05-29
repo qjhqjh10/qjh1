@@ -135,13 +135,13 @@ export interface KBAPI {
   selectFiles: () => Promise<string[]>
   uploadFiles: (filePaths: string[], activeProjectId: string) => Promise<KnowledgeFile[]>
   delete: (fileId: string) => Promise<void>
-  write: (fileId: string, content: string) => Promise<void>
+  write: (fileId: string, content: string, configId?: string) => Promise<void>
   index: (fileId: string, configId: string) => Promise<{ chunkCount: number }>
   search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>
   create: (name: string, content: string, projectId?: string) => Promise<{ id: string; name: string }>
-  append: (fileId: string, content: string) => Promise<void>
+  append: (fileId: string, content: string, configId?: string) => Promise<void>
   download: (fileId: string) => Promise<boolean>
   getEmbedding: (text: string, configId: string) => Promise<number[]>
   estimate: (filePath: string) => Promise<KBFileEstimate>
@@ -188,10 +188,11 @@ export interface ElectronAPI {
   app: AppAPI
   settings: SettingsAPI
   kb: KBAPI
+  notes: { search: (query: string, configId: string, topK?: number) => Promise<{ content: string; fileName: string; score: number }[]> }
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
   styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void> }
-  templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<void>; delete: (id: string) => Promise<void> }
+  templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<SceneTemplate>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
   story: StoryAPI
@@ -208,7 +209,17 @@ export interface ElectronAPI {
     saveConfig: (servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>) => Promise<void>
     loadConfig: () => Promise<Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>>
   }
-  lsp: { diagnose: (filePath: string) => Promise<any> }
+  lsp: { diagnose: (filePath?: string) => Promise<any> }
+  agent: {
+    sessionSave: (id: string, data: string) => Promise<{ success: boolean }>
+    sessionLoad: (id: string) => Promise<any>
+    sessionList: () => Promise<any[]>
+    sessionDelete: (id: string) => Promise<{ success: boolean }>
+    permissionRecord: (toolName: string, approved: boolean) => Promise<{ success: boolean }>
+    permissionPatterns: () => Promise<Record<string, any>>
+    getSessionsPath: () => Promise<string>
+  }
+  appendDebugLog: (name: string, line: string) => Promise<void>
 }
 
 declare global {

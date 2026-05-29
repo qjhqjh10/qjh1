@@ -2,7 +2,7 @@ import type { Message } from './types'
 
 export const WELCOME_MSG: Message = {
   id: 'welcome', role: 'assistant',
-  content: `你好！我是 AI 小说写作助手，陪你完成从灵感到成品的每一步创作。以下是我能帮你做的所有事：
+  content: `你好！我是 AI 写作助手，陪你完成从灵感到成品的每一步创作。以下是我能帮你做的所有事：
 
 ## 📝 写作与编辑
 

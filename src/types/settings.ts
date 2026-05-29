@@ -17,7 +17,7 @@ export interface ModelConfig {
   currency: 'USD' | 'CNY'
 }
 
-export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '摘要' | '审稿'
+export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
 
 export interface PromptTemplate {
   id: string
@@ -27,7 +27,7 @@ export interface PromptTemplate {
   enabled: boolean
 }
 
-export const PROMPT_TYPES: PromptType[] = ['灵感', '世界观', '角色', '大纲', '细纲', '章节', '润色', '续写', '摘要', '审稿']
+export const PROMPT_TYPES: PromptType[] = ['灵感', '世界观', '角色', '大纲', '细纲', '章节', '润色', '续写', '改写', '摘要', '审稿']
 
 export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   provider: 'openai',
@@ -259,6 +259,13 @@ export const DEFAULT_PROMPTS: PromptTemplate[] = [
     title: '默认续写模板',
     type: '续写',
     content: '请根据以下内容自然续写，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性。',
+    enabled: true,
+  },
+  {
+    id: 'default_rewrite',
+    title: '默认改写模板',
+    type: '改写',
+    content: '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。改写后的内容应与原文风格一致但表达更出色。',
     enabled: true,
   },
   {

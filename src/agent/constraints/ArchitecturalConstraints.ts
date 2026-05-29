@@ -7,26 +7,39 @@ import type { ArchitecturalConstraint, ToolCallArgs } from './types'
 export const FILE_SIZE_LIMIT = 1000
 
 /**
- * Constraint: file size
- * No single file should exceed FILE_SIZE_LIMIT lines.
+ * Factory: file size constraint with configurable limit.
+ * When limit is 0, the constraint is disabled (returns a no-op).
  */
-export const fileSizeLimit: ArchitecturalConstraint = {
-  id: 'file-size-limit',
-  description: `单文件不超过 ${FILE_SIZE_LIMIT} 行`,
-  check: (args: ToolCallArgs) => {
-    const content = args.content as string | undefined
-    if (!content) return { passed: true, message: '' }
-    const lines = content.split('\n').length
-    if (lines > FILE_SIZE_LIMIT) {
-      return {
-        passed: false,
-        message: `文件内容 ${lines} 行，超过上限 ${FILE_SIZE_LIMIT} 行。请拆分为多个文件：主文件保留核心逻辑，将辅助逻辑提取到 components/ 或 hooks/ 子目录。`,
-      }
+export function createFileSizeLimit(limit: number): ArchitecturalConstraint {
+  if (limit <= 0) {
+    return {
+      id: 'file-size-limit',
+      description: '文件大小限制已禁用',
+      check: () => ({ passed: true, message: '' }),
+      fixInstruction: '',
     }
-    return { passed: true, message: '' }
-  },
-  fixInstruction: `拆分为 XxxPage/index.tsx + XxxPage/components/Y.tsx 或 XxxPage/hooks/useZ.ts`,
+  }
+  return {
+    id: 'file-size-limit',
+    description: `单文件不超过 ${limit} 行`,
+    check: (args: ToolCallArgs) => {
+      const content = args.content as string | undefined
+      if (!content) return { passed: true, message: '' }
+      const lines = content.split('\n').length
+      if (lines > limit) {
+        return {
+          passed: false,
+          message: `文件内容 ${lines} 行，超过上限 ${limit} 行。请拆分为多个文件：主文件保留核心逻辑，将辅助逻辑提取到 components/ 或 hooks/ 子目录。`,
+        }
+      }
+      return { passed: true, message: '' }
+    },
+    fixInstruction: `拆分为 XxxPage/index.tsx + XxxPage/components/Y.tsx 或 XxxPage/hooks/useZ.ts`,
+  }
 }
+
+/** Default file size constraint using the module-level constant */
+export const fileSizeLimit = createFileSizeLimit(FILE_SIZE_LIMIT)
 
 /**
  * Constraint: path isolation
@@ -172,7 +185,7 @@ export const nonEmptyChapter: ArchitecturalConstraint = {
   id: 'non-empty-chapter',
   description: '章节文件内容不能少于 100 字符',
   check: (args: ToolCallArgs) => {
-    if (args.toolName !== 'create_file') return { passed: true, message: '' }
+    if (args.toolName !== 'create_file' && args.toolName !== 'edit_file') return { passed: true, message: '' }
     const fp = (args.file_path as string) || ''
     if (!fp.startsWith('chapters/') || !fp.endsWith('.txt')) return { passed: true, message: '' }
     const content = (args.content as string) || ''

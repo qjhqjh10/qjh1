@@ -16,6 +16,8 @@ function categorizeError(err: unknown): string {
     return '[AUTH_ERROR] API 密钥无效或权限不足，请检查模型设置。'
   if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('timeout') || lower.includes('network') || lower.includes('econnreset'))
     return '[NETWORK] 网络连接失败，请检查 API 地址和网络。'
+  if (lower.includes('unsupported') || lower.includes('not support') || lower.includes('not found') || lower.includes('404') || lower.includes('does not exist'))
+    return '[UNSUPPORTED_OPERATION] 当前模型不支持此操作。请切换到支持该功能的模型。'
   return `[API_ERROR] ${message}`
 }
 
@@ -231,11 +233,25 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     try {
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: config.apiUrl })
+      const client = new OpenAI({ apiKey, baseURL: config.apiUrl, timeout: 8000 })
+      // Try /models endpoint first (OpenAI-compatible providers)
       const response = await client.models.list()
       return response.data.map(m => m.id)
     } catch {
-      return []
+      // Fallback: many non-OpenAI providers (DeepSeek etc.) don't support /models.
+      // Use a minimal chat completion to verify connectivity instead.
+      try {
+        const OpenAI = await getOpenAI()
+        const client = new OpenAI({ apiKey, baseURL: config.apiUrl, timeout: 8000 })
+        await client.chat.completions.create({
+          model: config.model || 'deepseek-chat',
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        })
+        return [config.model || 'deepseek-chat']
+      } catch {
+        return []
+      }
     }
   })
 
@@ -313,7 +329,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
             role: validateRole(m.role),
             content: m.content,
           }
-          if (m.tool_calls) msg.tool_calls = m.tool_calls
+          if (m.tool_calls) {
+            // Normalize tool_calls: ensure each has type: "function" (required by many API providers)
+            msg.tool_calls = (m.tool_calls as any[]).map(tc => ({
+              ...tc,
+              type: tc.type || 'function',
+            }))
+          }
           if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
           if ((m as Record<string, unknown>).reasoning_content) msg.reasoning_content = (m as Record<string, unknown>).reasoning_content
           return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }
@@ -334,7 +356,14 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           params.tool_choice = 'auto'
         }
 
+        // Hard timeout: abort API call after 90 seconds at the IPC level
+        const IPC_API_TIMEOUT = 90000
+        const hardTimeout = setTimeout(() => {
+          abortController.abort()
+        }, IPC_API_TIMEOUT)
+
         const completion = await client.chat.completions.create(params as any, { signal: abortController.signal })
+        clearTimeout(hardTimeout)
 
         const usage = completion.usage
         if (usage) {
@@ -411,7 +440,17 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       if (imageSize) genParams.size = imageSize
       if (imageStyle && imageModel.includes('dall-e')) genParams.style = imageStyle
 
-      const response = await client.images.generate(genParams as any)
+      let response: { data?: { url?: string }[] }
+      try {
+        response = await client.images.generate(genParams as any) as { data?: { url?: string }[] }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : ''
+        const status = (err as { status?: number })?.status
+        if (status === 404 || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('unsupported')) {
+          throw new Error(`[UNSUPPORTED_OPERATION] 模型 "${imageModel}" 不支持图片生成功能。请使用 dall-e-3 或其他支持图片生成的模型。`)
+        }
+        throw new Error(categorizeError(err))
+      }
 
       const imageUrl = response?.data?.[0]?.url
       if (!imageUrl) throw new Error('图片生成返回空结果')

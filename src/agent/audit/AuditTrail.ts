@@ -11,6 +11,11 @@ export interface AuditEvent {
 export class AuditTrail {
   private events: AuditEvent[] = []
   private sessionId = ''
+  private maxEvents: number
+
+  constructor(maxEvents = 10000) {
+    this.maxEvents = maxEvents
+  }
 
   startSession(sessionId: string): void {
     this.sessionId = sessionId
@@ -25,6 +30,9 @@ export class AuditTrail {
       event,
       data,
     })
+    if (this.events.length > this.maxEvents) {
+      this.events = this.events.slice(-this.maxEvents)
+    }
   }
 
   recordStateTransition(from: string, to: string): void {
@@ -32,7 +40,12 @@ export class AuditTrail {
   }
 
   recordToolCall(toolName: string, args: Record<string, unknown>): void {
-    this.record('tool:call', { toolName, args: { ...args, content: args.content ? `(${String(args.content).length} chars)` : undefined } })
+    // Redact sensitive fields: keep file_path but truncate search queries and content
+    const safeArgs: Record<string, unknown> = { ...args }
+    if (safeArgs.content) safeArgs.content = `(${String(safeArgs.content).length} chars)`
+    if (safeArgs.search_query) safeArgs.search_query = String(safeArgs.search_query).slice(0, 100)
+    if (safeArgs.query) safeArgs.query = String(safeArgs.query).slice(0, 100)
+    this.record('tool:call', { toolName, args: safeArgs })
   }
 
   recordToolResult(toolName: string, status: string, summary: string): void {
@@ -67,5 +80,14 @@ export class AuditTrail {
   // Replay: regenerate the sequence of events
   replay(): AuditEvent[] {
     return [...this.events]
+  }
+
+  // Persist to disk as JSONL
+  async persist(): Promise<void> {
+    try {
+      const { fileService } = await import('@/services/fileService')
+      await fileService.ensureDir('.aiharness/audit')
+      await fileService.write(`.aiharness/audit/${this.sessionId}.jsonl`, this.toJSONL())
+    } catch { /* persistence is best-effort */ }
   }
 }

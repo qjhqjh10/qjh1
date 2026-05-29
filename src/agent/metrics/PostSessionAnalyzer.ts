@@ -25,8 +25,12 @@ export interface PostSessionReport {
 }
 
 export class PostSessionAnalyzer {
-  private metrics = new MetricsCollector()
+  private metrics: MetricsCollector
   private taxonomy = new FailureTaxonomy()
+
+  constructor(metricsCollector?: MetricsCollector) {
+    this.metrics = metricsCollector || new MetricsCollector()
+  }
 
   async analyze(
     sessionId: string,

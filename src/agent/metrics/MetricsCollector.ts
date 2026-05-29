@@ -14,6 +14,7 @@ export interface SessionMetrics {
   totalTokens: number
   iterationCycles: number
   toolsUsed: string[]
+  toolStats: Record<string, { success: number; failure: number }>
   firstPassSuccess: boolean  // Did all tools succeed on first try?
 }
 
@@ -65,9 +66,18 @@ export class MetricsCollector {
     const callingApiCount = stateTransitions.filter(e => e.data.to === 'CALLING_API').length
 
     const toolsUsed: string[] = []
+    const toolStats: Record<string, { success: number; failure: number }> = {}
     for (const e of events) {
-      if (e.event === 'tool:call' && e.data.toolName && !toolsUsed.includes(String(e.data.toolName))) {
-        toolsUsed.push(String(e.data.toolName))
+      if (e.event === 'tool:call' && e.data.toolName) {
+        const name = String(e.data.toolName)
+        if (!toolsUsed.includes(name)) toolsUsed.push(name)
+        if (!toolStats[name]) toolStats[name] = { success: 0, failure: 0 }
+      }
+      if (e.event === 'tool:result' && e.data.toolName) {
+        const name = String(e.data.toolName)
+        if (!toolStats[name]) toolStats[name] = { success: 0, failure: 0 }
+        if (e.data.status === 'success') toolStats[name].success++
+        else toolStats[name].failure++
       }
     }
 
@@ -83,6 +93,7 @@ export class MetricsCollector {
       totalTokens,
       iterationCycles: Math.max(1, callingApiCount),
       toolsUsed,
+      toolStats,
       firstPassSuccess,
     }
 
@@ -115,8 +126,10 @@ export class MetricsCollector {
     // Tool breakdown
     const breakdown: Record<string, { success: number; failure: number }> = {}
     for (const m of subset) {
-      for (const t of m.toolsUsed) {
+      for (const [t, stats] of Object.entries(m.toolStats || {})) {
         if (!breakdown[t]) breakdown[t] = { success: 0, failure: 0 }
+        breakdown[t].success += stats.success
+        breakdown[t].failure += stats.failure
       }
     }
 

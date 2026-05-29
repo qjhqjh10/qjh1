@@ -2,12 +2,7 @@ import { AgentRuntime } from '../runtime/AgentRuntime'
 import { ContextAssembler } from '../context/ContextAssembler'
 import { ToolRegistry } from '../tools/ToolRegistry'
 import { TEAM_ROLES } from '../teams/AgentTeam'
-import { coreRulesProvider } from '../context/providers/coreRulesProvider'
-import { characterProvider } from '../context/providers/characterProvider'
-import { outlineProvider } from '../context/providers/outlineProvider'
-import { detailedOutlineProvider } from '../context/providers/detailedOutlineProvider'
-import { styleProvider } from '../context/providers/styleProvider'
-import { sceneProvider } from '../context/providers/sceneProvider'
+import { ALL_PROVIDERS } from '../context/providers'
 import type { Message, ToolResult } from '../runtime/AgentRuntime'
 
 // ── Types ──
@@ -110,7 +105,7 @@ export const SUB_AGENTS: SubAgentConfig[] = [
     name: 'knowledge-curator',
     purpose: '整理和索引知识库内容，优化知识管理',
     toolNames: ['kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file', 'read_file'],
-    contextProviderDomains: ['core-rules', 'kb'],
+    contextProviderDomains: ['core-rules', 'knowledge-base'],
     maxIterations: 4,
     modelTier: 'cheap',
     systemPrompt: [
@@ -171,6 +166,11 @@ export class SubAgentManager {
     else this.agents.push(config)
   }
 
+  removeAgent(name: string): void {
+    const idx = this.agents.findIndex(a => a.name === name)
+    if (idx !== -1) this.agents.splice(idx, 1)
+  }
+
   getAgent(name: string): SubAgentConfig | undefined {
     return this.agents.find(a => a.name === name)
   }
@@ -210,11 +210,7 @@ export class SubAgentManager {
     try {
       // Build isolated context assembler for this sub-agent
       const assembler = new ContextAssembler()
-      const allProviders = [
-        coreRulesProvider, characterProvider, outlineProvider,
-        detailedOutlineProvider, styleProvider, sceneProvider,
-      ]
-      for (const p of allProviders) {
+      for (const p of ALL_PROVIDERS) {
         if (config.contextProviderDomains.includes(p.domain)) {
           assembler.register(p)
         }
@@ -258,20 +254,27 @@ export class SubAgentManager {
           continue
         }
 
+        // Normalize tool calls to flat ToolCallRequest format (matching AgentRuntime)
+        const normalizedToolCalls = response.toolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        }))
+
         // Execute tool calls
-        for (const tc of response.toolCalls) {
-          const args = JSON.parse(tc.function.arguments)
-          const result = await this.registry.execute(tc.function.name, args, {
+        for (const tc of normalizedToolCalls) {
+          const args = JSON.parse(tc.arguments)
+          const result = await this.registry.execute(tc.name, args, {
             projectId, configId,
             callId: `${agentName}_${tc.id}`,
-            toolName: tc.function.name,
+            toolName: tc.name,
             signal: new AbortController().signal,
           })
 
           messages.push({
             role: 'assistant',
             content: response.text,
-            tool_calls: [tc],
+            tool_calls: [{ type: 'function', id: tc.id, function: { name: tc.name, arguments: tc.arguments } }],
           } as Message)
           messages.push({
             role: 'tool',
@@ -355,18 +358,24 @@ export class SubAgentManager {
     )
     results.push(reviewerResult)
 
-    // 4. Fixer: fix issues if reviewer found problems (exclude negation patterns like "没有问题")
+    // 4. Fixer: fix issues if reviewer found problems
     const reviewText = reviewerResult.output
-    const hasNegation = /没有[问错]|无[问错]|不存在[问错]|no\s+(?:issues?|problems?|errors?)/i.test(reviewText)
-    const hasProblem = /[问错]题|issues?|problems?|errors?|缺陷|漏洞|异常|失败/i.test(reviewText)
-    if (hasProblem && !hasNegation) {
+    // More precise: check if review indicates actual problems exist
+    const hasClearPass = /没有[问错]|无[问错]|不存在[问错]|全部通过|no\s+(?:issues?|problems?|errors?)/i.test(reviewText)
+    const hasProblem = /[问错]题|issues?|problems?|errors?|缺陷|漏洞|异常|失败|需[要修]修/i.test(reviewText)
+    let fixerRan = false
+    if (hasProblem && !hasClearPass) {
       const fixerResult = await this.delegateWithRole(
         'fixer', `根据审查意见修复问题:\n审查意见: ${reviewerResult.output}\n原始输出: ${coderResult.output}`, configId, projectId, relayNote,
       )
       results.push(fixerResult)
+      fixerRan = true
     }
 
-    return { results, passed: true }
+    // Determine pass/fail based on reviewer + fixer outcomes
+    const reviewerFoundProblems = hasProblem && !hasClearPass
+    const fixerFailed = fixerRan && results[results.length - 1]?.status === 'error'
+    return { results, passed: !reviewerFoundProblems || !fixerFailed }
   }
 
   private async delegateWithRole(
@@ -396,16 +405,12 @@ export class SubAgentManager {
     const prevAgent = this.getAgent(roleName)
     this.defineAgent(tempConfig)
 
-    const result = await this.delegate(roleName, input, configId, projectId, role.name === 'Planner' ? 'cheap' : 'main')
-
-    // Restore original agent if it existed
-    if (prevAgent) this.defineAgent(prevAgent)
-    else {
-      // Remove the temporary agent
-      const idx = (this as any).agents?.findIndex?.((a: any) => a.name === roleName)
-      if (idx >= 0) (this as any).agents?.splice?.(idx, 1)
+    try {
+      return await this.delegate(roleName, input, configId, projectId, role.name === 'Planner' ? 'cheap' : 'main')
+    } finally {
+      // Restore original agent if it existed, otherwise remove temporary one
+      if (prevAgent) this.defineAgent(prevAgent)
+      else this.removeAgent(roleName)
     }
-
-    return result
   }
 }

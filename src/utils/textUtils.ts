@@ -56,7 +56,7 @@ export function countChineseWords(text: string): number {
   return clean.length
 }
 
-const AI_ERROR_PREFIXES = ['[CONTENT_POLICY]', '[RATE_LIMIT]', '[AUTH_ERROR]', '[NETWORK]', '[API_ERROR]']
+const AI_ERROR_PREFIXES = ['[CONTENT_POLICY]', '[RATE_LIMIT]', '[AUTH_ERROR]', '[NETWORK]', '[API_ERROR]', '[UNSUPPORTED_OPERATION]']
 
 export function parseAiErrorMessage(err: unknown, fallback?: string): string {
   const msg = err instanceof Error ? err.message : (fallback || '请求失败')

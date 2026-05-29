@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { AgentPhase } from '../state/types'
+import type { AgentPhase, ThinkingPlan, VerificationReport } from '../state/types'
 import type { ToolProgressEvent, ThinkingContext } from '../runtime/AgentEventEmitter'
 
 // ── Types ──
@@ -35,6 +35,10 @@ export interface AgentRunState {
   streamingText: string
   isStreaming: boolean
   hookFeedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null
+  executionPlan: ThinkingPlan | null
+  planPhase: 'none' | 'generating' | 'awaiting_approval' | 'approved' | 'rejected'
+  verificationReports: VerificationReport[]
+  planDeviation: { toolName: string; message: string } | null
 }
 
 export interface PermissionPattern {
@@ -95,6 +99,11 @@ export interface AgentStoreState {
   setStreamingText: (text: string) => void
   setIsStreaming: (streaming: boolean) => void
   setHookFeedback: (feedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null) => void
+  setExecutionPlan: (plan: ThinkingPlan | null) => void
+  setPlanPhase: (phase: AgentRunState['planPhase']) => void
+  setVerificationReports: (reports: VerificationReport[]) => void
+  addVerificationReport: (report: VerificationReport) => void
+  setPlanDeviation: (deviation: { toolName: string; message: string } | null) => void
 
   // Actions — Permissions
   recordPermission: (toolName: string, approved: boolean) => void
@@ -108,6 +117,7 @@ export interface AgentStoreState {
   setHealth: (health: Partial<AgentHealthState>) => void
 }
 
+// Shared reset fields for startRun/endRun to avoid duplication
 // ── Store ──
 
 export const useAgentStore = create<AgentStoreState>()(
@@ -126,6 +136,10 @@ export const useAgentStore = create<AgentStoreState>()(
       streamingText: '',
       isStreaming: false,
       hookFeedback: null,
+      executionPlan: null,
+      planPhase: 'none',
+      verificationReports: [],
+      planDeviation: null,
     },
 
     permissionPatterns: [],
@@ -157,33 +171,37 @@ export const useAgentStore = create<AgentStoreState>()(
     // ── Run Actions ──
 
     startRun: (runId) => set(s => {
-      s.run = {
-        runId,
-        phase: 'THINKING',
-        iteration: 0,
-        isRunning: true,
-        thinking: null,
-        activeTools: {},
-        lastError: null,
-        streamingText: '',
-        isStreaming: false,
-        hookFeedback: null,
-      }
+      s.run.runId = runId
+      s.run.phase = 'THINKING'
+      s.run.isRunning = true
+      s.run.iteration = 0
+      s.run.thinking = null
+      s.run.activeTools = {}
+      s.run.lastError = null
+      s.run.streamingText = ''
+      s.run.isStreaming = false
+      s.run.hookFeedback = null
+      s.run.executionPlan = null
+      s.run.planPhase = 'none'
+      s.run.verificationReports = []
+      s.run.planDeviation = null
     }),
 
     endRun: () => set(s => {
-      s.run = {
-        runId: null,
-        phase: 'IDLE',
-        iteration: 0,
-        isRunning: false,
-        thinking: null,
-        activeTools: {},
-        lastError: null,
-        streamingText: '',
-        isStreaming: false,
-        hookFeedback: null,
-      }
+      s.run.runId = null
+      s.run.phase = 'IDLE'
+      s.run.isRunning = false
+      s.run.iteration = 0
+      s.run.thinking = null
+      s.run.activeTools = {}
+      s.run.lastError = null
+      s.run.streamingText = ''
+      s.run.isStreaming = false
+      s.run.hookFeedback = null
+      s.run.executionPlan = null
+      s.run.planPhase = 'none'
+      s.run.verificationReports = []
+      s.run.planDeviation = null
     }),
 
     setPhase: (phase) => set(s => { s.run.phase = phase }),
@@ -211,12 +229,22 @@ export const useAgentStore = create<AgentStoreState>()(
         t.summary = summary
         t.detail = detail
       }
+      // Auto-remove completed tool after 15 seconds to give users time to see results
+      setTimeout(() => {
+        set(s2 => { delete s2.run.activeTools[callId] })
+      }, 15000)
     }),
 
     setLastError: (error) => set(s => { s.run.lastError = error }),
     setStreamingText: (text) => set(s => { s.run.streamingText = text }),
     setIsStreaming: (streaming) => set(s => { s.run.isStreaming = streaming }),
     setHookFeedback: (feedback) => set(s => { s.run.hookFeedback = feedback }),
+
+    setExecutionPlan: (plan) => set(s => { s.run.executionPlan = plan }),
+    setPlanPhase: (phase) => set(s => { s.run.planPhase = phase }),
+    setVerificationReports: (reports) => set(s => { s.run.verificationReports = reports }),
+    addVerificationReport: (report) => set(s => { s.run.verificationReports.push(report) }),
+    setPlanDeviation: (deviation) => set(s => { s.run.planDeviation = deviation }),
 
     // ── Permission Actions ──
 

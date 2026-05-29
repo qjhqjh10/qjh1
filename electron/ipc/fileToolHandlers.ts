@@ -8,6 +8,7 @@ export interface ToolCallArgs {
   callId: string
   toolName: string
   args: Record<string, unknown>
+  confirmed?: boolean
 }
 
 export interface ToolCallResult {

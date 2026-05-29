@@ -385,6 +385,8 @@ export function useStyleWorkshop() {
           sensoryStyle: aggregatedDimAnalyses['sensoryStyle']?.description || '',
           tensionStyle: aggregatedDimAnalyses['tensionStyle']?.description || '',
           subtextStyle: aggregatedDimAnalyses['subtextStyle']?.description || '',
+          // 复杂维度：V3格式以文本描述存于dimAnalyses，features中保留null（类型为结构化对象，无法用纯文本填充）
+          // UI展示和风格注入时直接读取dimAnalyses
           descriptionPattern: null, corruptionArc: null, degradationRitual: null,
           narrativeVoice: null, sceneMechanics: null, somaticTension: null,
           identityDissolution: null, shameVoyeurLoop: null,
@@ -428,9 +430,13 @@ export function useStyleWorkshop() {
       if ((da as any).vocabularyList) vocabList.push(...(da as any).vocabularyList)
       if ((da as any).writingRules) rulesList.push(...(da as any).writingRules)
     }
+    const reverseTypeMap: Record<string, string> = {}
+    for (const [label, short] of Object.entries(NOVEL_TYPE_LABELS)) { reverseTypeMap[short] = label }
+    const templateType = (reverseTypeMap[selectedProject.novelType] || '普通小说') as StyleTemplate['type']
+
     const template: StyleTemplate = {
       id: '', name: selectedProject.name || 'AI分析模板',
-      type: selectedProject.novelType === '情色' ? '情色小说' : '普通小说',
+      type: templateType,
       worldType: '', description: profile.fullDescription?.slice(0, 100) || '',
       fullDescription: profile.fullDescription || '',
       dimensions: dims as any,

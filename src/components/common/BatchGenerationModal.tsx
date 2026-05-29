@@ -12,6 +12,7 @@ import Modal from './Modal'
 import Button from './Button'
 import { SparklesIcon, XMarkIcon, CheckIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
+import { normalizeParagraphs } from './ChapterGenerationModal/promptBuilder'
 
 interface Props {
   isOpen: boolean
@@ -199,6 +200,10 @@ export default function BatchGenerationModal({
                 }
                 if (activeProjectId && projectsBasePath) {
                   saveVersionRecord(`${projectsBasePath}/${activeProjectId}`, item.chapterId, versionRecord).then(() => onVersionSaved(versionRecord))
+                  // Write normalized final content (streaming chunks may lack proper paragraph breaks)
+                  const normalizedFinal = normalizeParagraphs(data.text)
+                  const finalWriteContent = replaceMode ? normalizedFinal : (chContent ? chContent + '\n\n' + normalizedFinal : normalizedFinal)
+                  fileService.write(`${projectsBasePath}/${activeProjectId}/chapters/${item.chapterId}.txt`, finalWriteContent).catch(() => {})
                 }
                 updateQueueItem(i, { status: 'done', wordCount: data.text.length })
                 setTotalWords(prev => prev + data.text.length)
@@ -216,7 +221,8 @@ export default function BatchGenerationModal({
           await new Promise<void>(async (resolve, reject) => {
             try {
               const { text: reply } = await aiService.chatWithUsage(messages, genConfigId, activeProjectId || undefined)
-              const finalContent = replaceMode ? reply : (chContent ? chContent + '\n\n' + reply : reply)
+              const normalized = normalizeParagraphs(reply)
+              const finalContent = replaceMode ? normalized : (chContent ? chContent + '\n\n' + normalized : normalized)
               await fileService.write(`${projectsBasePath}/${activeProjectId}/chapters/${item.chapterId}.txt`, finalContent).catch(() => {})
               updateQueueItem(i, { status: 'done', wordCount: reply.length })
               setTotalWords(prev => prev + reply.length)

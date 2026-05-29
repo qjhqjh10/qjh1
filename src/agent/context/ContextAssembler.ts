@@ -12,7 +12,7 @@ export interface ContextBlock {
 export interface ContextProvider {
   domain: string
   relevance: (userMessage: string, history: Array<{ role: string; content: string }>) => number
-  buildContext: (projectId: string | null) => Promise<ContextBlock>
+  buildContext: (projectId: string | null, userMessage?: string) => Promise<ContextBlock>
 }
 
 export interface AssembledContext {
@@ -30,7 +30,13 @@ export class ContextAssembler {
   private maxContextTokens = 50000
 
   register(provider: ContextProvider): void {
-    this.providers.push(provider)
+    // Deduplicate: replace existing provider with same domain instead of adding a duplicate
+    const existing = this.providers.findIndex(p => p.domain === provider.domain)
+    if (existing !== -1) {
+      this.providers[existing] = provider
+    } else {
+      this.providers.push(provider)
+    }
   }
 
   setThreshold(t: number): void {
@@ -66,7 +72,7 @@ export class ContextAssembler {
     let totalTokens = 0
 
     for (const { provider } of selected) {
-      const block = await provider.buildContext(projectId)
+      const block = await provider.buildContext(projectId, userMessage)
       if (totalTokens + block.estimatedTokens <= this.maxContextTokens) {
         blocks.push(block)
         totalTokens += block.estimatedTokens

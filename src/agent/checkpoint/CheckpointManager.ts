@@ -50,9 +50,20 @@ export class CheckpointManager {
       .sort((a, b) => b.timestamp - a.timestamp)
   }
 
-  async restore(checkpoint: AgentCheckpoint): Promise<void> {
-    // State restoration is handled by AgentStateMachine.restoreState()
-    // Messages are returned for the runtime to reset messagesForApi
+  async restore(checkpoint: AgentCheckpoint): Promise<{
+    messages: Message[]
+    state: AgentState
+    iteration: number
+    tokenUsage: number
+  }> {
+    // Returns checkpoint data for the caller to restore runtime state.
+    // Caller must call runtime.setHistory() and update FSM state accordingly.
+    return {
+      messages: checkpoint.messages,
+      state: checkpoint.state,
+      iteration: checkpoint.iteration,
+      tokenUsage: checkpoint.tokenUsage,
+    }
   }
 
   async prune(): Promise<void> {

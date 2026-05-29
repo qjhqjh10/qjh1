@@ -102,12 +102,15 @@ export function buildStyleAnalyzePromptV3(dims: string[]): string {
 【可选的分析维度（参考清单）】
 ${dimensionInstructions}
 
-【输出格式】
-请严格按照以下格式输出（不要用 markdown 代码块）：
+【输出格式 — 严格遵循】
+使用 Markdown 二级标题输出每个维度的分析。格式如下：
 
-=== [维度key]: [中文标签] ===
-（200-400字深度分析。必须包含：具体描述 + 引用3个以上原文词句作为证据）
-...分析内容...
+## 维度key: 中文标签
+200-400字深度分析。必须包含：具体描述 + 引用3个以上原文词句作为证据。引用原文时用 > 标记。
+> 原文例句1
+> 原文例句2
+
+（重复以上格式，每个维度一个 ## 区块）
 
 ---VOCABULARY---
 ["原文词1","原文词2","原文词3",...]
@@ -116,18 +119,15 @@ ${dimensionInstructions}
 ["写作规则1","写作规则2","写作规则3",...]
 
 ---TONE---
-{"word":"基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索，或自定义）"}
+{"word":"基调词","description":"100字基调描述","attitude":"态度词"}
 
-【关键规则——决定输出哪些维度】
-1. **有证据才写，没证据不写**。仅分析在原文中找到实际证据的维度。某维度在本章中完全没有体现（如纯对话章没有身体描写、普通章节没有情色内容），**直接跳过不写该维度**，不要输出空分析，不要写"[此维度在本章不适用]"之类的占位文字。
-2. 每个输出维度分析必须 200-400 字，引用原文具体词汇/句子
-3. VOCABULARY 数组必须是原文中实际出现的词，禁止编造
-4. RULES 数组必须是可直接执行的写作指令（每条 15-50 字），不要写笼统建议
-5. TONE 中的基调词限 2-8 字
-6. 标记块（---XXX---）必须从行首开始，单独一行
-7. 数组和对象必须是合法 JSON（注意：字符串用双引号，不要尾部逗号）
-8. 不要用 \`\`\`json 代码块包裹任何内容
-9. 宁可少分析几个维度，也不编造不存在的内容凑数`
+【关键规则】
+1. 每个维度用 ## {dimKey}: {中文标签} 作为标题
+2. 仅分析在原文中找到实际证据的维度。没有证据的维度直接跳过，不要写"不适用"之类的占位
+3. VOCABULARY/RULES/TONE 三个标记块必须从行首开始，单独一行
+4. VOCABULARY 和 RULES 是 JSON 数组，字符串用双引号
+5. TONE 是 JSON 对象，attitude 可选值: 冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索
+6. 不要用 \\\`\\\`\\\` 代码块包裹`
 }
 
 // Parses V3 marked-block format into ChapterAnalysis
@@ -152,13 +152,20 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
   // ── Step 2: Extract per-dimension descriptions from free text ──
   const dimMap = new Map<string, { label: string; description: string }>()
   for (const dk of dims) {
-    // Match: === sentenceStyle: 句式 === (content) === next dimension
     const label = DIMENSION_META[dk]?.label || dk
     const escapedKey = dk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const patterns = [
-      new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|$)`, 'im'),
-      new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|$)`, 'im'),
-      new RegExp(`\\[${escapedKey}\\][:：]([\\s\\S]*?)(?=\\n\\[|\\n===|$)`, 'im'),
+      // V4: Markdown header ## dimKey: label or ## label（dimKey）
+      new RegExp(`##\\s+${escapedKey}\\s*[:：]\\s*${escapedLabel}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|---\\n---RULES|---\\n---TONE|$)`, 'im'),
+      new RegExp(`##\\s+${escapedLabel}\\s*[（(]?\\s*${escapedKey}\\s*[）)]?\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|---\\n---RULES|---\\n---TONE|$)`, 'im'),
+      // V3: === dimKey: label ===
+      new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
+      new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
+      // Bracket format: [dimKey]: description
+      new RegExp(`\\[${escapedKey}\\][:：]([\\s\\S]*?)(?=\\n\\[|\\n===|\\n##\\s|$)`, 'im'),
+      // Bold: **label** or **dimKey**
+      new RegExp(`\\*\\*${escapedLabel}\\*\\*\\s*[:：]?\\s*\\n([\\s\\S]*?)(?=\\n\\*\\*|\\n##\\s|\\n---|$)`, 'im'),
     ]
     for (const pat of patterns) {
       const m = freeText.match(pat)
@@ -167,13 +174,11 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
         break
       }
     }
-    // If no explicit section, try to find dimension name mentioned anywhere
+    // Fallback: find dimension mentioned anywhere in text
     if (!dimMap.has(dk)) {
-      const dimLabel = DIMENSION_META[dk]?.label || dk
-      const mentionPat = new RegExp(`${dk}|${dimLabel}\\s*[:：]\\s*`, 'i')
+      const mentionPat = new RegExp(`${escapedKey}|${escapedLabel}\\s*[:：]\\s*`, 'i')
       if (mentionPat.test(freeText) && freeText.length > 100) {
-        // Store a fallback note — the full text may contain relevant analysis
-        dimMap.set(dk, { label: dimLabel, description: '' })
+        dimMap.set(dk, { label, description: '' })
       }
     }
   }

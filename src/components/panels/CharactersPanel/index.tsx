@@ -99,6 +99,30 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     removeCharacter(char.id)
   }
 
+  const handleUploadImage = (char: Character) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = async () => {
+        let imagePath: string | undefined
+        try {
+          const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
+          if (fn) imagePath = fn
+        } catch { /* fallback to base64 */ }
+        const updatedChar: Character = { ...char, image: imagePath || reader.result as string }
+        await saveCharacter(projectPath, updatedChar)
+        const refreshed = await loadCharacters(projectPath)
+        setCharacters(refreshed)
+      }
+      reader.readAsDataURL(file)
+    }
+    input.click()
+  }
+
   const handleSave = async () => {
     if (!editingChar || !editingChar.name.trim()) return
     const isNew = !characters.find(c => c.id === editingChar.id)
@@ -193,7 +217,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
             <div style={{ maxWidth: 600, margin: '0 auto' }}><SkeletonList count={6} /></div>
           ) : (
             <CharacterGrid characters={characters} projectPath={projectPath}
-              onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} />
+              onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} onUploadImage={handleUploadImage} />
           )}
         </ScrollArea>
       </div>

@@ -2,46 +2,39 @@
 // Generates a concise overview of the current writing project.
 // Injected into the system prompt so the AI knows what exists without preloading everything.
 // Follows "Map, Not Manual" — tells the AI where to find details, not the details themselves.
+//
+// PERFORMANCE: Only uses listDir (6 calls), never reads file contents.
+// The AI can read specific files via read_file tool when needed.
 
 import { fileService } from '@/services/fileService'
 
 /**
  * Generate a concise project summary for the system prompt.
- * Returns a tree-like overview of the project's current state.
+ * Only lists directory entries — does NOT read file contents.
+ * Paths are relative to the project directory (e.g., "1/characters").
  */
 export async function buildProjectSummary(projectId: string): Promise<string> {
   const lines: string[] = []
   const warnings: string[] = []
+  const p = projectId // path prefix: "1" or "my-novel"
 
   try {
-    // Characters
+    // Characters — just list filenames
     try {
-      const charsDir = await fileService.listDir('characters')
-      const jsonFiles = charsDir.filter(f => f.endsWith('.json'))
+      const charsDir = await fileService.listDir(`${p}/characters`)
+      const jsonFiles = charsDir.filter((f: string) => f.endsWith('.json'))
       if (jsonFiles.length > 0) {
-        const names: string[] = []
-        for (const f of jsonFiles.slice(0, 10)) {
-          try {
-            const content = await fileService.read(`characters/${f}`)
-            const obj = JSON.parse(content)
-            const role = obj.role ? `(${obj.role})` : ''
-            names.push(`${obj.name || f.replace('.json', '')}${role}`)
-          } catch {
-            names.push(f.replace('.json', ''))
-          }
-        }
-        lines.push(`角色 (${jsonFiles.length}): ${names.join(', ')}${jsonFiles.length > 10 ? '...' : ''}`)
+        const names = jsonFiles.slice(0, 20).map((f: string) => f.replace('.json', ''))
+        lines.push(`角色 (${jsonFiles.length}): ${names.join(', ')}${jsonFiles.length > 20 ? '...' : ''}`)
       } else {
         lines.push('角色: 暂无')
       }
     } catch { lines.push('角色: 目录不存在') }
 
-    // Outline
+    // Outline — just list filenames
     try {
-      const outlineDir = await fileService.listDir('outline')
-      const mdFiles = outlineDir.filter(f => f.endsWith('.md'))
-      const jsonFiles = outlineDir.filter(f => f.endsWith('.json'))
-      const files = [...mdFiles, ...jsonFiles]
+      const outlineDir = await fileService.listDir(`${p}/outline`)
+      const files = outlineDir.filter((f: string) => f.endsWith('.md') || f.endsWith('.json'))
       if (files.length > 0) {
         lines.push(`大纲: ${files.join(', ')}`)
       } else {
@@ -49,67 +42,53 @@ export async function buildProjectSummary(projectId: string): Promise<string> {
       }
     } catch { lines.push('大纲: 目录不存在') }
 
-    // Detailed outline with progress
+    // Detailed outline — just list filenames
     let detailedOutlineCount = 0
-    let completedCount = 0
     try {
-      const doDir = await fileService.listDir('detailed_outline')
-      const jsonFiles = doDir.filter(f => f.endsWith('.json'))
+      const doDir = await fileService.listDir(`${p}/detailed_outline`)
+      const jsonFiles = doDir.filter((f: string) => f.endsWith('.json'))
       detailedOutlineCount = jsonFiles.length
       if (jsonFiles.length > 0) {
-        const summaries: string[] = []
-        for (const f of jsonFiles.slice(0, 15)) {
-          try {
-            const content = await fileService.read(`detailed_outline/${f}`)
-            const obj = JSON.parse(content)
-            const status = obj.status === 'completed' ? '✓' : '○'
-            if (obj.status === 'completed') completedCount++
-            summaries.push(`${status} ${obj.title || f.replace('.json', '')}`)
-          } catch {
-            summaries.push(f.replace('.json', ''))
-          }
-        }
-        lines.push(`细纲 (${completedCount}/${jsonFiles.length} 完成): ${summaries.join(', ')}${jsonFiles.length > 15 ? '...' : ''}`)
+        const names = jsonFiles.slice(0, 20).map((f: string) => f.replace('.json', ''))
+        lines.push(`细纲 (${jsonFiles.length}): ${names.join(', ')}${jsonFiles.length > 20 ? '...' : ''}`)
       } else {
         lines.push('细纲: 暂无')
       }
     } catch { lines.push('细纲: 目录不存在') }
 
-    // Chapters with word count
-    let totalWords = 0
+    // Chapters — just list filenames
     try {
-      const chDir = await fileService.listDir('chapters')
-      const txtFiles = chDir.filter(f => f.endsWith('.txt'))
+      const chDir = await fileService.listDir(`${p}/chapters`)
+      const txtFiles = chDir.filter((f: string) => f.endsWith('.txt'))
       if (txtFiles.length > 0) {
-        const chapterInfos: string[] = []
-        for (const f of txtFiles.slice(0, 15)) {
-          try {
-            const content = await fileService.read(`chapters/${f}`)
-            const words = content.replace(/\s/g, '').length
-            totalWords += words
-            chapterInfos.push(`${f.replace('.txt', '')} (${words.toLocaleString()}字)`)
-          } catch {
-            chapterInfos.push(f.replace('.txt', ''))
-          }
-        }
-        lines.push(`章节 (${txtFiles.length}, 总字数 ${totalWords.toLocaleString()}): ${chapterInfos.join(', ')}${txtFiles.length > 15 ? '...' : ''}`)
+        const names = txtFiles.slice(0, 20).map((f: string) => f.replace('.txt', ''))
+        lines.push(`章节 (${txtFiles.length}): ${names.join(', ')}${txtFiles.length > 20 ? '...' : ''}`)
       } else {
         lines.push('章节: 暂无')
       }
     } catch { lines.push('章节: 目录不存在') }
 
-    // Knowledge base
+    // Summaries — just list filenames
     try {
-      const kbResult = await fileService.listDir('knowledge_base')
-      const kbFiles = kbResult.filter(f => !f.startsWith('.'))
+      const sumDir = await fileService.listDir(`${p}/summaries`)
+      const mdFiles = sumDir.filter((f: string) => f.endsWith('.md'))
+      if (mdFiles.length > 0) {
+        lines.push(`摘要 (${mdFiles.length}): ${mdFiles.map((f: string) => f.replace('.md', '')).join(', ')}`)
+      }
+    } catch { /* no summaries dir */ }
+
+    // Knowledge base — just count
+    try {
+      const kbResult = await fileService.listDir(`${p}/knowledge_base`)
+      const kbFiles = kbResult.filter((f: string) => !f.startsWith('.'))
       lines.push(`知识库: ${kbFiles.length > 0 ? kbFiles.length + '个文件' : '暂无'}`)
     } catch { /* no KB */ }
 
-    // Consistency checks
+    // Consistency check — count only
     if (detailedOutlineCount > 0) {
       try {
-        const chDir = await fileService.listDir('chapters')
-        const chapterCount = chDir.filter(f => f.endsWith('.txt')).length
+        const chDir = await fileService.listDir(`${p}/chapters`)
+        const chapterCount = chDir.filter((f: string) => f.endsWith('.txt')).length
         if (chapterCount > 0 && detailedOutlineCount !== chapterCount) {
           warnings.push(`细纲 ${detailedOutlineCount} 个 vs 章节 ${chapterCount} 个，数量不匹配`)
         }

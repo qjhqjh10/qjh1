@@ -23,6 +23,7 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
         templates.push(JSON.parse(await fs.readFile(path.join(basePath, f), 'utf-8')))
       } catch { /* skip invalid */ }
     }
+    templates.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
     return templates
   })
 
@@ -40,8 +41,12 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
         try { await fs.access(path.join(basePath, `${sanitizeId(template.id)}.json`)); counter++; template.id = `${baseId}_${counter}` } catch { break }
       }
     }
+    template.updatedAt = new Date().toISOString()
+    if (!template.createdAt) template.createdAt = template.updatedAt
     await fs.mkdir(basePath, { recursive: true })
     await fs.writeFile(path.join(basePath, `${sanitizeId(template.id)}.json`), JSON.stringify(template, null, 2), 'utf-8')
+    // Return saved template so caller can get auto-generated id
+    return template as SceneTemplate
   })
 
   ipcMain.handle('template:delete', async (_e, id: string) => {

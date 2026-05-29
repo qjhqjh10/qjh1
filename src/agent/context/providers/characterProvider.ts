@@ -1,49 +1,110 @@
 import type { ContextProvider } from '../ContextAssembler'
+import { fileService } from '@/services/fileService'
+
+// Static schema documentation (fallback when no project)
+const SCHEMA_DOC = [
+  '## 角色 JSON Schema',
+  '角色文件存储在 characters/{拼音id}.json，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
+  '',
+  '必填字段 (15个): id, name, role(男主|女主|男配|女配|反派|其他), gender, age, occupation, background, appearance, personality, abilities, weaknesses, relationships, relationshipTags(数组), arc, importance(0-100)',
+  '可选字段: image',
+  '',
+  '创建角色前，先用 read_file 查看已有角色文件了解格式。不要使用嵌套对象。',
+].join('\n')
 
 export const characterProvider: ContextProvider = {
   domain: 'characters',
   relevance: (userMessage) => {
-    const score = /角色|人物|男主|女主|配角|反派|character/i.test(userMessage) ? 0.9 : 0.6
     if (/创建.*角色|添加.*人物|新建.*角色|写.*角色/.test(userMessage)) return 1.0
-    return score
+    if (/检查.*角色|角色.*矛盾|角色.*一致|人物.*矛盾|人物.*一致/.test(userMessage)) return 1.0
+    if (/角色|人物|男主|女主|配角|反派|character/i.test(userMessage)) return 0.8
+    return 0.2
   },
 
-  buildContext: async () => ({
-    domain: 'characters',
-    priority: 80,
-    estimatedTokens: 500,
-    content: [
-      '## 角色 JSON Schema',
-      '角色文件存储在 characters/{拼音id}.json，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
-      '',
-      '必填字段 (15个):',
-      '- id: string — 拼音ID，如 "zhangsan"',
-      '- name: string — 角色名',
-      '- role: string — 必须从 [男主|女主|男配|女配|反派|其他] 中选一',
-      '- gender: string — 男/女',
-      '- age: string — 年龄',
-      '- occupation: string — 职业/身份',
-      '- background: string — 背景故事',
-      '- appearance: string — 外貌描述（纯文本，非对象）',
-      '- personality: string — 性格描述',
-      '- abilities: string — 能力（纯文本，非对象）',
-      '- weaknesses: string — 弱点',
-      '- relationships: string — 人物关系描述',
-      '- relationshipTags: string[] — 关系标签数组，如 ["恋人","师徒"]',
-      '- arc: string — 角色弧光',
-      '- importance: number — 重要度 (0-100)',
-      '',
-      '可选字段:',
-      '- image: string — 形象图路径（可选）',
-      '',
-      '创建角色前，先用 read_file 查看已有角色文件了解格式。不要使用 basicInfo/appearance/personality 等嵌套对象。',
-      '',
-      '常见错误（必须避免）:',
-      '- 使用嵌套对象如 {"基本属性":{"姓名":"张三"}} — 所有字段必须平铺',
-      '- role 写成"男主角"、"女主角" — 必须严格用男主/女主/男配/女配/反派/其他',
-      '- abilities 写成对象如 {"异能":"xxx"} — 必须是纯文本字符串',
-      '- relationshipTags 写成字符串 — 必须是数组如 ["恋人","师徒"]',
-      '- 角色文件必须放在 characters/{拼音id}.json，不要放在 characters_test/，不要用中文名作为文件名',
-    ].join('\n'),
-  }),
+  buildContext: async (projectId, userMessage) => {
+    if (!projectId) {
+      return { domain: 'characters', priority: 80, estimatedTokens: 300, content: SCHEMA_DOC }
+    }
+
+    const msg = userMessage || ''
+    const isConsistencyCheck = /检查.*角色|角色.*矛盾|角色.*一致|人物.*矛盾|人物.*一致/.test(msg)
+    const isCreateCharacter = /创建.*角色|添加.*人物|新建.*角色|写.*角色/.test(msg)
+
+    // Extract specific character names from user message
+    const mentionedNames = extractMentionedNames(msg)
+
+    try {
+      const files = await fileService.listDir(`${projectId}/characters`)
+      const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
+      if (jsonFiles.length === 0) {
+        return { domain: 'characters', priority: 80, estimatedTokens: 200, content: '## 角色\n当前项目暂无角色文件。\n\n' + SCHEMA_DOC }
+      }
+
+      // Consistency check: inject key fields, batch by relevance
+      if (isConsistencyCheck) {
+        const lines: string[] = ['## 角色一致性检查 — 角色关键信息', '']
+        const targetFiles = mentionedNames.length > 0
+          ? filterByName(jsonFiles, mentionedNames)
+          : jsonFiles.slice(0, 20)
+
+        for (const f of targetFiles) {
+          try {
+            const content = await fileService.read(`${projectId}/characters/${f}`)
+            const obj = JSON.parse(content)
+            lines.push(`### ${obj.name || f} (${obj.role || '未知'})`)
+            lines.push(`- 性别: ${obj.gender || '-'}  年龄: ${obj.age || '-'}  职业: ${obj.occupation || '-'}`)
+            lines.push(`- 性格: ${(obj.personality || '-').slice(0, 100)}`)
+            lines.push(`- 关系: ${(obj.relationships || '-').slice(0, 100)}`)
+            lines.push(`- 弧光: ${(obj.arc || '-').slice(0, 80)}`)
+            lines.push('')
+          } catch { /* skip broken file */ }
+        }
+        if (mentionedNames.length > 0 && targetFiles.length < jsonFiles.length) {
+          lines.push(`共 ${jsonFiles.length} 个角色，已读取与"${mentionedNames.join('、')}"相关的 ${targetFiles.length} 个。如需查看更多角色，请指定角色名。`)
+        }
+        return { domain: 'characters', priority: 80, estimatedTokens: Math.min(Math.ceil(lines.join('\n').length / 3), 4000), content: lines.join('\n') }
+      }
+
+      // Create character or general reference: inject summary
+      const summaries: string[] = ['## 已有角色概览', '']
+      const maxShow = mentionedNames.length > 0 ? 30 : 15
+      for (const f of jsonFiles.slice(0, maxShow)) {
+        try {
+          const content = await fileService.read(`${projectId}/characters/${f}`)
+          const obj = JSON.parse(content)
+          const rel = obj.relationships ? ` | 关系: ${String(obj.relationships).slice(0, 50)}` : ''
+          summaries.push(`- ${obj.name || f} (${obj.role || '-'}): ${(obj.personality || '-').slice(0, 40)}${rel}`)
+        } catch { summaries.push(`- ${f.replace('.json', '')}`) }
+      }
+      if (jsonFiles.length > maxShow) summaries.push(`... 共 ${jsonFiles.length} 个角色`)
+
+      const extra = isCreateCharacter
+        ? '\n\n创建新角色时，请确保 name 不与已有角色重复，relationships 字段要引用已有角色名。\n\n' + SCHEMA_DOC
+        : '\n\n如需查看某个角色的完整设定，使用 read_file("characters/{id}.json")。'
+
+      return { domain: 'characters', priority: 80, estimatedTokens: Math.min(Math.ceil(summaries.join('\n').length / 3), 2000), content: summaries.join('\n') + extra }
+    } catch {
+      return { domain: 'characters', priority: 80, estimatedTokens: 300, content: SCHEMA_DOC }
+    }
+  },
+}
+
+function extractMentionedNames(msg: string): string[] {
+  const namePattern = /(?:角色|人物|关于|检查|看看|查看)?([^\s,，。、]{2,4})(?:的|是否|有没有|存在)/g
+  const names: string[] = []
+  let m
+  while ((m = namePattern.exec(msg)) !== null) {
+    const name = m[1].trim()
+    if (name.length >= 2 && !/^(角色|人物|矛盾|一致|检查|创建|新建|添加|大纲|细纲|章节|风格)$/.test(name)) {
+      names.push(name)
+    }
+  }
+  return [...new Set(names)]
+}
+
+function filterByName(files: string[], names: string[]): string[] {
+  return files.filter(f => {
+    const base = f.replace('.json', '')
+    return names.some(n => base.includes(n) || n.includes(base))
+  })
 }

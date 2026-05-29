@@ -3,7 +3,7 @@
 // Checked in PreToolUse hook — before tool execution, after PolicyEngine.
 
 import type { ArchitecturalConstraint, TasteInvariant, ToolCallArgs, ConstraintResult } from './types'
-import { ALL_ARCHITECTURAL_CONSTRAINTS } from './ArchitecturalConstraints'
+import { createFileSizeLimit, pathIsolation, jsonSchemaValidation, dependencyDirection, noDuplicateCreate, nonEmptyChapter } from './ArchitecturalConstraints'
 import { ALL_TASTE_INVARIANTS } from './TasteInvariants'
 
 export interface ConstraintConfig {
@@ -48,13 +48,15 @@ export class ConstraintEngine {
       return
     }
 
-    // Filter architectural constraints based on config
-    this.archConstraints = ALL_ARCHITECTURAL_CONSTRAINTS.filter(c => {
-      if (c.id === 'dependency-direction' && !this.config.enforceDependencyDirection) return false
-      if (c.id === 'json-schema-validation' && !this.config.jsonSchemaValidation) return false
-      if (c.id === 'no-duplicate-create' && !this.config.enforceNoDuplicateCreate) return false
-      return true
-    })
+    // Build architectural constraints dynamically, using config values
+    this.archConstraints = [
+      createFileSizeLimit(this.config.fileSizeLimit),
+      pathIsolation,
+      ...(this.config.jsonSchemaValidation ? [jsonSchemaValidation] : []),
+      ...(this.config.enforceDependencyDirection ? [dependencyDirection] : []),
+      ...(this.config.enforceNoDuplicateCreate ? [noDuplicateCreate] : []),
+      nonEmptyChapter,
+    ]
 
     // Filter taste invariants based on config
     this.tasteInvariants = ALL_TASTE_INVARIANTS.filter(c => {
@@ -75,10 +77,13 @@ export class ConstraintEngine {
       if (!result.passed) return { ...result, severity: 'block' }
     }
 
-    // Taste invariants: fail = WARN (still pass, but log)
+    // Taste invariants: fail = WARN (still pass, but log and emit)
     for (const t of this.tasteInvariants) {
       const result = t.check(args)
-      if (!result.passed) return { ...result, severity: 'warn', passed: true }
+      if (!result.passed) {
+        console.warn(`[ConstraintEngine] 品味警告 (${t.id}): ${result.message}`)
+        return { ...result, severity: 'warn', passed: true }
+      }
     }
 
     return { passed: true, message: '' }

@@ -1,6 +1,7 @@
 import { logError } from '@/utils/logger'
 import type { ModelConfig } from '@/types/settings'
 import type { StyleProject, SceneTemplate } from '@/types/story'
+import type { StyleTemplate } from '@/types/styleTemplate'
 import type { ModelPrice } from '@/types/electron'
 import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
 
@@ -162,7 +163,7 @@ export const kbService = {
   selectFiles: () => e().kb.selectFiles(),
   uploadFiles: (filePaths: string[], activeProjectId: string) => e().kb.uploadFiles(filePaths, activeProjectId),
   delete: (fileId: string) => e().kb.delete(fileId),
-  write: (fileId: string, content: string) => e().kb.write(fileId, content),
+  write: (fileId: string, content: string, configId?: string) => e().kb.write(fileId, content, configId),
   index: (fileId: string, configId: string) =>
     e().kb.index(fileId, configId),
   search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) =>
@@ -174,7 +175,7 @@ export const kbService = {
   estimate: (filePath: string) => e().kb.estimate(filePath),
   create: (name: string, content: string, projectId?: string) =>
     e().kb.create(name, content, projectId),
-  append: (fileId: string, content: string) => e().kb.append(fileId, content),
+  append: (fileId: string, content: string, configId?: string) => e().kb.append(fileId, content, configId),
   rename: (fileId: string, newName: string) => e().kb.rename(fileId, newName),
   download: (fileId: string) => e().kb.download(fileId),
   webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => e().kb.webSearch(query, maxResults, safeSearch, prioritySites),
@@ -217,7 +218,7 @@ export const styleTemplateService = {
   list: () => e().styleTemplates.list(),
   listProject: (projectPath: string) => e().styleTemplates.listProject(projectPath),
   read: (id: string) => e().styleTemplates.read(id),
-  save: (template: any) => e().styleTemplates.save(template),
+  save: (template: StyleTemplate) => e().styleTemplates.save(template as any),
   delete: (id: string) => e().styleTemplates.delete(id),
 }
 

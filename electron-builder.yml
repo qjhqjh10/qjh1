@@ -1,5 +1,5 @@
-appId: com.novel-writing.app
-productName: AI小说写作助手
+appId: com.qingjian.ai-writing
+productName: AI写作软件—青剑
 directories:
   output: release
 files:
@@ -14,7 +14,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: AI小说写作助手
+  shortcutName: AI写作软件—青剑
 extraResources:
   - from: projects/
     to: projects/

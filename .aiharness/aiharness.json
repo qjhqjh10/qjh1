@@ -4,13 +4,6 @@
     "defaultEffect": "allow",
     "policies": [
       {
-        "id": "deny-delete-outside-notes",
-        "effect": "deny",
-        "toolName": "delete_file",
-        "pathPattern": "**/*",
-        "operation": "delete"
-      },
-      {
         "id": "ask-delete-chapters",
         "effect": "ask",
         "toolName": "delete_file",
@@ -38,7 +31,7 @@
   "evaluators": [],
   "constraints": {
     "enabled": true,
-    "fileSizeLimit": 0,
+    "fileSizeLimit": 1000,
     "enforceNamingConvention": true,
     "enforceDependencyDirection": false,
     "jsonSchemaValidation": true,

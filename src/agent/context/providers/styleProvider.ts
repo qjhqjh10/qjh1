@@ -5,7 +5,7 @@ export const styleProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/风格|文风|笔风|写作风格|style|风格分析|语调|叙事/.test(userMessage)) return 0.9
     if (/创建.*风格模板|分析.*风格|提取.*风格/.test(userMessage)) return 1.0
-    return 0.6
+    return 0.2
   },
 
   buildContext: async () => ({

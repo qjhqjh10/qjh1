@@ -265,6 +265,11 @@ export class LivingSkillManager {
     if (/已存在|冲突/.test(error)) return 'conflict_error'
     if (/超时|timeout/.test(error)) return 'timeout_error'
     if (/已完成|已创建/.test(error) && !/error/.test(error)) return 'hallucination'
+    // Novel-writing specific categories
+    if (/角色.*(?:语气|说话方式|性格).*(?:不一致|偏离|冲突)/.test(error)) return 'character_voice_drift'
+    if (/风格.*(?:不匹配|不一致|偏离)/.test(error)) return 'style_mismatch'
+    if (/节奏.*(?:拖沓|过快|问题)/.test(error)) return 'pacing_issue'
+    if (/剧情.*(?:矛盾|违反|冲突|不合理)/.test(error)) return 'plot_violation'
     return 'format_error'
   }
 

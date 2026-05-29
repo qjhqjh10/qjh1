@@ -50,7 +50,7 @@ async function readTemplate(id: string): Promise<StyleTemplate | null> {
 
 async function saveTemplate(template: StyleTemplate): Promise<StyleTemplate> {
   await ensureDir()
-  if (!template.id) template.id = template.name || `st_${crypto.randomUUID().slice(0, 8)}`
+  if (!template.id) template.id = `st_${crypto.randomUUID().slice(0, 8)}`
   // Dedup: existing file with same id → overwrite; different id → find free name
   const baseId = template.id
   const existsSameId = await fs.access(safeTemplatePath(baseId)).then(async () => {

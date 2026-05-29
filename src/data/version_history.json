@@ -1,7 +1,53 @@
 {
-  "currentVersion": "8.2.0",
-  "currentDate": "2026-05-28",
+  "currentVersion": "8.4.0",
+  "currentDate": "2026-05-29",
   "history": [
+    {
+      "version": "8.4.0",
+      "date": "2026-05-29",
+      "features": [
+        "Plan → Approve → Execute → Verify 工作流: 新增PLANNING和VERIFYING两个FSM阶段，激活闲置的AWAITING_APPROVAL状态",
+        "PLANNING阶段: AI收到任务消息时先输出结构化执行计划(```thinking JSON)，暂停等待用户审批再执行",
+        "计划强制执行: executeSingleTool()中检查每次工具调用是否在已批准计划内，偏离计划的调用被拦截并记录",
+        "VERIFYING阶段: 执行完成后自动读回被创建/编辑的文件，对比actualOutcome与expectedOutcome生成验证报告",
+        "PlanCard审批组件: 展示计划意图+步骤列表(工具图标/操作描述/文件路径)，支持逐步骤批准/拒绝+依赖自动级联+反馈理由输入",
+        "VerificationPanel验证组件: 执行后展示步骤级验证结果(通过/失败/跳过)，绿色✓/红色✗/灰色—图标",
+        "ThinkingEngine扩展: findMatchingStep()计划匹配、buildPlanEnforcementInject()执行指令生成、generatePlanPrompt()计划前置提示",
+        "AgentStateMachine扩展: ASSEMBLING_CONTEXT→PLANNING、REFLECTING→VERIFYING等6条新转换，reset()清除计划状态",
+        "AgentEventEmitter新增11个plan/verify系列事件，AgentStore新增executionPlan/planPhase/verificationReports状态",
+        "planApprovedRef激活: 批准后跳过逐工具PolicyEngine ask审批，工具执行Plan→Approve→Execute→Verify四阶段全闭环",
+        "AgentChatBridge接线: plan:proposed→onApprovalRequired触发PlanCard，已批准计划跳过审批",
+        "planWorkflowProvider: 新ContextProvider注入计划工作流指令(输出格式+四阶段说明)，仅在action模式+任务消息时触发",
+        "AgentStateBar新增规划中/验证中两个阶段标签+进度权重",
+        "Session持久化日志增强: persist()和AgentBridge save()添加console.error输出具体错误原因",
+        "API连接DeepSeek兼容: listModels支持/models端点失败后fallback到chat.completions.create验证连通性",
+        "幻觉纠错按钮修复: 重试时使用具体纠错文本而非硬编码通用指令，toolInvokeEnabled为true时不再重复设置",
+        "消息气泡背景优化: AI工具调用消息绿色背景+边框，纯文本回复白色背景",
+        "ToggleButton ON/OFF冗余文字移除"
+      ]
+    },
+    {
+      "version": "8.3.0",
+      "date": "2026-05-29",
+      "features": [
+        "Agent工具调用链路修复: finishReason门控兼容(toolCalls存在性检查)、幻觉检测器接入、配置加载失败fallback为allow",
+        "tool_calls格式规范化: IPC层补全type:function字段，修复DeepSeek等API的400错误",
+        "Context Provider三层注入改造: buildContext接收userMessage按需注入，characterProvider读取实际角色数据，outlineProvider注入大纲内容，detailedOutlineProvider按章节号注入细纲，chapterWritingProvider续写时注入上一章末尾",
+        "Provider相关度优化: 9个provider默认相关度从0.6降至0.2，闲聊时不注入无关文档节省~3000 tokens",
+        "SubAgentManager接入: 复杂任务(一致性检查/风格分析/章节规划/场景构建/知识库整理)自动委托给专业子Agent",
+        "MemoryLayers接入: 加载CLAUDE.md+学习规则作为跨会话记忆注入context",
+        "EvaluatorAgent层2接入: 注入AI服务，层1评分<0.6时触发LLM深度评估",
+        "用户体验增强: reasoning_content传递到UI、工具卡片保留5s→15s、ToolCache 60s TTL、对话切换重置Bridge、工具并行执行动态化(AUTO/READ_ASK并行)",
+        "工具定义修复: kb_create_file/kb_append_file使用ctx.projectId、delete_note权限升级为DANGEROUS_ASK、shell_run_script描述修正、http_fetch headers JSON错误明确提示",
+        "HookEngine修复: 只有exit code 0才算通过，非零均视为失败",
+        "ConstraintEngine增强: 品味违规输出console.warn、nonEmptyChapter扩展到edit_file",
+        "CircuitBreaker修复: currentState getter不再有副作用，tryRecover移至beforeCall",
+        "PolicyEngine修复: matchGlob支持?通配符",
+        "SubAgentManager修复: runRelay根据reviewer+fixer结果判断passed、knowledge-curator domain修正为knowledge-base",
+        "ContextAssembler增强: register方法按domain去重防止provider重复注册",
+        "AgentRuntime修复: 错误路径返回toolCallsCount、工具结果只push一次、移除重复policyEngine检查"
+      ]
+    },
     {
       "version": "8.2.0",
       "date": "2026-05-28",

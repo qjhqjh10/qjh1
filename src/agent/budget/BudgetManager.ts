@@ -119,14 +119,15 @@ export class BudgetManager {
       }
       case 'microcompact': {
         // Stage 3 (70%): summarize oldest user/assistant pair into a system message
-        const userIdx = messages.findIndex(m => m.role === 'user')
-        const asstIdx = messages.findIndex(m => m.role === 'assistant')
+        const result = [...messages]
+        const userIdx = result.findIndex(m => m.role === 'user')
+        const asstIdx = result.findIndex(m => m.role === 'assistant')
         if (userIdx >= 0 && asstIdx > userIdx) {
-          const summary = `[已压缩] 用户: ${String(messages[userIdx].content).slice(0, 200)} | AI: ${String(messages[asstIdx].content).slice(0, 200)}`
-          messages[userIdx] = { role: 'system', content: summary }
-          messages.splice(asstIdx, 1)
+          const summary = `[已压缩] 用户: ${String(result[userIdx].content).slice(0, 200)} | AI: ${String(result[asstIdx].content).slice(0, 200)}`
+          result[userIdx] = { role: 'system', content: summary }
+          result.splice(asstIdx, 1)
         }
-        return messages
+        return result
       }
       case 'context_collapse':
       case 'auto_compact': {

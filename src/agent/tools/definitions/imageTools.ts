@@ -45,14 +45,30 @@ export const imageTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args, ctx) => {
       const { aiService } = await import('@/services/fileService')
-      const result = await aiService.generateImage(
-        String(args.prompt || '').slice(0, 1000),
-        ctx.configId,
-        ctx.projectId || undefined,
-        String(args.size || '1024x1024'),
-        String(args.style || 'vivid'),
-      )
-      return { status: 'success', summary: '已生成图片', detail: `图片路径: ${result.path}\n花费: $${result.cost.toFixed(2)}` }
+      try {
+        const result = await aiService.generateImage(
+          String(args.prompt || '').slice(0, 1000),
+          ctx.configId,
+          ctx.projectId || undefined,
+          String(args.size || '1024x1024'),
+          String(args.style || 'vivid'),
+        )
+        return { status: 'success', summary: '已生成图片', detail: `图片路径: ${result.path}\n花费: $${result.cost.toFixed(2)}` }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : '未知错误'
+        if (msg.includes('[UNSUPPORTED_OPERATION]') || msg.includes('不支持')) {
+          return {
+            status: 'error',
+            summary: '当前模型不支持图片生成',
+            detail: '该 AI 模型（如 DeepSeek）仅支持文本生成，无法创建图片。\n'
+              + '替代方案：\n'
+              + '1. 使用 search_images 工具从 Unsplash 搜索现有图片\n'
+              + '2. 在设置中切换到支持图片生成的模型（如 OpenAI dall-e-3）\n'
+              + '3. 手动上传图片到角色档案或章节中',
+          }
+        }
+        return { status: 'error', summary: `图片生成失败: ${msg}` }
+      }
     },
   },
 ]

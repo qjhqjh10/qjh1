@@ -185,6 +185,42 @@ export class AiHarnessConfigLoader {
       }
     } catch { /* optional */ }
 
+    return this.validate(config)
+  }
+
+  /** Validate config fields and fix invalid values with warnings */
+  private validate(config: AiHarnessConfig): AiHarnessConfig {
+    const warnings: string[] = []
+
+    if (config.budget.maxTokensPerSession <= 0) {
+      warnings.push('budget.maxTokensPerSession <= 0, using default 500000')
+      config.budget.maxTokensPerSession = DEFAULT_CONFIG.budget.maxTokensPerSession
+    }
+    if (!Array.isArray(config.budget.compressThresholds) || config.budget.compressThresholds.length === 0) {
+      warnings.push('budget.compressThresholds is empty, using defaults')
+      config.budget.compressThresholds = [...DEFAULT_CONFIG.budget.compressThresholds]
+    }
+    if (config.circuitBreaker.maxConsecutiveFailures < 1) {
+      warnings.push('circuitBreaker.maxConsecutiveFailures < 1, using default 5')
+      config.circuitBreaker.maxConsecutiveFailures = DEFAULT_CONFIG.circuitBreaker.maxConsecutiveFailures
+    }
+    if (config.hooks.some(h => h.timeout <= 0)) {
+      warnings.push('Some hooks have timeout <= 0, fixing to 10000ms')
+      config.hooks = config.hooks.map(h => h.timeout <= 0 ? { ...h, timeout: 10000 } : h)
+    }
+    for (const p of config.permissions.policies) {
+      if (!['allow', 'deny', 'ask'].includes(p.effect)) {
+        warnings.push(`Policy "${p.id}" has invalid effect "${p.effect}", skipping`)
+      }
+    }
+    config.permissions.policies = config.permissions.policies.filter(p =>
+      ['allow', 'deny', 'ask'].includes(p.effect),
+    )
+
+    if (warnings.length > 0) {
+      console.warn('[AiHarnessConfig] Validation warnings:', warnings.join('; '))
+    }
+
     return config
   }
 
