@@ -163,6 +163,8 @@ export class AgentRuntime {
   private static readonly MAX_CALLS_PER_TOOL: Record<string, number> = {
     list_directory: 2, read_file: 5, search_files: 2, search_content: 3, list_notes: 2, kb_list: 2,
   }
+  private toolsUsed: string[] = []
+  private _projectSummary: string | null = null
   private credentialBroker: { verify(handleId: string, toolName: string, filePath?: string): { valid: boolean; reason?: string } } | null = null
   private capabilityHandleId: string | null = null
   private toolResultsBatch: ToolResult[] = []
@@ -311,8 +313,16 @@ export class AgentRuntime {
     let totalTokens = 0
     let toolCallsCount = 0
     let collectedText = ''
-    const toolsUsed: string[] = []
+    this.toolsUsed = []
     this.messagesForApi = []
+
+    // Pre-load project summary for advisory injection
+    if (this.config.projectId) {
+      try {
+        const { buildProjectSummary } = await import('../context/projectSummary')
+        this._projectSummary = await buildProjectSummary(this.config.projectId)
+      } catch { this._projectSummary = null }
+    }
 
     try {
       // Step 1: THINKING
@@ -359,6 +369,12 @@ export class AgentRuntime {
         // Inject plan instruction before the user message
         const planPrompt = this.thinkingEngine.generatePlanPrompt()
         this.messagesForApi.splice(this.messagesForApi.length - 1, 0, { role: 'system', content: planPrompt })
+      }
+
+      // Context Advisory Layer — inject agent guidance before the user message
+      const advisory = this.buildAdvisoryInject(input.userMessage, this.fsm.currentState)
+      if (advisory) {
+        this.messagesForApi.splice(this.messagesForApi.length - 1, 0, { role: 'system', content: advisory })
       }
 
       // Step 4: Main Loop — API Call + Tool Execution
@@ -455,7 +471,7 @@ export class AgentRuntime {
 
           // G5: Hallucination detection — runs even when tool calls exist (catches permission hallucinations)
           if (this.hallucinationDetector && hallucinationRetries < MAX_HALLUCINATION_RETRIES) {
-            const hw = this.hallucinationDetector.detect(response.text || '', new Set(toolsUsed))
+            const hw = this.hallucinationDetector.detect(response.text || '', new Set(this.toolsUsed))
             if (hw) {
               hallucinationRetries++
               this.hallucinationCallback?.('hallucination: ' + (response.text || '').slice(0, 100))
@@ -580,14 +596,14 @@ export class AgentRuntime {
 
           // Execute read-only tools in parallel
           if (readOnlyCalls.length > 0 && !this.config.abortSignal.aborted) {
-            const readPromises = readOnlyCalls.map(tc => this.executeSingleTool(tc, runId, store, toolsUsed))
+            const readPromises = readOnlyCalls.map(tc => this.executeSingleTool(tc, runId, store, this.toolsUsed))
             await Promise.all(readPromises)
           }
 
           // Execute write tools sequentially (preserving order)
           for (const tc of writeCalls) {
             if (this.config.abortSignal.aborted) break
-            await this.executeSingleTool(tc, runId, store, toolsUsed)
+            await this.executeSingleTool(tc, runId, store, this.toolsUsed)
           }
 
           this.fsm.setPendingToolCalls([])
@@ -654,7 +670,7 @@ export class AgentRuntime {
         if (completedSteps.length > 0 && this.fsm.canTransition('VERIFYING')) {
           await this.fsm.transition('VERIFYING')
           this.emitter.emit('verify:start', { stepCount: completedSteps.length, timestamp: Date.now() })
-          const reports = await this.runVerification(completedSteps, toolsUsed)
+          const reports = await this.runVerification(completedSteps, this.toolsUsed)
           this.fsm.setVerificationReports(reports)
           store.setVerificationReports(reports)
           const passedCount = reports.filter(r => r.status === 'passed').length
@@ -759,7 +775,7 @@ export class AgentRuntime {
         success: this.fsm.currentPhase !== 'ABORTED',
         text: collectedText, messageCount: this.messagesForApi.length,
         totalTokens, toolCalls: toolCallsCount, phase: this.fsm.currentPhase,
-        thinkingPlan: null, toolsUsed, hallucinationWarnings: [],
+        thinkingPlan: null, toolsUsed: this.toolsUsed, hallucinationWarnings: [],
         kbSources: [], webSources: [], images: [],
         reasoningContent: (lastResponse as unknown as Record<string, unknown>)?.reasoning_content as string || null,
         evaluationScore, evaluationSuggestions,
@@ -1095,6 +1111,59 @@ export class AgentRuntime {
       reports.push(report)
     }
     return reports
+  }
+
+  setSkillLearner(sl: { getContextInject(): string } | null): void {
+    (this as any)._skillLearner = sl
+  }
+
+  private buildAdvisoryInject(userMessage: string, state: import('../state/types').AgentState): string | null {
+    if (state.iteration < 1 || !isTaskMessage(userMessage)) return null
+
+    const parts: string[] = ['[Agent导航]']
+
+    // ① Tool history — prevent redundant calls
+    if (this.toolsUsed.length > 0) {
+      const counts = new Map<string, number>()
+      for (const t of this.toolsUsed) counts.set(t, (counts.get(t) || 0) + 1)
+      const summary = [...counts.entries()]
+        .map(([t, c]) => c > 1 ? `${t}(${c}次)` : t).join(', ')
+      const redundant = [...counts.entries()].filter(([, c]) => c > 1)
+      parts.push(`已调工具: ${summary}。`)
+      if (redundant.length > 0) {
+        parts.push(`注意: ${redundant.map(([t, c]) => `${t}已调${c}次`).join(', ')}——不要重复调用。`)
+      }
+    }
+
+    // ② Recent errors — inform the AI what went wrong
+    const errors = this.allToolResults.filter(r => r.status === 'error')
+    if (errors.length > 0) {
+      const lastErr = errors[errors.length - 1]
+      parts.push(`上一轮错误: ${lastErr.summary.slice(0, 150)}`)
+    }
+
+    // ③ Project state — only in early iterations
+    if (this.config.projectId && state.iteration <= 2 && this._projectSummary) {
+      const short = this._projectSummary.slice(0, 250)
+      if (short.length > 10) parts.push(`项目: ${short}`)
+    }
+
+    // ④ Learned skill — if available
+    try {
+      const sk = (this as any)._skillLearner as { getContextInject(maxTokens?: number): string } | null
+      if (sk) {
+        const learned = sk.getContextInject(500)
+        if (learned && learned.length > 20) {
+          const lines = learned.split('\n').filter((l: string) => l.trim())
+          if (lines.length > 1) {
+            parts.push(`已学: ${lines[lines.length - 1].slice(0, 120)}`)
+          }
+        }
+      }
+    } catch { /* skill learner not wired */ }
+
+    if (parts.length <= 1) return null
+    return parts.join('\n')
   }
 
   // ── Abort ──

@@ -446,6 +446,7 @@ export class AgentChatBridge {
     this.runtime.setReflectionEngine(this.reflectionEng)
     this.runtime.setConstraintEngine(this.constraintEngine)
     this.runtime.setPolicyEngine(this.policyEngine)
+    this.runtime.setSkillLearner(this.skillLearner)
     // Issue capability handle for this session (scoped to project + 1 hour)
     const handle = this.credentialBroker.issue(this.runId, [
       { tool: '*', pathPrefix: this.projectId || '.', operation: 'read' },
