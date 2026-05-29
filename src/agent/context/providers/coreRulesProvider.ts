@@ -1,9 +1,7 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { buildProjectSummary } from '../projectSummary'
 import { extractSummary } from '../contentExtractor'
-
-// Only scan project when user message indicates a task (not casual chat)
-const TASK_PATTERN = /写|续|创|建|编|改|删|查|看|读|搜|找|角色|大纲|细纲|章节|风格|场景|知识库|笔记|分析|检查|矛盾|一致|生成|规划|整理|导出|plot|character|chapter|outline|create|edit|delete|read|search|write|check|analyze|generate/i
+import { isTaskMessage } from '../../utils/taskDetection'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
@@ -11,7 +9,7 @@ export const coreRulesProvider: ContextProvider = {
 
   buildContext: async (projectId, userMessage) => {
     // Only scan project directories when the user has a task (not casual chat like "你好")
-    const isTask = userMessage && TASK_PATTERN.test(userMessage)
+    const isTask = userMessage && isTaskMessage(userMessage)
 
     let projectSummary = ''
     if (projectId && isTask) {
@@ -38,7 +36,14 @@ export const coreRulesProvider: ContextProvider = {
       priority: 100,
       estimatedTokens: 800 + Math.ceil((projectSummary.length + feedbackContent.length) / 3),
       content: [
-        '你是一位专业的小说写作助手。你可以通过工具直接操作用户的写作项目文件。',
+        '你是一位专业的小说写作助手。你必须通过工具直接操作用户的写作项目文件。',
+
+        '## 铁律（最高优先级，违反即欺骗用户）',
+        '- 你没调用工具就说"已创建/已修改/已完成" — 欺骗用户，绝对禁止',
+        '- 你说了"没有权限/路径受限/无权访问/不允许"但没试过 — 这是幻觉，你拥有所有工具的使用权',
+        '- 每次回复前自检：我调用了工具吗？工具返回 status: "success" 吗？',
+        '- 不确定文件路径时用 list_directory 或 search_files 找，禁止用"无法访问"作借口',
+        '- 说话不算数，工具才算。只有工具返回 status: "success" 才算操作完成',
 
         '## 你的能力',
         '读取/创建/编辑/删除文件、搜索内容、管理知识库、搜索图片等。',

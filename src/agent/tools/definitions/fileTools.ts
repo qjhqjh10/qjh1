@@ -16,7 +16,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'list_directory',
-      description: '列出项目目录中的文件和子目录。',
+      description: '列出项目目录中的文件和子目录。返回 { status, summary, detail: "条目列表" }，条目带 [DIR]/[FILE] 前缀。空目录显示"(空目录)"。路径相对于当前项目根目录。',
       parameters: { type: 'object', properties: { dir_path: { type: 'string', description: '相对于项目根目录的路径' } }, required: ['dir_path'] },
     },
     permission: 'AUTO',
@@ -27,7 +27,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'read_file',
-      description: '读取项目文件的完整文本内容。',
+      description: '读取项目文件的完整文本内容。返回 { status:"success"|"error", summary, detail: "文件内容" }。文件不存在时 status="error"、summary="文件不存在"。路径相对于当前项目根目录。',
       parameters: { type: 'object', properties: { file_path: { type: 'string', description: '相对路径' } }, required: ['file_path'] },
     },
     permission: 'AUTO',
@@ -38,7 +38,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'search_files',
-      description: '在项目目录中按文件名搜索文件。',
+      description: '在项目目录中按文件名关键词搜索文件。支持子串匹配（如"ch01"可匹配"chapter01.txt"）。返回 { status, summary, detail: "匹配的文件列表" }。',
       parameters: {
         type: 'object',
         properties: {
@@ -56,7 +56,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'search_content',
-      description: '在项目文件中搜索指定文本。',
+      description: '在项目文件中搜索指定文本（支持正则）。返回 { status, summary, detail: "匹配行列表" }。可用 file_pattern 限定文件类型如 "*.json"。',
       parameters: {
         type: 'object',
         properties: {
@@ -77,7 +77,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'edit_file',
-      description: '精确字符串替换编辑文件。先 read_file 确认内容再编辑。',
+      description: '精确字符串替换编辑文件。必须先 read_file 确认内容。old_string 必须在文件中唯一全匹配。失败时用 old_string="__FULL_REPLACE__" 做全量替换。replace_all=true 替换所有匹配处。返回 { status, summary }。',
       parameters: {
         type: 'object',
         properties: {

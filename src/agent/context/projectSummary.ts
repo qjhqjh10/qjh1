@@ -101,5 +101,20 @@ export async function buildProjectSummary(projectId: string): Promise<string> {
   if (warnings.length > 0) {
     result += '\n⚠️ ' + warnings.join('; ')
   }
+
+  // Emit clear signal for empty projects
+  const hasContent = lines.some(l => !l.includes('暂无') && !l.includes('不存在'))
+  if (!hasContent) {
+    result = '⚠️ 此项目为空项目，仅含模板骨架，尚未开始创作。\n' + result
+  } else {
+    try {
+      const metaRaw = await fileService.read(`${p}/project.json`)
+      const meta = JSON.parse(metaRaw)
+      if (meta.novelCategory && meta.novelCategory !== 'general') {
+        result += `\n小说类型: ${meta.novelCategory}`
+      }
+    } catch { /* no project.json or missing novelCategory */ }
+  }
+
   return result
 }

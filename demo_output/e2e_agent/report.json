@@ -1,0 +1,291 @@
+[
+  {
+    "name": "Test1-查看目录",
+    "passed": true,
+    "calledTools": [
+      "list_directory"
+    ],
+    "expectedTools": [
+      "list_directory"
+    ],
+    "expectedHits": [
+      "list_directory"
+    ],
+    "keywordHits": [
+      "文件",
+      "目录",
+      "章"
+    ],
+    "reply": "项目根目录 **`D:/test-project`** 下的内容如下：\n\n### 📁 目录\n| 名称 | 说明 |\n|------|------|\n| **chapters/** | 章节目录 |\n| **outline/** | 大纲目录 |\n| **characters/** | 角色目录 |\n\n### 📄 文件\n| 名称 | 说明 |\n|------|------|\n| **worldb"
+  },
+  {
+    "name": "Test2-读取文件",
+    "passed": true,
+    "calledTools": [
+      "list_directory",
+      "read_file"
+    ],
+    "expectedTools": [
+      "read_file"
+    ],
+    "expectedHits": [
+      "read_file"
+    ],
+    "keywordHits": [
+      "大纲",
+      "剧情",
+      "章"
+    ],
+    "reply": "已成功读取 **outline/plot.md** 文件，内容如下：\n\n---\n\n## 大纲文件内容\n\n这是测试大纲文件的内容。包含3章剧情概述。\n\n---\n\n看起来这是一个测试用途的大纲文件，内容比较简洁。如果您需要扩充或修改它的内容，随时告诉我！"
+  },
+  {
+    "name": "Test3-创建文件",
+    "passed": true,
+    "calledTools": [
+      "list_directory",
+      "create_file"
+    ],
+    "expectedTools": [
+      "create_file"
+    ],
+    "expectedHits": [
+      "create_file"
+    ],
+    "keywordHits": [
+      "创建",
+      "已",
+      "test_hello"
+    ],
+    "reply": "✅ **文件已创建成功！**\n\n文件路径：`D:/test-project/test_hello.md`\n\n以下是内容概要：\n\n> 🏔️ **《夜雨剑》—— 武侠小说开场**\n>\n> 残阳如血的雁荡山下，少年剑客 **沈惊鸿**（\"夜雨剑\"）被青龙堂黑衣人马拦截。虬髯大汉索要《天罡玄功》秘籍，沈惊鸿平静拔剑回应——一场腥风血雨即将在暮色中展开。\n\n📊 **字数统计**：正文约 **220字**"
+  },
+  {
+    "name": "Test4-搜索内容",
+    "passed": true,
+    "calledTools": [
+      "list_directory",
+      "search_content"
+    ],
+    "expectedTools": [
+      "search_content"
+    ],
+    "expectedHits": [
+      "search_content"
+    ],
+    "keywordHits": [
+      "角色",
+      "找到",
+      "文件"
+    ],
+    "reply": "好的，以下是搜索结果！在项目 **D:/test-project** 中，共找到 **3个文件** 包含关键词\"角色\"：\n\n| 序号 | 文件路径 | 匹配内容 |\n|:---:|:---|:---|\n| 1️⃣ | `outline/plot.md` | 角色登场 |\n| 2️⃣ | `characters/苏晚晴.json` | 角色名 |\n| 3️⃣ | `outline/worldbuil"
+  },
+  {
+    "name": "Test5-编辑文件",
+    "passed": true,
+    "calledTools": [
+      "list_directory",
+      "read_file",
+      "edit_file",
+      "read_file"
+    ],
+    "expectedTools": [
+      "read_file",
+      "edit_file"
+    ],
+    "expectedHits": [
+      "read_file",
+      "edit_file"
+    ],
+    "keywordHits": [
+      "修改"
+    ],
+    "reply": "修改成功！让我验证一下最终的修改结果。"
+  },
+  {
+    "name": "Test6-删除文件",
+    "passed": true,
+    "calledTools": [
+      "delete_file"
+    ],
+    "expectedTools": [
+      "delete_file"
+    ],
+    "expectedHits": [
+      "delete_file"
+    ],
+    "keywordHits": [
+      "删除",
+      "已"
+    ],
+    "reply": "文件 **test_hello.md** 已成功删除！ 🗑️"
+  },
+  {
+    "name": "Test7-搜索图片",
+    "passed": true,
+    "calledTools": [
+      "search_images"
+    ],
+    "expectedTools": [
+      "search_images"
+    ],
+    "expectedHits": [
+      "search_images"
+    ],
+    "keywordHits": [
+      "图片",
+      "搜索",
+      "保存"
+    ],
+    "reply": "已经成功搜索到了古风武侠少女的图片！图片已保存到项目的 **`images/img_test.jpg`** 路径下，你可以去查看。\n\n如果你想调整搜索方向，比如更具体的风格（如\"水墨风古风少女\"、\"红衣女侠\"等），或者需要更多图片，也可以告诉我，我继续帮你搜索！😊"
+  },
+  {
+    "name": "Test8-生成图片(应降级)",
+    "passed": false,
+    "calledTools": [
+      "search_images",
+      "list_directory",
+      "list_directory",
+      "list_directory"
+    ],
+    "expectedTools": [],
+    "expectedHits": [],
+    "keywordHits": [
+      "图片"
+    ],
+    "reply": "让我看看项目结构和这张图片的情况："
+  },
+  {
+    "name": "Test9-知识库列表",
+    "passed": true,
+    "calledTools": [
+      "kb_list"
+    ],
+    "expectedTools": [
+      "kb_list"
+    ],
+    "expectedHits": [
+      "kb_list"
+    ],
+    "keywordHits": [
+      "知识库",
+      "文件"
+    ],
+    "reply": "目前知识库中**没有文件**（列表为空）。\n\n如果你需要，我可以帮你：\n- **创建新的知识库文件**，比如写作素材、角色设定、世界观等\n- **查看项目目录** `D:/test-project` 中已有的文件\n\n请问你想怎么操作呢？"
+  },
+  {
+    "name": "Test10-创建知识库文件",
+    "passed": true,
+    "calledTools": [
+      "kb_list",
+      "kb_create_file"
+    ],
+    "expectedTools": [
+      "kb_create_file"
+    ],
+    "expectedHits": [
+      "kb_create_file"
+    ],
+    "keywordHits": [
+      "创建",
+      "知识库",
+      "保存"
+    ],
+    "reply": "✅ **已成功保存！** 知识库中已创建名为 **「剑气-三种修炼境界」** 的素材文件，内容结构如下：\n\n---\n\n### 📖 三种修炼境界一览\n\n| 境界 | 名称 | 核心要义 | 意象 |\n|:---:|:---:|:---:|:---:|\n| **第一境** | **剑气有形（器之境）** | 以气御剑，锋芒毕露 | 如利刃出鞘，寒光乍现 |\n| **第二境** | **剑气无形（意之"
+  },
+  {
+    "name": "Test11-创建风格模板",
+    "passed": true,
+    "calledTools": [
+      "list_directory",
+      "create_style_template"
+    ],
+    "expectedTools": [
+      "create_style_template"
+    ],
+    "expectedHits": [
+      "create_style_template"
+    ],
+    "keywordHits": [
+      "创建",
+      "模板",
+      "风格",
+      "古风武侠"
+    ],
+    "reply": "✅ **\"古风武侠\"风格模板已成功创建！** \n\n以下是该模板的核心内容概览：\n\n---\n\n### 📖 基本信息\n- **名称**：古风武侠\n- **类型**：玄幻小说\n- **世界观**：古风武侠世界（融合玄幻元素）\n\n### 📐 三大维度分析\n\n| 维度 | 核心特点 |\n|------|---------|\n| **句式** | 短句为主、长短交错，善用四字格、骈句与对仗结构，打斗紧凑、"
+  },
+  {
+    "name": "Test12-创建场景模板",
+    "passed": true,
+    "calledTools": [
+      "create_scene_template"
+    ],
+    "expectedTools": [
+      "create_scene_template"
+    ],
+    "expectedHits": [
+      "create_scene_template"
+    ],
+    "keywordHits": [
+      "创建",
+      "场景",
+      "模板",
+      "竹林对决"
+    ],
+    "reply": "✅ **场景模板「竹林对决」创建成功！**\n\n以下是模板的详细信息：\n\n| 项目 | 内容 |\n|------|------|\n| **名称** | 竹林对决 |\n| **类型** | 普通小说 |\n| **地点** | 竹林 |\n| **氛围** | 紧张 |\n| **强度等级** | 8（高紧张度） |\n\n你可以随时通过编辑功能来进一步完善这个模板，比如添加场景角色、词数目标等细节。如果需要，"
+  },
+  {
+    "name": "Test13-创建项目",
+    "passed": true,
+    "calledTools": [
+      "create_project"
+    ],
+    "expectedTools": [
+      "create_project"
+    ],
+    "expectedHits": [
+      "create_project"
+    ],
+    "keywordHits": [
+      "创建",
+      "项目"
+    ],
+    "reply": "✅ 写作项目 **\"测试项目Agent\"** 已创建成功！项目类型为 **写作（writing）**。\n\n你可以通过以下方式来继续完善这个项目：\n- 查看项目目录结构\n- 创建/编辑文件\n- 创建风格模板或场景模板\n- 搜索配图等\n\n有什么进一步的需求，随时告诉我！"
+  },
+  {
+    "name": "Test14-写草稿",
+    "passed": true,
+    "calledTools": [
+      "write_note"
+    ],
+    "expectedTools": [
+      "write_note"
+    ],
+    "expectedHits": [
+      "write_note"
+    ],
+    "keywordHits": [
+      "保存",
+      "草稿",
+      "灵感"
+    ],
+    "reply": "✅ **灵感已成功记录！** 草稿笔记《时间循环悬疑故事大纲》已保存到项目中。\n\n为你梳理了一下这份大纲的核心亮点：\n\n📌 **独特设定**：不是普通的\"阻止死亡\"循环，而是每次循环中**同一个人以不同方式死去**，每次都是一场新的谋杀案破局。\n\n📌 **三幕结构清晰**：从觉醒（3次循环）→ 探案（4-7次循环）→ 破局（8-10次循环），节奏感强。\n\n📌 **三大反转点**：\n1. 受害"
+  },
+  {
+    "name": "Test15-复合：分析+创建",
+    "passed": false,
+    "calledTools": [
+      "list_directory",
+      "list_directory",
+      "list_directory"
+    ],
+    "expectedTools": [
+      "list_directory",
+      "read_file",
+      "create_style_template"
+    ],
+    "expectedHits": [
+      "list_directory"
+    ],
+    "keywordHits": [],
+    "reply": ""
+  }
+]

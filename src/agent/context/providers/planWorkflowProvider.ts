@@ -1,11 +1,10 @@
 import type { ContextProvider } from '../ContextAssembler'
-
-const TASK_PATTERN = /写|续|创|建|编|改|删|查|看|读|搜|找|角色|大纲|细纲|章节|风格|场景|知识库|笔记|分析|检查|矛盾|一致|生成|规划|整理|导出|plot|character|chapter|outline|create|edit|delete|read|search|write|check|analyze|generate/i
+import { isTaskMessage } from '../../utils/taskDetection'
 
 export const planWorkflowProvider: ContextProvider = {
   domain: 'plan-workflow',
   relevance: (userMessage) => {
-    if (TASK_PATTERN.test(userMessage)) return 1.0
+    if (isTaskMessage(userMessage)) return 1.0
     return 0
   },
 

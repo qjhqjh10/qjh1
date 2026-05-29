@@ -1,7 +1,21 @@
 {
-  "currentVersion": "8.4.0",
+  "currentVersion": "8.5.0",
   "currentDate": "2026-05-29",
   "history": [
+    {
+      "version": "8.5.0",
+      "date": "2026-05-29",
+      "features": [
+        "反幻觉铁律注入: coreRulesProvider新增5条铁律段——'你没调用工具就说已创建=欺骗用户'、'说无权限但未尝试=幻觉'、'只有status:success才算完成'，语气从'你可以'改为'你必须'",
+        "空项目信号强化: projectSummary空项目显式标注'⚠️ 仅含模板骨架，尚未开始创作'，有内容时读取project.json的novelCategory元数据",
+        "工具描述补全: read_file/list_directory/search_files/search_content/edit_file描述从6-7字扩充为完整说明——返回格式、错误行为、路径限制、__FULL_REPLACE__哨兵",
+        "TASK_PATTERN统一: 消除coreRulesProvider/AgentRuntime/planWorkflowProvider/taskDetection四处不一致的正则，全部导入isTaskMessage()作为唯一权威定义",
+        "幻觉检测扩展: 新增权限幻觉(没有权限/路径受限)、未来时态(我会帮你做)、过度泛化(所有/全部/每一个)3种检测模式，取消'仅在无tool_calls时检测'的前提限制",
+        "欢迎消息精简: 155行→7行(18节功能清单→4个常用示例+按需查询)，新增createWelcomeMessage()支持动态注入项目状态",
+        "冗余调用硬限制: AgentRuntime新增MAX_CALLS_PER_TOOL(list_directory:2/read_file:5/search_files:2)，超限自动注入系统提醒",
+        "Session持久化修复: persist()不再因ensureDir失败而跳过写文件，session save移至sendMessage的finally块确保异常时也能保存"
+      ]
+    },
     {
       "version": "8.4.0",
       "date": "2026-05-29",

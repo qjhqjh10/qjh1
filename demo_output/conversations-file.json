@@ -1,0 +1,14 @@
+[
+  {
+    "id": "default",
+    "title": "新对话",
+    "messages": [
+      {
+        "id": "welcome_default",
+        "role": "assistant",
+        "content": "你好！我是AI写作助手。\n\n🔍 我可以检索知识库和网络搜索\n📍 在章节创作中，我可以建议内容插入位置\n💡 点击回复下方的按钮应用内容到编辑器"
+      }
+    ],
+    "createdAt": 1779345857217
+  }
+]

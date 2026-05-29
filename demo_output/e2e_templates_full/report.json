@@ -1,0 +1,70 @@
+[
+  {
+    "name": "Test1-情色完整链路",
+    "desc": "情色小说风格(strong) + 驿站羞耻场景，验证风格约束与场景元素同时生效",
+    "styleTemplate": "测试-大虞风",
+    "sceneTemplate": "测试-驿站羞耻",
+    "strength": "strong",
+    "wordCount": 7208,
+    "promptTokens": 3742,
+    "outputTokens": 5436,
+    "promptSize": 5638,
+    "passed": true,
+    "checks": []
+  },
+  {
+    "name": "Test2-通用轻风格",
+    "desc": "普通小说通用风格(light) + 无场景模板，验证轻量模式下风格作为建议而非强制约束",
+    "styleTemplate": "测试-古风通用",
+    "sceneTemplate": "none",
+    "strength": "light",
+    "wordCount": 4145,
+    "promptTokens": 3064,
+    "outputTokens": 3271,
+    "promptSize": 4626,
+    "passed": false,
+    "checks": [
+      "风格词汇: 1/4 (如玉)",
+      "禁止词检查: 发现: 淫,骚"
+    ]
+  },
+  {
+    "name": "Test3-最小模板",
+    "desc": "仅有1维+tone的风格模板 + 场景模板，验证最小化模板仍能正常工作",
+    "styleTemplate": "测试-最小风格",
+    "sceneTemplate": "测试-马棚独处",
+    "strength": "normal",
+    "wordCount": 6234,
+    "promptTokens": 3176,
+    "outputTokens": 4820,
+    "promptSize": 4741,
+    "passed": true,
+    "checks": []
+  },
+  {
+    "name": "Test4-AutoFields",
+    "desc": "场景模板大量使用autoFields(AI自主决定) + normal风格，验证AI能合理补充未指定字段",
+    "styleTemplate": "测试-心理写实",
+    "sceneTemplate": "测试-AutoFields场景",
+    "strength": "normal",
+    "wordCount": 6541,
+    "promptTokens": 3133,
+    "outputTokens": 4694,
+    "promptSize": 4774,
+    "passed": true,
+    "checks": []
+  },
+  {
+    "name": "Test5-仅场景模板",
+    "desc": "不使用风格模板，仅用场景模板 + 章节上下文，验证场景模板独立有效性",
+    "styleTemplate": "none",
+    "sceneTemplate": "测试-次日清晨",
+    "strength": "normal",
+    "wordCount": 3603,
+    "promptTokens": 1118,
+    "outputTokens": 2927,
+    "promptSize": 1575,
+    "passed": true,
+    "checks": []
+  }
+]

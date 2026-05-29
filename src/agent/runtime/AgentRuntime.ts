@@ -15,6 +15,7 @@ import type {
 import type { HookEngine } from '../hooks/HookEngine'
 import type { LivingSkillManager } from '../living-skills/LivingSkillManager'
 import { ThinkingEngine } from '../thinking/ThinkingEngine'
+import { isTaskMessage } from '../utils/taskDetection'
 
 // ── Config ──
 
@@ -158,6 +159,10 @@ export class AgentRuntime {
   private policyEngine: { evaluate(toolName: string, args?: Record<string, unknown>): { effect: string; matchedPolicy: string | null; reason: string; requiresUserApproval: boolean } } | null = null
   private hallucinationCallback: ((text: string) => void) | null = null
   private thinkingEngine = new ThinkingEngine()
+  private toolCallCounts = new Map<string, number>()
+  private static readonly MAX_CALLS_PER_TOOL: Record<string, number> = {
+    list_directory: 2, read_file: 5, search_files: 2, search_content: 3, list_notes: 2, kb_list: 2,
+  }
   private credentialBroker: { verify(handleId: string, toolName: string, filePath?: string): { valid: boolean; reason?: string } } | null = null
   private capabilityHandleId: string | null = null
   private toolResultsBatch: ToolResult[] = []
@@ -346,8 +351,7 @@ export class AgentRuntime {
       ]
 
       // Step 3: PLANNING — inject plan-first instruction for action-mode tasks
-      const TASK_PATTERN = /写|续|创|建|编|改|删|查|看|读|搜|找|角色|大纲|细纲|章节|风格|场景|知识库|笔记|分析|检查|矛盾|一致|生成|规划|整理|导出|plot|character|chapter|outline|create|edit|delete|read|search|write|check|analyze|generate/i
-      const isTask = TASK_PATTERN.test(input.userMessage)
+      const isTask = isTaskMessage(input.userMessage)
       if (this.config.workMode === 'action' && isTask && this.fsm.canTransition('PLANNING')) {
         await this.fsm.transition('PLANNING')
         this.fsm.setPlanPhase('generating')
@@ -449,20 +453,21 @@ export class AgentRuntime {
             usage: response.usage,
           })
 
+          // G5: Hallucination detection — runs even when tool calls exist (catches permission hallucinations)
+          if (this.hallucinationDetector && hallucinationRetries < MAX_HALLUCINATION_RETRIES) {
+            const hw = this.hallucinationDetector.detect(response.text || '', new Set(toolsUsed))
+            if (hw) {
+              hallucinationRetries++
+              this.hallucinationCallback?.('hallucination: ' + (response.text || '').slice(0, 100))
+              this.messagesForApi.push({ role: 'system', content: `[纠错] ${hw}` })
+              this.fsm.setShouldContinue(true)
+              if (this.fsm.canTransition('CALLING_API')) { await this.fsm.transition('CALLING_API') }
+              continue
+            }
+          }
+
           // No tool calls → check for plan, or respond
           if (!response.toolCalls || response.toolCalls.length === 0) {
-            // G5: Hallucination detection — did AI claim action but not call tools?
-            if (this.hallucinationDetector && hallucinationRetries < MAX_HALLUCINATION_RETRIES) {
-              const hw = this.hallucinationDetector.detect(response.text || '', new Set(toolsUsed))
-              if (hw) {
-                hallucinationRetries++
-                this.hallucinationCallback?.('hallucination: ' + (response.text || '').slice(0, 100))
-                this.messagesForApi.push({ role: 'system', content: `[纠错] 你说完成了操作但没有调用工具。请立即调用对应工具执行。${hw}` })
-                this.fsm.setShouldContinue(true)
-                if (this.fsm.canTransition('CALLING_API')) { await this.fsm.transition('CALLING_API') }
-                continue
-              }
-            }
 
             // PLANNING phase: parse plan from AI response
             if (this.fsm.currentPhase === 'PLANNING' && response.text) {
@@ -843,6 +848,17 @@ export class AgentRuntime {
         }
       }
 
+      // ── Redundant call check ──
+      const countThisRound = (this.toolCallCounts.get(tc.name) || 0) + 1
+      this.toolCallCounts.set(tc.name, countThisRound)
+      const maxCalls = AgentRuntime.MAX_CALLS_PER_TOOL[tc.name]
+      if (maxCalls && countThisRound > maxCalls) {
+        this.messagesForApi.push({
+          role: 'system',
+          content: `[工具限制] 你已经调用了 ${tc.name} ${countThisRound} 次（上限 ${maxCalls} 次）。请基于已有结果继续，不要再重复调用。`,
+        })
+      }
+
       // ── PolicyEngine Check (handled by toolExecutor callback in AgentChatBridge for full deny/ask support) ──
 
       // ── Plan Enforcement ──
@@ -1005,6 +1021,7 @@ export class AgentRuntime {
     // Preserve results for post-session evaluation before clearing the per-iteration batch
     this.allToolResults.push(...this.toolResultsBatch)
     this.toolResultsBatch = []
+    this.toolCallCounts.clear()
 
     const state = this.fsm.currentState
     // Should continue if: API returned tool_calls (by presence OR finishReason), not at max iterations, not aborted
