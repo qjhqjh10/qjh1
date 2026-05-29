@@ -26,7 +26,7 @@
   "hooks": [],
   "budget": {
     "maxTokensPerSession": 500000,
-    "compressThresholds": [50, 60, 70, 85, 95]
+    "compressThresholds": [30, 45, 60, 78, 92]
   },
   "evaluators": [],
   "constraints": {

@@ -292,12 +292,16 @@ export default function AIChatWindow() {
 
   // Build history messages for the bridge: include user/assistant, and strip tool_calls without matching tool results
   function buildHistoryMessages(msgs: Message[]) {
-    const filtered = msgs.filter(m => m.role === 'user' || m.role === 'assistant')
+    // Exclude welcome message and compression summaries — they're for the user, not the AI
+    const filtered = msgs.filter(m =>
+      (m.role === 'user' || m.role === 'assistant')
+      && m.id !== 'welcome'
+      && !(m as any).compressedSummary
+    )
     // If an assistant message has tool_calls, strip them (tool results are not in history)
-    // This prevents API errors from providers that require tool_calls/tool_result pairs
     return filtered.map(m => {
       if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-        return { role: m.role, content: m.content } // drop tool_calls to avoid unmatched pairs
+        return { role: m.role, content: m.content }
       }
       return { role: m.role, content: m.content }
     })

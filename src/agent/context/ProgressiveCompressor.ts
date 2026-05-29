@@ -10,7 +10,7 @@ export class ProgressiveCompressor {
 
   constructor(contextWindow: number, thresholds?: number[]) {
     this.contextWindow = contextWindow
-    this.thresholds = thresholds || [50, 60, 70, 85, 95]
+    this.thresholds = thresholds || [30, 45, 60, 78, 92]
   }
 
   getStage(usedTokens: number): CompressionStage {

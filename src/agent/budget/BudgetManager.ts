@@ -77,11 +77,11 @@ export class BudgetManager {
 
   shouldCompress(messages: Array<{ role: string; content: string }>): boolean {
     const estimated = this.estimateMessages(messages)
-    if (this._used > this.contextWindow * 0.95) return true  // Stage 5: auto-compact
-    if (this._used > this.contextWindow * 0.85) return true  // Stage 4: context collapse
-    if (this._used > this.contextWindow * 0.70) return true  // Stage 3: microcompact
-    if (this._used > this.contextWindow * 0.60) return estimated > this.contextWindow * 0.6  // Stage 2: snip
-    return estimated > this.contextWindow * 0.50  // Stage 1: budget reduction
+    if (this._used > this.contextWindow * 0.92) return true  // Stage 5: auto-compact
+    if (this._used > this.contextWindow * 0.78) return true  // Stage 4: context collapse
+    if (this._used > this.contextWindow * 0.60) return true  // Stage 3: microcompact
+    if (this._used > this.contextWindow * 0.45) return estimated > this.contextWindow * 0.45  // Stage 2: snip
+    return estimated > this.contextWindow * 0.30  // Stage 1: budget reduction
   }
 
   truncateToolResult(detail: string | undefined, maxChars: number = 10000): string {

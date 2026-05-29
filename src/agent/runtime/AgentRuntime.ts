@@ -966,10 +966,13 @@ export class AgentRuntime {
         this.emitter.emit('tool:failed', { callId: tc.id, toolName: tc.name, status: 'error', summary: result.summary, detail: result.detail, timestamp: Date.now() })
       }
 
-      // Add tool result to API context — strip detail from read-only tools to prevent context bloat
+      // Add tool result to API context — strip detail from read-only tools, truncate write tools
+      const MAX_DETAIL_CHARS = 2000
       const resultForApi = READ_ONLY_TOOLS.has(tc.name)
         ? { status: result.status, summary: result.summary, note: '内容已省略，需要时请重新调用工具读取' }
-        : result
+        : (result.detail && result.detail.length > MAX_DETAIL_CHARS)
+          ? { ...result, detail: result.detail.slice(0, MAX_DETAIL_CHARS) + '...(已截断)' }
+          : result
       this.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(resultForApi) })
 
     } catch (err) {

@@ -47,6 +47,7 @@ import { FeedbackChannel } from './feedback/FeedbackChannel'
 import { SubAgentManager } from './subagents/SubAgentManager'
 import { MemoryLayers } from './memory/MemoryLayers'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
+import { isTaskMessage } from './utils/taskDetection'
 import type { Message, AgentRunResult } from './runtime/AgentRuntime'
 import type { ToolProgressEvent, ResponseChunk, ThinkingContext } from './runtime/AgentEventEmitter'
 
@@ -562,15 +563,34 @@ export class AgentChatBridge {
     }
 
     // Set tools based on work mode, with model-capability filtering
-    // If toolsEnabled is explicitly false, send empty tools array (AI will respond without calling tools)
+    // Casual chat (non-task) → no tools. Task → dynamic tool selection by intent.
+    // READ_ONLY tools always sent; WRITE tools only for write-intent; EXTERNAL only for explicit need.
+    const READ_ONLY_TOOL_NAMES = new Set([
+      'list_directory', 'read_file', 'search_files', 'search_content',
+      'kb_list', 'list_notes', 'read_note', 'list_rules', 'list_prompts', 'search_images',
+    ])
+    const WRITE_KEYWORDS = /创建|新建|修改|编辑|删除|生成|写入|改写|重写|替换|重命名|移动|追加|保存|导入|导出/
+    const EXTERNAL_KEYWORDS = /搜索图片|生成图片|shell|命令|浏览器|搜索网络|联网|提示词.*修改|规则.*修改|配置.*修改|审计|诊断/
+
     let filteredSchemas: ReturnType<typeof toolRegistry.getFilteredSchemas> = []
-    if (options.toolsEnabled !== false) {
+    if (options.toolsEnabled !== false && isTaskMessage(userMessage)) {
       const schemas = toolRegistry.getFilteredSchemas(
         this.workMode,
         undefined, // all tools within mode
       )
-      // G4: Filter out tools the current model cannot execute
-      filteredSchemas = schemas
+
+      const isWrite = WRITE_KEYWORDS.test(userMessage)
+      const isExternal = EXTERNAL_KEYWORDS.test(userMessage)
+
+      // If write or external intent, send full tools — AI needs all capabilities
+      if (isWrite || isExternal) {
+        filteredSchemas = schemas
+      } else {
+        // Read-only intent: send only read tools (~10 vs 38, saves ~2,200 tokens)
+        filteredSchemas = schemas.filter((s: any) =>
+          READ_ONLY_TOOL_NAMES.has(s.function?.name || ''))
+      }
+
       try {
         const settingsStore = (await import('@/store')).useSettingsStore.getState()
         const configs = settingsStore.configs || []
@@ -578,7 +598,7 @@ export class AgentChatBridge {
         const modelName = config?.model || ''
         const isImageModel = /dall-e|imagen|stable.diffusion|midjourney|flux/i.test(modelName)
         if (!isImageModel) {
-          filteredSchemas = schemas.filter((s: any) => s.function?.name !== 'generate_image')
+          filteredSchemas = filteredSchemas.filter((s: any) => s.function?.name !== 'generate_image')
         }
       } catch { /* fallback: keep all tools */ }
     }
