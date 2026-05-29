@@ -8,7 +8,6 @@ export { kbProvider } from './kbProvider'
 export { notesProvider } from './notesProvider'
 export { chapterWritingProvider } from './chapterWritingProvider'
 export { promptLibraryProvider } from './promptLibraryProvider'
-export { planWorkflowProvider } from './planWorkflowProvider'
 
 import { coreRulesProvider } from './coreRulesProvider'
 import { characterProvider } from './characterProvider'
@@ -20,12 +19,10 @@ import { kbProvider } from './kbProvider'
 import { notesProvider } from './notesProvider'
 import { chapterWritingProvider } from './chapterWritingProvider'
 import { promptLibraryProvider } from './promptLibraryProvider'
-import { planWorkflowProvider } from './planWorkflowProvider'
 import type { ContextProvider } from '../ContextAssembler'
 
 export const ALL_PROVIDERS: ContextProvider[] = [
   coreRulesProvider,         // priority 100 — always included
-  planWorkflowProvider,      // priority 95 — plan workflow instruction (action mode tasks only)
   characterProvider,         // priority 80
   outlineProvider,           // priority 85
   detailedOutlineProvider,   // priority 80

@@ -1120,47 +1120,68 @@ export class AgentRuntime {
   private buildAdvisoryInject(userMessage: string, state: import('../state/types').AgentState): string | null {
     if (state.iteration < 1 || !isTaskMessage(userMessage)) return null
 
-    const parts: string[] = ['[Agent导航]']
+    const parts: string[] = []
 
-    // ① Tool history — prevent redundant calls
+    // ⓪ File Path Router — highest priority: tell AI exactly which file to read
+    try {
+      const { routeIntent } = require('../context/FileRouter')
+      const directRoute = routeIntent(userMessage, this.config.projectId)
+      if (directRoute) {
+        parts.push(`[Agent导航] ${directRoute}`)
+        // Still add project context below the direct instruction
+      }
+    } catch { /* FileRouter not available */ }
+
+    if (parts.length === 0) parts.push('[Agent导航]')
+
+    // ① Tool history — prevent redundant calls, use stronger language
     if (this.toolsUsed.length > 0) {
       const counts = new Map<string, number>()
       for (const t of this.toolsUsed) counts.set(t, (counts.get(t) || 0) + 1)
       const summary = [...counts.entries()]
         .map(([t, c]) => c > 1 ? `${t}(${c}次)` : t).join(', ')
       const redundant = [...counts.entries()].filter(([, c]) => c > 1)
-      parts.push(`已调工具: ${summary}。`)
+      parts.push(`已调: ${summary}`)
       if (redundant.length > 0) {
-        parts.push(`注意: ${redundant.map(([t, c]) => `${t}已调${c}次`).join(', ')}——不要重复调用。`)
+        parts.push(`禁止重复: ${redundant.map(([t, c]) => `${t}已${c}次`).join(', ')}。`)
+      }
+      // Check against hard limits
+      for (const [tool, count] of counts) {
+        const max = AgentRuntime.MAX_CALLS_PER_TOOL[tool]
+        if (max && count >= max) {
+          parts.push(`⚠️ ${tool} 已达上限(${max}次)。禁止再次调用。使用已获取的结果或换其他方式。`)
+        }
       }
     }
 
-    // ② Recent errors — inform the AI what went wrong
+    // ② Recent errors — specific, actionable correction
     const errors = this.allToolResults.filter(r => r.status === 'error')
     if (errors.length > 0) {
       const lastErr = errors[errors.length - 1]
-      parts.push(`上一轮错误: ${lastErr.summary.slice(0, 150)}`)
+      // Format: concise and actionable
+      const errSummary = lastErr.summary
+        .replace(/\[.*?\]\s*/g, '')  // strip [Policy Deny] etc prefixes
+        .slice(0, 150)
+      parts.push(`上次失败: ${errSummary}`)
     }
 
-    // ③ Project state — only in early iterations
-    if (this.config.projectId && state.iteration <= 2 && this._projectSummary) {
-      const short = this._projectSummary.slice(0, 250)
-      if (short.length > 10) parts.push(`项目: ${short}`)
-    }
-
-    // ④ Learned skill — if available
+    // ③ Mid-session learning — inject recent pattern immediately
     try {
-      const sk = (this as any)._skillLearner as { getContextInject(maxTokens?: number): string } | null
-      if (sk) {
-        const learned = sk.getContextInject(500)
-        if (learned && learned.length > 20) {
-          const lines = learned.split('\n').filter((l: string) => l.trim())
-          if (lines.length > 1) {
-            parts.push(`已学: ${lines[lines.length - 1].slice(0, 120)}`)
-          }
+      const sk = (this as any)._skillLearner as { getContextInject(maxTokens?: number): string; getPatternsAboveThreshold?(n: number): Array<{ toolName: string; errorSummary: string }> } | null
+      if (sk?.getPatternsAboveThreshold) {
+        const patterns = sk.getPatternsAboveThreshold(1) // even 1 occurrence
+        if (patterns.length > 0) {
+          const latest = patterns[patterns.length - 1]
+          parts.push(`修正: ${latest.toolName} 模式——${latest.errorSummary.slice(0, 100)}`)
         }
       }
-    } catch { /* skill learner not wired */ }
+    } catch { /* not available */ }
+
+    // ④ Project state — only early iterations
+    if (this.config.projectId && state.iteration <= 2 && this._projectSummary) {
+      const short = this._projectSummary.slice(0, 200)
+      if (short.length > 10) parts.push(`项目: ${short}`)
+    }
 
     if (parts.length <= 1) return null
     return parts.join('\n')
