@@ -193,19 +193,38 @@ export class AgentChatBridge {
     this.runId = Date.now().toString(36)
     this.abortController = new AbortController()
 
+    let collectedText = ''
+    let runResult: Awaited<ReturnType<typeof this.executeRun>> | null = null
     try {
       await this.initSession(userMessage)
-      const { collectedText, result } = await this.executeRun(userMessage, options)
+      const result = await this.executeRun(userMessage, options)
+      collectedText = result.collectedText
+      runResult = result
 
       return {
-        success: result.success,
+        success: result.result.success,
         text: collectedText || '',
-        toolCalls: result.toolCalls,
-        totalTokens: result.totalTokens,
-        phase: result.phase,
-        contextBreakdown: result.contextBreakdown,
+        toolCalls: result.result.toolCalls,
+        totalTokens: result.result.totalTokens,
+        phase: result.result.phase,
+        contextBreakdown: result.result.contextBreakdown,
       }
     } finally {
+      // Persist session in finally block — guarantees save even on errors
+      if (this.sessionId) {
+        try {
+          const runtimeMessages = this.runtime?.getMessagesForApi() || []
+          const sessionMessages = [
+            ...this.history.map(m => ({ ...m, timestamp: (m as any).timestamp || Date.now() })),
+            ...runtimeMessages
+              .filter(m => m.role === 'user' || m.role === 'assistant')
+              .map(m => ({ ...m, timestamp: Date.now() })),
+            { role: 'user', content: userMessage, timestamp: Date.now() },
+            { role: 'assistant', content: collectedText, timestamp: Date.now() },
+          ]
+          await this.sessionMgr.save(this.sessionId, sessionMessages as any, runResult?.result.totalTokens || 0)
+        } catch (err) { console.error('[AgentBridge] session save failed:', err) }
+      }
       this.isRunning = false
       diagnosticLogger.recordInfo('sendMessage 结束')
       await diagnosticLogger.flush()
@@ -779,23 +798,6 @@ export class AgentChatBridge {
         } : store.health.lastSessionMetrics,
       })
     } catch { /* health update is best-effort */ }
-
-    // Persist session (preserve tool_calls from assistant messages for history continuity)
-    if (this.sessionId) {
-      try {
-        const runtimeMessages = this.runtime?.getMessagesForApi() || []
-        const sessionMessages = [
-          ...this.history.map(m => ({ ...m, timestamp: (m as any).timestamp || Date.now() })),
-          // Include assistant messages with tool_calls from this run
-          ...runtimeMessages
-            .filter(m => m.role === 'user' || m.role === 'assistant')
-            .map(m => ({ ...m, timestamp: Date.now() })),
-          { role: 'user', content: userMessage, timestamp: Date.now() },
-          { role: 'assistant', content: collectedText, timestamp: Date.now() },
-        ]
-        await this.sessionMgr.save(this.sessionId, sessionMessages as any, result.totalTokens)
-      } catch (err) { console.error('[AgentBridge] session save failed:', err) }
-    }
 
     return { collectedText, result }
   }
