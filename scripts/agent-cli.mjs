@@ -7,8 +7,8 @@
  *
  * Usage:
  *   node scripts/agent-cli.mjs --api-key=sk-xxx --api-url=https://api.deepseek.com
- *   node scripts/agent-cli.mjs --key=sk-xxx --project="我的项目" --command="列出项目文件"
- *   node scripts/agent-cli.mjs --key=sk-xxx --interactive
+ *   node scripts/agent-cli.mjs --key=sk-xxx (弃用) --project="我的项目" --command="列出项目文件"
+ *   node scripts/agent-cli.mjs --key=sk-xxx (弃用) --interactive
  *
  * Environment variables:
  *   AI_API_KEY  — API key
@@ -150,8 +150,8 @@ function parseArgs() {
     if (arg === '--help' || arg === '-h') { args.help = true }
     else if (arg === '--interactive' || arg === '-i') { args.interactive = true }
     else if (arg === '--self-optimize' || arg === '-S') { args.selfOptimize = true; args.maxIterations = 20 }
-    else if (arg.startsWith('--api-key=')) { args.apiKey = arg.slice(10) }
-    else if (arg.startsWith('--key=')) { args.apiKey = arg.slice(6) }
+    else if (arg.startsWith('--api-key=')) { console.warn('\x1b[33m⚠ 警告: --api-key 已弃用，请使用 AI_API_KEY 环境变量。密钥作为命令行参数在所有进程中可见。\x1b[0m'); args.apiKey = arg.slice(10) }
+    else if (arg.startsWith('--key=')) { console.warn('\x1b[33m⚠ 警告: --key 已弃用，请使用 AI_API_KEY 环境变量。密钥作为命令行参数在所有进程中可见。\x1b[0m'); args.apiKey = arg.slice(6) }
     else if (arg.startsWith('--api-url=')) { args.apiUrl = arg.slice(10) }
     else if (arg.startsWith('--model=')) { args.model = arg.slice(8) }
     else if (arg.startsWith('--project=')) { args.project = arg.slice(10) }
@@ -174,7 +174,7 @@ AI 写作助手 — 命令行 Agent (Headless CLI)
   node scripts/agent-cli.mjs [选项]
 
 选项:
-  --key=KEY          API 密钥 (或设置 AI_API_KEY 环境变量)
+  --key=KEY          ⚠ 已弃用: API 密钥 (推荐使用 AI_API_KEY 环境变量)
   --api-url=URL      API 地址 (默认: https://api.deepseek.com)
   --model=NAME       模型名称 (默认: deepseek-chat)
   --project=NAME     项目名称 (指定要操作的项目)
@@ -188,13 +188,13 @@ AI 写作助手 — 命令行 Agent (Headless CLI)
 
 示例:
   # 一次性命令
-  node scripts/agent-cli.mjs --key=sk-xxx --command="列出项目 1 的文件"
+  AI_API_KEY=sk-xxx node scripts/agent-cli.mjs --command="列出项目 1 的文件"
 
   # 交互模式
-  node scripts/agent-cli.mjs --key=sk-xxx -i
+  node scripts/agent-cli.mjs --key=sk-xxx (弃用) -i
 
   # 指定项目
-  node scripts/agent-cli.mjs --key=sk-xxx --project="我的小说" -i
+  node scripts/agent-cli.mjs --key=sk-xxx (弃用) --project="我的小说" -i
 
   # 使用环境变量
   AI_API_KEY=sk-xxx node scripts/agent-cli.mjs -i

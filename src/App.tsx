@@ -1,4 +1,4 @@
-import { useEffect, useCallback, Component } from 'react'
+import { useEffect, useCallback, Component, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { appService, projectService, settingsService, aiService, continuationService } from '@/services/fileService'
@@ -72,6 +72,7 @@ function AnimatedRoutes() {
         transition={{ duration: 0.2, ease: 'easeOut' }}
         style={{ flex: 1, overflow: 'hidden', display: 'flex' }}
       >
+        <Suspense fallback={<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84' }}>加载中...</div>}>
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
           <Route path="/characters" element={<Navigate to="/outline?tab=characters" replace />} />
@@ -97,6 +98,7 @@ function AnimatedRoutes() {
           <Route path="/settings" element={<SystemSettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </motion.div>
     </AnimatePresence>
   )
