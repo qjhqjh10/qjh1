@@ -267,13 +267,14 @@ export class AgentRuntime {
   }
 
   /**
-   * Inject an externally-generated plan into the runtime, skipping the
-   * internal PLANNING phase. Used by AgentOrchestrator to avoid double planning.
+   * Inject an externally-generated plan (from AgentOrchestrator).
+   * Sets planPhase to 'awaiting_approval' — the plan:proposed event
+   * will be emitted by the main loop when it detects the plan.
+   * PlanEnforcer is NOT installed here (AgentRuntime has its own enforcement).
    */
   injectPlan(plan: import('../state/types').ThinkingPlan): void {
     this.fsm.setExecutionPlan(plan)
-    this.fsm.setPlanPhase('approved')
-    this.planEnforcer = new PlanEnforcer(plan)
+    this.fsm.setPlanPhase('awaiting_approval')
   }
 
   approvePlan(): void {

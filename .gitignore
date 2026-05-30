@@ -16,3 +16,9 @@ continuation_projects/
 Thumbs.db
 extractions/
 notes/
+
+# Sensitive runtime data (user-generated, should not be committed)
+agent-sessions/
+demo_output/
+uploads/
+.ai_backups/

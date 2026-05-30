@@ -594,47 +594,22 @@ export class AgentChatBridge {
       })
     }
 
-    // ── Intelligent tool selection via multi-agent orchestration ──
-    // Intent Agent + Plan Agent determine which tools are needed (replaces regex filtering).
-    let scopedToolSchemas: ReturnType<typeof toolRegistry.getFilteredSchemas> = []
-
+    // Set tools: full tool set for AgentRuntime (planning + execution handled internally)
+    // The Orchestrator multi-agent pipeline is available via CLI (scripts/agent-cli.mjs)
     if (options.toolsEnabled !== false) {
+      const schemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
       try {
-        const { AgentOrchestrator } = await import('./orchestrator/AgentOrchestrator')
-        const orchestrator = new AgentOrchestrator(this.subAgentManager)
-        const allSchemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
-
-        // Use analyzeOnly mode: Intent + Plan only, no Execute (bridge runs its own AgentRuntime)
-        const { plan: orchPlan } = await orchestrator.analyzeOnly(
-          userMessage, this.configId, this.projectId,
-        )
-
-        if (orchPlan && orchPlan.neededTools.length > 0) {
-          const neededSet = new Set(orchPlan.neededTools)
-          scopedToolSchemas = allSchemas.filter((s: any) => neededSet.has(s.function?.name || ''))
-
-          // Inject plan into AgentRuntime — skip its own PLANNING phase (avoids double planning)
-          this.runtime.injectPlan(orchPlan)
+        const settingsStore = (await import('@/store')).useSettingsStore.getState()
+        const config = settingsStore.configs?.find((c: any) => c.id === this.configId)
+        if (!/dall-e|imagen|stable.diffusion|midjourney|flux/i.test(config?.model || '')) {
+          this.runtime.setTools(schemas.filter((s: any) => s.function?.name !== 'generate_image'))
+        } else {
+          this.runtime.setTools(schemas)
         }
-
-        // Remove generate_image for non-image models
-        try {
-          const settingsStore = (await import('@/store')).useSettingsStore.getState()
-          const config = settingsStore.configs?.find((c: any) => c.id === this.configId)
-          if (!/dall-e|imagen|stable.diffusion|midjourney|flux/i.test(config?.model || '')) {
-            scopedToolSchemas = scopedToolSchemas.filter((s: any) => s.function?.name !== 'generate_image')
-          }
-        } catch { /* keep */ }
-      } catch (err) {
-        console.warn('[AgentBridge] Orchestrator failed, using all tools:', err)
+      } catch {
+        this.runtime.setTools(schemas)
       }
     }
-
-    // Fallback: if orchestrator failed or produced no tools, use all tools
-    if (scopedToolSchemas.length === 0) {
-      scopedToolSchemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
-    }
-    this.runtime.setTools(scopedToolSchemas)
 
     // Set history
     this.runtime.setHistory(this.history)

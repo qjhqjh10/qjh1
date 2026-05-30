@@ -361,9 +361,14 @@ export class AgentOrchestrator {
             estimatedTokens: Number(raw.estimatedTokens) || 0,
             dependencies: Array.isArray(raw.dependencies) ? raw.dependencies as number[][] : [],
           }
-          // Fallback: derive neededTools from steps
-          if (plan.neededTools.length === 0) {
-            plan.neededTools = [...new Set(plan.steps.map(s => s.tool))]
+          // Always include core read tools + fallback: derive from steps
+          const coreReads = ['read_file', 'list_directory', 'search_files', 'search_content']
+          for (const t of coreReads) {
+            if (!plan.neededTools.includes(t)) plan.neededTools.push(t)
+          }
+          if (plan.neededTools.length === coreReads.length) {
+            // Only core reads — derive additional tools from steps
+            plan.neededTools = [...new Set([...plan.neededTools, ...plan.steps.map(s => s.tool)])]
           }
           result.structuredOutput = raw
         } catch { /* fallback */ }
