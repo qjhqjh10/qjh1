@@ -1,7 +1,23 @@
 {
-  "currentVersion": "8.5.0",
-  "currentDate": "2026-05-29",
+  "currentVersion": "8.9.0",
+  "currentDate": "2026-05-30",
   "history": [
+    {
+      "version": "8.9.0",
+      "date": "2026-05-30",
+      "features": [
+        "CLI Agent全面升级(12项): Edit Guard编辑前自动验证+batch_replace批量替换工具+智能历史修剪(去重+旧读取截断)+项目文件清单注入+自恢复闭环(连续失败≥2自动重读)+动态工具选择(读10/写全量)+read_file不截断+跨会话学习(CliLearner)+学习注入上限解除(智能排序15条+30天衰减)+自优化模式(git保护+代码修改+TypeScript编译验证+vitest测试验证)",
+        "Agent第8子Tab: LearningSection学习面板——展示跨会话学习记录(活跃/待确认)+编辑+删除+手动添加+导出JSON+双数据源(CLI+Electron)",
+        "提示词根治性优化: coreRulesProvider 27条→4条核心规则(~800→~250 tokens)，消除Plan-First与Read-Directly三难矛盾，删除planWorkflowProvider(100%重复省~600 tokens)",
+        "File Path Router: 用户意图→精确文件路径映射(故事剧情→outline/plot.md等8条路由)，AI不再盲目探索",
+        "Context Advisory Layer升级: buildAdvisoryInject集成FileRouter指令导航(描述→指令)+SkillLearner即时注入(≥1次即注入)+反冗余措辞强化(不要→禁止)",
+        "Session持久化根治: persist()不再因ensureDir失败跳过写文件，save移至sendMessage的finally块确保异常时也能保存",
+        "Token深度优化: 动态工具选择(读意图省75%工具定义)+欢迎消息从历史过滤+buildHistoryMessages排除welcome+写工具结果截断2000字符+压缩阈值[30,45,60,78,92]",
+        "幻觉检测扩展: 新增权限幻觉/未来时态/过度泛化3种检测模式，取消'仅无tool_calls时检测'前提",
+        "消息气泡背景优化: AI工具调用消息绿色背景+纯文本白底",
+        "错误提示改进: '未生成回复'改为可操作指引"
+      ]
+    },
     {
       "version": "8.5.0",
       "date": "2026-05-29",
