@@ -18,8 +18,8 @@ export const lspTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).lspDiagnose?.(
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.lsp.diagnose(
           args.file_path ? String(args.file_path) : undefined,
         )
         return result || { status: 'error', summary: 'LSP 工具不可用' }

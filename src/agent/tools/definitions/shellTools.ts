@@ -19,8 +19,8 @@ export const shellTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).shellExec?.(
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.shell.exec(
           String(args.command),
           args.cwd ? String(args.cwd) : undefined,
         )
@@ -45,8 +45,8 @@ export const shellTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).shellRunScript?.(String(args.name))
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.shell.runScript(String(args.name))
         return result || { status: 'error', summary: '脚本工具不可用' }
       } catch { return { status: 'error', summary: '脚本执行失败' } }
     },

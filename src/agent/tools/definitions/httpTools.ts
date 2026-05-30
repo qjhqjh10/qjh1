@@ -21,8 +21,8 @@ export const httpTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).httpGet?.(String(args.url))
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.http.get(String(args.url))
         return result || { status: 'error', summary: 'HTTP 工具不可用' }
       } catch {
         return { status: 'error', summary: 'HTTP 请求失败' }
@@ -53,8 +53,8 @@ export const httpTools: ToolDefinition[] = [
         if (args.headers) {
           try { headers = JSON.parse(String(args.headers)) } catch { return { status: 'error', summary: '请求头 JSON 格式无效，请检查语法' } }
         }
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).httpFetch?.(
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.http.fetch(
           String(args.url),
           {
             method: String(args.method || 'GET'),

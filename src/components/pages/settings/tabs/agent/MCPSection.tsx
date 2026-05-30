@@ -20,7 +20,7 @@ interface MCPServerStatus {
   tools: number
 }
 
-function mcp() { return window.electron!.mcp }
+import { mcpService } from '@/services/electronBridge'
 
 const ALLOWED_COMMANDS = ['npx', 'node', 'python', 'python3']
 
@@ -35,7 +35,7 @@ export function MCPSection() {
   const loadConfigs = useCallback(async () => {
     setLoading(true)
     try {
-      const saved = await mcp().loadConfig()
+      const saved = await mcpService.loadConfig()
       setConfigs(saved)
     } catch { /* first time */ }
     setLoading(false)
@@ -43,7 +43,7 @@ export function MCPSection() {
 
   const refreshStatuses = useCallback(async () => {
     try {
-      const result = await mcp().listServers()
+      const result = await mcpService.listServers()
       setStatuses(result.servers || [])
     } catch { setStatuses([]) }
   }, [])
@@ -52,7 +52,7 @@ export function MCPSection() {
 
   const saveConfigs = async (next: MCPServerConfig[]) => {
     setConfigs(next)
-    try { await mcp().saveConfig(next) } catch { /* */ }
+    try { await mcpService.saveConfig(next) } catch { /* */ }
   }
 
   const addServer = () => {
@@ -66,7 +66,7 @@ export function MCPSection() {
     const next = configs.filter((_, i) => i !== idx)
     saveConfigs(next)
     if (editingIdx === idx) setEditingIdx(null)
-    mcp().disconnectServer(name).then(() => refreshStatuses()).catch(() => {})
+    mcpService.disconnectServer(name).then(() => refreshStatuses()).catch(() => {})
   }
 
   const updateConfig = (idx: number, patch: Partial<MCPServerConfig>) => {
@@ -76,13 +76,13 @@ export function MCPSection() {
 
   const connectServer = async (config: MCPServerConfig) => {
     try {
-      await mcp().connectServer(config.name, config)
+      await mcpService.connectServer(config.name, config)
       refreshStatuses()
     } catch { /* handled by backend */ }
   }
 
   const disconnectServer = async (name: string) => {
-    await mcp().disconnectServer(name)
+    await mcpService.disconnectServer(name)
     refreshStatuses()
   }
 
@@ -92,7 +92,7 @@ export function MCPSection() {
       return
     }
     try {
-      const result = await mcp().listTools(serverName)
+      const result = await mcpService.listTools(serverName)
       const tools = JSON.parse(result.detail || '[]')
       setServerTools(prev => ({ ...prev, [serverName]: tools }))
       setExpandedTools(serverName)

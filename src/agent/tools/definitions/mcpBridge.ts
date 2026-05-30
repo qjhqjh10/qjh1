@@ -36,8 +36,8 @@ export function mcpToolToDefinition(
     availableInPlanMode: true,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).mcpCallTool?.(serverName, schema.name, args)
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.mcp.callTool(serverName, schema.name, args)
         return result || { status: 'error', summary: 'MCP 工具调用失败' }
       } catch {
         return { status: 'error', summary: 'MCP 工具不可用' }

@@ -18,8 +18,8 @@ export const browserTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).browserOpen?.(String(args.url))
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.browser.open(String(args.url))
         return result || { status: 'error', summary: '浏览器工具不可用' }
       } catch { return { status: 'error', summary: '打开页面失败' } }
     },
@@ -41,8 +41,8 @@ export const browserTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args) => {
       try {
-        const { fileService } = await import('@/services/fileService')
-        const result = await (fileService as any).browserSearch?.(String(args.query))
+        const { bridge } = await import('@/services/electronBridge')
+        const result = await bridge.browser.search(String(args.query))
         return result || { status: 'error', summary: '搜索工具不可用' }
       } catch { return { status: 'error', summary: '搜索失败' } }
     },

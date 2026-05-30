@@ -17,7 +17,7 @@ export function registerLSPHandlers(ipcMain: IpcMain) {
       const { stdout, stderr } = await execFileAsync('npx', ['tsc', ...args], {
         timeout: 60_000,
         maxBuffer: 100_000,
-        shell: process.platform === 'win32',
+        shell: false, // No shell — prevents cmd.exe metacharacter injection on Windows
       })
 
       const output = stdout || stderr || ''

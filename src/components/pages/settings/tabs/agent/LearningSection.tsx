@@ -237,7 +237,8 @@ function SelfOptimizePanel() {
     if (!command.trim() || !activeConfig || !window.electron?.agent) return
     setRunning(true); setError(''); setOutput(''); setExpanded(true)
     try {
-      const result = await window.electron!.agent.optimize(activeConfig!.id, command.trim())
+      const { bridge } = await import('@/services/electronBridge')
+      const result = await bridge.agent.optimize(activeConfig!.id, command.trim())
       setOutput(result)
     } catch (e: any) { setError(e.message || '执行失败') }
     setRunning(false)
