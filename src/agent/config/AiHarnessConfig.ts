@@ -169,7 +169,8 @@ export class AiHarnessConfigLoader {
 
     // Layer 1: user-level ~/.aiharness.json
     try {
-      const userPath = `${this.userHome}/.aiharness.json`
+      const { join } = await import('path')
+      const userPath = join(this.userHome, '.aiharness.json')
       const userRaw = await this.readFile(userPath)
       if (userRaw) {
         config = deepMerge(config, JSON.parse(userRaw))

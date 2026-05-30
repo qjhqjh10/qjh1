@@ -96,8 +96,9 @@ export class HookEngine {
           })
         })
       })
-    } catch {
-      return { hookName: hook.name, event: hook.event, passed: false, feedback: 'Hook 脚本执行失败', stdout: '', duration: 0 }
+    } catch (err) {
+      console.warn(`[HookEngine] Shell hook "${hook.name}" exec failed:`, err)
+      return { hookName: hook.name, event: hook.event, passed: false, feedback: `Hook 脚本执行失败: ${err instanceof Error ? err.message : '未知错误'}`, stdout: '', duration: 0 }
     }
   }
 

@@ -102,10 +102,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           outputTokens: usage.completion_tokens || 0,
           cacheHitTokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
           cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
-        }).catch(() => {})
+        }).catch((err) => { console.warn('[aiHandlers] logTokenUsage failed (ai:chat):', err) })
       }
 
-      const result = completion.choices[0]?.message?.content || ''
+      const choice = completion.choices[0]
+      const result = choice?.message?.content || (choice ? '' : '[AI] 模型返回了空结果（可能被内容策略拦截）')
       return JSON.stringify({
         text: result,
         usage: usage ? {
@@ -197,7 +198,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           outputTokens: usageInfo.completion_tokens,
           cacheHitTokens: usageInfo.cached_tokens || 0,
           cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, usageInfo.cached_tokens || 0, config),
-        }).catch(() => {})
+        }).catch((err) => { console.warn('[aiHandlers] logTokenUsage failed (ai:chat-stream):', err) })
       }
 
       event.sender.send('ai:chat-done', {
@@ -342,6 +343,10 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         }),
       ]
 
+      // Hard timeout: abort API call after 90 seconds at the IPC level
+      const IPC_API_TIMEOUT = 90000
+      let hardTimeout: ReturnType<typeof setTimeout> | null = null
+
       try {
         const params: Record<string, unknown> = {
           model: config.model,
@@ -356,14 +361,16 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           params.tool_choice = 'auto'
         }
 
-        // Hard timeout: abort API call after 90 seconds at the IPC level
-        const IPC_API_TIMEOUT = 90000
-        const hardTimeout = setTimeout(() => {
+        hardTimeout = setTimeout(() => {
           abortController.abort()
         }, IPC_API_TIMEOUT)
 
-        const completion = await client.chat.completions.create(params as any, { signal: abortController.signal })
-        clearTimeout(hardTimeout)
+        let completion: Awaited<ReturnType<typeof client.chat.completions.create>>
+        try {
+          completion = await client.chat.completions.create(params as any, { signal: abortController.signal })
+        } finally {
+          if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
+        }
 
         const usage = completion.usage
         if (usage) {
@@ -377,7 +384,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
             outputTokens: usage.completion_tokens || 0,
             cacheHitTokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
             cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
-          }).catch(() => {})
+          }).catch((err) => { console.warn('[aiHandlers] logTokenUsage failed (ai:chat-with-tools):', err) })
         }
 
         const choice = completion.choices[0]
@@ -398,11 +405,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           } : undefined,
         })
       } catch (err) {
+        if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
         if (err instanceof Error && err.name === 'AbortError') {
           return JSON.stringify({ text: '', tool_calls: null, finish_reason: 'stop', aborted: true })
         }
         throw new Error(categorizeError(err))
       } finally {
+        if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
         ipcMain.removeListener('ai:abort-tool-chat', onAbort)
         toolChatAbortHandlers.delete(wcId)
       }

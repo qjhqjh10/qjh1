@@ -36,6 +36,7 @@ describe('ThinkingEngine', () => {
         { id: '2', tool: 'unknown_tool', action: 'unknown', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
+      neededTools: [],
       dependencies: [],
     }
     const result = engine.validate(plan, availableTools)
@@ -51,6 +52,7 @@ describe('ThinkingEngine', () => {
         { id: '1', tool: 'read_file', action: 'read', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
+      neededTools: [],
       dependencies: [],
     }
     expect(engine.validate(plan, availableTools).valid).toBe(true)
@@ -66,6 +68,7 @@ describe('ThinkingEngine', () => {
         { id: '4', tool: 'edit_file', action: 'step 4', args: {}, expectedOutcome: '', status: 'failed' as const, retryCount: 1, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 100,
+      neededTools: [],
       dependencies: [],
     }
     const progress = engine.trackProgress(plan)
@@ -85,6 +88,7 @@ describe('ThinkingEngine', () => {
         { id: '2', tool: 'create_file', action: '创建新角色', args: {}, expectedOutcome: '', status: 'pending' as const, retryCount: 0, approvalStatus: 'pending' as const },
       ],
       estimatedTokens: 0,
+      neededTools: [],
       dependencies: [],
     }
     const inject = engine.generateSystemInject(plan)

@@ -42,7 +42,9 @@ export class SessionManager {
   }
 
   private sessionPath(id: string): string {
-    return `${this.basePath}/${id}.json`
+    // Use forward-slash join (compatible with fileService which normalizes to /)
+    const base = this.basePath.replace(/\\/g, '/')
+    return `${base}/${id}.json`
   }
 
   // ── CRUD ──
@@ -66,10 +68,12 @@ export class SessionManager {
     try {
       const { fileService } = await import('@/services/fileService')
       const raw = await fileService.read(this.sessionPath(id))
+      if (!raw || !raw.trim()) return null
       const data = JSON.parse(raw) as SessionData
       this.cache.set(id, data)
       return data
-    } catch {
+    } catch (err) {
+      console.error('[SessionManager] load failed:', this.sessionPath(id), err)
       return null
     }
   }
@@ -160,16 +164,12 @@ export class SessionManager {
   private async persist(id: string, data: SessionData): Promise<void> {
     const { fileService } = await import('@/services/fileService')
     const dir = this.basePath
-    // Best-effort ensureDir — directory already exists from create(), so failure here
-    // should not block writing. We try write() regardless.
+    // Best-effort ensureDir — directory already exists from create()
     try { await fileService.ensureDir(dir) } catch (err) {
       console.error('[SessionManager] ensureDir failed:', dir, err)
+      throw new Error(`Failed to ensure session directory: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
-    try {
-      await fileService.write(this.sessionPath(id), JSON.stringify(data, null, 2))
-    } catch (err) {
-      console.error('[SessionManager] write failed:', this.sessionPath(id), err)
-    }
+    await fileService.write(this.sessionPath(id), JSON.stringify(data, null, 2))
   }
 
   private async scanIds(): Promise<string[]> {

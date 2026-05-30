@@ -162,7 +162,11 @@ export const noteTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args, ctx) => {
       try {
-        const results = await (window as any).electron?.notes?.search(
+        // Guard: window.electron may not exist in test/Node.js environments
+        if (typeof window === 'undefined' || !(window as any).electron?.notes?.search) {
+          return { status: 'error', summary: '笔记搜索不可用（非 Electron 环境或 notes API 未就绪）' }
+        }
+        const results = await (window as any).electron.notes.search(
           args.query as string,
           ctx.configId,
           (args.topK as number) || 3,

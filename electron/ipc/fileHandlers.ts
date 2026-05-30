@@ -74,7 +74,11 @@ export function registerFileHandlers(
       if (stat.size > MAX_IMAGE_SIZE) throw new Error('File too large')
       const buf = await fs.readFile(resolved)
       return buf.toString('base64')
-    } catch { return '' }
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') return ''
+      console.error('[fileHandlers] readBinary failed:', resolved, err)
+      return ''
+    }
   })
 
   ipcMain.handle('files:writeBinary', async (_event, filePath: string, base64: string) => {
@@ -138,7 +142,17 @@ export function registerFileHandlers(
   ipcMain.handle('files:deleteDir', async (_event, dirPath: string) => {
     const resolved = resolvePath(dirPath)
     if (!resolved) throw new Error('Access denied')
-    await fs.rm(resolved, { recursive: true, force: true })
+    try {
+      await fs.rm(resolved, { recursive: true, force: false })
+    } catch (err: any) {
+      // If some files are locked, try force mode as fallback and log it
+      if (err?.code === 'EBUSY' || err?.code === 'EPERM') {
+        console.warn('[fileHandlers] deleteDir partial failure, using force:', resolved, err)
+        await fs.rm(resolved, { recursive: true, force: true })
+      } else {
+        throw err
+      }
+    }
   })
 
 }
@@ -165,7 +179,11 @@ export function setupFileWatcher(
     try {
       const content = await fs.readFile(filePath, 'utf-8')
       sendToRenderer('files:external-change', { path: normalizedPath, content })
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') {
+        console.warn('[fileHandlers] watcher failed to read changed file:', normalizedPath, err)
+      }
+    }
   })
 
   return watcher

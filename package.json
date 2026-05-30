@@ -1,12 +1,12 @@
 {
   "name": "ai-writing-qingjian",
-  "version": "9.0.0",
+  "version": "9.1.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev-runner.cjs dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "preview": "node scripts/dev-runner.cjs preview",
     "package": "electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",

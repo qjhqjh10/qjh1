@@ -140,7 +140,7 @@ function parseArgs() {
     command: null,
     interactive: false,
     selfOptimize: false,
-    maxIterations: 8,
+    maxIterations: 20,
     temperature: 0.8,
     maxTokens: 0,
     help: false,
@@ -157,7 +157,7 @@ function parseArgs() {
     else if (arg.startsWith('--project=')) { args.project = arg.slice(10) }
     else if (arg.startsWith('--command=')) { args.command = arg.slice(10) }
     else if (arg.startsWith('--projects-dir=')) { args.projectsDir = arg.slice(15) }
-    else if (arg.startsWith('--max-iters=')) { args.maxIterations = parseInt(arg.slice(12)) || 8 }
+    else if (arg.startsWith('--max-iters=')) { args.maxIterations = parseInt(arg.slice(12)) || 20 }
     else if (arg.startsWith('--temperature=')) { args.temperature = parseFloat(arg.slice(14)) || 0.8 }
   }
 
@@ -181,7 +181,7 @@ AI 写作助手 — 命令行 Agent (Headless CLI)
   --projects-dir=DIR 项目目录 (默认: ./projects)
   --command="..."    单次执行的命令 (非交互模式)
   -i, --interactive  交互模式 (REPL)
-  --max-iters=N      最大工具调用轮次 (默认 8)
+  --max-iters=N      最大工具调用轮次 (默认 20)
   --temperature=N    温度 (默认 0.8)
   -S, --self-optimize 自优化模式（可读写源码+git回滚+自动验证）
   -h, --help         显示此帮助
@@ -254,7 +254,10 @@ class NodeToolExecutor {
   }
 
   getProjectPath() {
-    if (!this.activeProject) return null
+    if (!this.activeProject) {
+      console.warn('\x1b[33m⚠ 未选择项目。用 create_project 创建项目，或 --project=名称 指定项目\x1b[0m')
+      return null
+    }
     if (this.activeProject === '__APP_ROOT__') return APP_ROOT
     return path.join(this.projectsDir, this.activeProject)
   }
@@ -575,14 +578,43 @@ class NodeToolExecutor {
       case 'browser_search':
         return { status: 'error', summary: '浏览器工具在 CLI 模式下不可用（需 Electron GUI）。请使用 http_get 代替。' }
       case 'shell_exec': {
-        const cmd = String(args.command || '')
-        if (!/^(node|npm|npx|git|python|python3)\b/.test(cmd)) return { status: 'error', summary: '仅允许 node/npm/npx/git/python 命令' }
-        if (/[;|&`$()]/.test(cmd)) return { status: 'error', summary: '命令包含禁止字符' }
+        const cmd = String(args.command || '').trim()
+        if (!cmd) return { status: 'error', summary: '命令为空' }
+
+        // Parse command and arguments (supports quoted args)
+        const parts = cmd.match(/(?:[^\s"]+|"[^"]*")+/g) || []
+        const base = parts[0]
+        const cmdArgs = parts.slice(1).map(a => a.replace(/^"(.*)"$/, '$1'))
+
+        // Expanded whitelist: node toolchain + git + python + read-only system utils
+        const ALLOWED = new Set([
+          'node', 'npm', 'npx', 'git', 'python', 'python3',
+          'wc', 'cat', 'find', 'ls', 'grep', 'head', 'tail',
+          'sort', 'uniq', 'stat', 'du', 'echo', 'tee', 'xargs',
+          'dir', 'where', 'which',
+        ])
+        if (!ALLOWED.has(base)) {
+          const allowedList = [...ALLOWED].slice(0, 8).join('/')
+          return { status: 'error', summary: `不允许的命令: ${base}。允许: ${allowedList}等` }
+        }
+
+        // Block shell metacharacters — () is safe with shell:false (no shell interpretation)
+        if (/[;|&`$]/.test(cmd)) {
+          return { status: 'error', summary: '命令包含禁止字符 (; | & ` $)' }
+        }
+
         try {
           const { execSync } = await import('child_process')
-          const output = execSync(cmd, { cwd: args.cwd || projectPath || '.', timeout: 30000, maxBuffer: 50000, encoding: 'utf-8' })
+          // Reconstruct safe command string from validated base + args
+          const safeCmd = [base, ...cmdArgs.map(a => a.includes(' ') ? `"${a}"` : a)].join(' ')
+          const output = execSync(safeCmd, {
+            cwd: args.cwd || projectPath || '.',
+            timeout: 30000,
+            maxBuffer: 50000,
+            encoding: 'utf-8',
+          })
           return { status: 'success', summary: '命令执行完成', detail: output.slice(0, 50000) }
-        } catch (e) { return { status: 'error', summary: `命令失败: ${e.message}`, detail: e.stderr || '' } }
+        } catch (e) { return { status: 'error', summary: `命令失败: ${e.message}`, detail: (e.stderr || e.stdout || '') } }
       }
       case 'shell_run_script': {
         const scriptName = String(args.name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
@@ -749,32 +781,295 @@ const SELF_OPTIMIZE_PROMPT = `你是一个代码自优化 Agent，运行在命�
 - lsp_diagnose: 检查 TypeScript 编译错误
 - shell_exec: 运行命令（可用于 vitest 测试）`
 
-async function runAgent(api, executor, userMessage, projectPath, maxIterations, selfOptimize = false) {
+// ── Message validation & repair (defense-in-depth before API calls) ──
+
+/**
+ * Validate messages array before sending to API.
+ * Checks for: orphaned tool_call_ids, adjacent assistants, invalid first message.
+ */
+function validateApiMessages(messages) {
+  const errors = []
+  const toolCallIds = new Map()  // tool_call_id → assistant_msg_index
+  const toolResultIds = new Set()
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        toolCallIds.set(tc.id, i)
+      }
+    }
+
+    if (m.role === 'tool' && m.tool_call_id) {
+      toolResultIds.add(m.tool_call_id)
+    }
+
+    // Adjacent assistants = API schema violation
+    if (m.role === 'assistant' && i > 0 && messages[i-1]?.role === 'assistant') {
+      errors.push(`相邻 assistant 消息 (索引 ${i-1}, ${i})`)
+    }
+
+    // First message must be system or user
+    if (i === 0 && !['system', 'user'].includes(m.role)) {
+      errors.push(`首条消息角色异常: ${m.role}`)
+    }
+  }
+
+  // Every tool_call_id must have a corresponding tool result
+  for (const [id, assistIdx] of toolCallIds) {
+    if (!toolResultIds.has(id)) {
+      errors.push(`孤立 tool_call_id "${id.slice(0,12)}..." (assistant 索引 ${assistIdx})`)
+    }
+  }
+
+  // Tool result without originating assistant
+  for (const toolId of toolResultIds) {
+    if (!toolCallIds.has(toolId)) {
+      errors.push(`孤立工具结果 tool_call_id "${toolId.slice(0,12)}..."`)
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
+/**
+ * Attempt to repair a corrupted messages array by removing orphaned assistant
+ * messages whose tool_calls have no matching tool results.
+ */
+function repairMessages(messages, validationErrors) {
+  const repairLog = []
+  const toolCallIds = new Map()
+  const toolResultIds = new Set()
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) toolCallIds.set(tc.id, i)
+    }
+    if (m.role === 'tool' && m.tool_call_id) toolResultIds.add(m.tool_call_id)
+  }
+
+  const toRemove = new Set()
+  for (const [id, idx] of toolCallIds) {
+    if (!toolResultIds.has(id)) {
+      const msg = messages[idx]
+      const allOrphaned = Array.isArray(msg.tool_calls)
+        ? msg.tool_calls.every(tc => !toolResultIds.has(tc.id))
+        : false
+      if (allOrphaned) {
+        toRemove.add(idx)
+        repairLog.push(`移除孤立 assistant (索引 ${idx})`)
+      }
+    }
+  }
+
+  if (toRemove.size > 0) {
+    const repaired = messages.filter((_, i) => !toRemove.has(i))
+    console.error(`\x1b[33m🔧 自动修复消息: ${repairLog.join('; ')}\x1b[0m`)
+    return repaired
+  }
+  return messages
+}
+
+async function runAgent(api, executor, userMessage, _initialProjectPath, maxIterations, selfOptimize = false) {
+  let projectPath = _initialProjectPath
+
   // Inject cross-session learned patterns
   const learnedContext = cliLearner.getContextInject()
+  // ── Multi-Agent Orchestration ──
+  // Phase 1: Intent Agent (6 exploration tools) → Phase 2: Plan Agent → Phase 3: Execute (scoped tools)
+  const PHASE1_TOOLS = TOOLS.filter(t =>
+    ['read_file', 'list_directory', 'search_files', 'search_content', 'list_notes', 'list_rules']
+    .includes(t.function.name)
+  )
+  const CORE_READ_NAMES = new Set(['read_file', 'list_directory', 'search_files', 'search_content'])
+
+  let iteration = 0, totalTokens = 0, toolCalls = 0, consecutiveFailures = 0
+  const sessionErrors = new Map()
+  const MAX_RESULT_CHARS = 2000
+
+  // Build initial messages (with cross-session learning injected)
   const basePrompt = selfOptimize ? SELF_OPTIMIZE_PROMPT : SYSTEM_PROMPT
   const fullSystemPrompt = basePrompt + learnedContext
-
   let messages = [
     { role: 'system', content: fullSystemPrompt },
   ]
-
   if (projectPath) {
     const fileList = await listProjectFiles(projectPath)
-    messages.push({ role: 'system', content: `当前项目已就绪。使用相对路径操作文件。\n项目文件清单:\n${fileList}` })
+    if (fileList) messages.push({ role: 'system', content: `当前项目已就绪。\n项目文件清单:\n${fileList}` })
   }
-
   messages.push({ role: 'user', content: userMessage })
 
-  // Dynamic tool selection
-  const READ_ONLY_TOOLS_CLI = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_notes', 'read_note', 'list_prompts', 'list_rules', 'list_audit', 'kb_list'])
-  const WRITE_INTENT_RE = /创建|新建|修改|编辑|删除|生成|写入|替换|改写|重写|追加|重命名|移动|复制|保存|导入|导出/
-  const isWrite = WRITE_INTENT_RE.test(userMessage)
-  const activeTools = isWrite ? TOOLS : TOOLS.filter(t => READ_ONLY_TOOLS_CLI.has(t.function.name))
+  // ═══════════════════════════════════════════
+  // Phase 1: Intent Analysis
+  // ═══════════════════════════════════════════
+  const PHASE1_PROMPT = [
+    '[意图分析阶段] 你需要理解用户需求，确定执行所需工具。',
+    '可用工具（仅探索）：read_file, list_directory, search_files, search_content, list_notes, list_rules',
+    '步骤：1)探索上下文 2)分析意图 3)输出结构化分析',
+    '输出（```intent代码块）：',
+    JSON.stringify({ intent:'意图描述', category:'create|edit|read|delete|analyze', complexity:'simple|moderate|complex', toolCategories:['file_write','project'], needsPlan:true, directResponse:null }, null, 2),
+    '闲聊/问候设置 needsPlan:false 并直接回复。最多3轮。',
+  ].join('\n')
+  messages.push({ role: 'system', content: PHASE1_PROMPT })
 
-  let iteration = 0, totalTokens = 0, toolCalls = 0, consecutiveFailures = 0
-  const sessionErrors = new Map() // key: "toolName:errorSummary" → count
-  const MAX_RESULT_CHARS = 2000
+  let intentResult = null, phase1Iter = 0
+  process.stdout.write('\x1b[36m[Phase 1: 意图分析]\x1b[0m')
+
+  while (!intentResult && phase1Iter < 3 && iteration < maxIterations) {
+    iteration++; phase1Iter++
+    const cleanMsgs = messages.map(m => { const { _tool, _file, _dir, _pattern, _deduped, ...keep } = m; return keep })
+    const r = await api.chatWithTools(cleanMsgs, PHASE1_TOOLS)
+    const c = r.choices?.[0]; if (!c) throw new Error('No API response')
+    totalTokens += r.usage?.total_tokens || 0
+    const txt = c.message?.content || ''
+    const calls = c.message?.tool_calls
+
+    if (calls && calls.length > 0) {
+      // Execute exploration tools
+      const aMsg = { role: 'assistant', content: txt, tool_calls: calls }
+      if (c.message?.reasoning_content) aMsg.reasoning_content = c.message.reasoning_content
+      messages.push(aMsg)
+      for (const tc of calls) {
+        const fn = tc.function
+        const argsObj = JSON.parse(fn.arguments)
+        process.stdout.write(`\n  ⚡ ${fn.name}`)
+        const result = await executor.execute(fn.name, argsObj, projectPath)
+        toolCalls++
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) })
+        process.stdout.write(` ${result.status === 'success' ? '✅' : '❌'}`)
+      }
+      continue
+    }
+
+    // Check for intent JSON
+    const intentMatch = txt.match(/```intent\s*([\s\S]*?)```/)
+    if (intentMatch) {
+      try { intentResult = JSON.parse(intentMatch[1]) } catch {}
+      if (intentResult) {
+        messages.push({ role: 'assistant', content: txt })
+        process.stdout.write(`\n\x1b[32m✅ 意图: ${intentResult.intent} | ${intentResult.complexity}\x1b[0m`)
+        break
+      }
+    }
+    // No tools + no plan = direct response (simple chat)
+    if (txt.trim() && !calls) {
+      messages.push({ role: 'assistant', content: txt })
+      intentResult = { needsPlan: false, directResponse: txt }
+      break
+    }
+  }
+
+  // Fallback: no intent extracted
+  if (!intentResult) {
+    intentResult = { needsPlan: true, intent: userMessage.slice(0,100), category:'manage', complexity:'moderate', toolCategories:[] }
+    process.stdout.write('\n\x1b[33m⚠ 意图分析超时，使用默认模式\x1b[0m\n')
+  }
+
+  // Simple chat: done
+  if (!intentResult.needsPlan) {
+    process.stdout.write(`\n\x1b[32m🤖 AI:\x1b[0m\n${intentResult.directResponse || '好的。'}`)
+    await cliLearner.endSession(sessionErrors)
+    return { text: intentResult.directResponse || '好的。', totalTokens, toolCalls, iterations: iteration }
+  }
+
+  // ═══════════════════════════════════════════
+  // Phase 2: Plan Design
+  // ═══════════════════════════════════════════
+  const planInput = [
+    `原始请求: ${userMessage}`,
+    `意图: ${intentResult.intent} | 类别: ${intentResult.category} | 复杂度: ${intentResult.complexity}`,
+    `工具类别: ${(intentResult.toolCategories || []).join(', ')}`,
+    '请设计执行方案，包括每个步骤的工具名、参数和预期结果。',
+  ].join('\n')
+  messages.push({ role: 'system', content: [
+    '[方案设计阶段] 基于意图分析设计具体执行方案。',
+    '可用工具（仅探索）：read_file, list_directory, search_files, search_content, list_notes, list_rules',
+    '输出（```plan代码块）：',
+    JSON.stringify({ steps:[{id:'step_1',tool:'工具名',action:'操作描述',args:{},expectedOutcome:'预期'}], neededTools:['tool1','tool2'], dependencies:[], estimatedTokens:500 }, null, 2),
+  ].join('\n') })
+  messages.push({ role: 'user', content: planInput })
+
+  let executionPlan = null, phase2Iter = 0
+  process.stdout.write('\n\x1b[36m[Phase 2: 方案设计]\x1b[0m')
+
+  while (!executionPlan && phase2Iter < 2 && iteration < maxIterations) {
+    iteration++; phase2Iter++
+    const cleanMsgs = messages.map(m => { const { _tool, _file, _dir, _pattern, _deduped, ...keep } = m; return keep })
+    const r = await api.chatWithTools(cleanMsgs, PHASE1_TOOLS) // same exploration tools
+    const c = r.choices?.[0]; if (!c) throw new Error('No API response')
+    totalTokens += r.usage?.total_tokens || 0
+    const txt = c.message?.content || ''
+    const calls = c.message?.tool_calls
+
+    if (calls && calls.length > 0) {
+      const aMsg = { role: 'assistant', content: txt, tool_calls: calls }
+      if (c.message?.reasoning_content) aMsg.reasoning_content = c.message.reasoning_content
+      messages.push(aMsg)
+      for (const tc of calls) {
+        const fn = tc.function
+        const result = await executor.execute(fn.name, JSON.parse(fn.arguments), projectPath)
+        toolCalls++
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) })
+      }
+      continue
+    }
+
+    const planMatch = txt.match(/```plan\s*([\s\S]*?)```/)
+    if (planMatch) {
+      try {
+        const raw = JSON.parse(planMatch[1])
+        if (raw.steps && raw.steps.length > 0) {
+          executionPlan = {
+            intent: intentResult.intent || userMessage,
+            steps: raw.steps.map((s, i) => ({
+              id: s.id || `step_${i}`, tool: s.tool || '', action: s.action || '',
+              args: s.args || {}, expectedOutcome: s.expectedOutcome || '',
+              status: 'pending', retryCount: 0, approvalStatus: 'pending',
+            })),
+            neededTools: (raw.neededTools && raw.neededTools.length > 0) ? raw.neededTools : raw.steps.map(s => s.tool),
+            estimatedTokens: raw.estimatedTokens || 0,
+            dependencies: raw.dependencies || [],
+          }
+          for (const t of CORE_READ_NAMES) {
+            if (!executionPlan.neededTools.includes(t)) executionPlan.neededTools.push(t)
+          }
+          messages.push({ role: 'assistant', content: txt })
+          process.stdout.write(`\n\x1b[32m✅ 方案: ${executionPlan.steps.length}步骤, ${executionPlan.neededTools.length}工具\x1b[0m`)
+          process.stdout.write(`\n\x1b[90m工具: ${executionPlan.neededTools.join(', ')}\x1b[0m`)
+          break
+        }
+      } catch(e) { process.stdout.write(`\n\x1b[33m⚠ 计划解析失败: ${e.message}\x1b[0m`) }
+    }
+    if (txt.trim()) messages.push({ role: 'assistant', content: txt })
+  }
+
+  // Fallback: use all tools
+  if (!executionPlan) {
+    executionPlan = { intent: userMessage.slice(0,100), steps: [], neededTools: TOOLS.map(t => t.function.name), estimatedTokens:0, dependencies:[] }
+    process.stdout.write('\n\x1b[33m⚠ 未获取方案，使用全部工具\x1b[0m\n')
+  }
+
+  // ═══════════════════════════════════════════
+  // Phase 3: Execute (scoped tools) — with Plan-as-Contract enforcement
+  // ═══════════════════════════════════════════
+  const scopedTools = TOOLS.filter(t => executionPlan.neededTools.includes(t.function.name))
+  process.stdout.write(`\n\x1b[36m[Phase 3: 执行 → ${scopedTools.length}个工具]\x1b[0m`)
+  messages.push({ role: 'system', content: `[执行阶段] 严格按计划执行。可用工具: ${executionPlan.neededTools.join(', ')}。需要额外工具时输出 [TOOL_EXPAND: tool_name]。` })
+
+  // PlanEnforcer inline for CLI (no TypeScript import available in .mjs)
+  const DANGEROUS_EXPAND = new Set(['delete_file', 'delete_project', 'delete_note', 'shell_exec', 'shell_run_script'])
+  function findStep(toolName, args) {
+    return executionPlan.steps.find(s => {
+      if (s.tool !== toolName) return false
+      if (!s.args?.file_path || !args.file_path) return true
+      const p = String(s.args.file_path), a = String(args.file_path)
+      return a.includes(p) || p.includes(a)
+    })
+  }
+
+  let activeTools = scopedTools
 
   while (iteration < maxIterations) {
     iteration++
@@ -782,7 +1077,22 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
 
     // On last iteration, remove tools to force text response
     const toolsForThisRound = iteration >= maxIterations ? [] : activeTools
-    const response = await api.chatWithTools(messages, toolsForThisRound)
+
+    // Pre-API validation: ensure message array is well-formed
+    const validation = validateApiMessages(messages)
+    if (!validation.valid) {
+      console.error(`\x1b[31m❌ 消息格式异常 (${validation.errors.length} 条):\x1b[0m`)
+      validation.errors.forEach((e, i) => console.error(`  ${i+1}. ${e}`))
+      messages = repairMessages(messages, validation.errors)
+    }
+
+    // Strip internal metadata fields before sending to API
+    const cleanMessages = messages.map(m => {
+      const { _tool, _file, _dir, _pattern, _deduped, ...keep } = m
+      return keep
+    })
+
+    const response = await api.chatWithTools(cleanMessages, toolsForThisRound)
     const choice = response.choices?.[0]
     if (!choice) throw new Error('No response from API')
 
@@ -795,6 +1105,31 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
       console.log(`\n\x1b[32m🤖 AI:\x1b[0m\n${text}`)
       await cliLearner.endSession(sessionErrors)
       return { text, totalTokens, toolCalls, iterations: iteration }
+    }
+
+    // Check for tool expansion request in AI's text — with danger approval
+    const expandMatch = text.match(/\[TOOL_EXPAND:\s*([^\]]+)\]/)
+    if (expandMatch) {
+      const newTools = expandMatch[1].split(',').map(t => t.trim()).filter(Boolean)
+      const dangerous = newTools.filter(t => DANGEROUS_EXPAND.has(t))
+      const safe = newTools.filter(t => !DANGEROUS_EXPAND.has(t))
+
+      // Auto-add safe tools
+      for (const t of safe) {
+        if (!executionPlan.neededTools.includes(t)) {
+          executionPlan.neededTools.push(t)
+        }
+      }
+
+      // Dangerous tools: warn + auto-deny in non-interactive mode
+      if (dangerous.length > 0) {
+        process.stdout.write(`\n\x1b[33m⚠ 工具扩展请求包含危险工具: ${dangerous.join(', ')}。已拒绝（需用户审批）。\x1b[0m`)
+      }
+
+      if (safe.length > 0) {
+        activeTools = TOOLS.filter(t => executionPlan.neededTools.includes(t.function.name))
+        process.stdout.write(`\n\x1b[35m🔧 工具集扩展: +${safe.join(', ')} → ${activeTools.length}个工具\x1b[0m`)
+      }
     }
 
     if (text.trim()) console.log(`\x1b[90m${text.slice(0, 200)}${text.length > 200 ? '...' : ''}\x1b[0m`)
@@ -817,14 +1152,33 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
         await gitSnapshot(fn.name)
       }
 
+      // PlanEnforcer check: is this tool call within the approved plan?
+      const matchedStep = findStep(fn.name, args)
+      if (!matchedStep && executionPlan.steps.length > 0) {
+        // Block unplanned tool calls (Plan-as-Contract)
+        const result = { status: 'error', summary: `[计划合约] "${fn.name}" 没有对应的计划步骤。` }
+        process.stdout.write(`\n  \x1b[31m🚫 ${result.summary}\x1b[0m`)
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) })
+        continue
+      }
+
       const result = await executor.execute(fn.name, args, projectPath)
       toolCalls++
+
+      // Track step completion
+      if (matchedStep) {
+        matchedStep.status = result.status === 'success' ? 'completed' : 'failed'
+      }
+
+      // Collect deferred system messages (must be pushed AFTER tool result to keep
+      // assistant→tool order valid for API message sequence validation)
+      const deferredSystemMessages = []
 
       if (result.status === 'error') {
         consecutiveFailures++
         // Normalize error key: group by tool + error type, strip specific filenames
         const errType = result.summary
-          .replace(/: .+$/g, ': {file}')  // "文件不存在: foo.txt" → "文件不存在: {file}"
+          .replace(/: .+$/g, ': {file}')
           .replace(/['"].*?['"]/g, '"{file}"')
           .slice(0, 80)
         const errKey = `${fn.name}:${errType}`
@@ -837,7 +1191,9 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
           process.stdout.write(`\n\x1b[35m📝 学习: ${fn.name} 模式已记录 (${newCount}次)\x1b[0m`)
         }
         if (consecutiveFailures >= 2) {
-          messages.push({ role: 'system', content: `已连续${consecutiveFailures}次失败。请重新 read_file 确认文件内容后再操作。` })
+          deferredSystemMessages.push(
+            `已连续${consecutiveFailures}次失败。请重新 read_file 确认文件内容后再操作。`
+          )
         }
       } else { consecutiveFailures = 0 }
 
@@ -863,48 +1219,99 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
       }
       messages.push(resultMsg)
 
-      // Smart history management
-      if (toolCalls >= 6 && toolCalls % 3 === 0) {
-        let pruned = 0, truncated = 0
-        const keepFrom = Math.max(2, messages.length - 6)
+      // Push deferred system messages AFTER tool result (keeps API message order valid)
+      for (const sysMsg of deferredSystemMessages) {
+        messages.push({ role: 'system', content: sysMsg })
+      }
 
-        // ① Deduplicate old results (same tool + same target)
-        const seen = new Map()
-        for (let i = 1; i < keepFrom; i++) {
-          const m = messages[i]
-          if (m.role !== 'tool') continue
-          try {
-            const parsed = JSON.parse(m.content)
-            if (parsed.status === 'error') continue
-            const key = `${m._tool || ''}:${m._file || m._dir || m._pattern || ''}`
-            if (key.length < 4) continue
-            if (seen.has(key)) { messages[i] = null; pruned++ }
-            else seen.set(key, i)
-          } catch {}
+      // Auto-bind project after successful create_project in no-project mode
+      // Must run AFTER tool result is pushed to keep assistant→tool→system order valid
+      if (fn.name === 'create_project' && result.status === 'success' && !projectPath) {
+        executor.setProject(String(args.name || '').trim())
+        projectPath = executor.getProjectPath()
+        if (projectPath) {
+          console.log(`\x1b[32m📁 已自动设置项目: ${args.name}\x1b[0m`)
+          const fileList = await listProjectFiles(projectPath)
+          if (fileList) {
+            messages.push({ role: 'system', content: `新项目已就绪。使用相对路径操作文件。\n项目文件清单:\n${fileList}` })
+          }
         }
+      }
 
-        // ② Truncate old read_file results (keep first 500 chars of detail)
-        for (let i = 1; i < keepFrom; i++) {
-          const m = messages[i]
-          if (!m || m.role !== 'tool' || m._tool !== 'read_file') continue
-          try {
-            const parsed = JSON.parse(m.content)
-            if (parsed.detail && parsed.detail.length > 500) {
-              parsed.detail = parsed.detail.slice(0, 500) + `...(截断${parsed.detail.length - 500}字符)`
-              parsed._truncated = true
-              m.content = JSON.stringify(parsed)
-              truncated++
+      // REMOVED smart history management from here — see post-round pruning below
+    }
+
+    // ── Post-round smart history pruning (runs AFTER all tools, never mid-round) ──
+    if (toolCalls >= 6 && toolCalls % 3 === 0) {
+      let pruned = 0, truncated = 0
+
+      // Keep-zone: last 6 non-system messages (system messages don't protect tool results)
+      let nonSystemCount = 0, keepFrom = 2
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role !== 'system' && ++nonSystemCount >= 6) {
+          keepFrom = i; break
+        }
+      }
+      keepFrom = Math.max(2, keepFrom)
+
+      // Upper bound: never dedup beyond last 30 messages (prevent unbounded growth)
+      const dedupStart = Math.max(1, messages.length - 30)
+
+      // ① Deduplicate old results (same tool + same target) — preserves tool_call_id
+      const seen = new Map()
+      for (let i = dedupStart; i < keepFrom; i++) {
+        const m = messages[i]
+        if (!m || m.role !== 'tool') continue
+        try {
+          const parsed = JSON.parse(m.content)
+          if (parsed.status === 'error') continue
+          // Skip tools without identifiable targets (e.g., create_project, list_notes)
+          const target = m._file || m._dir || m._pattern
+          if (!target || target.length === 0) continue
+          const key = `${m._tool || ''}:${target}`
+          if (seen.has(key)) {
+            // Compact: replace duplicate with minimal result preserving tool_call_id
+            messages[i] = {
+              role: 'tool',
+              tool_call_id: m.tool_call_id,
+              content: JSON.stringify({ status: 'success', summary: `[去重] 与之前 ${m._tool} 结果相同` }),
+              _tool: m._tool,
+              _deduped: true,
             }
-          } catch {}
-        }
+            pruned++
+          } else {
+            seen.set(key, i)
+          }
+        } catch {}
+      }
 
+      // ② Truncate old read_file results (keep first 500 chars of detail)
+      for (let i = dedupStart; i < keepFrom; i++) {
+        const m = messages[i]
+        if (!m || m.role !== 'tool' || m._tool !== 'read_file' || m._deduped) continue
+        try {
+          const parsed = JSON.parse(m.content)
+          if (parsed.detail && parsed.detail.length > 500) {
+            parsed.detail = parsed.detail.slice(0, 500) + `...(截断${parsed.detail.length - 500}字符)`
+            parsed._truncated = true
+            m.content = JSON.stringify(parsed)
+            truncated++
+          }
+        } catch {}
+      }
+
+      // Safety: filter nulls + warn if any remain (should never happen after compaction fix)
+      const nullCount = messages.filter(m => m === null).length
+      if (nullCount > 0) {
+        console.error(`\x1b[31m⚠ 意外: ${nullCount} 条 null 消息被过滤 (去重逻辑可能有漏洞)\x1b[0m`)
         messages = messages.filter(m => m !== null)
-        if (pruned > 0 || truncated > 0) {
-          const parts = []
-          if (pruned > 0) parts.push(`去重${pruned}条`)
-          if (truncated > 0) parts.push(`截断${truncated}条旧读取结果`)
-          process.stdout.write(`\n\x1b[90m✂ ${parts.join('，')} (${toolCalls}次调用)\x1b[0m`)
-        }
+      }
+
+      if (pruned > 0 || truncated > 0) {
+        const parts = []
+        if (pruned > 0) parts.push(`压缩${pruned}条重复结果`)
+        if (truncated > 0) parts.push(`截断${truncated}条旧读取结果`)
+        process.stdout.write(`\n\x1b[90m✂ ${parts.join('，')} (${toolCalls}次调用)\x1b[0m`)
       }
     }
   }
@@ -914,7 +1321,11 @@ async function runAgent(api, executor, userMessage, projectPath, maxIterations, 
 
   // Strategy 1: Ask AI for final summary without tools
   messages.push({ role: 'user', content: '请根据以上所有工具执行结果，用中文提供简洁的最终回复。不要调用任何工具。' })
-  const final = await api.chatWithTools(messages, []) // no tools
+  const cleanMessagesFinal = messages.map(m => {
+    const { _tool, _file, _dir, _pattern, _deduped, ...keep } = m
+    return keep
+  })
+  const final = await api.chatWithTools(cleanMessagesFinal, []) // no tools
   let finalText = final.choices?.[0]?.message?.content || ''
   totalTokens += final.usage?.total_tokens || 0
 

@@ -28,6 +28,16 @@ export interface SubAgentResult {
   toolCalls: number
   duration: number
   modelTier: ModelTier
+  // Orchestrator handoff fields
+  needsMoreTools?: boolean
+  missingTools?: string[]
+  structuredOutput?: Record<string, unknown>  // parsed JSON from agent output
+}
+
+export interface DelegateOptions {
+  modelTierOverride?: ModelTier
+  toolOverride?: string[]       // dynamically override toolNames (for Execute Agent)
+  extraSystemPrompt?: string    // appended to agent's system prompt
 }
 
 // ── Pre-built Sub-Agent Configurations ──
@@ -142,6 +152,123 @@ export const SUB_AGENTS: SubAgentConfig[] = [
       '完成后输出问题列表和修复建议。',
     ].join('\n'),
   },
+
+  // ── Orchestrator Pipeline Agents ──
+  {
+    name: 'intent-analyzer',
+    purpose: '分析用户写作意图，探索项目上下文，确定需要的工具类别',
+    toolNames: ['read_file', 'list_directory', 'search_files', 'search_content', 'read_note', 'search_notes', 'create_project'],
+    contextProviderDomains: ['core-rules', 'outline', 'characters'],
+    maxIterations: 3,
+    modelTier: 'cheap',
+    systemPrompt: [
+      '你是意图分析专家。你的任务是理解用户的写作需求，探索项目上下文，输出结构化的意图分析。',
+      '',
+      '步骤：',
+      '1. 如果用户提到了具体文件或项目，用探索工具查看相关上下文',
+      '2. 分析用户意图：类别（create|edit|read|delete|analyze|search|manage）、复杂度（simple|moderate|complex）、目标',
+      '3. 确定执行任务需要哪些工具类别',
+      '4. 如果是简单问候或闲聊，直接回复，设置 needsPlan: false',
+      '',
+      '输出格式（包裹在 ```intent 代码块中）：',
+      '```intent',
+      JSON.stringify({
+        intent: '用户意图的一句话描述',
+        category: 'create|edit|read|delete|analyze|search|manage',
+        complexity: 'simple|moderate|complex',
+        goal: '具体目标',
+        toolCategories: ['file_write', 'project', 'search'],
+        needsPlan: true,
+        directResponse: null,
+      }, null, 2),
+      '```',
+      '',
+      '注意：不要在此阶段执行写操作。探索最多3轮API调用。',
+    ].join('\n'),
+  },
+  {
+    name: 'plan-designer',
+    purpose: '根据意图分析结果，设计具体的执行方案',
+    toolNames: ['read_file', 'list_directory', 'search_files', 'search_content', 'read_note', 'search_notes'],
+    contextProviderDomains: ['core-rules', 'outline', 'characters', 'detailed-outline'],
+    maxIterations: 3,
+    modelTier: 'cheap',
+    systemPrompt: [
+      '你是方案设计专家。根据意图分析结果，为任务设计具体的执行步骤。',
+      '',
+      '步骤：',
+      '1. 理解意图分析的结果',
+      '2. 如果对文件路径不确定，用探索工具确认',
+      '3. 设计执行步骤，每个步骤指定精确的工具名和参数',
+      '',
+      '输出格式（包裹在 ```plan 代码块中）：',
+      '```plan',
+      JSON.stringify({
+        steps: [
+          {
+            id: 'step_1',
+            tool: '工具名',
+            action: '描述要做什么',
+            args: { file_path: '相对路径' },
+            expectedOutcome: '预期结果',
+          },
+        ],
+        neededTools: ['tool_name_1', 'tool_name_2'],
+        dependencies: [],
+        estimatedTokens: 500,
+      }, null, 2),
+      '```',
+      '',
+      '注意：neededTools 必须列出所有需要的工具（包括只读工具）。如果任务需要工具扩展，后续会通知你。',
+    ].join('\n'),
+  },
+  {
+    name: 'plan-executor',
+    purpose: '按已批准的计划执行，使用精准的工具集',
+    toolNames: [],  // 由 Orchestrator 根据 plan.neededTools 动态注入
+    contextProviderDomains: ['core-rules'],
+    maxIterations: 12,
+    modelTier: 'main',
+    systemPrompt: [
+      '你是计划执行者。严格按照批准的计划步骤执行任务。',
+      '',
+      '规则：',
+      '- 你只能使用系统提供的工具',
+      '- 如果发现完成计划需要但当前没有的工具，在回复中输出：',
+      '  [TOOL_EXPAND: tool_name] 原因',
+      '- 不要输出 JSON 计划——计划已经批准，直接执行',
+      '- 完成后简要汇总执行结果',
+    ].join('\n'),
+  },
+  {
+    name: 'result-reviewer',
+    purpose: '审查执行结果，对比计划预期，判断是否需要重试',
+    toolNames: ['read_file', 'search_content', 'search_files', 'list_directory'],
+    contextProviderDomains: ['core-rules'],
+    maxIterations: 3,
+    modelTier: 'cheap',
+    systemPrompt: [
+      '你是结果审查专家。你的任务是验证执行结果是否与计划预期一致。',
+      '',
+      '步骤：',
+      '1. 读取被创建或修改的文件，确认内容正确',
+      '2. 用 search_content 验证关键信息的一致性',
+      '3. 对比计划中的每个步骤的 expectedOutcome',
+      '',
+      '输出格式（包裹在 ```review 代码块中）：',
+      '```review',
+      JSON.stringify({
+        passed: true,
+        score: 0.95,
+        issues: [],
+        suggestions: [],
+        needRetry: false,
+      }, null, 2),
+      '```',
+      '',
+      '评分标准：1.0=完美，0.8+=良好，0.6+=基本完成，<0.6=需要重做。',
+    ].join('\n'),
+  },
 ]
 
 // ── Manager ──
@@ -189,8 +316,13 @@ export class SubAgentManager {
     input: string,
     configId: string,
     projectId: string | null,
-    modelTierOverride?: 'cheap' | 'main' | 'eval',
+    optionsOrTier?: DelegateOptions | 'cheap' | 'main' | 'eval',
   ): Promise<SubAgentResult> {
+    // Backward-compat: accept old signature (modelTierOverride string) or new DelegateOptions
+    const opts: DelegateOptions = typeof optionsOrTier === 'string'
+      ? { modelTierOverride: optionsOrTier }
+      : (optionsOrTier || {})
+
     const config = this.getAgent(agentName)
     if (!config) {
       return {
@@ -200,7 +332,7 @@ export class SubAgentManager {
       }
     }
 
-    const effectiveTier = modelTierOverride || config.modelTier || 'main'
+    const effectiveTier = opts.modelTierOverride || config.modelTier || 'main'
     const effectiveConfigId = configId // Model routing via different configIds when available
 
     const startTime = Date.now()
@@ -219,16 +351,22 @@ export class SubAgentManager {
       // Assemble context
       const ctx = await assembler.assemble(input, [], projectId)
 
+      // Build system prompt (append extra prompt if provided)
+      const systemPrompt = opts.extraSystemPrompt
+        ? config.systemPrompt + '\n\n' + opts.extraSystemPrompt
+        : config.systemPrompt
+
       // Build messages
       const messages: Message[] = [
-        { role: 'system', content: config.systemPrompt },
+        { role: 'system', content: systemPrompt },
         ...ctx.systemMessages,
         { role: 'user', content: input },
       ]
 
-      // Filter tools to only what this agent needs
+      // Determine tool list: toolOverride takes precedence over config.toolNames
+      const effectiveToolNames = opts.toolOverride || config.toolNames
       const allowedTools = this.registry.getAllSchemas().filter(
-        t => config.toolNames.includes(t.function.name)
+        t => effectiveToolNames.includes(t.function.name)
       )
 
       // Dynamic import AI service

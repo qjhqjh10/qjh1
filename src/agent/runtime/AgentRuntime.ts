@@ -16,6 +16,7 @@ import type { HookEngine } from '../hooks/HookEngine'
 import type { LivingSkillManager } from '../living-skills/LivingSkillManager'
 import { ThinkingEngine } from '../thinking/ThinkingEngine'
 import { isTaskMessage } from '../utils/taskDetection'
+import { PlanEnforcer } from '../enforcer/PlanEnforcer'
 
 // ── Config ──
 
@@ -160,6 +161,8 @@ export class AgentRuntime {
   private hallucinationCallback: ((text: string) => void) | null = null
   private thinkingEngine = new ThinkingEngine()
   private toolCallCounts = new Map<string, number>()
+  // FileRouter preloaded at module level (avoids sync require() in ESM context)
+  static _fileRouter: { routeIntent(userMessage: string, projectId: string | null): string | null } | null = null
   private static readonly MAX_CALLS_PER_TOOL: Record<string, number> = {
     list_directory: 2, read_file: 5, search_files: 2, search_content: 3, list_notes: 2, kb_list: 2,
   }
@@ -256,8 +259,21 @@ export class AgentRuntime {
     return this.emitter
   }
 
+  // PlanEnforcer for V2 contract-based execution (set via injectPlan or Bridge)
+  private planEnforcer: import('../enforcer/PlanEnforcer').PlanEnforcer | null = null
+
   getState(): Readonly<AgentState> {
     return this.fsm.currentState
+  }
+
+  /**
+   * Inject an externally-generated plan into the runtime, skipping the
+   * internal PLANNING phase. Used by AgentOrchestrator to avoid double planning.
+   */
+  injectPlan(plan: import('../state/types').ThinkingPlan): void {
+    this.fsm.setExecutionPlan(plan)
+    this.fsm.setPlanPhase('approved')
+    this.planEnforcer = new PlanEnforcer(plan)
   }
 
   approvePlan(): void {
@@ -429,6 +445,7 @@ export class AgentRuntime {
           diagnosticLogger.recordApiCallStart()
           const API_TIMEOUT = 90000
           let response
+          let apiTimeoutHandle: ReturnType<typeof setTimeout> | null = null
           try {
             const apiPromise = this.aiService.chatWithTools(
               this.messagesForApi,
@@ -436,14 +453,16 @@ export class AgentRuntime {
               this.config.projectId || undefined,
               toolsForThisRound,
             )
-            const timeoutPromise = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`API 调用超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT)
-            )
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              apiTimeoutHandle = setTimeout(() => reject(new Error(`API 调用超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT)
+            })
             response = await Promise.race([apiPromise, timeoutPromise])
             diagnosticLogger.recordApiCallEnd(response.usage?.total_tokens || 0, (response.toolCalls?.length ?? 0) > 0)
           } catch (apiErr) {
             diagnosticLogger.recordApiCallError(apiErr instanceof Error ? apiErr.message : 'Unknown')
             throw apiErr
+          } finally {
+            if (apiTimeoutHandle) clearTimeout(apiTimeoutHandle)
           }
 
           totalTokens += response.usage?.total_tokens || 0
@@ -621,7 +640,7 @@ export class AgentRuntime {
             this.emitter.emit('plan:approved', { timestamp: Date.now() })
             if (this.fsm.canTransition('EXECUTING')) {
               this.fsm.setShouldContinue(true)
-              await this.fsm.transition('CALLING_API')
+              await this.fsm.transition('EXECUTING')
             }
             continue
           } else if (planPhase === 'rejected') {
@@ -706,28 +725,11 @@ export class AgentRuntime {
       store.endRun()
 
       // ── Post-session: Evaluation Pipeline ──
+      // Note: Evaluation is handled by AgentChatBridge.executeRun() which has full
+      // access to auditTrail, skillLearner, and other context. Running it here would
+      // produce incomplete results since AgentRuntime doesn't own those subsystems.
       let evaluationScore: number | null = null
       let evaluationSuggestions: string[] = []
-      if (this.evaluationPipeline) {
-        try {
-          const pipelineOutput = await this.evaluationPipeline.run({
-            taskDescription: input.userMessage,
-            toolResults: this.allToolResults,
-            messages: this.messagesForApi,
-            auditTrail: (this as any).auditTrail || null,
-            skillLearner: (this as any).skillLearner || null,
-            livingSkillManager: this.livingSkillManager,
-          })
-          evaluationScore = pipelineOutput.report.overallScore
-          evaluationSuggestions = pipelineOutput.autoSuggestions
-          if (evaluationScore < 0.6) {
-            console.log(`[Evaluation] 评分 ${evaluationScore} (${pipelineOutput.report.layer}) — ${pipelineOutput.report.summary}`)
-          }
-          if (evaluationSuggestions.length > 0) {
-            console.log(`[Evaluation] 建议:`, evaluationSuggestions.join('; '))
-          }
-        } catch { /* evaluation is best-effort */ }
-      }
 
       // ── Post-session: GC Agent ──
       let gcReport: { totalIssues: number; issues: Array<{ type: string; severity: string; location: string; description: string; fixInstruction: string }>; summary: string } | null = null
@@ -737,7 +739,7 @@ export class AgentRuntime {
           if (gcReport.totalIssues > 0) {
             console.log(`[GCAgent] ${gcReport.totalIssues} 个问题 — ${gcReport.summary}`)
           }
-        } catch { /* gc is best-effort */ }
+        } catch (err) { console.warn('[AgentRuntime] GC report generation failed:', err) }
       }
 
       // G9: Rich result
@@ -926,11 +928,15 @@ export class AgentRuntime {
           projectId: this.config.projectId, configId: this.config.configId,
           callId: tc.id, toolName: tc.name, signal: this.config.abortSignal,
         })
-        const timeoutPromise = new Promise<ToolResult>(r => setTimeout(() => {
-          diagnosticLogger.recordToolTimeout(tc.name, TOOL_TIMEOUT)
-          r({ status: 'error', summary: `工具 ${tc.name} 执行超时 (${TOOL_TIMEOUT / 1000}秒)` })
-        }, TOOL_TIMEOUT))
+        let toolTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+        const timeoutPromise = new Promise<ToolResult>(r => {
+          toolTimeoutHandle = setTimeout(() => {
+            diagnosticLogger.recordToolTimeout(tc.name, TOOL_TIMEOUT)
+            r({ status: 'error', summary: `工具 ${tc.name} 执行超时 (${TOOL_TIMEOUT / 1000}秒)` })
+          }, TOOL_TIMEOUT)
+        })
         result = await Promise.race([execPromise, timeoutPromise])
+        if (toolTimeoutHandle) clearTimeout(toolTimeoutHandle)
       } else {
         result = { status: 'error', summary: '工具执行器未配置' }
       }
@@ -1123,14 +1129,14 @@ export class AgentRuntime {
     const parts: string[] = []
 
     // ⓪ File Path Router — highest priority: tell AI exactly which file to read
-    try {
-      const { routeIntent } = require('../context/FileRouter')
-      const directRoute = routeIntent(userMessage, this.config.projectId)
-      if (directRoute) {
-        parts.push(`[Agent导航] ${directRoute}`)
-        // Still add project context below the direct instruction
-      }
-    } catch { /* FileRouter not available */ }
+    if (AgentRuntime._fileRouter) {
+      try {
+        const directRoute = AgentRuntime._fileRouter.routeIntent(userMessage, this.config.projectId)
+        if (directRoute) {
+          parts.push(`[Agent导航] ${directRoute}`)
+        }
+      } catch { /* routeIntent failed */ }
+    }
 
     if (parts.length === 0) parts.push('[Agent导航]')
 
@@ -1194,3 +1200,8 @@ export class AgentRuntime {
     this.fsm.reset()
   }
 }
+
+// Preload FileRouter at module init (replaces sync require() for ESM compatibility)
+import('../context/FileRouter').then(mod => {
+  AgentRuntime._fileRouter = mod
+}).catch(() => { /* FileRouter optional */ })

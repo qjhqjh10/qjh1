@@ -281,11 +281,14 @@ export class DiagnosticLogger {
     this.writeQueue = []
     try {
       // Use Electron's appendDebugLog which writes to app data directory
-      if ((window as any).electron?.appendDebugLog) {
+      if (typeof window !== 'undefined' && (window as any).electron?.appendDebugLog) {
         // Each event on its own line for easy parsing
         await (window as any).electron.appendDebugLog('agent-diagnostic', lines.join('\n') + '\n')
       }
-    } catch { /* persist failure is non-fatal */ }
+    } catch (err) {
+      // Non-fatal — but at least log so we know if this is broken
+      if (typeof console !== 'undefined') console.warn('[DiagnosticLogger] flushToFile failed:', err)
+    }
   }
 
   /** Force flush all pending events (call at end of run) */
@@ -300,3 +303,10 @@ export class DiagnosticLogger {
 
 // Global singleton
 export const diagnosticLogger = new DiagnosticLogger()
+
+// Auto-cleanup when the window unloads (prevents setInterval leak)
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    diagnosticLogger.destroy()
+  })
+}

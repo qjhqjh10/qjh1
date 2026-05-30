@@ -51,12 +51,12 @@ describe('SubAgentManager', () => {
   })
 
   it('has 6 pre-built sub-agents', () => {
-    expect(SUB_AGENTS).toHaveLength(6)
+    expect(SUB_AGENTS).toHaveLength(10)
   })
 
   it('lists all agents', () => {
     const agents = manager.listAgents()
-    expect(agents).toHaveLength(6)
+    expect(agents).toHaveLength(10)
   })
 
   it('can get agent by name', () => {
@@ -79,7 +79,7 @@ describe('SubAgentManager', () => {
       systemPrompt: 'You are a custom agent.',
     })
     expect(manager.getAgent('custom-agent')).toBeDefined()
-    expect(manager.listAgents()).toHaveLength(7)
+    expect(manager.listAgents()).toHaveLength(11)
   })
 
   it('overwrites existing agent with same name', () => {

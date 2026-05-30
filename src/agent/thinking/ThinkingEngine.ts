@@ -41,19 +41,26 @@ export class ThinkingEngine {
   }
 
   private normalizePlan(raw: Record<string, unknown>): ThinkingPlan {
+    const steps = Array.isArray(raw.steps) ? raw.steps.map((s: Record<string, unknown>, i: number) => ({
+      id: String(s.id || `step_${i}`),
+      tool: String(s.tool || ''),
+      action: String(s.action || ''),
+      args: (s.args as Record<string, unknown>) || {},
+      expectedOutcome: String(s.expectedOutcome || ''),
+      status: 'pending' as const,
+      retryCount: 0,
+      approvalStatus: 'pending' as const,
+      userFeedback: undefined,
+    })) : []
+
+    const neededTools: string[] = (Array.isArray(raw.neededTools) && raw.neededTools.length > 0)
+      ? raw.neededTools.map(String).filter(t => t.length > 0)
+      : [...new Set(steps.map(s => s.tool))]
+
     return {
       intent: String(raw.intent || ''),
-      steps: Array.isArray(raw.steps) ? raw.steps.map((s: Record<string, unknown>, i: number) => ({
-        id: String(s.id || `step_${i}`),
-        tool: String(s.tool || ''),
-        action: String(s.action || ''),
-        args: (s.args as Record<string, unknown>) || {},
-        expectedOutcome: String(s.expectedOutcome || ''),
-        status: 'pending' as const,
-        retryCount: 0,
-        approvalStatus: 'pending' as const,
-        userFeedback: undefined,
-      })) : [],
+      steps,
+      neededTools,
       estimatedTokens: Number(raw.estimatedTokens) || 0,
       dependencies: Array.isArray(raw.dependencies) ? raw.dependencies as number[][] : [],
     }
@@ -78,6 +85,7 @@ export class ThinkingEngine {
     return {
       intent: text.slice(0, 200),
       steps,
+      neededTools: [...new Set(steps.map(s => s.tool))],
       estimatedTokens: 0,
       dependencies: [],
     }
@@ -183,6 +191,7 @@ export class ThinkingEngine {
             expectedOutcome: '预期的结果',
           },
         ],
+        neededTools: ['read_file', 'edit_file'],
         dependencies: [],
         estimatedTokens: 500,
       }, null, 2),

@@ -120,6 +120,9 @@ export interface AgentStoreState {
 // Shared reset fields for startRun/endRun to avoid duplication
 // ── Store ──
 
+// Track pending tool cleanup timers so they can be cancelled on new run
+const _toolCleanupTimers = new Set<ReturnType<typeof setTimeout>>()
+
 export const useAgentStore = create<AgentStoreState>()(
   immer((set, get) => ({
     sessions: [],
@@ -170,39 +173,48 @@ export const useAgentStore = create<AgentStoreState>()(
 
     // ── Run Actions ──
 
-    startRun: (runId) => set(s => {
-      s.run.runId = runId
-      s.run.phase = 'THINKING'
-      s.run.isRunning = true
-      s.run.iteration = 0
-      s.run.thinking = null
-      s.run.activeTools = {}
-      s.run.lastError = null
-      s.run.streamingText = ''
-      s.run.isStreaming = false
-      s.run.hookFeedback = null
-      s.run.executionPlan = null
-      s.run.planPhase = 'none'
-      s.run.verificationReports = []
-      s.run.planDeviation = null
-    }),
+    startRun: (runId) => {
+      // Clear any pending tool cleanup timers from previous runs
+      for (const timer of _toolCleanupTimers) clearTimeout(timer)
+      _toolCleanupTimers.clear()
+      return set(s => {
+        s.run.runId = runId
+        s.run.phase = 'THINKING'
+        s.run.isRunning = true
+        s.run.iteration = 0
+        s.run.thinking = null
+        s.run.activeTools = {}
+        s.run.lastError = null
+        s.run.streamingText = ''
+        s.run.isStreaming = false
+        s.run.hookFeedback = null
+        s.run.executionPlan = null
+        s.run.planPhase = 'none'
+        s.run.verificationReports = []
+        s.run.planDeviation = null
+      })
+    },
 
-    endRun: () => set(s => {
-      s.run.runId = null
-      s.run.phase = 'IDLE'
-      s.run.isRunning = false
-      s.run.iteration = 0
-      s.run.thinking = null
-      s.run.activeTools = {}
-      s.run.lastError = null
-      s.run.streamingText = ''
-      s.run.isStreaming = false
-      s.run.hookFeedback = null
-      s.run.executionPlan = null
-      s.run.planPhase = 'none'
-      s.run.verificationReports = []
-      s.run.planDeviation = null
-    }),
+    endRun: () => {
+      for (const timer of _toolCleanupTimers) clearTimeout(timer)
+      _toolCleanupTimers.clear()
+      return set(s => {
+        s.run.runId = null
+        s.run.phase = 'IDLE'
+        s.run.isRunning = false
+        s.run.iteration = 0
+        s.run.thinking = null
+        s.run.activeTools = {}
+        s.run.lastError = null
+        s.run.streamingText = ''
+        s.run.isStreaming = false
+        s.run.hookFeedback = null
+        s.run.executionPlan = null
+        s.run.planPhase = 'none'
+        s.run.verificationReports = []
+        s.run.planDeviation = null
+      })
+    },
 
     setPhase: (phase) => set(s => { s.run.phase = phase }),
     setIteration: (n) => set(s => { s.run.iteration = n }),
@@ -230,9 +242,11 @@ export const useAgentStore = create<AgentStoreState>()(
         t.detail = detail
       }
       // Auto-remove completed tool after 15 seconds to give users time to see results
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        _toolCleanupTimers.delete(timer)
         set(s2 => { delete s2.run.activeTools[callId] })
       }, 15000)
+      _toolCleanupTimers.add(timer)
     }),
 
     setLastError: (error) => set(s => { s.run.lastError = error }),

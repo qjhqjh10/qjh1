@@ -4,7 +4,15 @@
     "toolName": "read_file",
     "errorSummary": "文件不存在: {file}",
     "count": 1,
-    "firstSession": "2026-05-29",
-    "lastSession": "2026-05-29"
+    "firstSession": "2026-05-30",
+    "lastSession": "2026-05-30"
+  },
+  {
+    "key": "list_directory:目录不存在: {file}",
+    "toolName": "list_directory",
+    "errorSummary": "目录不存在: {file}",
+    "count": 2,
+    "firstSession": "2026-05-30",
+    "lastSession": "2026-05-30"
   }
 ]

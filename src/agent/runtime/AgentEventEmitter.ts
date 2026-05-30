@@ -130,7 +130,17 @@ export class AgentEventEmitter {
   emit<K extends keyof AgentEventMap>(event: K, data: AgentEventMap[K]): void {
     if (this.aborted && event !== 'aborted' && event !== 'error') return
     this.handlers.get(event)?.forEach(h => {
-      try { h(data) } catch { /* swallow handler errors */ }
+      try { h(data) } catch (err) {
+        console.error(`[AgentEventEmitter] Handler error for event "${event}":`, err)
+        // Emit handler errors so the UI can display diagnostics
+        if (event !== 'error') {
+          try {
+            this.handlers.get('error')?.forEach(eh => {
+              eh({ phase: 'EVENT', message: `事件处理器错误 (${event}): ${err instanceof Error ? err.message : 'Unknown'}`, recoverable: true, timestamp: Date.now() })
+            })
+          } catch { /* error handler itself failed */ }
+        }
+      }
     })
   }
 

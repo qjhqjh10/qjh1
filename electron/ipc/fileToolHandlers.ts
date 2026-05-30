@@ -115,7 +115,7 @@ function makeBackupName(originalName: string): string {
   return `${timestamp()}${BACKUP_SEPARATOR}${originalName}`
 }
 
-const backupLocks = new Map<string, Promise<void>>()
+const backupLocks = new Map<string, Promise<string>>()
 
 async function listBackupsForFile(
   originalFilePath: string,
@@ -147,10 +147,62 @@ async function listBackupsForFile(
 
 /**
  * Smart backup with dedup, retention, and file-level locking (Issues #7 #12).
+ * Creates a timestamped backup of the given file in .ai_backups/ directory.
+ * Returns the backup's relative path, or '' if backup is skipped/failed.
  */
-// Backup disabled — returns empty string immediately
-async function backupFile(_filePath: string, _projectPath: string): Promise<string> {
-  return ''
+async function backupFile(filePath: string, projectPath: string): Promise<string> {
+  try {
+    // Check if source file exists
+    await fsp.access(filePath)
+  } catch {
+    return '' // Source doesn't exist, nothing to back up
+  }
+
+  // File-level lock to prevent concurrent backup of the same file
+  const lockKey = filePath
+  const existingLock = backupLocks.get(lockKey)
+  if (existingLock) {
+    try { await existingLock } catch { /* previous backup failed, proceed */ }
+  }
+
+  const backupPromise = (async () => {
+    try {
+      const backupDir = path.join(projectPath, BACKUP_DIR)
+      await fsp.mkdir(backupDir, { recursive: true })
+
+      const originalName = path.basename(filePath)
+      const backupName = makeBackupName(originalName)
+      const backupPath = path.join(backupDir, backupName)
+
+      // Read source and write backup
+      const content = await fsp.readFile(filePath)
+      await fsp.writeFile(backupPath, content)
+
+      // Retention: keep only the most recent MAX_BACKUPS_PER_FILE backups per file
+      const existingBackups = await listBackupsForFile(filePath, projectPath)
+      if (existingBackups.length > MAX_BACKUPS_PER_FILE) {
+        const toDelete = existingBackups.slice(0, existingBackups.length - MAX_BACKUPS_PER_FILE)
+        for (const b of toDelete) {
+          try { await fsp.unlink(b.fullPath) } catch { /* skip if can't delete */ }
+        }
+      }
+
+      return `${BACKUP_DIR}/${backupName}`
+    } catch (err) {
+      console.error('[fileToolHandlers] backupFile failed:', filePath, err)
+      return ''
+    }
+  })()
+
+  backupLocks.set(lockKey, backupPromise)
+  try {
+    const result = await backupPromise
+    return result
+  } finally {
+    if (backupLocks.get(lockKey) === backupPromise) {
+      backupLocks.delete(lockKey)
+    }
+  }
 }
 
 // ── Safe recursive walk (Issue #5: symlink + safe-path checks) ──

@@ -1,7 +1,23 @@
 {
-  "currentVersion": "9.0.0",
+  "currentVersion": "9.1.0",
   "currentDate": "2026-05-30",
   "history": [
+    {
+      "version": "9.0.1",
+      "date": "2026-05-30",
+      "features": [
+        "多Agent协作架构: AgentOrchestrator编排器(Intent→Plan→Execute→Review四阶段流水线), 4个专用SubAgent(intent-analyzer/plan-designer/plan-executor/result-reviewer), 每个Agent独立工具集+上下文+模型层级",
+        "PlanEnforcer统一执行保护层: 计划即合约(Plan as Contract), 统一CLI/AgentRuntime/Orchestrator三条路径的计划执行力度, 工具扩展需审批(危险工具自动拒绝), 步骤完成追踪",
+        "工具选择智能化: 从正则关键词硬约束→多Agent智能分析→AI声明neededTools→精准工具集执行, 消除analyzeIntent/isTaskMessage/WRITE_KEYWORDS三套独立关键词系统",
+        "CLI Agent全面升级: 三阶段智能编排(Phase1意图分析→Phase2方案设计→Phase3精准执行), 工具扩展审批, plan enforcement, 消息剪枝修复(compact替代null防止assistant→tool配对破坏), 消息验证+自动修复",
+        "Agent全面审计修复30项: 静默错误吞没→console.warn/error, session-save容错+路径校验, backupFile从空函数改为完整实现, 定时器泄漏修复(5处), Promise.race清理, require→ESM import, 死代码删除",
+        "AgentChatBridge消除重复规划: Orchestrator analyzeOnly()注入计划到AgentRuntime.injectPlan(), 跳过内部PLANNING阶段省1次API调用",
+        "Electron启动修复: ELECTRON_RUN_AS_NODE环境变量三层防护(开发者模式.bat+dev-runner.cjs+electron.vite.config.ts插件), Windows bash兼容",
+        "工具集精准化: Intent Agent 7工具(read_note+search_notes+create_project-list_rules), Plan Agent 6工具",
+        "Shell白名单扩展: 6→19个命令, execSync替代execFileSync消除DEP0190警告, ()解除阻止",
+        "max-iters默认值8→20, 消重复规划, Phase上下文清理, 消息去重保存, 危险工具扩展审批"
+      ]
+    },
     {
       "version": "8.9.0",
       "date": "2026-05-30",

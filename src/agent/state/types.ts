@@ -58,6 +58,7 @@ export interface ThinkingStep {
 export interface ThinkingPlan {
   intent: string
   steps: ThinkingStep[]
+  neededTools: string[]       // AI-declared tool names needed for execution
   estimatedTokens: number
   dependencies: number[][]
 }

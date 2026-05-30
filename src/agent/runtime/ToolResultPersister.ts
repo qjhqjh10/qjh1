@@ -17,7 +17,9 @@ export interface PersistedResult {
 
 export class ToolResultPersister {
   private persistedFiles: string[] = []
+  // Use project-relative path — the projectId is prepended at persist() time
   private tempDir = '.aiharness/tool-results'
+  private cleaned = false
 
   /** Offload large detail fields to filesystem, return trimmed summary */
   async persist(result: ToolResult, projectId: string | null): Promise<PersistedResult> {
@@ -32,15 +34,16 @@ export class ToolResultPersister {
 
     // Persist full content to temp file
     const fileName = `result_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.txt`
+    const { mkdir, writeFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const dir = join(projectId || '.', this.tempDir)
+    const fullPath = join(dir, fileName)
     const filePath = `${this.tempDir}/${fileName}`
 
     try {
-      const { mkdir, writeFile } = await import('fs/promises')
-      const { join } = await import('path')
-      const dir = join(projectId || '.', this.tempDir)
       await mkdir(dir, { recursive: true })
-      await writeFile(join(dir, fileName), detail, 'utf-8')
-      this.persistedFiles.push(filePath)
+      await writeFile(fullPath, detail, 'utf-8')
+      this.persistedFiles.push(fullPath)  // Store full path for cleanup
     } catch {
       // Fallback: truncate in-memory
       return {

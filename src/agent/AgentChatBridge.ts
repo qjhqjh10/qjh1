@@ -16,7 +16,7 @@
  */
 
 import { AgentRuntime } from './runtime/AgentRuntime'
-import { isTaskMessage } from './utils/taskDetection'
+
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler } from './context/ContextAssembler'
 import { useAgentStore } from './store/AgentStore'
@@ -121,7 +121,20 @@ export class AgentChatBridge {
   private skillLearner = new SkillLearner('.aiharness')
   private livingSkillManager = new LivingSkillManager()
   private credentialBroker = new CredentialBroker()
+  // Use the same session path as the main process's agentHandlers
+  // The fileService resolves '../agent-sessions' relative to projectsBasePath
+  // which maps to {appRoot}/agent-sessions/ in both dev and production
   private sessionMgr = new SessionManager('../agent-sessions')
+
+  /** Resolve session storage path — delegates to the main process if available */
+  private async getSessionBasePath(): Promise<string> {
+    try {
+      if ((window as any).electron?.agent?.getSessionsPath) {
+        return await (window as any).electron.agent.getSessionsPath()
+      }
+    } catch { /* fallback to default */ }
+    return '../agent-sessions'
+  }
   private evaluationPipeline = new EvaluationPipeline()
   private metricsCollector = new MetricsCollector()
   private postSessionAnalyzer = new PostSessionAnalyzer(this.metricsCollector)
@@ -214,17 +227,33 @@ export class AgentChatBridge {
       // Persist session in finally block — guarantees save even on errors
       if (this.sessionId) {
         try {
+          // Build deduplicated session messages from runtime context (most complete source)
           const runtimeMessages = this.runtime?.getMessagesForApi() || []
-          const sessionMessages = [
-            ...this.history.map(m => ({ ...m, timestamp: (m as any).timestamp || Date.now() })),
-            ...runtimeMessages
-              .filter(m => m.role === 'user' || m.role === 'assistant')
-              .map(m => ({ ...m, timestamp: Date.now() })),
-            { role: 'user', content: userMessage, timestamp: Date.now() },
-            { role: 'assistant', content: collectedText, timestamp: Date.now() },
-          ]
+          // Filter to user/assistant only; runtimeMessages already includes full history
+          const seen = new Set<string>()
+          const sessionMessages: Array<{ role: string; content: string; timestamp: number }> = []
+          for (const m of runtimeMessages) {
+            if (m.role !== 'user' && m.role !== 'assistant') continue
+            const key = `${m.role}:${m.content?.slice(0, 100)}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            sessionMessages.push({ role: m.role, content: m.content || '', timestamp: Date.now() })
+          }
+          // Ensure current user message and assistant response are included
+          if (!sessionMessages.some(m => m.role === 'user' && m.content === userMessage)) {
+            sessionMessages.push({ role: 'user', content: userMessage, timestamp: Date.now() })
+          }
+          if (collectedText && !sessionMessages.some(m => m.role === 'assistant' && m.content === collectedText)) {
+            sessionMessages.push({ role: 'assistant', content: collectedText, timestamp: Date.now() })
+          }
           await this.sessionMgr.save(this.sessionId, sessionMessages as any, runResult?.result.totalTokens || 0)
-        } catch (err) { console.error('[AgentBridge] session save failed:', err) }
+        } catch (err) {
+          console.error('[AgentBridge] 会话保存失败 — 对话历史可能丢失:', err)
+          // Notify the UI that session persistence failed
+          useAgentStore.getState().setLastError(
+            `会话保存失败: ${err instanceof Error ? err.message : '未知错误'}`
+          )
+        }
       }
       this.isRunning = false
       diagnosticLogger.recordInfo('sendMessage 结束')
@@ -237,7 +266,7 @@ export class AgentChatBridge {
     this.skillLearner.startSession(this.runId, this.projectId)
     await this.skillLearner.loadLearned()
 
-    try { await this.metricsCollector.load() } catch { /* first session */ }
+    try { await this.metricsCollector.load() } catch { /* first session — no saved metrics yet */ }
 
     try {
       const session = await this.sessionMgr.create(userMessage.slice(0, 50), this.projectId)
@@ -251,8 +280,8 @@ export class AgentChatBridge {
             console.log(`[AgentBridge] 已加载上次会话 (${prevSession.meta.messageCount} 条消息)`)
           }
         }
-      } catch { /* session load is optional */ }
-    } catch { /* session persistence is best-effort */ }
+      } catch { /* prev session load is optional */ }
+    } catch (err) { console.warn('[AgentBridge] Session creation failed:', err) }
   }
 
   private async executeRun(
@@ -435,7 +464,7 @@ export class AgentChatBridge {
         this.circuitBreaker = new CircuitBreaker(config.circuitBreaker.maxConsecutiveFailures, config.circuitBreaker.cooldownMs)
       }
     } catch (err) {
-      console.warn('[AgentBridge] AiHarnessConfig load failed, using permissive defaults:', err)
+      console.error('[AgentBridge] AiHarnessConfig 加载失败，回退到宽松默认值:', err)
       // When config fails to load, default to ALLOW so tools still work
       this.policyEngine.setDefaultEffect('allow')
     }
@@ -473,7 +502,9 @@ export class AgentChatBridge {
     if (this.projectId) {
       this.gcAgent.reset()
       // Await scans so the report is populated before it's read later
-      await this.gcAgent.runNovelScans(this.projectId).catch(() => {})
+      try { await this.gcAgent.runNovelScans(this.projectId) } catch (err) {
+        console.warn('[AgentBridge] GC novel scans failed (non-blocking):', err)
+      }
     }
     this.livingSkillManager.startSession(this.runId, this.projectId)
     this.circuitBreaker.reset()
@@ -504,7 +535,7 @@ export class AgentChatBridge {
           }),
         })
       }
-    } catch { /* skill learner may not have storage access */ }
+    } catch (err) { console.warn('[AgentBridge] Skill learner rule registration failed:', err) }
 
     // ── Inject MemoryLayers (cross-session memory) ──
     try {
@@ -529,7 +560,7 @@ export class AgentChatBridge {
           buildContext: async () => ({ domain: 'memory-layers', priority: 105, estimatedTokens: Math.ceil(memoryPrompt.length / 3), content: memoryPrompt }),
         })
       }
-    } catch { /* memory is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Memory layers failed:', err) }
 
     // ── SubAgentManager: delegate complex tasks to specialized sub-agents ──
     let subAgentResult: string | null = null
@@ -552,7 +583,7 @@ export class AgentChatBridge {
           break
         }
       }
-    } catch { /* sub-agent is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Sub-agent delegation failed:', err) }
 
     // Inject sub-agent result as context if available
     if (subAgentResult) {
@@ -563,55 +594,47 @@ export class AgentChatBridge {
       })
     }
 
-    // Set tools based on work mode, with model-capability filtering
-    // Casual chat (non-task) → no tools. Task → dynamic tool selection by intent.
-    // READ_ONLY tools always sent; WRITE tools only for write-intent; EXTERNAL only for explicit need.
-    const READ_ONLY_TOOL_NAMES = new Set([
-      'list_directory', 'read_file', 'search_files', 'search_content',
-      'kb_list', 'list_notes', 'read_note', 'list_rules', 'list_prompts', 'search_images',
-    ])
-    const WRITE_KEYWORDS = /创建|新建|修改|编辑|删除|生成|写入|改写|重写|替换|重命名|移动|追加|保存|导入|导出/
-    const EXTERNAL_KEYWORDS = /搜索图片|生成图片|shell|命令|浏览器|搜索网络|联网|提示词.*修改|规则.*修改|配置.*修改|审计|诊断/
+    // ── Intelligent tool selection via multi-agent orchestration ──
+    // Intent Agent + Plan Agent determine which tools are needed (replaces regex filtering).
+    let scopedToolSchemas: ReturnType<typeof toolRegistry.getFilteredSchemas> = []
 
-    let filteredSchemas: ReturnType<typeof toolRegistry.getFilteredSchemas> = []
     if (options.toolsEnabled !== false) {
-      const schemas = toolRegistry.getFilteredSchemas(
-        this.workMode,
-        undefined, // all tools within mode
-      )
-
-      // Dynamic tool selection:
-      // Casual chat (非任务) → 仅发送只读工具（10个，省~2200 tokens）
-      // 任务消息 → 按意图分组：只读/写入/外部
-      const isTask = isTaskMessage(userMessage)
-      const isWrite = WRITE_KEYWORDS.test(userMessage)
-      const isExternal = EXTERNAL_KEYWORDS.test(userMessage)
-
-      if (!isTask) {
-        // Casual chat: read-only tools — AI can still look things up if needed
-        filteredSchemas = schemas.filter((s: any) =>
-          READ_ONLY_TOOL_NAMES.has(s.function?.name || ''))
-      } else if (isWrite || isExternal) {
-        // Write/external intent: full tools
-        filteredSchemas = schemas
-      } else {
-        // Read-only intent: send only read tools
-        filteredSchemas = schemas.filter((s: any) =>
-          READ_ONLY_TOOL_NAMES.has(s.function?.name || ''))
-      }
-
       try {
-        const settingsStore = (await import('@/store')).useSettingsStore.getState()
-        const configs = settingsStore.configs || []
-        const config = configs.find((c: any) => c.id === this.configId)
-        const modelName = config?.model || ''
-        const isImageModel = /dall-e|imagen|stable.diffusion|midjourney|flux/i.test(modelName)
-        if (!isImageModel) {
-          filteredSchemas = filteredSchemas.filter((s: any) => s.function?.name !== 'generate_image')
+        const { AgentOrchestrator } = await import('./orchestrator/AgentOrchestrator')
+        const orchestrator = new AgentOrchestrator(this.subAgentManager)
+        const allSchemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
+
+        // Use analyzeOnly mode: Intent + Plan only, no Execute (bridge runs its own AgentRuntime)
+        const { plan: orchPlan } = await orchestrator.analyzeOnly(
+          userMessage, this.configId, this.projectId,
+        )
+
+        if (orchPlan && orchPlan.neededTools.length > 0) {
+          const neededSet = new Set(orchPlan.neededTools)
+          scopedToolSchemas = allSchemas.filter((s: any) => neededSet.has(s.function?.name || ''))
+
+          // Inject plan into AgentRuntime — skip its own PLANNING phase (avoids double planning)
+          this.runtime.injectPlan(orchPlan)
         }
-      } catch { /* fallback: keep all tools */ }
+
+        // Remove generate_image for non-image models
+        try {
+          const settingsStore = (await import('@/store')).useSettingsStore.getState()
+          const config = settingsStore.configs?.find((c: any) => c.id === this.configId)
+          if (!/dall-e|imagen|stable.diffusion|midjourney|flux/i.test(config?.model || '')) {
+            scopedToolSchemas = scopedToolSchemas.filter((s: any) => s.function?.name !== 'generate_image')
+          }
+        } catch { /* keep */ }
+      } catch (err) {
+        console.warn('[AgentBridge] Orchestrator failed, using all tools:', err)
+      }
     }
-    this.runtime.setTools(filteredSchemas)
+
+    // Fallback: if orchestrator failed or produced no tools, use all tools
+    if (scopedToolSchemas.length === 0) {
+      scopedToolSchemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
+    }
+    this.runtime.setTools(scopedToolSchemas)
 
     // Set history
     this.runtime.setHistory(this.history)
@@ -696,6 +719,10 @@ export class AgentChatBridge {
           } else {
             this.runtime?.rejectPlan()
           }
+        }).catch(err => {
+          console.error('[AgentBridge] Plan approval callback failed:', err)
+          // Auto-reject on error to prevent hanging in AWAITING_APPROVAL
+          this.runtime?.rejectPlan()
         })
       } else {
         // No callback available or empty plan — auto-approve
@@ -746,7 +773,7 @@ export class AgentChatBridge {
     // ── End-of-session learning ──
     const promotedSkills = await this.livingSkillManager.endSession()
     const learnedRules = await this.skillLearner.generateRules()
-    try { await this.skillLearner.persistPatterns() } catch { /* best-effort */ }
+    try { await this.skillLearner.persistPatterns() } catch (err) { console.warn('[AgentBridge] Pattern persistence failed:', err) }
     if (promotedSkills.length > 0) {
       console.log(`[LivingSkill] ${promotedSkills.length} 个技能升级:`, promotedSkills.map(s => `${s.title} → ${s.stage}`).join(', '))
     }
@@ -759,7 +786,7 @@ export class AgentChatBridge {
     const runtimeMessages = this.runtime?.getMessagesForApi() || []
     try {
       this.metricsCollector.collect(this.auditTrail.getEvents(), this.runId)
-    } catch { /* metrics best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Metrics collection failed:', err) }
 
     // ── Evaluation Pipeline: analyze this session ──
     try {
@@ -781,7 +808,7 @@ export class AgentChatBridge {
       if (pipelineOutput.autoSuggestions.length > 0) {
         console.log(`[Evaluator] 建议:`, pipelineOutput.autoSuggestions.join('; '))
       }
-    } catch { /* evaluation is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Evaluation pipeline failed:', err) }
 
     // ── Post-Session Analysis ──
     try {
@@ -792,7 +819,7 @@ export class AgentChatBridge {
       if (analysis.suggestions.length > 0) {
         console.log(`[PostSession] ${analysis.suggestions.join('; ')}`)
       }
-    } catch { /* analysis is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Post-session analysis failed:', err) }
 
     // ── Feedback Channel: check metrics → generate suggestions ──
     try {
@@ -804,10 +831,10 @@ export class AgentChatBridge {
           console.log(`[Feedback] ${newSuggestions.length} 条新建议 → .aiharness/feedback/auto-suggestions.md`)
         }
       }
-    } catch { /* feedback is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Feedback channel failed:', err) }
 
     // Persist metrics for trend analysis across sessions
-    try { await this.metricsCollector.save() } catch { /* best-effort */ }
+    try { await this.metricsCollector.save() } catch (err) { console.warn('[AgentBridge] Metrics save failed:', err) }
 
     // ── Write health state to store (for Agent settings page) ──
     try {
@@ -825,7 +852,7 @@ export class AgentChatBridge {
           trend: aggregate.trend,
         } : store.health.lastSessionMetrics,
       })
-    } catch { /* health update is best-effort */ }
+    } catch (err) { console.warn('[AgentBridge] Health state update failed:', err) }
 
     return { collectedText, result }
   }

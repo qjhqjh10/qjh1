@@ -206,7 +206,9 @@ export class AgentStateMachine {
 
   private notifyListeners(from: AgentPhase, to: AgentPhase): void {
     for (const l of this.listeners) {
-      try { l(from, to, { ...this._state }) } catch { /* ignore listener errors */ }
+      try { l(from, to, { ...this._state }) } catch (err) {
+        console.error(`[AgentStateMachine] Listener error for transition ${from} → ${to}:`, err)
+      }
     }
   }
 }
