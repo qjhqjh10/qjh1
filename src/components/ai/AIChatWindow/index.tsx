@@ -1408,18 +1408,37 @@ export default function AIChatWindow() {
           </div>
 
           {/* ── 💰 TOTAL ── */}
-          <div style={{ marginTop: 16, borderTop: '2px solid rgba(0,0,0,0.1)', paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800 }}>
-            <span>💰 总花费</span>
-            <span>
-              {breakdownModal.totalTokens != null && breakdownModal.totalTokens > 0
-                ? breakdownModal.totalTokens.toLocaleString()
-                : '~' + (breakdownModal.inputBreakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0) + (breakdownModal.outputBreakdown || []).reduce((s, b) => s + b.tokens, 0)).toLocaleString()
-              } tokens
-            </span>
-          </div>
-          <div style={{ marginTop: 6, fontSize: 9, color: '#9b8e84' }}>
-            字符/token换算: 中文~1.5字符、英文~4字符。输入总字符: {breakdownModal.inputBreakdown.reduce((s, b) => s + b.chars, 0).toLocaleString()}。
-          </div>
+          {(() => {
+            const estInput = breakdownModal.inputBreakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0)
+            const estOutput = (breakdownModal.outputBreakdown || []).reduce((s, b) => s + b.tokens, 0)
+            return (
+              <>
+                <div style={{ marginTop: 16, borderTop: '2px solid rgba(0,0,0,0.1)', paddingTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+                    <span style={{ color: '#2d2520' }}>💰 本轮估算</span>
+                    <span>~{(estInput + estOutput).toLocaleString()} tokens</span>
+                  </div>
+                  {breakdownModal.totalTokens != null && breakdownModal.totalTokens > 0 && (
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800,
+                      marginTop: 6, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.08)',
+                    }}>
+                      <span style={{ color: '#2d2520' }}>📊 全轮次实际消耗</span>
+                      <span style={{ color: '#7c3aed' }}>{breakdownModal.totalTokens.toLocaleString()} tokens</span>
+                    </div>
+                  )}
+                  {breakdownModal.totalTokens != null && breakdownModal.totalTokens > 0 && (
+                    <div style={{ marginTop: 2, fontSize: 9, color: '#9b8e84' }}>
+                      含全部 Agent 迭代的 API 调用
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 9, color: '#9b8e84' }}>
+                  换算: 中~1.5字符/token, 英~4字符/token。本轮输入字符: {breakdownModal.inputBreakdown.reduce((s, b) => s + b.chars, 0).toLocaleString()}
+                </div>
+              </>
+            )
+          })()}
         </div>
       </div>
     )}
