@@ -206,12 +206,14 @@ export function ModelSettingsTab() {
     setLoadingModels(true)
     try {
       const raw = await aiService.listModels(activeConfigId)
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-      const list = Array.isArray(parsed.data) ? parsed.data.map((m: any) => m.id).filter(Boolean) : []
+      // IPC handler returns string[] (plain model names), not OpenAI format
+      const list: string[] = Array.isArray(raw) ? raw
+        : typeof raw === 'string' ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : (p.data || []) } catch { return [] } })()
+        : []
       setModelList(list)
       if (list.length > 0) alert(`可用模型 (${list.length}):\n${list.slice(0, 20).join('\n')}${list.length > 20 ? '\n...' : ''}`)
-      else alert('未能获取模型列表，请检查 API 连接')
-    } catch { alert('获取模型列表失败，请检查网络或 API 配置') }
+      else alert('未能获取模型列表。请检查:\n1. API地址是否正确\n2. API密钥是否有效\n3. 网络是否连通')
+    } catch (err) { alert(`获取模型列表失败: ${err instanceof Error ? err.message : '请检查网络或API配置'}`) }
     setLoadingModels(false)
   }
 

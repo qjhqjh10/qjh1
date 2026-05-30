@@ -283,7 +283,7 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'novel-writer-settings',
-      version: 3,
+      version: 4,
       partialize: (state) => ({
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '' })),
@@ -342,12 +342,16 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 3) {
           const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
           const ds = (p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings : {}) as Record<string, unknown>
-          // Migrate old theme values to new ThemeId
           let theme = 'warm-purple'
           if (ds.theme === 'dark') theme = 'neon-dark'
           else if (ds.theme === 'light') theme = 'warm-purple'
           else if (typeof ds.theme === 'string' && ds.theme !== 'light' && ds.theme !== 'dark') theme = ds.theme
           return { ...p, displaySettings: { ...ds, theme } }
+        }
+        if (version < 4) {
+          // v4: ModelConfig type restructured — clear old configs to avoid immer proxy errors
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          return { ...p, configs: [], activeConfigId: null }
         }
         return persisted
       },
