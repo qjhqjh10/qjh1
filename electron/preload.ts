@@ -92,6 +92,8 @@ const api = {
       ipcRenderer.invoke('settings:saveConfigs', configs),
     loadConfigs: (): Promise<ModelConfig[]> =>
       ipcRenderer.invoke('settings:loadConfigs'),
+    clearConfigs: (): Promise<void> =>
+      ipcRenderer.invoke('settings:clearConfigs'),
   },
   dialog: {
     saveFile: (defaultName: string): Promise<string | null> =>

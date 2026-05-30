@@ -185,6 +185,7 @@ export const appService = {
 export const settingsService = {
   saveConfigs: (configs: ModelConfig[]) => e().settings.saveConfigs(configs),
   loadConfigs: () => e().settings.loadConfigs(),
+  clearConfigs: () => e().settings.clearConfigs(),
 }
 
 export const statsService = {

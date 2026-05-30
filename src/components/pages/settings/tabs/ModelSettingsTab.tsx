@@ -275,8 +275,9 @@ export function ModelSettingsTab() {
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
           <div style={{ padding: '8px' }}>
             {configs.length > 0 && (
-              <button onClick={() => {
+              <button onClick={async () => {
                 if (confirm('确定要清除所有模型配置数据吗？此操作不可恢复。')) {
+                  await settingsService.clearConfigs().catch(() => {})
                   localStorage.removeItem('novel-writer-settings')
                   location.reload()
                 }
@@ -301,15 +302,13 @@ export function ModelSettingsTab() {
                     💪{config.model}{config.cheapModel ? ` ⚡${config.cheapModel}` : ''}
                   </div>
                 </button>
-                {configs.length > 1 && (
-                  <button onClick={(e) => { e.stopPropagation(); removeConfig(config.id); if (activeConfigId === config.id) setActiveConfig(configs[0].id === config.id ? configs[1]?.id : configs[0].id) }}
+                <button onClick={(e) => { e.stopPropagation(); removeConfig(config.id); if (activeConfigId === config.id) setActiveConfig(configs.filter(c => c.id !== config.id)[0]?.id || null) }}
                     title="删除此配置" style={{
                       background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 8,
                       color: '#d4ccc4', flexShrink: 0,
                     }}>
                     <TrashIcon style={{ width: 16, height: 16 }} />
                   </button>
-                )}
               </div>
             ))}
           </div>
@@ -469,8 +468,7 @@ export function ModelSettingsTab() {
             </div>
 
             {/* ── Delete ── */}
-            {configs.length > 1 && (
-              <button onClick={() => { removeConfig(activeConfig.id); setActiveConfig(configs[0].id !== activeConfig.id ? configs[0].id : configs[1]?.id || '') }}
+            <button onClick={() => { removeConfig(activeConfig.id); setActiveConfig(configs.filter(c => c.id !== activeConfig.id)[0]?.id || null) }}
                 style={{
                   padding: '12px', borderRadius: 12, border: '1px solid rgba(220,38,38,0.15)', background: '#fff',
                   color: '#dc2626', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
@@ -478,7 +476,6 @@ export function ModelSettingsTab() {
                 }}>
                 <TrashIcon style={{ width: 16, height: 16 }} /> 删除此配置模板
               </button>
-            )}
           </div>
         </ScrollArea>
       </div>

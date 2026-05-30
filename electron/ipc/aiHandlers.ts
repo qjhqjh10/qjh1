@@ -296,6 +296,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     }))
   })
 
+  ipcMain.handle('settings:clearConfigs', async () => {
+    const store = await getConfigStore()
+    store.set('configs', [])
+  })
+
   // ── Tool-enabled chat (single turn) ──
   ipcMain.handle('ai:chat-with-tools',
     async (event, messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],

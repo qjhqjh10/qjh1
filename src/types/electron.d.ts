@@ -75,6 +75,7 @@ export interface AppAPI {
 export interface SettingsAPI {
   saveConfigs: (configs: ModelConfig[]) => Promise<{warning?: string}>
   loadConfigs: () => Promise<ModelConfig[]>
+  clearConfigs: () => Promise<void>
 }
 
 export interface ModelPrice {
