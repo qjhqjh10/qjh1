@@ -54,7 +54,7 @@ function ModelCard({
   inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
   currency, onCurrency, showCtx,
   apiUrl, onApiUrl, apiKey, onApiKey,
-  configId, onRefreshModels, loadingModels,
+  configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
   children,
 }: {
   icon: string; title: string; desc: string
@@ -71,6 +71,7 @@ function ModelCard({
   apiKey?: string; onApiKey?: (v: string) => void
   configId: string
   onRefreshModels: () => void; loadingModels: boolean
+  modelList: string[]; showDropdown: boolean; setShowDropdown: (v: boolean) => void
   children?: React.ReactNode
 }) {
   const sym = currency === 'CNY' ? '¥' : '$'
@@ -79,21 +80,42 @@ function ModelCard({
       <div style={cardTitle}>{icon} {title}</div>
       <div style={cardDesc}>{desc}</div>
 
-      {/* Model name + refresh */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'flex-end' }}>
-        <div style={{ flex: 1 }}>
-          <label style={fieldLabel}>模型名称</label>
-          <input type="text" value={modelValue} onChange={e => onModelChange(e.target.value)}
-            className="focus-ring" style={inputBase} placeholder={placeholder} />
+      {/* Model name + refresh + dropdown */}
+      <div style={{ position: 'relative', marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <label style={fieldLabel}>模型名称</label>
+            <input type="text" value={modelValue} onChange={e => { onModelChange(e.target.value); setShowDropdown(false) }}
+              onFocus={() => { if (modelList.length > 0) setShowDropdown(true) }}
+              className="focus-ring" style={inputBase} placeholder={placeholder} />
+          </div>
+          <button onClick={onRefreshModels} disabled={loadingModels}
+            title="从 API 获取可用模型列表"
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', marginBottom: 1, flexShrink: 0 }}>
+            <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54', opacity: loadingModels ? 0.4 : 1 }} />
+          </button>
         </div>
-        <button onClick={onRefreshModels} disabled={loadingModels}
-          title="从 API 获取可用模型列表"
-          style={{
-            padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
-            cursor: 'pointer', marginBottom: 1, flexShrink: 0,
+        {/* Dropdown */}
+        {showDropdown && modelList.length > 0 && (
+          <div className="custom-scrollbar" style={{
+            position: 'absolute', top: '100%', left: 0, right: 42, maxHeight: 180, overflowY: 'auto',
+            background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.12)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50, marginTop: 2,
           }}>
-          <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54', opacity: loadingModels ? 0.4 : 1 }} />
-        </button>
+            {modelList.map(m => (
+              <button key={m} onClick={() => { onModelChange(m); setShowDropdown(false) }}
+                style={{
+                  width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none',
+                  background: m === modelValue ? 'rgba(124,58,237,0.06)' : 'transparent',
+                  color: m === modelValue ? '#7c3aed' : '#2d2520',
+                  fontSize: 12, fontWeight: m === modelValue ? 600 : 400,
+                  cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid rgba(0,0,0,0.04)',
+                }}>
+                {m}{m === modelValue ? ' ✓' : ''}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Params row */}
@@ -185,6 +207,7 @@ export function ModelSettingsTab() {
   const [savedAt, setSavedAt] = useState(0)
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelList, setModelList] = useState<string[]>([])
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'cheap'|'reasoning'|'image'
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -211,8 +234,7 @@ export function ModelSettingsTab() {
         : typeof raw === 'string' ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : (p.data || []) } catch { return [] } })()
         : []
       setModelList(list)
-      if (list.length > 0) alert(`可用模型 (${list.length}):\n${list.slice(0, 20).join('\n')}${list.length > 20 ? '\n...' : ''}`)
-      else alert('未能获取模型列表。请检查:\n1. API地址是否正确\n2. API密钥是否有效\n3. 网络是否连通')
+      setActiveDropdown('main') // Open dropdown after refresh
     } catch (err) { alert(`获取模型列表失败: ${err instanceof Error ? err.message : '请检查网络或API配置'}`) }
     setLoadingModels(false)
   }
@@ -318,6 +340,7 @@ export function ModelSettingsTab() {
               apiUrl={activeConfig.mainApiUrl || activeConfig.apiUrl} onApiUrl={v => u({ mainApiUrl: v })}
               apiKey={activeConfig.mainApiKey || activeConfig.apiKey} onApiKey={v => u({ mainApiKey: v })}
               configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
+              modelList={modelList} showDropdown={activeDropdown === 'main'} setShowDropdown={(v) => setActiveDropdown(v ? 'main' : null)}
             >
               {/* Template defaults */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
@@ -373,6 +396,7 @@ export function ModelSettingsTab() {
               apiUrl={activeConfig.cheapApiUrl || ''} onApiUrl={v => u({ cheapApiUrl: v })}
               apiKey={activeConfig.cheapApiKey || ''} onApiKey={v => u({ cheapApiKey: v })}
               configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
+              modelList={modelList} showDropdown={activeDropdown === 'cheap'} setShowDropdown={(v) => setActiveDropdown(v ? 'cheap' : null)}
             />
 
             {/* ── 🧠 Reasoning ── */}
@@ -392,22 +416,46 @@ export function ModelSettingsTab() {
               apiUrl={activeConfig.reasoningApiUrl || ''} onApiUrl={v => u({ reasoningApiUrl: v })}
               apiKey={activeConfig.reasoningApiKey || ''} onApiKey={v => u({ reasoningApiKey: v })}
               configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
+              modelList={modelList} showDropdown={activeDropdown === 'reasoning'} setShowDropdown={(v) => setActiveDropdown(v ? 'reasoning' : null)}
             />
 
             {/* ── 🎨 Image ── */}
             <div style={cardInner}>
               <div style={cardTitle}>🎨 Image 图片模型</div>
               <div style={cardDesc}>图片生成。留空模型名则禁用图片功能。可能使用不同于文本的 API。</div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={fieldLabel}>模型名称</label>
-                  <input type="text" value={activeConfig.imageModel} onChange={e => u({ imageModel: e.target.value })}
-                    className="focus-ring" style={inputBase} placeholder="留空 = 禁用图片功能（如 dall-e-3）" />
+              <div style={{ position: 'relative', marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={fieldLabel}>模型名称</label>
+                    <input type="text" value={activeConfig.imageModel} onChange={e => u({ imageModel: e.target.value })}
+                      onFocus={() => { if (modelList.length > 0) setActiveDropdown('image') }}
+                      className="focus-ring" style={inputBase} placeholder="留空 = 禁用图片功能（如 dall-e-3）" />
+                  </div>
+                  <button onClick={handleRefreshModels} disabled={loadingModels}
+                    title="从 API 获取可用模型列表" style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', marginBottom: 1, flexShrink: 0 }}>
+                    <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54', opacity: loadingModels ? 0.4 : 1 }} />
+                  </button>
                 </div>
-                <button onClick={handleRefreshModels} disabled={loadingModels}
-                  title="从 API 获取可用模型列表" style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', marginBottom: 1, flexShrink: 0 }}>
-                  <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54', opacity: loadingModels ? 0.4 : 1 }} />
-                </button>
+                {activeDropdown === 'image' && modelList.length > 0 && (
+                  <div className="custom-scrollbar" style={{
+                    position: 'absolute', top: '100%', left: 0, right: 42, maxHeight: 180, overflowY: 'auto',
+                    background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.12)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50, marginTop: 2,
+                  }}>
+                    {modelList.map(m => (
+                      <button key={m} onClick={() => { u({ imageModel: m }); setActiveDropdown(null) }}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none',
+                          background: m === activeConfig.imageModel ? 'rgba(124,58,237,0.06)' : 'transparent',
+                          color: m === activeConfig.imageModel ? '#7c3aed' : '#2d2520',
+                          fontSize: 12, fontWeight: m === activeConfig.imageModel ? 600 : 400,
+                          cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid rgba(0,0,0,0.04)',
+                        }}>
+                        {m}{m === activeConfig.imageModel ? ' ✓' : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {activeConfig.imageModel && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
