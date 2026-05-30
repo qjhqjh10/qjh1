@@ -98,18 +98,6 @@ async function createWindow() {
     (_webContents, _permission, callback) => { callback(false) }
   )
 
-  // CSP header injection (defense-in-depth layer on top of meta tag)
-  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com https://api.openai.com https://*.openai.com; font-src 'self' data:; object-src 'none'"
-        ],
-      },
-    })
-  })
-
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
