@@ -142,6 +142,8 @@ export class AgentChatBridge {
   private feedbackChannel = new FeedbackChannel()
   private subAgentManager = new SubAgentManager(toolRegistry)
   private memoryLayers = new MemoryLayers()
+  private pipeline: import('./pipeline/TaskPipeline').TaskPipeline | null = null
+  private lastPipelineResult: import('./pipeline/types').PipelineResult | null = null
 
   private initialized = false
   private configId = ''
@@ -561,6 +563,44 @@ export class AgentChatBridge {
         })
       }
     } catch (err) { console.warn('[AgentBridge] Memory layers failed:', err) }
+
+    // ── TaskPipeline: Classifier → Intent+Plan → Approval (V2) ──
+    try {
+      if (!this.pipeline) {
+        this.pipeline = new (await import('./pipeline/TaskPipeline')).TaskPipeline(
+          this.configId, this.projectId,
+        )
+      }
+      this.lastPipelineResult = await this.pipeline.run(userMessage)
+
+      if (this.lastPipelineResult.phase === 'awaiting_approval'
+        && this.lastPipelineResult.clarificationQuestions?.length) {
+        // Intent was ambiguous — return clarification questions to user
+        this.isRunning = false
+        return {
+          collectedText: this.lastPipelineResult.clarificationQuestions.map(q => `• ${q}`).join('\n'),
+          result: { success: true, text: '', messageCount: 0, totalTokens: this.lastPipelineResult.pipelineTokens, toolCalls: 0, phase: 'AWAITING_APPROVAL', thinkingPlan: null, toolsUsed: [], hallucinationWarnings: [], kbSources: [], webSources: [], images: [], reasoningContent: null },
+        }
+      }
+
+      if (this.lastPipelineResult.phase === 'done' && this.lastPipelineResult.directText) {
+        // Simple chat — return direct response without tool execution
+        this.isRunning = false
+        return {
+          collectedText: this.lastPipelineResult.directText,
+          result: { success: true, text: this.lastPipelineResult.directText, messageCount: 1, totalTokens: this.lastPipelineResult.pipelineTokens, toolCalls: 0, phase: 'RESPONDING', thinkingPlan: null, toolsUsed: [], hallucinationWarnings: [], kbSources: [], webSources: [], images: [], reasoningContent: null },
+        }
+      }
+
+      // Complex task: pre-populate the plan for approval flow
+      if (this.lastPipelineResult.plan && this.runtime) {
+        this.runtime.injectPlan(this.lastPipelineResult.plan)
+        // If auto-approved (low complexity), skip waiting — planPhase is already 'approved'
+      }
+    } catch (err) {
+      console.warn('[AgentBridge] TaskPipeline failed, falling back to direct execution:', err)
+      // Fallback: continue with existing flow
+    }
 
     // ── SubAgentManager: delegate complex tasks to specialized sub-agents ──
     let subAgentResult: string | null = null
