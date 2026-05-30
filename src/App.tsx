@@ -187,7 +187,7 @@ export default function App() {
       if (!config?.apiUrl) { setConnectionStatus('disconnected'); return }
       try {
         const models = await aiService.listModels(config.id)
-        setConnectionStatus(models.length > 0 ? 'connected' : 'disconnected', config.model)
+        setConnectionStatus(models.length > 0 ? 'connected' : 'disconnected', config.name || config.model)
       } catch (e) { logError('检查 API 连接失败', e); setConnectionStatus('disconnected') }
     }
     check()
