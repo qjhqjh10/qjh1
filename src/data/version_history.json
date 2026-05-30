@@ -1,7 +1,19 @@
 {
-  "currentVersion": "9.1.0",
+  "currentVersion": "9.2.0",
   "currentDate": "2026-05-30",
   "history": [
+    {
+      "version": "9.2.0",
+      "date": "2026-05-30",
+      "features": [
+        "智能Agent流水线: Classifier→Intent→Plan→Approval→Execute→Verify 六阶段架构, 客户端预过滤零API成本, cheap模型分类+意图方案, 降级路径保底",
+        "四模型模板化: 一个配置模板包含Cheap/Main/Reasoning/Image四子模型, 每模型独立温度/最大输出/定价/API覆盖/货币, 一键切换模板即换全部模型",
+        "模型设置UI全面重构: 五卡片(Main/Cheap/Reasoning/Image/Embedding)统一样式, 模型名下拉选择, API密钥眼睛查看, 模板名显示在侧边栏+标题栏, Embedding独立区域",
+        "安全加固6项: API密钥CLI泄露修复, SSRF DNS双层防护, CSP策略, sandbox启用, URL校验强化, 导航+权限限制",
+        "基础架构治理: SSRF共享模块, 类型安全BridgeService(21服务), 组件绕过服务层修复, 空catch块消除15+, outline回退合并",
+        "测试基础设施: 共享mock+fixtures, CI/CD管道, 关键模块测试+33, 覆盖率阈值配置, persist v4迁移"
+      ]
+    },
     {
       "version": "9.0.1",
       "date": "2026-05-30",
