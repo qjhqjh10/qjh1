@@ -431,30 +431,23 @@ export function ModelSettingsTab() {
 
             {/* ── 🎨 Image ── */}
             <ModelCard
-              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用。可能使用不同于文本模型的 API。"
+              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用。可使用不同于文本模型的 API。"
               modelValue={activeConfig.imageModel} onModelChange={v => u({ imageModel: v })}
-              placeholder="留空 = 禁用图片功能（如 dall-e-3）"
+              placeholder="留空 = 禁用（如 dall-e-3）"
               tempValue={0} onTempChange={() => {}} tempDisabled
               maxTokValue={0} onMaxTokChange={() => {}}
               inPrice={safe(activeConfig.imageInputPricePerM)} outPrice={safe(activeConfig.imageOutputPricePerM)}
               cachePrice={0}
               currency={activeConfig.mainCurrency || activeConfig.currency}
               showPricing={false}
+              apiUrl={activeConfig.imageApiUrl || ''} onApiUrl={v => u({ imageApiUrl: v })}
+              apiKey={activeConfig.imageApiKey || ''} onApiKey={v => u({ imageApiKey: v })}
               configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
               modelList={modelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
             >
               {activeConfig.imageModel && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 4 }}>
-                  <div style={{ flex: '1 1 150px' }}>
-                    <label style={fieldLabel}>图片 API 地址</label>
-                    <input type="text" value={activeConfig.imageApiUrl || ''} onChange={e => u({ imageApiUrl: e.target.value })}
-                      className="focus-ring" style={inputBase} placeholder="留空=模板默认" />
-                  </div>
-                  <div style={{ flex: '1 1 150px' }}>
-                    <label style={fieldLabel}>图片 API 密钥</label>
-                    <ApiKeyField value={activeConfig.imageApiKey || ''} onChange={v => u({ imageApiKey: v })} />
-                  </div>
-                  <div style={{ flex: '0 0 90px' }}>
+                <div style={{ display: 'flex', paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 4 }}>
+                  <div style={{ flex: '0 0 100px' }}>
                     <label style={fieldLabel}>费用/张</label>
                     <input type="number" step="0.01" min="0" value={safe(activeConfig.imageOutputPricePerM) || ''}
                       onChange={e => u({ imageOutputPricePerM: parseFloat(e.target.value) || 0 })}
