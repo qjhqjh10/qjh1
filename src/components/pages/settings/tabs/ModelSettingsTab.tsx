@@ -1,17 +1,125 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useStore, useSettingsStore } from '@/store'
-import { settingsService, aiService, statsService } from '@/services/fileService'
+import { useState, useEffect, useRef } from 'react'
+import { useSettingsStore } from '@/store'
+import { settingsService, aiService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
-import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
-import type { UsageResult } from '@/types/electron'
-import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESETS } from '@/types/settings'
-import { FormField } from '../shared';
-import { formatContextWindow } from '../constants';
+import type { ModelConfig } from '@/types/settings'
+import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS } from '@/types/settings'
+import { FormField } from '../shared'
+import { formatContextWindow } from '../constants'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
+
+function priceLabel(c: ModelConfig, p: number, fallback: number): string {
+  const v = p || fallback
+  const sym = c.currency === 'CNY' ? '¥' : '$'
+  return v > 0 ? `${sym}${v.toFixed(2)}` : `(${sym}${fallback.toFixed(2)})`
+}
+
+function ModelCard({
+  icon, title, desc, modelValue, onModelChange, placeholder,
+  tempValue, onTempChange, tempDisabled,
+  maxTokValue, onMaxTokChange,
+  ctxWinValue, onCtxWinChange,
+  inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
+  currency, showPricing, showCtx,
+  children,
+}: {
+  icon: string; title: string; desc: string
+  modelValue: string; onModelChange: (v: string) => void; placeholder: string
+  tempValue: number; onTempChange: (v: number) => void; tempDisabled?: boolean
+  maxTokValue: number; onMaxTokChange: (v: number) => void
+  ctxWinValue?: number; onCtxWinChange?: (v: number) => void
+  inPrice: number; onInPrice?: (v: number) => void
+  outPrice: number; onOutPrice?: (v: number) => void
+  cachePrice: number; onCachePrice?: (v: number) => void
+  currency: 'USD' | 'CNY'
+  showPricing?: boolean; showCtx?: boolean
+  children?: React.ReactNode
+}) {
+  const sym = currency === 'CNY' ? '¥' : '$'
+  return (
+    <div style={{
+      padding: 16, borderRadius: 14,
+      background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(0,0,0,0.06)',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#2d2520', marginBottom: 2 }}>
+        {icon} {title}
+      </div>
+      <div style={{ fontSize: 9, color: '#9b8e84', marginBottom: 10 }}>{desc}</div>
+
+      {/* Row 1: Model name + parameters */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 140px' }}>
+          <label style={labelS}>模型名</label>
+          <input type="text" value={modelValue} onChange={e => onModelChange(e.target.value)}
+            className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder={placeholder} />
+        </div>
+        <div style={{ flex: '0 0 120px' }}>
+          <label style={labelS}>温度 {tempDisabled ? 'N/A' : tempValue.toFixed(1)}</label>
+          <input type="range" min="0" max="2" step="0.1" value={tempValue}
+            onChange={e => onTempChange(parseFloat(e.target.value))}
+            disabled={tempDisabled}
+            style={{ width: '100%', accentColor: tempDisabled ? '#d4ccc4' : '#7c3aed', marginTop: 4 }} />
+        </div>
+        <div style={{ flex: '0 0 80px' }}>
+          <label style={labelS}>最大输出</label>
+          <input type="number" min="0" value={maxTokValue} onChange={e => onMaxTokChange(parseInt(e.target.value) || 0)}
+            className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+        </div>
+        {showCtx && ctxWinValue !== undefined && onCtxWinChange && (
+          <div style={{ flex: '0 0 90px' }}>
+            <label style={labelS}>上下文</label>
+            <input type="number" min="1000" step="1000" value={ctxWinValue}
+              onChange={e => onCtxWinChange(parseInt(e.target.value) || 128000)}
+              className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+          </div>
+        )}
+      </div>
+
+      {/* Pricing row */}
+      {showPricing !== false && (
+        <div style={{
+          display: 'flex', gap: 8, paddingTop: 8,
+          borderTop: '1px solid rgba(0,0,0,0.04)',
+        }}>
+          {onInPrice && <div style={{ flex: 1 }}>
+            <label style={labelS}>输入 {sym}/1M</label>
+            <input type="number" step="0.01" min="0" value={inPrice || ''}
+              onChange={e => onInPrice(parseFloat(e.target.value) || 0)}
+              className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }}
+              placeholder="用Main" />
+          </div>}
+          {onOutPrice && <div style={{ flex: 1 }}>
+            <label style={labelS}>输出 {sym}/1M</label>
+            <input type="number" step="0.01" min="0" value={outPrice || ''}
+              onChange={e => onOutPrice(parseFloat(e.target.value) || 0)}
+              className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }}
+              placeholder="用Main" />
+          </div>}
+          {onCachePrice && <div style={{ flex: 1 }}>
+            <label style={labelS}>缓存 {sym}/1M</label>
+            <input type="number" step="0.01" min="0" value={cachePrice || ''}
+              onChange={e => onCachePrice(parseFloat(e.target.value) || 0)}
+              className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }}
+              placeholder="用Main" />
+          </div>}
+          {!onInPrice && !onOutPrice && !onCachePrice && (
+            <div style={{ fontSize: 10, color: '#9b8e84' }}>
+              {sym}{inPrice.toFixed(2)}/张
+            </div>
+          )}
+        </div>
+      )}
+
+      {children}
+    </div>
+  )
+}
+
+const labelS: React.CSSProperties = { display: 'block', fontSize: 9, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }
 
 export function ModelSettingsTab() {
   const configs = useSettingsStore(s => s.configs)
@@ -23,419 +131,275 @@ export function ModelSettingsTab() {
 
   const [modelList, setModelList] = useState<string[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
-  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [showDropdownFor, setShowDropdownFor] = useState<string | null>(null)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [savedAt, setSavedAt] = useState(0)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
 
-  const [savedAt, setSavedAt] = useState(0)
-
-  // Sync configs to main process whenever they change (debounced)
+  // Sync configs to main process (debounced)
   useEffect(() => {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
     syncTimerRef.current = setTimeout(() => {
-      settingsService.saveConfigs(configs).then(() => setSavedAt(Date.now())).catch((e) => logError('Config sync failed', e))
+      settingsService.saveConfigs(configs).then(() => setSavedAt(Date.now())).catch(e => logError('Config sync failed', e))
     }, 600)
-    return () => {
-      if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
-    }
+    return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }
   }, [configs])
 
-  // Clear save indicator after 3s
-  useEffect(() => {
-    if (!savedAt) return
-    const t = setTimeout(() => setSavedAt(0), 3000)
-    return () => clearTimeout(t)
-  }, [savedAt])
+  useEffect(() => { if (!savedAt) return; const t = setTimeout(() => setSavedAt(0), 3000); return () => clearTimeout(t) }, [savedAt])
 
-  const handleNew = () => {
-    const newConfig: ModelConfig = {
-      ...DEFAULT_MODEL_CONFIG,
-      id: nanoid(8),
-      name: `设置 ${configs.length + 1}`,
-    }
-    addConfig(newConfig)
-    setActiveConfig(newConfig.id)
-  }
-
-  const handleDelete = (id: string) => {
-    removeConfig(id)
-  }
-
-  const handleRefreshModels = useCallback(async () => {
-    if (!activeConfig || !activeConfig.apiUrl || !activeConfig.apiKey) return
+  const handleRefreshModels = async () => {
+    if (!activeConfigId) return
     setLoadingModels(true)
     try {
-      // Sync current config to main process first
-      await settingsService.saveConfigs(configs)
-      const models = await aiService.listModels(activeConfig.id)
-      setModelList(models)
-      setShowModelDropdown(true)
-    } catch (err) {
-      logError('Failed to fetch models', err)
-    }
+      const raw = await aiService.listModels(activeConfigId)
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      setModelList(Array.isArray(parsed.data) ? parsed.data.map((m: any) => m.id).filter(Boolean) : [])
+    } catch { setModelList([]) }
     setLoadingModels(false)
-  }, [activeConfig, configs])
-
-  const handleSelectModel = (model: string) => {
-    if (activeConfig) {
-      updateConfig(activeConfig.id, { model })
-    }
-    setShowModelDropdown(false)
   }
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!showModelDropdown) return
-    const close = () => setShowModelDropdown(false)
-    document.addEventListener('click', close, { once: true })
-    return () => document.removeEventListener('click', close)
-  }, [showModelDropdown])
+  const handleSelectModel = (modelName: string) => {
+    if (!activeConfig || !showDropdownFor) return
+    const key = showDropdownFor === 'cheap' ? 'cheapModel' : showDropdownFor === 'reasoning' ? 'reasoningModel' : showDropdownFor === 'image' ? 'imageModel' : 'model'
+    updateConfig(activeConfig.id, { [key]: modelName } as any)
+    setShowDropdownFor(null)
+  }
+
+  const handleAdd = () => {
+    const id = nanoid(8)
+    addConfig({ ...DEFAULT_MODEL_CONFIG, id, name: `配置 ${configs.length + 1}` })
+    setActiveConfig(id)
+  }
 
   return (
-    <div className="page-enter" style={{ display: 'flex', height: '100%', gap: 24 }}>
-      {/* Left: Template list */}
-      <div style={{ width: '40%', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#2d2520' }}>设置模板列表</h3>
-        </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          <Button size="sm" onClick={handleNew} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建设置</Button>
-          {activeConfigId && (
-            <Button size="sm" variant="danger" onClick={() => handleDelete(activeConfigId)} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>
-              删除
-            </Button>
-          )}
+    <div style={{ display: 'flex', height: '100%', gap: 0 }}>
+      {/* Left: config list (35%) */}
+      <div style={{ width: '35%', borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>模型配置模板</span>
+          <Button size="sm" onClick={handleAdd} icon={<PlusIcon style={{ width: 12, height: 12 }} />}>新建</Button>
         </div>
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ padding: '6px 8px' }}>
             {configs.map(config => (
-              <button
-                key={config.id}
-                onClick={() => setActiveConfig(config.id)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  border: 'none',
-                  background: activeConfigId === config.id ? 'rgba(124,58,237,0.08)' : 'transparent',
-                  color: activeConfigId === config.id ? '#7c3aed' : '#4a3f38',
-                  fontSize: 13,
-                  fontWeight: activeConfigId === config.id ? 600 : 400,
-                  cursor: 'pointer',
-                }}
-              >
+              <button key={config.id} onClick={() => setActiveConfig(config.id)} style={{
+                width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 12, border: 'none',
+                background: activeConfigId === config.id ? 'rgba(124,58,237,0.08)' : 'transparent',
+                color: activeConfigId === config.id ? '#7c3aed' : '#4a3f38',
+                fontSize: 13, fontWeight: activeConfigId === config.id ? 600 : 400, cursor: 'pointer',
+              }}>
                 {config.name}
-                <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>{config.model}</div>
+                <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>
+                  {config.model}{config.cheapModel ? ` | ${config.cheapModel}` : ''}
+                </div>
               </button>
             ))}
-            {configs.length === 0 && (
-              <div style={{ padding: 12, textAlign: 'center', color: '#9b8e84', fontSize: 12 }}>
-                暂无设置，点击"新建设置"
-              </div>
-            )}
           </div>
         </ScrollArea>
       </div>
 
-      {/* Right: Config form (60%) */}
+      {/* Right: config form (65%) */}
       {activeConfig ? (
-        <div style={{ width: '60%', overflow: 'hidden' }} className="custom-scrollbar">
+        <div style={{ width: '65%', overflow: 'auto' }} className="custom-scrollbar">
           <ScrollArea maxHeight="100%" style={{ paddingRight: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {/* Save indicator */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
               {savedAt > 0 && (
-                <div style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', color: '#16a34a', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>
-                  ✓ 已保存至本地
-                </div>
+                <div style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', color: '#16a34a', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>✓ 已保存</div>
               )}
-              {/* Basic config */}
-              <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>基础配置区</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <FormField label="服务商">
-                    <select
-                      value={PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) ? activeConfig.provider : '__custom__'}
-                      onChange={e => {
-                        const v = e.target.value
-                        if (v === '__custom__') return
-                        const preset = PROVIDER_PRESETS.find(p => p.name === v)
-                        updateConfig(activeConfig.id, {
-                          provider: v,
-                          apiUrl: preset ? preset.apiUrl : activeConfig.apiUrl,
-                        })
-                      }}
-                      className="focus-ring"
-                      style={{ ...inputStyle, cursor: 'pointer' }}
-                    >
-                      <option value="">-- 选择服务商 --</option>
-                      {PROVIDER_PRESETS.map(p => (
-                        <option key={p.name} value={p.name}>{p.label}</option>
-                      ))}
-                      <option value="__custom__">自定义...</option>
-                    </select>
-                    {!PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) && activeConfig.provider && (
-                      <input
-                        type="text"
-                        value={activeConfig.provider}
-                        onChange={e => updateConfig(activeConfig.id, { provider: e.target.value })}
-                        style={{ ...inputStyle, marginTop: 6 }}
-                        placeholder="输入服务商名称"
-                      />
-                    )}
-                  </FormField>
-                  <FormField label="接口地址">
-                    <input
-                      type="text"
-                      value={activeConfig.apiUrl}
-                      onChange={e => updateConfig(activeConfig.id, { apiUrl: e.target.value })}
-                      className="focus-ring"
-                      style={inputStyle}
-                      placeholder="https://api.openai.com/v1"
-                    />
-                  </FormField>
-                  <FormField label="API密钥">
-                    <input
-                      type="password"
-                      value={activeConfig.apiKey}
-                      onChange={e => updateConfig(activeConfig.id, { apiKey: e.target.value })}
-                      className="focus-ring"
-                      style={inputStyle}
-                      placeholder="sk-..."
-                    />
-                  </FormField>
-                  <FormField label="选择模型">
-                    <div style={{ position: 'relative' }}>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <input
-                          type="text"
-                          value={activeConfig.model}
-                          onChange={e => updateConfig(activeConfig.id, { model: e.target.value })}
-                          onFocus={() => modelList.length > 0 && setShowModelDropdown(true)}
-                          className="focus-ring"
-                          style={{ ...inputStyle, flex: 1 }}
-                          placeholder="gpt-4o"
-                        />
-                        <button
-                          title="刷新模型列表"
-                          onClick={handleRefreshModels}
-                          disabled={loadingModels}
-                          style={{
-                            padding: 8,
-                            borderRadius: 10,
-                            border: '1px solid rgba(0,0,0,0.08)',
-                            background: '#fff',
-                            cursor: loadingModels ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            opacity: loadingModels ? 0.5 : 1,
-                          }}
-                        >
-                          <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54' }} />
-                        </button>
-                      </div>
-                      {/* Model dropdown */}
-                      {showModelDropdown && modelList.length > 0 && (
-                        <div
-                          className="custom-scrollbar"
-                          style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            right: 0,
-                            maxHeight: 240,
-                            overflowY: 'auto',
-                            background: '#fff',
-                            borderRadius: 12,
-                            border: '1px solid rgba(0,0,0,0.1)',
-                            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-                            zIndex: 20,
-                            marginTop: 4,
-                          }}
-                        >
-                          {modelList.map(m => (
-                            <button
-                              key={m}
-                              onClick={(e) => { e.stopPropagation(); handleSelectModel(m) }}
-                              style={{
-                                width: '100%',
-                                textAlign: 'left',
-                                padding: '10px 14px',
-                                border: 'none',
-                                background: activeConfig.model === m ? 'rgba(124,58,237,0.06)' : 'transparent',
-                                color: activeConfig.model === m ? '#7c3aed' : '#4a3f38',
-                                fontSize: 13,
-                                fontWeight: activeConfig.model === m ? 600 : 400,
-                                cursor: 'pointer',
-                                borderBottom: '1px solid rgba(0,0,0,0.04)',
-                              }}
-                            >
-                              {m}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </FormField>
-                  {/* ── 子模型配置 (V2) ── */}
-                  <div style={{ borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 10, marginBottom: 4 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 8 }}>🔧 子模型配置</div>
-                    <p style={{ fontSize: 9, color: '#9b8e84', marginBottom: 8, lineHeight: 1.5 }}>
-                      不同任务阶段使用不同模型以节省 Token。分类+方案用便宜模型，执行用主力模型，留空则自动使用主力模型。
-                    </p>
-                    <FormField label="⚡ Cheap 便宜模型">
-                      <input type="text" value={activeConfig.cheapModel || ''}
-                        onChange={e => updateConfig(activeConfig.id, { cheapModel: e.target.value })}
-                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
-                        placeholder="如 deepseek-chat / gpt-4o-mini（同模型填相同名即可）" />
-                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>分类器 + 意图方案。建议用 Flash/Mini 等便宜模型</div>
+
+              {/* ═══ 基础设置 ═══ */}
+              <div style={{ padding: 16, borderRadius: 16, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+                <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: '#2d2520' }}>⚙️ 基础设置</h4>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 140px' }}>
+                    <FormField label="服务商">
+                      <select value={PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) ? activeConfig.provider : '__custom__'}
+                        onChange={e => {
+                          const v = e.target.value
+                          if (v === '__custom__') return
+                          const preset = PROVIDER_PRESETS.find(p => p.name === v)
+                          updateConfig(activeConfig.id, { provider: v, apiUrl: preset ? preset.apiUrl : activeConfig.apiUrl })
+                        }}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11, cursor: 'pointer' }}>
+                        {PROVIDER_PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        <option value="__custom__">自定义</option>
+                      </select>
                     </FormField>
-                    <FormField label="🧠 Reasoning 推理模型">
-                      <input type="text" value={activeConfig.reasoningModel || ''}
-                        onChange={e => updateConfig(activeConfig.id, { reasoningModel: e.target.value })}
-                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
-                        placeholder="如 deepseek-reasoner / o1（可选，留空用Main）" />
-                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>深度分析 + 复杂推理。输出速度较慢但推理质量高</div>
+                    <FormField label="模板名称">
+                      <input type="text" value={activeConfig.name}
+                        onChange={e => updateConfig(activeConfig.id, { name: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} />
                     </FormField>
-                    <FormField label="🎨 Image 图片模型">
-                      <input type="text" value={activeConfig.imageModel || ''}
-                        onChange={e => updateConfig(activeConfig.id, { imageModel: e.target.value })}
-                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
-                        placeholder="如 dall-e-3（可选，留空禁用图片生成）" />
-                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>图片生成。可能需要不同 API（如 OpenAI DALL-E），请在下方配置</div>
-                    </FormField>
-                    {/* Image API override fields — only show when imageModel is set */}
-                    {activeConfig.imageModel && (
-                      <>
-                        <FormField label="图片API地址">
-                          <input type="text" value={activeConfig.imageApiUrl || ''}
-                            onChange={e => updateConfig(activeConfig.id, { imageApiUrl: e.target.value })}
-                            className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
-                            placeholder="留空使用默认API地址" />
-                        </FormField>
-                        <FormField label="图片API密钥">
-                          <input type="password" value={activeConfig.imageApiKey || ''}
-                            onChange={e => updateConfig(activeConfig.id, { imageApiKey: e.target.value })}
-                            className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
-                            placeholder="留空使用默认API密钥" />
-                        </FormField>
-                      </>
-                    )}
                   </div>
-                  <FormField label="Embedding模型">
-                    <input
-                      type="text"
-                      value={activeConfig.embeddingModel || 'text-embedding-3-small'}
-                      onChange={e => updateConfig(activeConfig.id, { embeddingModel: e.target.value })}
-                      style={inputStyle}
-                      placeholder="text-embedding-3-small"
-                    />
-                  </FormField>
+                  <div style={{ flex: '1 1 200px' }}>
+                    <FormField label="API 地址">
+                      <input type="text" value={activeConfig.apiUrl}
+                        onChange={e => updateConfig(activeConfig.id, { apiUrl: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} />
+                    </FormField>
+                    <FormField label="API 密钥">
+                      <input type="password" value={activeConfig.apiKey}
+                        onChange={e => updateConfig(activeConfig.id, { apiKey: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="sk-..." />
+                    </FormField>
+                    <FormField label="货币单位">
+                      <select value={activeConfig.currency} onChange={e => updateConfig(activeConfig.id, { currency: e.target.value as 'USD' | 'CNY' })}
+                        style={{ ...inputStyle, fontSize: 11, cursor: 'pointer' }}>
+                        <option value="USD">$ USD</option>
+                        <option value="CNY">¥ CNY</option>
+                      </select>
+                    </FormField>
+                  </div>
                 </div>
               </div>
 
-              {/* Advanced config */}
-              <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>高级参数设置区</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <FormField label={`温度控制 (${activeConfig.temperature.toFixed(1)})`}>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={activeConfig.temperature}
-                      onChange={e => updateConfig(activeConfig.id, { temperature: parseFloat(e.target.value) })}
-                      onMouseUp={() => settingsService.saveConfigs(useSettingsStore.getState().configs)}
-                      onTouchEnd={() => settingsService.saveConfigs(useSettingsStore.getState().configs)}
-                      style={{ width: '100%', accentColor: '#7c3aed' }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9b8e84' }}>
-                      <span>精确</span>
-                      <span>创造</span>
-                    </div>
-                  </FormField>
-                  <FormField label="最大输出令牌 (0=由大模型决定)">
-                    <input
-                      type="number"
-                      min="0"
-                      value={activeConfig.maxTokens}
-                      onChange={e => updateConfig(activeConfig.id, { maxTokens: parseInt(e.target.value) || 0 })}
-                      style={inputStyle}
-                    />
-                  </FormField>
-                  <FormField label={`上下文窗口大小 (${formatContextWindow(activeConfig.contextWindow ?? 128000)})`}>
-                    <input
-                      type="number"
-                      min="1000"
-                      step="1000"
-                      value={activeConfig.contextWindow ?? 128000}
-                      onChange={e => updateConfig(activeConfig.id, { contextWindow: parseInt(e.target.value) || 128000 })}
-                      style={inputStyle}
-                      placeholder="128000"
-                    />
-                    <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>模型总上下文容量（影响用量条上限）。常见：GPT-4o=128K，Claude=200K，DeepSeek V4=1M</div>
-                  </FormField>
+              {/* ═══ 💪 Main ═══ */}
+              <ModelCard
+                icon="💪" title="Main 主力模型" desc="对话执行 + 工具调用。主力战斗员，负责写作和复杂操作。"
+                modelValue={activeConfig.model} onModelChange={v => updateConfig(activeConfig.id, { model: v })}
+                placeholder="deepseek-chat / gpt-4o"
+                tempValue={activeConfig.temperature} onTempChange={v => updateConfig(activeConfig.id, { temperature: v })}
+                maxTokValue={activeConfig.maxTokens} onMaxTokChange={v => updateConfig(activeConfig.id, { maxTokens: v })}
+                ctxWinValue={activeConfig.contextWindow ?? 128000}
+                onCtxWinChange={v => updateConfig(activeConfig.id, { contextWindow: v })}
+                inPrice={activeConfig.inputPricePerM} onInPrice={v => updateConfig(activeConfig.id, { inputPricePerM: v })}
+                outPrice={activeConfig.outputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { outputPricePerM: v })}
+                cachePrice={activeConfig.cacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { cacheHitPricePerM: v })}
+                currency={activeConfig.currency} showCtx
+              >
+                <div style={{ paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.04)', marginTop: 8 }}>
                   <FormField label="推理深度 (reasoning_effort)">
-                    <select
-                      value={activeConfig.reasoningEffort || ''}
+                    <select value={activeConfig.reasoningEffort || ''}
                       onChange={e => updateConfig(activeConfig.id, { reasoningEffort: (e.target.value || undefined) as any })}
-                      style={{ ...inputStyle, cursor: 'pointer' }}
-                    >
-                      <option value="">默认（不设置，兼容所有模型）</option>
-                      <option value="min">min — 最低推理</option>
-                      <option value="low">low — 低推理</option>
-                      <option value="medium">medium — 中等推理</option>
-                      <option value="high">high — 高推理</option>
-                      <option value="max">max — 最强推理（DeepSeek Pro 推荐）</option>
+                      style={{ ...inputStyle, fontSize: 11, cursor: 'pointer' }}>
+                      <option value="">默认（不设置）</option>
+                      <option value="min">min</option><option value="low">low</option>
+                      <option value="medium">medium</option><option value="high">high</option>
+                      <option value="max">max</option>
                     </select>
-                    <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>仅 DeepSeek Pro / OpenAI o 系列支持。设为空则不传此参数，兼容所有模型。</div>
                   </FormField>
-                  <FormField label="系统提示词">
-                    <textarea
-                      value={activeConfig.systemPrompt}
-                      onChange={e => updateConfig(activeConfig.id, { systemPrompt: e.target.value })}
-                      style={{ ...inputStyle, minHeight: 100, resize: 'vertical' }}
-                      placeholder="系统提示词..."
-                    />
-                  </FormField>
-                  <div style={{ paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>价格设置 (每百万 Token)</div>
-                      <select
-                        value={activeConfig.currency || 'USD'}
-                        onChange={e => updateConfig(activeConfig.id, { currency: e.target.value as 'USD' | 'CNY' })}
-                        style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        <option value="USD">US Dollar ($)</option>
-                        <option value="CNY">人民币 (¥)</option>
-                      </select>
+                </div>
+              </ModelCard>
+
+              {/* ═══ ⚡ Cheap ═══ */}
+              <ModelCard
+                icon="⚡" title="Cheap 便宜模型" desc="分类器 + 意图方案。速度和成本优先，建议用 Flash/Mini 等模型。留空模型名则复用 Main。"
+                modelValue={activeConfig.cheapModel} onModelChange={v => updateConfig(activeConfig.id, { cheapModel: v })}
+                placeholder="留空=用Main (建议 deepseek-chat / gpt-4o-mini)"
+                tempValue={activeConfig.cheapTemperature || activeConfig.temperature}
+                onTempChange={v => updateConfig(activeConfig.id, { cheapTemperature: v })}
+                maxTokValue={activeConfig.cheapMaxTokens || activeConfig.maxTokens}
+                onMaxTokChange={v => updateConfig(activeConfig.id, { cheapMaxTokens: v })}
+                inPrice={activeConfig.cheapInputPricePerM} onInPrice={v => updateConfig(activeConfig.id, { cheapInputPricePerM: v })}
+                outPrice={activeConfig.cheapOutputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { cheapOutputPricePerM: v })}
+                cachePrice={activeConfig.cheapCacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { cheapCacheHitPricePerM: v })}
+                currency={activeConfig.currency}
+              />
+
+              {/* ═══ 🧠 Reasoning ═══ */}
+              <ModelCard
+                icon="🧠" title="Reasoning 推理模型" desc="深度分析 + 复杂推理。可选，留空模型名则复用 Main。推理模型通常不需要温度参数。"
+                modelValue={activeConfig.reasoningModel} onModelChange={v => updateConfig(activeConfig.id, { reasoningModel: v })}
+                placeholder="留空=用Main (如 deepseek-reasoner / o1)"
+                tempValue={activeConfig.reasoningTemperature} onTempChange={v => updateConfig(activeConfig.id, { reasoningTemperature: v })}
+                tempDisabled={!!activeConfig.reasoningModel && /reasoner|o1|o3|deep.*seek.*r1/i.test(activeConfig.reasoningModel)}
+                maxTokValue={activeConfig.reasoningMaxTokens || activeConfig.maxTokens}
+                onMaxTokChange={v => updateConfig(activeConfig.id, { reasoningMaxTokens: v })}
+                inPrice={activeConfig.reasoningInputPricePerM} onInPrice={v => updateConfig(activeConfig.id, { reasoningInputPricePerM: v })}
+                outPrice={activeConfig.reasoningOutputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { reasoningOutputPricePerM: v })}
+                cachePrice={activeConfig.reasoningCacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { reasoningCacheHitPricePerM: v })}
+                currency={activeConfig.currency}
+              />
+
+              {/* ═══ 🎨 Image ═══ */}
+              <ModelCard
+                icon="🎨" title="Image 图片模型" desc="图片生成。可选，留空模型名则禁用图片功能。可能使用不同于文本模型的 API。"
+                modelValue={activeConfig.imageModel} onModelChange={v => updateConfig(activeConfig.id, { imageModel: v })}
+                placeholder="留空=禁用 (如 dall-e-3)"
+                tempValue={0} onTempChange={() => {}} tempDisabled
+                maxTokValue={0} onMaxTokChange={() => {}}
+                inPrice={activeConfig.imageInputPricePerM || 0}
+                outPrice={activeConfig.imageOutputPricePerM || 0}
+                cachePrice={0}
+                currency={activeConfig.currency} showPricing={false}
+              >
+                {activeConfig.imageModel && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.04)', marginTop: 8 }}>
+                    <div style={{ flex: '1 1 140px' }}>
+                      <label style={{ display: 'block', fontSize: 9, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>图片API地址</label>
+                      <input type="text" value={activeConfig.imageApiUrl || ''}
+                        onChange={e => updateConfig(activeConfig.id, { imageApiUrl: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="留空用模板默认" />
                     </div>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输入价格 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
-                        <input type="number" step="0.01" min="0" value={activeConfig.inputPricePerM ?? 2.50} onChange={e => updateConfig(activeConfig.id, { inputPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>缓存命中 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
-                        <input type="number" step="0.01" min="0" value={activeConfig.cacheHitPricePerM ?? 1.25} onChange={e => updateConfig(activeConfig.id, { cacheHitPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>输出价格 ({activeConfig.currency === 'CNY' ? '¥' : '$'})</label>
-                        <input type="number" step="0.01" min="0" value={activeConfig.outputPricePerM ?? 10.00} onChange={e => updateConfig(activeConfig.id, { outputPricePerM: parseFloat(e.target.value) || 0 })} style={inputStyle} />
-                      </div>
+                    <div style={{ flex: '1 1 140px' }}>
+                      <label style={{ display: 'block', fontSize: 9, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>图片API密钥</label>
+                      <input type="password" value={activeConfig.imageApiKey || ''}
+                        onChange={e => updateConfig(activeConfig.id, { imageApiKey: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="留空用模板默认" />
                     </div>
+                    <div style={{ flex: '1 1 80px' }}>
+                      <label style={{ display: 'block', fontSize: 9, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>费用/张</label>
+                      <input type="number" step="0.01" min="0" value={activeConfig.imageOutputPricePerM || ''}
+                        onChange={e => updateConfig(activeConfig.id, { imageOutputPricePerM: parseFloat(e.target.value) || 0 })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} placeholder="0" />
+                    </div>
+                  </div>
+                )}
+              </ModelCard>
+
+              {/* ═══ 📚 Embedding ═══ */}
+              <div style={{ padding: 16, borderRadius: 14, background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(0,0,0,0.06)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2d2520', marginBottom: 2 }}>📚 知识库 Embedding</div>
+                <div style={{ fontSize: 9, color: '#9b8e84', marginBottom: 10 }}>用于知识库文件的向量化和语义搜索，独立于对话模型。</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 160px' }}>
+                    <label style={labelS}>Embedding 模型名</label>
+                    <input type="text" value={activeConfig.embeddingModel || ''}
+                      onChange={e => updateConfig(activeConfig.id, { embeddingModel: e.target.value })}
+                      className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="text-embedding-3-small" />
+                  </div>
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label style={labelS}>API地址 (可选覆盖)</label>
+                    <input type="text" value={activeConfig.embeddingApiUrl || ''}
+                      onChange={e => updateConfig(activeConfig.id, { embeddingApiUrl: e.target.value })}
+                      className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="留空用模板默认" />
+                  </div>
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label style={labelS}>API密钥 (可选覆盖)</label>
+                    <input type="password" value={activeConfig.embeddingApiKey || ''}
+                      onChange={e => updateConfig(activeConfig.id, { embeddingApiKey: e.target.value })}
+                      className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="留空用模板默认" />
                   </div>
                 </div>
               </div>
+
+              {/* ═══ 系统提示词 ═══ */}
+              <div style={{ padding: 16, borderRadius: 14, background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(0,0,0,0.06)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2d2520', marginBottom: 4 }}>系统提示词</div>
+                <textarea value={activeConfig.systemPrompt}
+                  onChange={e => updateConfig(activeConfig.id, { systemPrompt: e.target.value })}
+                  style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontSize: 11 }}
+                  placeholder="系统提示词..." />
+              </div>
+
+              {/* ═══ 删除 ═══ */}
+              {configs.length > 1 && (
+                <button onClick={() => { removeConfig(activeConfig.id); setActiveConfig(configs[0].id !== activeConfig.id ? configs[0].id : configs[1]?.id || '') }}
+                  style={{
+                    padding: '10px', borderRadius: 12, border: '1px solid rgba(220,38,38,0.15)', background: '#fff',
+                    color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}>
+                  <TrashIcon style={{ width: 14, height: 14 }} /> 删除此配置模板
+                </button>
+              )}
             </div>
           </ScrollArea>
         </div>
       ) : (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84', fontSize: 14 }}>
-          {configs.length > 0 ? '选择左侧设置模板' : '点击"新建设置"创建配置'}
+        <div style={{ width: '65%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9b8e84', fontSize: 13 }}>
+          选择一个配置模板或新建一个
         </div>
       )}
     </div>

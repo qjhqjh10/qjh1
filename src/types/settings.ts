@@ -10,28 +10,66 @@ export interface ModelConfig {
   apiKey: string                  // 默认 API 密钥 (加密存储)
   encrypted?: boolean
 
-  // ── 四个子模型 ──
+  // ── 四个子模型名称 ──
   model: string                   // 💪 Main — 主力执行模型 (如 deepseek-chat / gpt-4o)
   cheapModel: string              // ⚡ Cheap — 分类+意图方案 (如 deepseek-chat 同模型 / gpt-4o-mini)
   reasoningModel: string          // 🧠 Reasoning — 深度推理 (如 deepseek-reasoner / o1, 留空=用Main)
   imageModel: string              // 🎨 Image — 图片生成 (如 dall-e-3, 留空=禁用图片)
 
-  // ── 图片模型独立提供商 (图片模型可能用不同于文本模型的 API) ──
-  imageProvider: string           // 图片API提供商 (默认: 同 provider)
-  imageApiUrl: string             // 图片API地址 (默认: 同 apiUrl)
-  imageApiKey: string             // 图片API密钥 (默认: 同 apiKey, 加密存储)
-  imageEncrypted?: boolean
-
-  embeddingModel: string
+  // ── Main 模型参数 ──
   temperature: number
   maxTokens: number
   contextWindow?: number
-  systemPrompt: string
   reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
+
+  // ── 💪 Main 定价 ──
   inputPricePerM: number
   outputPricePerM: number
   cacheHitPricePerM: number
+
+  // ── ⚡ Cheap 覆盖 (留空/0=继承Main值) ──
+  cheapTemperature: number        // 默认 0.3 (分类任务需低温度)
+  cheapMaxTokens: number          // 默认 2000
+  cheapInputPricePerM: number
+  cheapOutputPricePerM: number
+  cheapCacheHitPricePerM: number
+
+  // ── 🧠 Reasoning 覆盖 (留空/0=继承Main值) ──
+  reasoningTemperature: number    // 默认 0 (推理模型不传temperature参数)
+  reasoningMaxTokens: number      // 默认 32000
+  reasoningInputPricePerM: number
+  reasoningOutputPricePerM: number
+  reasoningCacheHitPricePerM: number
+
+  // ── 🎨 Image 模型 ──
+  imageProvider: string           // 图片API提供商 (默认: 同 provider)
+  imageApiUrl: string             // 图片API地址 (默认: 同 apiUrl)
+  imageApiKey: string             // 图片API密钥 (默认: 同 apiKey)
+  imageEncrypted?: boolean
+  imageInputPricePerM: number     // DALL-E按图计费，填每张价格
+  imageOutputPricePerM: number
+
+  // ── 📚 知识库 Embedding ──
+  embeddingModel: string
+  embeddingApiUrl?: string        // 可选覆盖
+  embeddingApiKey?: string        // 可选覆盖
+
+  systemPrompt: string
   currency: 'USD' | 'CNY'
+}
+
+/** 获取子模型的温度 (Cheap/Reasoning可独立, 否则用Main) */
+export function getModelTemperature(c: ModelConfig, tier: 'main' | 'cheap' | 'reasoning'): number {
+  if (tier === 'cheap') return c.cheapTemperature || c.temperature
+  if (tier === 'reasoning') return c.reasoningTemperature || c.temperature
+  return c.temperature
+}
+
+/** 获取子模型的最大输出令牌 */
+export function getModelMaxTokens(c: ModelConfig, tier: 'main' | 'cheap' | 'reasoning'): number {
+  if (tier === 'cheap') return c.cheapMaxTokens || c.maxTokens
+  if (tier === 'reasoning') return c.reasoningMaxTokens || c.maxTokens
+  return c.maxTokens
 }
 
 /** 从 ModelConfig 解析有效的子模型名（留空则回退到 Main） */
@@ -61,17 +99,34 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   cheapModel: '',
   reasoningModel: '',
   imageModel: '',
-  imageProvider: '',
-  imageApiUrl: '',
-  imageApiKey: '',
-  embeddingModel: 'text-embedding-3-small',
+  // Main params
   temperature: 0.8,
   maxTokens: 0,
   contextWindow: 128000,
-  systemPrompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。',
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,
+  // Cheap defaults
+  cheapTemperature: 0.3,
+  cheapMaxTokens: 2000,
+  cheapInputPricePerM: 0,
+  cheapOutputPricePerM: 0,
+  cheapCacheHitPricePerM: 0,
+  // Reasoning defaults
+  reasoningTemperature: 0,
+  reasoningMaxTokens: 32000,
+  reasoningInputPricePerM: 0,
+  reasoningOutputPricePerM: 0,
+  reasoningCacheHitPricePerM: 0,
+  // Image
+  imageProvider: '',
+  imageApiUrl: '',
+  imageApiKey: '',
+  imageInputPricePerM: 0,
+  imageOutputPricePerM: 0,
+  // Embedding
+  embeddingModel: 'text-embedding-3-small',
+  systemPrompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。',
   currency: 'USD',
 }
 
