@@ -25,14 +25,22 @@ function safe(v: number | undefined, fallback = 0): number {
 // ── API Key with eye toggle ──
 function ApiKeyField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [show, setShow] = useState(false)
+  const isMasked = value === '••••••••'
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      <input type={show ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)}
-        className="focus-ring" style={{ ...inputBase, flex: 1 }} placeholder="sk-..." />
-      <button onClick={() => setShow(!show)} title={show ? '隐藏密钥' : '查看密钥'}
-        style={{ background: 'none', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#9b8e84', flexShrink: 0 }}>
-        {show ? <EyeSlashIcon style={{ width: 18, height: 18 }} /> : <EyeIcon style={{ width: 18, height: 18 }} />}
-      </button>
+    <div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input type={show ? 'text' : 'password'}
+          value={isMasked ? '' : value}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => { if (isMasked) onChange('') }}
+          className="focus-ring" style={{ ...inputBase, flex: 1 }}
+          placeholder={isMasked ? '•••••••• (已加密存储)' : 'sk-...'} />
+        <button onClick={() => setShow(!show)} title={show ? '隐藏' : '查看'}
+          style={{ background: 'none', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#9b8e84', flexShrink: 0 }}>
+          {show ? <EyeSlashIcon style={{ width: 18, height: 18 }} /> : <EyeIcon style={{ width: 18, height: 18 }} />}
+        </button>
+      </div>
+      {isMasked && <div style={{ fontSize: 9, color: '#16a34a', marginTop: 2 }}>✅ 已加密存储。如需更换，直接输入新密钥即可。</div>}
     </div>
   )
 }
@@ -241,6 +249,20 @@ export function ModelSettingsTab() {
         </div>
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
           <div style={{ padding: '8px' }}>
+            {configs.length > 0 && (
+              <button onClick={() => {
+                if (confirm('确定要清除所有模型配置数据吗？此操作不可恢复。')) {
+                  localStorage.removeItem('novel-writer-settings')
+                  location.reload()
+                }
+              }} style={{
+                width: '100%', textAlign: 'center', padding: '8px', borderRadius: 8, border: '1px dashed rgba(220,38,38,0.2)',
+                background: 'transparent', color: '#dc2626', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                marginBottom: 8,
+              }}>
+                🗑 清除所有设置数据
+              </button>
+            )}
             {configs.map(config => (
               <button key={config.id} onClick={() => setActiveConfig(config.id)} style={{
                 width: '100%', textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: 'none',
