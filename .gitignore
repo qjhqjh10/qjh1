@@ -22,3 +22,6 @@ agent-sessions/
 demo_output/
 uploads/
 .ai_backups/
+
+# Coverage reports (generated)
+coverage/
