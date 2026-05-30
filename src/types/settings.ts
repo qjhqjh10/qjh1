@@ -18,7 +18,7 @@ export interface ModelConfig {
 
   // ── Main 模型参数 ──
   temperature: number
-  maxTokens: number
+  maxTokens: number               // 0=使用模型默认最大值
   contextWindow?: number
   reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
   mainProvider?: string            // 覆盖模板级服务商 (可选)
@@ -29,6 +29,7 @@ export interface ModelConfig {
   inputPricePerM: number
   outputPricePerM: number
   cacheHitPricePerM: number
+  mainCurrency?: 'USD' | 'CNY'     // Main 货币 (默认: 模板级)
 
   // ── ⚡ Cheap 覆盖 (留空/0=继承Main值) ──
   cheapTemperature: number        // 默认 0.3 (分类任务需低温度)
@@ -39,6 +40,7 @@ export interface ModelConfig {
   cheapInputPricePerM: number
   cheapOutputPricePerM: number
   cheapCacheHitPricePerM: number
+  cheapCurrency?: 'USD' | 'CNY'
 
   // ── 🧠 Reasoning 覆盖 (留空/0=继承Main值) ──
   reasoningTemperature: number    // 默认 0 (推理模型不传temperature参数)
@@ -49,6 +51,7 @@ export interface ModelConfig {
   reasoningInputPricePerM: number
   reasoningOutputPricePerM: number
   reasoningCacheHitPricePerM: number
+  reasoningCurrency?: 'USD' | 'CNY'
 
   // ── 🎨 Image 模型 ──
   imageProvider: string           // 图片API提供商 (默认: 同 provider)

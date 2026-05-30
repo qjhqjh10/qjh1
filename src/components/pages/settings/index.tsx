@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useStore } from '@/store'
+import { useStore, useSettingsStore } from '@/store'
 import type { SettingsTab } from './types'
 import { formatContextWindow } from './constants'
 import { ModelSettingsTab } from './tabs/ModelSettingsTab'
@@ -55,6 +55,16 @@ export default function SystemSettingsPage() {
         }}>
           控制台配置
         </h2>
+        {(() => {
+          const configs = useSettingsStore.getState().configs
+          const activeId = useSettingsStore.getState().activeConfigId
+          const active = configs.find(c => c.id === activeId)
+          return active ? (
+            <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, marginTop: -12, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 14 }}>🔧</span> 当前模板: {active.name}
+            </div>
+          ) : null
+        })()}
         {/* Tab nav */}
         <div style={{ display: 'flex', gap: 2, position: 'relative', borderBottom: '2px solid rgba(0,0,0,0.04)' }}>
           {TABS.map(([tab, label]) => (
