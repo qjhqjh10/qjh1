@@ -12,10 +12,8 @@ import { formatContextWindow } from '../constants'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 
-function priceLabel(c: ModelConfig, p: number, fallback: number): string {
-  const v = p || fallback
-  const sym = c.currency === 'CNY' ? '¥' : '$'
-  return v > 0 ? `${sym}${v.toFixed(2)}` : `(${sym}${fallback.toFixed(2)})`
+function safe(v: number | undefined, fallback = 0): number {
+  return typeof v === 'number' && !isNaN(v) ? v : fallback
 }
 
 function ModelCard({
@@ -108,7 +106,7 @@ function ModelCard({
           </div>}
           {!onInPrice && !onOutPrice && !onCachePrice && (
             <div style={{ fontSize: 10, color: '#9b8e84' }}>
-              {sym}{inPrice.toFixed(2)}/张
+              {sym}{safe(inPrice).toFixed(2)}/张
             </div>
           )}
         </div>
@@ -287,13 +285,13 @@ export function ModelSettingsTab() {
                 icon="⚡" title="Cheap 便宜模型" desc="分类器 + 意图方案。速度和成本优先，建议用 Flash/Mini 等模型。留空模型名则复用 Main。"
                 modelValue={activeConfig.cheapModel} onModelChange={v => updateConfig(activeConfig.id, { cheapModel: v })}
                 placeholder="留空=用Main (建议 deepseek-chat / gpt-4o-mini)"
-                tempValue={activeConfig.cheapTemperature || activeConfig.temperature}
+                tempValue={safe(activeConfig.cheapTemperature, activeConfig.temperature)}
                 onTempChange={v => updateConfig(activeConfig.id, { cheapTemperature: v })}
-                maxTokValue={activeConfig.cheapMaxTokens || activeConfig.maxTokens}
+                maxTokValue={safe(activeConfig.cheapMaxTokens, activeConfig.maxTokens)}
                 onMaxTokChange={v => updateConfig(activeConfig.id, { cheapMaxTokens: v })}
-                inPrice={activeConfig.cheapInputPricePerM} onInPrice={v => updateConfig(activeConfig.id, { cheapInputPricePerM: v })}
-                outPrice={activeConfig.cheapOutputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { cheapOutputPricePerM: v })}
-                cachePrice={activeConfig.cheapCacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { cheapCacheHitPricePerM: v })}
+                inPrice={safe(activeConfig.cheapInputPricePerM)} onInPrice={v => updateConfig(activeConfig.id, { cheapInputPricePerM: v })}
+                outPrice={safe(activeConfig.cheapOutputPricePerM)} onOutPrice={v => updateConfig(activeConfig.id, { cheapOutputPricePerM: v })}
+                cachePrice={safe(activeConfig.cheapCacheHitPricePerM)} onCachePrice={v => updateConfig(activeConfig.id, { cheapCacheHitPricePerM: v })}
                 currency={activeConfig.currency}
               />
 
@@ -302,13 +300,13 @@ export function ModelSettingsTab() {
                 icon="🧠" title="Reasoning 推理模型" desc="深度分析 + 复杂推理。可选，留空模型名则复用 Main。推理模型通常不需要温度参数。"
                 modelValue={activeConfig.reasoningModel} onModelChange={v => updateConfig(activeConfig.id, { reasoningModel: v })}
                 placeholder="留空=用Main (如 deepseek-reasoner / o1)"
-                tempValue={activeConfig.reasoningTemperature} onTempChange={v => updateConfig(activeConfig.id, { reasoningTemperature: v })}
+                tempValue={safe(activeConfig.reasoningTemperature)} onTempChange={v => updateConfig(activeConfig.id, { reasoningTemperature: v })}
                 tempDisabled={!!activeConfig.reasoningModel && /reasoner|o1|o3|deep.*seek.*r1/i.test(activeConfig.reasoningModel)}
-                maxTokValue={activeConfig.reasoningMaxTokens || activeConfig.maxTokens}
+                maxTokValue={safe(activeConfig.reasoningMaxTokens, activeConfig.maxTokens)}
                 onMaxTokChange={v => updateConfig(activeConfig.id, { reasoningMaxTokens: v })}
-                inPrice={activeConfig.reasoningInputPricePerM} onInPrice={v => updateConfig(activeConfig.id, { reasoningInputPricePerM: v })}
-                outPrice={activeConfig.reasoningOutputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { reasoningOutputPricePerM: v })}
-                cachePrice={activeConfig.reasoningCacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { reasoningCacheHitPricePerM: v })}
+                inPrice={safe(activeConfig.reasoningInputPricePerM)} onInPrice={v => updateConfig(activeConfig.id, { reasoningInputPricePerM: v })}
+                outPrice={safe(activeConfig.reasoningOutputPricePerM)} onOutPrice={v => updateConfig(activeConfig.id, { reasoningOutputPricePerM: v })}
+                cachePrice={safe(activeConfig.reasoningCacheHitPricePerM)} onCachePrice={v => updateConfig(activeConfig.id, { reasoningCacheHitPricePerM: v })}
                 currency={activeConfig.currency}
               />
 
@@ -319,8 +317,8 @@ export function ModelSettingsTab() {
                 placeholder="留空=禁用 (如 dall-e-3)"
                 tempValue={0} onTempChange={() => {}} tempDisabled
                 maxTokValue={0} onMaxTokChange={() => {}}
-                inPrice={activeConfig.imageInputPricePerM || 0}
-                outPrice={activeConfig.imageOutputPricePerM || 0}
+                inPrice={safe(activeConfig.imageInputPricePerM)}
+                outPrice={safe(activeConfig.imageOutputPricePerM)}
                 cachePrice={0}
                 currency={activeConfig.currency} showPricing={false}
               >
