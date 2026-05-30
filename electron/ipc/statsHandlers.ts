@@ -40,7 +40,9 @@ export async function logTokenUsage(entry: TokenUsageEntry) {
     await ensureStatsDir()
     const logPath = path.join(getStatsPath(), 'usage.jsonl')
     await fs.appendFile(logPath, JSON.stringify(entry) + '\n', 'utf-8')
-  } catch { /* non-critical */ }
+  } catch (err) {
+    console.error(`[stats] logTokenUsage failed (path: ${getStatsPath()}):`, err)
+  }
 }
 
 // Get current month's total cost for budget check
