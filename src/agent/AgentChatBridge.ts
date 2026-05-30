@@ -567,8 +567,15 @@ export class AgentChatBridge {
     // ── TaskPipeline: Classifier → Intent+Plan → Approval (V2) ──
     try {
       if (!this.pipeline) {
+        // Read pipeline model configs from settings
+        const { useSettingsStore } = await import('@/store')
+        const pm = useSettingsStore.getState().aiSettings?.pipelineModels
         this.pipeline = new (await import('./pipeline/TaskPipeline')).TaskPipeline(
           this.configId, this.projectId,
+          {
+            classifierModelId: pm?.cheap || undefined,
+            intentPlannerModelId: pm?.cheap || undefined, // Cheap model handles both
+          },
         )
       }
       this.lastPipelineResult = await this.pipeline.run(userMessage)
@@ -640,8 +647,11 @@ export class AgentChatBridge {
       const schemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
       try {
         const settingsStore = (await import('@/store')).useSettingsStore.getState()
-        const config = settingsStore.configs?.find((c: any) => c.id === this.configId)
-        if (!/dall-e|imagen|stable.diffusion|midjourney|flux/i.test(config?.model || '')) {
+        const pm = settingsStore.aiSettings?.pipelineModels
+        // Keep generate_image only if an image model is explicitly configured
+        const hasImageModel = !!(pm?.image
+          && settingsStore.configs?.find((c: any) => c.id === pm.image))
+        if (!hasImageModel) {
           this.runtime.setTools(schemas.filter((s: any) => s.function?.name !== 'generate_image'))
         } else {
           this.runtime.setTools(schemas)

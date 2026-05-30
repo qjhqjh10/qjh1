@@ -140,6 +140,15 @@ export interface AIAssistantSettings {
   toolRetentionRounds: number                 // 工具结果跨轮保留轮数 (0-10)
   rulesRefreshInterval: number                // 核心规则复述间隔 (0-100, 0=不重复)
   useAgent: boolean                            // 启用 Agent 模式（替代旧 handleSend）
+  pipelineModels: PipelineModels               // 流水线多模型配置 (V2)
+}
+
+/** 流水线四模型: 不同阶段使用不同模型以节省成本 */
+export interface PipelineModels {
+  cheap: string       // configId — 分类器+意图方案 (如 DeepSeek Flash)
+  main: string        // configId — 主力执行 (如 DeepSeek V3)
+  reasoning: string   // configId — 深度推理 (如 DeepSeek R1, 可选, 留空=用main)
+  image: string       // configId — 图片生成 (如 DALL-E 3, 可选, 留空=不启用图片)
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -164,6 +173,12 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   toolRetentionRounds: 3,
   rulesRefreshInterval: 31,
   useAgent: false,
+  pipelineModels: {
+    cheap: '',       // 未配置时自动使用 main
+    main: '',        // 未配置时自动使用 activeConfigId
+    reasoning: '',   // 未配置时自动使用 main
+    image: '',       // 未配置时禁用图片生成
+  },
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },

@@ -13,7 +13,7 @@ import type {
 import type { ThinkingPlan } from '../state/types'
 
 export class TaskPipeline {
-  private configId: string
+  private configId: string       // Main execution model (fallback)
   private projectId: string | null
   private cache = new ContextCache()
   private pipelineConfig: PipelineConfig
@@ -30,6 +30,15 @@ export class TaskPipeline {
       autoApproveBelow: 'low',
       ...pipelineConfig,
     }
+  }
+
+  /** Use classifier model if configured, otherwise fall back to main */
+  private get classifierModelId(): string {
+    return this.pipelineConfig.classifierModelId || this.configId
+  }
+  /** Use intent+plan model if configured, otherwise fall back to main */
+  private get intentPlannerModelId(): string {
+    return this.pipelineConfig.intentPlannerModelId || this.configId
   }
 
   // ── Public API ──
@@ -50,7 +59,7 @@ export class TaskPipeline {
     // ── Stage 1: Classifier (API #1, cheap model) ──
     let classification: ClassificationResult
     try {
-      const result = await this.callAI(CLASSIFIER_PROMPT, userMessage)
+      const result = await this.callAI(CLASSIFIER_PROMPT, userMessage, this.classifierModelId)
       totalTokens += result.tokens
       classification = preFilter || parseClassification(result.text)
     } catch {
@@ -64,7 +73,7 @@ export class TaskPipeline {
 
     // ── Direct route: simple reply ──
     if (classification.suggestedRoute === 'direct') {
-      const directText = await this.directAIResponse(userMessage)
+      const directText = await this.directAIResponse(userMessage, this.classifierModelId)
       return { phase: 'done', classification, directText, pipelineTokens: totalTokens }
     }
 
@@ -80,13 +89,13 @@ export class TaskPipeline {
 
       if (classification.suggestedRoute === 'full') {
         // Merged Intent+Plan prompt
-        const result = await this.callAI(INTENT_PLAN_PROMPT, contextPrompt)
+        const result = await this.callAI(INTENT_PLAN_PROMPT, contextPrompt, this.intentPlannerModelId)
         totalTokens += result.tokens
         intent = parseIntent(result.text)
         plan = parseMergedPlan(result.text)
       } else {
         // Simplified route: Plan only
-        const result = await this.callAI(PLAN_ONLY_PROMPT, contextPrompt)
+        const result = await this.callAI(PLAN_ONLY_PROMPT, contextPrompt, this.intentPlannerModelId)
         totalTokens += result.tokens
         plan = parseSimplePlan(result.text)
       }
@@ -131,26 +140,26 @@ export class TaskPipeline {
 
   // ── Helpers ──
 
-  private async callAI(systemPrompt: string, userMessage: string):
+  private async callAI(systemPrompt: string, userMessage: string, modelId: string):
     Promise<{ text: string; tokens: number }> {
     const { aiService } = await import('@/services/fileService')
     const messages = [
       { role: 'system' as const, content: systemPrompt },
       { role: 'user' as const, content: userMessage },
     ]
-    const result = await aiService.chatWithUsage(messages, this.configId)
+    const result = await aiService.chatWithUsage(messages, modelId)
     return {
       text: result.text,
       tokens: result.usage?.total_tokens || Math.ceil((systemPrompt.length + userMessage.length) / 2),
     }
   }
 
-  private async directAIResponse(userMessage: string): Promise<string> {
+  private async directAIResponse(userMessage: string, modelId: string): Promise<string> {
     try {
       const { aiService } = await import('@/services/fileService')
       const result = await aiService.chat(
         [{ role: 'user', content: userMessage }],
-        this.configId,
+        modelId,
       )
       return result
     } catch {

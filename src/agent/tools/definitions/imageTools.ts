@@ -45,10 +45,17 @@ export const imageTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args, ctx) => {
       const { aiService } = await import('@/services/fileService')
+      // Use dedicated image model if configured, otherwise fall back to main model
+      let imageModelId = ctx.configId
+      try {
+        const { useSettingsStore } = await import('@/store')
+        const pm = useSettingsStore.getState().aiSettings?.pipelineModels
+        if (pm?.image) imageModelId = pm.image
+      } catch { /* use default */ }
       try {
         const result = await aiService.generateImage(
           String(args.prompt || '').slice(0, 1000),
-          ctx.configId,
+          imageModelId,
           ctx.projectId || undefined,
           String(args.size || '1024x1024'),
           String(args.style || 'vivid'),
