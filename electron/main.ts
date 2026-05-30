@@ -47,7 +47,7 @@ async function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // Set to true after verifying preload doesn't use Node.js APIs directly
+      sandbox: true, // Verified: preload.ts uses only contextBridge + ipcRenderer (no Node APIs)
     },
     frame: true,
     show: false,
@@ -73,10 +73,41 @@ async function createWindow() {
   mainWindow.on('maximize', scheduleSaveBounds)
   mainWindow.on('unmaximize', scheduleSaveBounds)
 
-  // Open external links in system browser
+  // Open external links in system browser — strict URL validation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http')) { shell.openExternal(url) }
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(url)
+      }
+    } catch { /* invalid URL — deny */ }
     return { action: 'deny' }
+  })
+
+  // Prevent navigation to external URLs (defense-in-depth)
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const allowedOrigins = [process.env.ELECTRON_RENDERER_URL, 'file://'].filter(Boolean) as string[]
+    const isAllowed = allowedOrigins.some(origin => navigationUrl.startsWith(origin))
+    if (!isAllowed) {
+      event.preventDefault()
+    }
+  })
+
+  // Deny all renderer permission requests (camera, mic, notifications, etc.)
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => { callback(false) }
+  )
+
+  // CSP header injection (defense-in-depth layer on top of meta tag)
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com https://api.openai.com https://*.openai.com; font-src 'self' data:; object-src 'none'"
+        ],
+      },
+    })
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -138,7 +169,7 @@ app.whenReady().then(async () => {
     if (config.http?.allowPrivateIPs) httpConfig.allowPrivateIPs = true
   } catch { /* use defaults */ }
   registerHttpHandlers(ipcMain, httpConfig)
-  registerBrowserHandlers(ipcMain)
+  registerBrowserHandlers(ipcMain, httpConfig)
   registerShellHandlers(ipcMain, projectsPath)
   registerMCPHandlers(ipcMain)
   registerLSPHandlers(ipcMain)

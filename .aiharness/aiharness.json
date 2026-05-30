@@ -39,7 +39,7 @@
     "enforceNoDuplicateCreate": true
   },
   "http": {
-    "allowPrivateIPs": true
+    "allowPrivateIPs": false
   },
   "tools": {
     "constraints": {}

@@ -169,12 +169,13 @@ export function registerAgentHandlers(ipcMain: IpcMain, projectsPath?: string) {
       const scriptPath = join(__dirname, '..', '..', 'scripts', 'agent-cli.mjs')
       let settled = false
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+      // Pass API key via environment variable (not CLI args — visible to all processes)
       const child = spawn('node', [scriptPath, '--self-optimize',
-        `--key=${apiKey}`, `--api-url=${apiUrl}`, `--model=${model}`,
+        `--api-url=${apiUrl}`, `--model=${model}`,
         `--command=${command}`, '--max-iters=12',
       ], {
         cwd: join(__dirname, '..', '..'),
-        env: { ...process.env },
+        env: { ...process.env, AI_API_KEY: apiKey },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
 
