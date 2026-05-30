@@ -52,7 +52,7 @@ function ModelCard({
   maxTokValue, onMaxTokChange,
   ctxWinValue, onCtxWinChange,
   inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
-  currency, onCurrency, showCtx, showPricing,
+  currency, onCurrency, showCtx, showPricing, pricingLabels,
   apiUrl, onApiUrl, apiKey, onApiKey,
   configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
   children,
@@ -67,6 +67,7 @@ function ModelCard({
   cachePrice: number; onCachePrice?: (v: number) => void
   currency: 'USD' | 'CNY'; onCurrency?: (v: 'USD' | 'CNY') => void
   showCtx?: boolean; showPricing?: boolean
+  pricingLabels?: { input?: string; output?: string; cache?: string }
   apiUrl?: string; onApiUrl?: (v: string) => void
   apiKey?: string; onApiKey?: (v: string) => void
   configId: string
@@ -168,26 +169,26 @@ function ModelCard({
       )}
 
       {/* Pricing */}
-      {onInPrice && onOutPrice && onCachePrice && (
+      {(onInPrice || onOutPrice) && (
         <div style={{ display: 'flex', gap: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-          <div style={{ flex: 1 }}>
-            <label style={fieldLabel}>输入价格 {sym}/百万t</label>
+          {onInPrice ? <div style={{ flex: 1 }}>
+            <label style={fieldLabel}>{pricingLabels?.input || `输入 ${sym}/百万t`}</label>
             <input type="number" step="0.01" min="0" value={inPrice || ''}
               onChange={e => onInPrice(parseFloat(e.target.value) || 0)}
               className="focus-ring" style={inputBase} placeholder="0" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={fieldLabel}>输出价格 {sym}/百万t</label>
+          </div> : <div style={{ flex: 1 }} />}
+          {onOutPrice ? <div style={{ flex: 1 }}>
+            <label style={fieldLabel}>{pricingLabels?.output || `输出 ${sym}/百万t`}</label>
             <input type="number" step="0.01" min="0" value={outPrice || ''}
               onChange={e => onOutPrice(parseFloat(e.target.value) || 0)}
               className="focus-ring" style={inputBase} placeholder="0" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={fieldLabel}>缓存命中 {sym}/百万t</label>
+          </div> : <div style={{ flex: 1 }} />}
+          {onCachePrice ? <div style={{ flex: 1 }}>
+            <label style={fieldLabel}>{pricingLabels?.cache || `缓存 ${sym}/百万t`}</label>
             <input type="number" step="0.01" min="0" value={cachePrice || ''}
               onChange={e => onCachePrice(parseFloat(e.target.value) || 0)}
               className="focus-ring" style={inputBase} placeholder="0" />
-          </div>
+          </div> : <div style={{ flex: 1 }} />}
         </div>
       )}
 
@@ -436,26 +437,16 @@ export function ModelSettingsTab() {
               placeholder="留空 = 禁用（如 dall-e-3）"
               tempValue={0} onTempChange={() => {}} tempDisabled
               maxTokValue={0} onMaxTokChange={() => {}}
-              inPrice={safe(activeConfig.imageInputPricePerM)} outPrice={safe(activeConfig.imageOutputPricePerM)}
+              inPrice={safe(activeConfig.imageInputPricePerM)} onInPrice={v => u({ imageInputPricePerM: v })}
+              outPrice={safe(activeConfig.imageOutputPricePerM)} onOutPrice={v => u({ imageOutputPricePerM: v })}
               cachePrice={0}
               currency={activeConfig.mainCurrency || activeConfig.currency}
-              showPricing={false}
+              pricingLabels={{ output: `费用/张 ${activeConfig.mainCurrency || activeConfig.currency === 'CNY' ? '¥' : '$'}` }}
               apiUrl={activeConfig.imageApiUrl || ''} onApiUrl={v => u({ imageApiUrl: v })}
               apiKey={activeConfig.imageApiKey || ''} onApiKey={v => u({ imageApiKey: v })}
               configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
               modelList={modelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
-            >
-              {activeConfig.imageModel && (
-                <div style={{ display: 'flex', paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 4 }}>
-                  <div style={{ flex: '0 0 100px' }}>
-                    <label style={fieldLabel}>费用/张</label>
-                    <input type="number" step="0.01" min="0" value={safe(activeConfig.imageOutputPricePerM) || ''}
-                      onChange={e => u({ imageOutputPricePerM: parseFloat(e.target.value) || 0 })}
-                      className="focus-ring" style={inputBase} placeholder="0" />
-                  </div>
-                </div>
-              )}
-            </ModelCard>
+            />
 
             {/* ── 📚 Embedding ── */}
             <div style={cardInner}>
