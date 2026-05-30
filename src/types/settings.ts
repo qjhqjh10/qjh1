@@ -21,6 +21,9 @@ export interface ModelConfig {
   maxTokens: number
   contextWindow?: number
   reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
+  mainProvider?: string            // 覆盖模板级服务商 (可选)
+  mainApiUrl?: string              // 覆盖模板级API地址 (可选)
+  mainApiKey?: string              // 覆盖模板级API密钥 (可选)
 
   // ── 💪 Main 定价 ──
   inputPricePerM: number
@@ -30,6 +33,9 @@ export interface ModelConfig {
   // ── ⚡ Cheap 覆盖 (留空/0=继承Main值) ──
   cheapTemperature: number        // 默认 0.3 (分类任务需低温度)
   cheapMaxTokens: number          // 默认 2000
+  cheapProvider?: string          // 覆盖服务商 (可选)
+  cheapApiUrl?: string            // 覆盖API地址 (可选)
+  cheapApiKey?: string            // 覆盖API密钥 (可选)
   cheapInputPricePerM: number
   cheapOutputPricePerM: number
   cheapCacheHitPricePerM: number
@@ -37,6 +43,9 @@ export interface ModelConfig {
   // ── 🧠 Reasoning 覆盖 (留空/0=继承Main值) ──
   reasoningTemperature: number    // 默认 0 (推理模型不传temperature参数)
   reasoningMaxTokens: number      // 默认 32000
+  reasoningProvider?: string
+  reasoningApiUrl?: string
+  reasoningApiKey?: string
   reasoningInputPricePerM: number
   reasoningOutputPricePerM: number
   reasoningCacheHitPricePerM: number

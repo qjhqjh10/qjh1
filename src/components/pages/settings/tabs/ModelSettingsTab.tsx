@@ -23,6 +23,7 @@ function ModelCard({
   ctxWinValue, onCtxWinChange,
   inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
   currency, showPricing, showCtx,
+  apiProvider, onApiProvider, apiUrl, onApiUrl, apiKey, onApiKey,
   children,
 }: {
   icon: string; title: string; desc: string
@@ -35,6 +36,9 @@ function ModelCard({
   cachePrice: number; onCachePrice?: (v: number) => void
   currency: 'USD' | 'CNY'
   showPricing?: boolean; showCtx?: boolean
+  apiProvider?: string; onApiProvider?: (v: string) => void
+  apiUrl?: string; onApiUrl?: (v: string) => void
+  apiKey?: string; onApiKey?: (v: string) => void
   children?: React.ReactNode
 }) {
   const sym = currency === 'CNY' ? '¥' : '$'
@@ -109,6 +113,26 @@ function ModelCard({
               {sym}{safe(inPrice).toFixed(2)}/张
             </div>
           )}
+        </div>
+      )}
+
+      {/* API 覆盖 (每个子模型可独立设置) */}
+      {onApiUrl !== undefined && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 100px' }}>
+              <label style={labelS}>API地址 (覆盖)</label>
+              <input type="text" value={apiUrl || ''} onChange={e => onApiUrl?.(e.target.value)}
+                className="focus-ring" style={{ ...inputStyle, fontSize: 10, padding: '3px 6px' }}
+                placeholder="留空=模板默认" />
+            </div>
+            <div style={{ flex: '1 1 100px' }}>
+              <label style={labelS}>API密钥 (覆盖)</label>
+              <input type="password" value={apiKey || ''} onChange={e => onApiKey?.(e.target.value)}
+                className="focus-ring" style={{ ...inputStyle, fontSize: 10, padding: '3px 6px' }}
+                placeholder="留空=模板默认" />
+            </div>
+          </div>
         </div>
       )}
 
@@ -206,12 +230,22 @@ export function ModelSettingsTab() {
                 <div style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', color: '#16a34a', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>✓ 已保存</div>
               )}
 
+              {/* ═══ 模板名称 ═══ */}
+              <div style={{ padding: 14, borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.04))', border: '1px solid rgba(124,58,237,0.12)' }}>
+                <input type="text" value={activeConfig.name}
+                  onChange={e => updateConfig(activeConfig.id, { name: e.target.value })}
+                  className="focus-ring"
+                  style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', border: 'none', background: 'transparent', outline: 'none', width: '100%', fontFamily: 'inherit' }}
+                  placeholder="输入模板名称..." />
+                <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>此名称将显示在聊天窗口左下角的模型选择器中</div>
+              </div>
+
               {/* ═══ 基础设置 ═══ */}
               <div style={{ padding: 16, borderRadius: 16, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-                <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: '#2d2520' }}>⚙️ 基础设置</h4>
+                <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: '#2d2520' }}>⚙️ 模板默认设置（子模型可选覆盖）</h4>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 140px' }}>
-                    <FormField label="服务商">
+                    <FormField label="默认服务商">
                       <select value={PROVIDER_PRESETS.some(p => p.name === activeConfig.provider) ? activeConfig.provider : '__custom__'}
                         onChange={e => {
                           const v = e.target.value
@@ -224,19 +258,14 @@ export function ModelSettingsTab() {
                         <option value="__custom__">自定义</option>
                       </select>
                     </FormField>
-                    <FormField label="模板名称">
-                      <input type="text" value={activeConfig.name}
-                        onChange={e => updateConfig(activeConfig.id, { name: e.target.value })}
-                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} />
-                    </FormField>
                   </div>
                   <div style={{ flex: '1 1 200px' }}>
-                    <FormField label="API 地址">
+                    <FormField label="默认 API 地址">
                       <input type="text" value={activeConfig.apiUrl}
                         onChange={e => updateConfig(activeConfig.id, { apiUrl: e.target.value })}
                         className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} />
                     </FormField>
-                    <FormField label="API 密钥">
+                    <FormField label="默认 API 密钥">
                       <input type="password" value={activeConfig.apiKey}
                         onChange={e => updateConfig(activeConfig.id, { apiKey: e.target.value })}
                         className="focus-ring" style={{ ...inputStyle, fontSize: 11 }} placeholder="sk-..." />
@@ -265,6 +294,8 @@ export function ModelSettingsTab() {
                 outPrice={activeConfig.outputPricePerM} onOutPrice={v => updateConfig(activeConfig.id, { outputPricePerM: v })}
                 cachePrice={activeConfig.cacheHitPricePerM} onCachePrice={v => updateConfig(activeConfig.id, { cacheHitPricePerM: v })}
                 currency={activeConfig.currency} showCtx
+                apiUrl={activeConfig.mainApiUrl || ''} onApiUrl={v => updateConfig(activeConfig.id, { mainApiUrl: v })}
+                apiKey={activeConfig.mainApiKey || ''} onApiKey={v => updateConfig(activeConfig.id, { mainApiKey: v })}
               >
                 <div style={{ paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.04)', marginTop: 8 }}>
                   <FormField label="推理深度 (reasoning_effort)">
@@ -293,6 +324,8 @@ export function ModelSettingsTab() {
                 outPrice={safe(activeConfig.cheapOutputPricePerM)} onOutPrice={v => updateConfig(activeConfig.id, { cheapOutputPricePerM: v })}
                 cachePrice={safe(activeConfig.cheapCacheHitPricePerM)} onCachePrice={v => updateConfig(activeConfig.id, { cheapCacheHitPricePerM: v })}
                 currency={activeConfig.currency}
+                apiUrl={activeConfig.cheapApiUrl || ''} onApiUrl={v => updateConfig(activeConfig.id, { cheapApiUrl: v })}
+                apiKey={activeConfig.cheapApiKey || ''} onApiKey={v => updateConfig(activeConfig.id, { cheapApiKey: v })}
               />
 
               {/* ═══ 🧠 Reasoning ═══ */}
@@ -308,6 +341,8 @@ export function ModelSettingsTab() {
                 outPrice={safe(activeConfig.reasoningOutputPricePerM)} onOutPrice={v => updateConfig(activeConfig.id, { reasoningOutputPricePerM: v })}
                 cachePrice={safe(activeConfig.reasoningCacheHitPricePerM)} onCachePrice={v => updateConfig(activeConfig.id, { reasoningCacheHitPricePerM: v })}
                 currency={activeConfig.currency}
+                apiUrl={activeConfig.reasoningApiUrl || ''} onApiUrl={v => updateConfig(activeConfig.id, { reasoningApiUrl: v })}
+                apiKey={activeConfig.reasoningApiKey || ''} onApiKey={v => updateConfig(activeConfig.id, { reasoningApiKey: v })}
               />
 
               {/* ═══ 🎨 Image ═══ */}
