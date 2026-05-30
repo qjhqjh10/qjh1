@@ -20,6 +20,24 @@ const TABS: [SettingsTab, string][] = [
   ['version', '版本更新'],
 ]
 
+function ActiveConfigName() {
+  const configs = useSettingsStore(s => s.configs)
+  const activeId = useSettingsStore(s => s.activeConfigId)
+  const active = configs.find(c => c.id === activeId)
+  if (!active) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: -8, marginBottom: 12 }}>
+      <span style={{
+        padding: '2px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+        background: 'linear-gradient(135deg, rgba(124,58,237,0.1), rgba(168,85,247,0.08))',
+        color: '#7c3aed', border: '1px solid rgba(124,58,237,0.15)',
+      }}>
+        🔧 {active.name}
+      </span>
+    </div>
+  )
+}
+
 export default function SystemSettingsPage() {
   const setActivePage = useStore(s => s.setActivePage)
   const [activeTab, setActiveTab] = useState<SettingsTab>('models')
@@ -55,16 +73,8 @@ export default function SystemSettingsPage() {
         }}>
           控制台配置
         </h2>
-        {(() => {
-          const configs = useSettingsStore.getState().configs
-          const activeId = useSettingsStore.getState().activeConfigId
-          const active = configs.find(c => c.id === activeId)
-          return active ? (
-            <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, marginTop: -12, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14 }}>🔧</span> 当前模板: {active.name}
-            </div>
-          ) : null
-        })()}
+        <ActiveConfigName />
+        {/* Tab nav */}
         {/* Tab nav */}
         <div style={{ display: 'flex', gap: 2, position: 'relative', borderBottom: '2px solid rgba(0,0,0,0.04)' }}>
           {TABS.map(([tab, label]) => (
