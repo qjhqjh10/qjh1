@@ -52,7 +52,7 @@ function ModelCard({
   maxTokValue, onMaxTokChange,
   ctxWinValue, onCtxWinChange,
   inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
-  currency, onCurrency, showCtx,
+  currency, onCurrency, showCtx, showPricing,
   apiUrl, onApiUrl, apiKey, onApiKey,
   configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
   children,
@@ -66,7 +66,7 @@ function ModelCard({
   outPrice: number; onOutPrice?: (v: number) => void
   cachePrice: number; onCachePrice?: (v: number) => void
   currency: 'USD' | 'CNY'; onCurrency?: (v: 'USD' | 'CNY') => void
-  showCtx?: boolean
+  showCtx?: boolean; showPricing?: boolean
   apiUrl?: string; onApiUrl?: (v: string) => void
   apiKey?: string; onApiKey?: (v: string) => void
   configId: string
@@ -288,18 +288,28 @@ export function ModelSettingsTab() {
               </button>
             )}
             {configs.map(config => (
-              <button key={config.id} onClick={() => setActiveConfig(config.id)} style={{
-                width: '100%', textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: 'none',
-                background: activeConfigId === config.id ? 'rgba(124,58,237,0.08)' : 'transparent',
-                color: activeConfigId === config.id ? '#7c3aed' : '#4a3f38',
-                fontSize: 14, fontWeight: activeConfigId === config.id ? 600 : 400, cursor: 'pointer',
-                marginBottom: 2,
-              }}>
-                <div>{config.name}</div>
-                <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 3 }}>
-                  💪{config.model}{config.cheapModel ? ` ⚡${config.cheapModel}` : ''}
-                </div>
-              </button>
+              <div key={config.id} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+                <button onClick={() => setActiveConfig(config.id)} style={{
+                  flex: 1, textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: 'none',
+                  background: activeConfigId === config.id ? 'rgba(124,58,237,0.08)' : 'transparent',
+                  color: activeConfigId === config.id ? '#7c3aed' : '#4a3f38',
+                  fontSize: 14, fontWeight: activeConfigId === config.id ? 600 : 400, cursor: 'pointer',
+                }}>
+                  <div>{config.name}</div>
+                  <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 3 }}>
+                    💪{config.model}{config.cheapModel ? ` ⚡${config.cheapModel}` : ''}
+                  </div>
+                </button>
+                {configs.length > 1 && (
+                  <button onClick={(e) => { e.stopPropagation(); removeConfig(config.id); if (activeConfigId === config.id) setActiveConfig(configs[0].id === config.id ? configs[1]?.id : configs[0].id) }}
+                    title="删除此配置" style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 8,
+                      color: '#d4ccc4', flexShrink: 0,
+                    }}>
+                    <TrashIcon style={{ width: 16, height: 16 }} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </ScrollArea>
@@ -420,45 +430,21 @@ export function ModelSettingsTab() {
             />
 
             {/* ── 🎨 Image ── */}
-            <div style={cardInner}>
-              <div style={cardTitle}>🎨 Image 图片模型</div>
-              <div style={cardDesc}>图片生成。留空模型名则禁用图片功能。可能使用不同于文本的 API。</div>
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={fieldLabel}>模型名称</label>
-                    <input type="text" value={activeConfig.imageModel} onChange={e => u({ imageModel: e.target.value })}
-                      onFocus={() => { if (modelList.length > 0) setActiveDropdown('image') }}
-                      className="focus-ring" style={inputBase} placeholder="留空 = 禁用图片功能（如 dall-e-3）" />
-                  </div>
-                  <button onClick={handleRefreshModels} disabled={loadingModels}
-                    title="从 API 获取可用模型列表" style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', marginBottom: 1, flexShrink: 0 }}>
-                    <ArrowPathIcon style={{ width: 16, height: 16, color: '#6b5e54', opacity: loadingModels ? 0.4 : 1 }} />
-                  </button>
-                </div>
-                {activeDropdown === 'image' && modelList.length > 0 && (
-                  <div className="custom-scrollbar" style={{
-                    position: 'absolute', top: '100%', left: 0, right: 42, maxHeight: 180, overflowY: 'auto',
-                    background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.12)',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50, marginTop: 2,
-                  }}>
-                    {modelList.map(m => (
-                      <button key={m} onClick={() => { u({ imageModel: m }); setActiveDropdown(null) }}
-                        style={{
-                          width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none',
-                          background: m === activeConfig.imageModel ? 'rgba(124,58,237,0.06)' : 'transparent',
-                          color: m === activeConfig.imageModel ? '#7c3aed' : '#2d2520',
-                          fontSize: 12, fontWeight: m === activeConfig.imageModel ? 600 : 400,
-                          cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid rgba(0,0,0,0.04)',
-                        }}>
-                        {m}{m === activeConfig.imageModel ? ' ✓' : ''}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <ModelCard
+              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用。可能使用不同于文本模型的 API。"
+              modelValue={activeConfig.imageModel} onModelChange={v => u({ imageModel: v })}
+              placeholder="留空 = 禁用图片功能（如 dall-e-3）"
+              tempValue={0} onTempChange={() => {}} tempDisabled
+              maxTokValue={0} onMaxTokChange={() => {}}
+              inPrice={safe(activeConfig.imageInputPricePerM)} outPrice={safe(activeConfig.imageOutputPricePerM)}
+              cachePrice={0}
+              currency={activeConfig.mainCurrency || activeConfig.currency}
+              showPricing={false}
+              configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
+              modelList={modelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
+            >
               {activeConfig.imageModel && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 4 }}>
                   <div style={{ flex: '1 1 150px' }}>
                     <label style={fieldLabel}>图片 API 地址</label>
                     <input type="text" value={activeConfig.imageApiUrl || ''} onChange={e => u({ imageApiUrl: e.target.value })}
@@ -476,27 +462,17 @@ export function ModelSettingsTab() {
                   </div>
                 </div>
               )}
-            </div>
+            </ModelCard>
 
             {/* ── 📚 Embedding ── */}
             <div style={cardInner}>
               <div style={cardTitle}>📚 知识库 Embedding</div>
               <div style={cardDesc}>用于知识库文件的向量化和语义搜索，独立于对话模型。</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 180px' }}>
-                  <label style={fieldLabel}>Embedding 模型名称</label>
-                  <input type="text" value={activeConfig.embeddingModel || ''} onChange={e => u({ embeddingModel: e.target.value })}
-                    className="focus-ring" style={inputBase} placeholder="text-embedding-3-small" />
-                </div>
-                <div style={{ flex: '1 1 150px' }}>
-                  <label style={fieldLabel}>API 地址（可选覆盖）</label>
-                  <input type="text" value={activeConfig.embeddingApiUrl || ''} onChange={e => u({ embeddingApiUrl: e.target.value })}
-                    className="focus-ring" style={inputBase} placeholder="留空=模板默认" />
-                </div>
-                <div style={{ flex: '1 1 150px' }}>
-                  <label style={fieldLabel}>API 密钥（可选覆盖）</label>
-                  <ApiKeyField value={activeConfig.embeddingApiKey || ''} onChange={v => u({ embeddingApiKey: v })} />
-                </div>
+              <div>
+                <label style={fieldLabel}>Embedding 模型名称</label>
+                <input type="text" value={activeConfig.embeddingModel || ''} onChange={e => u({ embeddingModel: e.target.value })}
+                  className="focus-ring" style={{ ...inputBase, maxWidth: 360 }} placeholder="text-embedding-3-small" />
+                <div style={hintText}>使用模板默认的 API 地址和密钥连接</div>
               </div>
             </div>
 
