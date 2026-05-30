@@ -6,10 +6,10 @@ import { saveDetailedChapter, loadDetailedChapters } from '@/services/chapterSer
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
-import { ArrowLeftIcon, SparklesIcon, PencilIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline'
+import { ChapterListPanel } from '@/components/panels/ChapterListPanel'
+import { ArrowLeftIcon, SparklesIcon, PencilIcon } from '@heroicons/react/24/outline'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
-import { inputStyle } from '@/components/common/styles'
 import { nanoid } from 'nanoid'
 import type { ContinuationProject, PlotDirectionSegment } from '@/types/continuation'
 import type { DetailedChapter } from '@/types/chapter'
@@ -23,8 +23,6 @@ export default function ContinuationDetailedPage() {
   const [selectedSegIdx, setSelectedSegIdx] = useState(0)
   const [chapters, setChapters] = useState<DetailedChapter[]>([])
   const [generating, setGenerating] = useState(false)
-  const [editingIdx, setEditingIdx] = useState<number | null>(null)
-  const [editChapter, setEditChapter] = useState<DetailedChapter | null>(null)
   const [editSegment, setEditSegment] = useState<PlotDirectionSegment | null>(null)
 
   useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId])
@@ -89,36 +87,6 @@ export default function ContinuationDetailedPage() {
     setGenerating(false)
   }
 
-  // ====================== Chapter CRUD ======================
-
-  const handleEdit = (idx: number) => { setEditingIdx(idx); setEditChapter({ ...chapters[idx] }) }
-
-  const handleSaveEdit = async () => {
-    if (editingIdx === null || !editChapter) return
-    const updated = [...chapters]
-    updated[editingIdx] = editChapter
-    await saveDetailedChapter(pp, editChapter)
-    setChapters(updated)
-    setEditingIdx(null); setEditChapter(null)
-  }
-
-  const handleDelete = async (ch: DetailedChapter) => {
-    await fileService.deleteFile(`${pp}/detailed_outline/${ch.id}.json`)
-    await fileService.deleteFile(`${pp}/chapters/${ch.id}.txt`).catch(() => {})
-    await fileService.deleteFile(`${pp}/summaries/${ch.id}.md`).catch(() => {})
-    setChapters(prev => prev.filter(c => c.id !== ch.id))
-  }
-
-  const handleMove = async (idx: number, dir: -1 | 1) => {
-    const target = idx + dir
-    if (target < 0 || target >= chapters.length) return
-    const updated = [...chapters]
-    ;[updated[idx], updated[target]] = [updated[target], updated[idx]]
-    updated.forEach((c, i) => { c.order = i })
-    setChapters(updated)
-    for (const c of [updated[idx], updated[target]]) { await saveDetailedChapter(pp, c) }
-  }
-
   const handleWrite = (ch: DetailedChapter) => { navigate(`/chapter/${ch.id}`) }
 
   // ====================== Segment edit ======================
@@ -141,11 +109,6 @@ export default function ContinuationDetailedPage() {
     border: selected ? '2px solid #7c3aed' : '1px solid rgba(0,0,0,0.04)',
     borderLeft: selected ? '3px solid #7c3aed' : '3px solid transparent',
   })
-
-  const chapCard: React.CSSProperties = {
-    padding: '14px 16px', borderRadius: 12, background: '#fff',
-    border: '1px solid rgba(0,0,0,0.06)', marginBottom: 8,
-  }
 
   const selectedSeg = segments[selectedSegIdx]
 
@@ -204,53 +167,16 @@ export default function ContinuationDetailedPage() {
                 <Button size="sm" onClick={handleGeneratePlans} disabled={generating || !activeConfigId} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{generating ? '生成中...' : '生成后续细纲'}</Button>
               </div>
 
-              {chapters.length === 0 && !generating && (
-                <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
-                  <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>点击"生成后续细纲"</div>
-                  <div style={{ fontSize: 12 }}>AI 将根据选中的剧情段自动分为10章细纲</div>
-                </div>
+              {!generating && (
+                <ChapterListPanel
+                  chapters={chapters}
+                  setChapters={setChapters}
+                  projectPath={pp}
+                  onWriteChapter={handleWrite}
+                  emptyTitle="点击'生成后续细纲'"
+                  emptyDescription="AI 将根据选中的剧情段自动分为10章细纲"
+                />
               )}
-
-              {chapters.map((ch, i) => (
-                <div key={ch.id} style={{
-                  ...chapCard,
-                  borderLeft: ch.status === 'completed' ? '3px solid #16a34a' : '3px solid #ef4444',
-                }}>
-                  {editingIdx === i && editChapter ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <input value={editChapter.title} onChange={e => setEditChapter({ ...editChapter, title: e.target.value })} style={{ ...inputStyle as any, flex: 1, fontSize: 12, fontWeight: 600 }} />
-                      </div>
-                      <textarea value={editChapter.description} onChange={e => setEditChapter({ ...editChapter, description: e.target.value })} rows={4} style={{ ...inputStyle as any, width: '100%', fontSize: 11, resize: 'vertical', fontFamily: 'inherit' }} />
-                      <textarea value={editChapter.summary} onChange={e => setEditChapter({ ...editChapter, summary: e.target.value })} rows={2} style={{ ...inputStyle as any, width: '100%', fontSize: 11, resize: 'vertical', fontFamily: 'inherit' }} placeholder="摘要" />
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <Button size="sm" variant="secondary" onClick={() => { setEditingIdx(null); setEditChapter(null) }}>取消</Button>
-                        <Button size="sm" onClick={handleSaveEdit}>保存</Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: ch.status === 'completed' ? '#16a34a' : '#ef4444' }}>
-                            {ch.status === 'completed' ? '✓ 已完成' : '○ 待续写'}
-                          </span>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>第{i + 1}章: {ch.title}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button onClick={() => handleMove(i, -1)} disabled={i === 0} style={iconBtn} title="上移"><ArrowUpIcon style={iconS} /></button>
-                          <button onClick={() => handleMove(i, 1)} disabled={i === chapters.length - 1} style={iconBtn} title="下移"><ArrowDownIcon style={iconS} /></button>
-                          <button onClick={() => handleEdit(i)} style={iconBtn} title="编辑"><PencilIcon style={iconS} /></button>
-                          <button onClick={() => handleDelete(ch)} style={{ ...iconBtn, color: '#ef4444' }} title="删除"><TrashIcon style={iconS} /></button>
-                          <Button size="sm" onClick={() => handleWrite(ch)}>撰写本章</Button>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{ch.description}</div>
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: 60, color: '#9b8e84' }}>
@@ -277,6 +203,3 @@ export default function ContinuationDetailedPage() {
     </div>
   )
 }
-
-const iconBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2 }
-const iconS = { width: 14, height: 14 }
