@@ -8,7 +8,7 @@ export async function loadOutlineData<T>(projectPath: string, filename: string, 
   try {
     const raw = await fileService.read(`${projectPath}/outline/${filename}`)
     if (raw) return JSON.parse(raw) as T
-  } catch { /* file doesn't exist yet */ }
+  } catch (err) { logError(`Failed to load outline data: ${filename}`, err) }
   return defaultValue
 }
 
@@ -32,7 +32,7 @@ async function loadItemsPrompt(projectPath: string): Promise<string> {
       return `- ${fields.join(' | ')}`
     })
     return `【道具】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load items prompt', err); return '' }
 }
 
 async function loadLocationsPrompt(projectPath: string): Promise<string> {
@@ -44,7 +44,7 @@ async function loadLocationsPrompt(projectPath: string): Promise<string> {
       return `- ${fields.join(' | ')}`
     })
     return `【地点】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 async function loadFactionsPrompt(projectPath: string): Promise<string> {
@@ -56,7 +56,7 @@ async function loadFactionsPrompt(projectPath: string): Promise<string> {
       return `- ${fields.join(' | ')}`
     })
     return `【势力】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 async function loadPowerSystemPrompt(projectPath: string): Promise<string> {
@@ -65,7 +65,7 @@ async function loadPowerSystemPrompt(projectPath: string): Promise<string> {
     if (!data.levels?.length) return ''
     const lines = data.levels.map(l => `- ${l.name}: ${l.description || ''}`)
     return `【等级体系：${data.name}】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 async function loadEmotionPrompt(projectPath: string): Promise<string> {
@@ -74,7 +74,7 @@ async function loadEmotionPrompt(projectPath: string): Promise<string> {
     if (!data.segments?.length) return ''
     const lines = data.segments.map(s => `- 第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}${s.description ? ' — ' + s.description : ''}`)
     return `【情绪曲线】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 async function loadForeshadowingPrompt(projectPath: string): Promise<string> {
@@ -86,7 +86,7 @@ async function loadForeshadowingPrompt(projectPath: string): Promise<string> {
       return `- ${fields.join(' | 状态: ')}`
     })
     return `【伏笔】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 async function loadPlotThreadsPrompt(projectPath: string): Promise<string> {
@@ -98,7 +98,7 @@ async function loadPlotThreadsPrompt(projectPath: string): Promise<string> {
       return `- ${fields.join(' | ')}`
     })
     return `【故事线】\n${lines.join('\n')}`
-  } catch { return '' }
+  } catch (err) { logError('Failed to load outline prompt', err); return '' }
 }
 
 export interface LoadedOutlineDimensions {

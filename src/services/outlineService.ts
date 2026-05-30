@@ -8,14 +8,21 @@ const PLOT_OLD = (pp: string) => `${pp}/outline/outline.json`
 const WORLD_MD = (pp: string) => `${pp}/outline/worldbuilding.md`
 const WORLD_JSON = (pp: string) => `${pp}/outline/worldbuilding.json`
 
+// Generic fallback loader — tries each path, returns first successful read
+async function tryReadPaths(projectPath: string, paths: Array<(pp: string) => string>): Promise<string> {
+  for (const getPath of paths) {
+    try {
+      const raw = await fileService.read(getPath(projectPath))
+      if (raw) return markdownToHtml(raw)
+    } catch (err) { logError(`Failed to read outline from ${getPath(projectPath)}`, err) }
+  }
+  return ''
+}
+
 // Load: read Markdown from disk, convert to HTML for RichTextEditor.
 // Legacy HTML files are detected and passed through unchanged.
 export async function loadOutlineContent(projectPath: string): Promise<string> {
-  try { const raw = await fileService.read(PLOT_MD(projectPath)); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(PLOT_JSON(projectPath)); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(PLOT_OLD(projectPath)); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(`${projectPath}/outline/outline.txt`); if (raw) return markdownToHtml(raw) } catch {}
-  return ''
+  return tryReadPaths(projectPath, [PLOT_MD, PLOT_JSON, PLOT_OLD, pp => `${pp}/outline/outline.txt`])
 }
 
 // Save: receive HTML from editor, convert to Markdown for disk.
@@ -27,11 +34,7 @@ export async function saveOutlineContent(projectPath: string, content: string): 
 }
 
 export async function loadWorldbuildingContent(projectPath: string): Promise<string> {
-  try { const raw = await fileService.read(WORLD_MD(projectPath)); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(WORLD_JSON(projectPath)); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.json`); if (raw) return markdownToHtml(raw) } catch {}
-  try { const raw = await fileService.read(`${projectPath}/worldbuilding/worldbuilding.txt`); if (raw) return markdownToHtml(raw) } catch {}
-  return ''
+  return tryReadPaths(projectPath, [WORLD_MD, WORLD_JSON, pp => `${pp}/worldbuilding/worldbuilding.json`, pp => `${pp}/worldbuilding/worldbuilding.txt`])
 }
 
 export async function saveWorldbuildingContent(projectPath: string, content: string): Promise<void> {
