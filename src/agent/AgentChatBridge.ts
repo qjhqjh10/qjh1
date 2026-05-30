@@ -16,6 +16,7 @@
  */
 
 import { AgentRuntime } from './runtime/AgentRuntime'
+import { isTaskMessage } from './utils/taskDetection'
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler } from './context/ContextAssembler'
 import { useAgentStore } from './store/AgentStore'
@@ -47,7 +48,6 @@ import { FeedbackChannel } from './feedback/FeedbackChannel'
 import { SubAgentManager } from './subagents/SubAgentManager'
 import { MemoryLayers } from './memory/MemoryLayers'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
-import { isTaskMessage } from './utils/taskDetection'
 import type { Message, AgentRunResult } from './runtime/AgentRuntime'
 import type { ToolProgressEvent, ResponseChunk, ThinkingContext } from './runtime/AgentEventEmitter'
 
@@ -574,20 +574,28 @@ export class AgentChatBridge {
     const EXTERNAL_KEYWORDS = /搜索图片|生成图片|shell|命令|浏览器|搜索网络|联网|提示词.*修改|规则.*修改|配置.*修改|审计|诊断/
 
     let filteredSchemas: ReturnType<typeof toolRegistry.getFilteredSchemas> = []
-    if (options.toolsEnabled !== false && isTaskMessage(userMessage)) {
+    if (options.toolsEnabled !== false) {
       const schemas = toolRegistry.getFilteredSchemas(
         this.workMode,
         undefined, // all tools within mode
       )
 
+      // Dynamic tool selection:
+      // Casual chat (非任务) → 仅发送只读工具（10个，省~2200 tokens）
+      // 任务消息 → 按意图分组：只读/写入/外部
+      const isTask = isTaskMessage(userMessage)
       const isWrite = WRITE_KEYWORDS.test(userMessage)
       const isExternal = EXTERNAL_KEYWORDS.test(userMessage)
 
-      // If write or external intent, send full tools — AI needs all capabilities
-      if (isWrite || isExternal) {
+      if (!isTask) {
+        // Casual chat: read-only tools — AI can still look things up if needed
+        filteredSchemas = schemas.filter((s: any) =>
+          READ_ONLY_TOOL_NAMES.has(s.function?.name || ''))
+      } else if (isWrite || isExternal) {
+        // Write/external intent: full tools
         filteredSchemas = schemas
       } else {
-        // Read-only intent: send only read tools (~10 vs 38, saves ~2,200 tokens)
+        // Read-only intent: send only read tools
         filteredSchemas = schemas.filter((s: any) =>
           READ_ONLY_TOOL_NAMES.has(s.function?.name || ''))
       }
@@ -679,20 +687,19 @@ export class AgentChatBridge {
     emitter.on('plan:proposed', (plan) => {
       store2.setExecutionPlan(plan)
       store2.setPlanPhase('awaiting_approval')
-      // Trigger plan approval via the onApprovalRequired callback
+      // Show PlanCard for ALL plans — user approves/rejects every step
       if (options.onApprovalRequired && plan.steps.length > 0) {
-        const planTools = plan.steps
-          .filter(s => /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project)$/.test(s.tool))
-          .map(s => ({ name: s.tool, args: s.args }))
-        if (planTools.length > 0) {
-          options.onApprovalRequired(planTools).then(approved => {
-            if (approved) {
-              this.runtime?.approvePlan()
-            } else {
-              this.runtime?.rejectPlan()
-            }
-          })
-        }
+        const allSteps = plan.steps.map(s => ({ name: s.tool, args: s.args }))
+        options.onApprovalRequired(allSteps).then(approved => {
+          if (approved) {
+            this.runtime?.approvePlan()
+          } else {
+            this.runtime?.rejectPlan()
+          }
+        })
+      } else {
+        // No callback available or empty plan — auto-approve
+        this.runtime?.approvePlan()
       }
     })
 

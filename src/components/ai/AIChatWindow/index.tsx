@@ -170,7 +170,7 @@ export default function AIChatWindow() {
   const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set())
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
-  const [breakdownModal, setBreakdownModal] = useState<{ breakdown: { label: string; chars: number }[]; completionTokens?: number } | null>(null)
+  const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
   const [compressing, setCompressing] = useState(false)
   // Task-level approval: when true, skip batch gate for subsequent rounds
   const planApprovedRef = useRef(false)
@@ -433,19 +433,49 @@ export default function AIChatWindow() {
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           const fallbackText = runResult.toolsUsed.length > 0
-            ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。`
-            : 'AI 未生成回复，请重试或换一种方式提问。'
-          // Convert contextBreakdown to the format expected by the token breakdown modal
-          const breakdown = runResult.contextBreakdown?.map(b => ({ label: b.domain, chars: b.tokens * 2 }))
+            ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
+            : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
+          // ── Input breakdown — ALL prompt components ──
+          const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: '系统提示: ' + b.domain, chars: b.tokens * 2 })) || []
+          const sysChars = messages.filter(m => m.role === 'system').reduce((s, m) => s + (m.content?.length || 0), 0)
+          const histUserChars = messages.filter(m => m.role === 'user').reduce((s, m) => s + (m.content?.length || 0), 0)
+          const histAsstChars = messages.filter(m => m.role === 'assistant').reduce((s, m) => s + (m.content?.length || 0), 0)
+          const toolResultChars = messages.filter(m => m.role === 'tool').reduce((s, m) => s + (m.content?.length || 0), 0)
+          const toolResultCount = messages.filter(m => m.role === 'tool').length
+          const inputBreakdown = [
+            ...ctxBreakdown,
+            { label: '对话历史·用户 (' + messages.filter(m => m.role === 'user').length + '条)', chars: histUserChars },
+            { label: '对话历史·助手 (' + messages.filter(m => m.role === 'assistant').length + '条)', chars: histAsstChars },
+            { label: '工具调用结果 (' + toolResultCount + '条)', chars: toolResultChars },
+            { label: '工具定义 (37个)', chars: 37 * 300 },
+            { label: '当前用户消息', chars: input.length },
+            { label: '消息结构开销', chars: messages.length * 20 },
+          ].filter(b => b.chars > 0)
+
+          // ── Output breakdown ──
+          const outputBreakdown: { label: string; tokens: number }[] = []
+          outputBreakdown.push({ label: 'AI 文本回复', tokens: (collectedText || runResult.text || '').length ? Math.ceil((collectedText || runResult.text || '').length / 2.5) : 0 })
+          if (runResult.reasoningContent) {
+            outputBreakdown.push({ label: '推理过程 (reasoning)', tokens: Math.ceil(runResult.reasoningContent.length / 2.5) })
+          }
           setMessages(prev => [...prev, {
             id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed, reasoningContent: runResult.reasoningContent || undefined,
-            breakdown: breakdown && breakdown.length > 0 ? breakdown : undefined,
+            breakdown: inputBreakdown,
+            outputBreakdown,
             usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
           }])
         },
         onApprovalRequired: async (tools) => {
           return new Promise<boolean>((resolve) => {
+            // In plan mode, PlanCard handles approval — the Promise is resolved by PlanCard callbacks
+            const agentStore = useAgentStore.getState()
+            if (agentStore.run.planPhase === 'awaiting_approval' && agentStore.run.executionPlan) {
+              // Store resolve for PlanCard to use
+              ;(window as any).__planResolve = resolve
+              return // PlanCard will call resolve via onApproveAll/onRejectAll
+            }
+            // Normal batch approval
             const summary = { reads: [] as string[], writes: [] as string[], creates: [] as string[], deletes: [] as string[], lists: [] as string[], settings: [] as string[], templates: [] as string[], images: [] as string[] }
             for (const t of tools) {
               if (/read_file|list_directory/.test(t.name)) summary.reads.push(String(t.args.file_path || t.args.dir_path || ''))
@@ -757,15 +787,14 @@ export default function AIChatWindow() {
                       execPlan.steps.forEach(s => { s.approvalStatus = 'approved' })
                       useAgentStore.getState().setPlanPhase('approved')
                       useAgentStore.getState().setExecutionPlan({ ...execPlan, steps: [...execPlan.steps] })
-                      handleBatchApprove()
+                      // Resolve the pending approval promise
+                      const resolve = (window as any).__planResolve
+                      if (resolve) { resolve(true); delete (window as any).__planResolve }
                     }}
                     onRejectAll={(feedback) => {
                       useAgentStore.getState().setPlanPhase('rejected')
-                      if (feedback) {
-                        handleBatchDeny(feedback)
-                      } else {
-                        handleBatchDeny()
-                      }
+                      const resolve = (window as any).__planResolve
+                      if (resolve) { resolve(false); delete (window as any).__planResolve }
                     }}
                     onToggleStep={(stepId, approved) => {
                       execPlan.steps.forEach(s => {
@@ -1324,12 +1353,14 @@ export default function AIChatWindow() {
           padding: 24, maxWidth: 420, width: '90vw', maxHeight: '70vh', overflow: 'auto',
         }} onClick={e => e.stopPropagation()} className="custom-scrollbar">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>Prompt Token 分解</h3>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>Token 分解</h3>
             <button onClick={() => setBreakdownModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
           </div>
-          {breakdownModal.breakdown.map((b, i) => {
+          {/* ── 📥 INPUT ── */}
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 6 }}>📥 输入 (Prompt)</div>
+          {breakdownModal.inputBreakdown.map((b, i) => {
             const est = Math.round(b.chars / 2)
-            const pct = breakdownModal.breakdown.reduce((s, x) => s + Math.round(x.chars / 2), 0)
+            const pct = breakdownModal.inputBreakdown.reduce((s, x) => s + Math.round(x.chars / 2), 0)
             const barW = pct > 0 ? Math.max(2, (est / pct) * 100) : 0
             return (
               <div key={i} style={{ marginBottom: 8 }}>
@@ -1344,16 +1375,51 @@ export default function AIChatWindow() {
             )
           })}
           <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 12, paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
-            <span>输入 Prompt（估算）</span>
-            <span>~{breakdownModal.breakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0).toLocaleString()} tokens</span>
+            <span style={{ color: '#7c3aed' }}>输入合计（估算）</span>
+            <span>~{breakdownModal.inputBreakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0).toLocaleString()} tokens</span>
           </div>
-          {breakdownModal.completionTokens !== undefined && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginTop: 4 }}>
-              <span style={{ color: '#16a34a' }}>输出 Completion</span>
-              <span style={{ color: '#16a34a' }}>{breakdownModal.completionTokens.toLocaleString()} tokens</span>
+          {breakdownModal.totalPromptTokens !== undefined && breakdownModal.totalPromptTokens > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, marginTop: 2, color: '#7c3aed' }}>
+              <span>API 实际 Prompt</span>
+              <span>{breakdownModal.totalPromptTokens.toLocaleString()} tokens</span>
             </div>
           )}
-          <div style={{ marginTop: 8, fontSize: 10, color: '#9b8e84' }}>估算公式: 字符数 ÷ 2 ≈ tokens。实际以 API 返回为准。</div>
+          {/* ── 📤 OUTPUT ── */}
+          <div style={{ marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', marginBottom: 6 }}>📤 输出 (Completion)</div>
+            {breakdownModal.outputBreakdown && breakdownModal.outputBreakdown.length > 0 ? breakdownModal.outputBreakdown.map((b, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
+                <span style={{ color: '#4a3f38' }}>{b.label}</span>
+                <span style={{ fontWeight: 600, color: '#16a34a' }}>~{b.tokens.toLocaleString()} t</span>
+              </div>
+            )) : (
+              <div style={{ fontSize: 10, color: '#9b8e84' }}>（流式输出，无独立统计）</div>
+            )}
+            <div style={{ borderTop: '1px solid rgba(22,163,74,0.15)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+              <span style={{ color: '#16a34a' }}>输出合计（估算）</span>
+              <span style={{ color: '#16a34a' }}>~{breakdownModal.outputBreakdown.reduce((s, b) => s + b.tokens, 0).toLocaleString()} tokens</span>
+            </div>
+            {breakdownModal.totalCompletionTokens != null && breakdownModal.totalCompletionTokens > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginTop: 1, color: '#9b8e84' }}>
+                <span>API 实际 Completion</span>
+                <span>{breakdownModal.totalCompletionTokens.toLocaleString()} tokens</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── 💰 TOTAL ── */}
+          <div style={{ marginTop: 16, borderTop: '2px solid rgba(0,0,0,0.1)', paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800 }}>
+            <span>💰 总花费</span>
+            <span>
+              {breakdownModal.totalTokens != null && breakdownModal.totalTokens > 0
+                ? breakdownModal.totalTokens.toLocaleString()
+                : '~' + (breakdownModal.inputBreakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0) + (breakdownModal.outputBreakdown || []).reduce((s, b) => s + b.tokens, 0)).toLocaleString()
+              } tokens
+            </span>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 9, color: '#9b8e84' }}>
+            字符/token换算: 中文~1.5字符、英文~4字符。输入总字符: {breakdownModal.inputBreakdown.reduce((s, b) => s + b.chars, 0).toLocaleString()}。
+          </div>
         </div>
       </div>
     )}
@@ -1375,7 +1441,7 @@ export default function AIChatWindow() {
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.breakdown) {
-            return <button onClick={() => { setBreakdownModal({ breakdown: msg.breakdown!, completionTokens: msg.usage?.completion_tokens }); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setBreakdownModal({ inputBreakdown: (msg as any).breakdown || [], outputBreakdown: (msg as any).outputBreakdown || [], totalPromptTokens: msg.usage?.prompt_tokens, totalCompletionTokens: msg.usage?.completion_tokens, totalTokens: msg.usage?.total_tokens }); setContextMenu(null) }} style={ctxMenuBtn}>
               <MagnifyingGlassIcon style={{ width: 13, height: 13 }} /> 查看Token分解
             </button>
           }

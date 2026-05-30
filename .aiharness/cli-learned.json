@@ -1,0 +1,10 @@
+[
+  {
+    "key": "read_file:文件不存在: {file}",
+    "toolName": "read_file",
+    "errorSummary": "文件不存在: {file}",
+    "count": 1,
+    "firstSession": "2026-05-29",
+    "lastSession": "2026-05-29"
+  }
+]

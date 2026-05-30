@@ -632,7 +632,7 @@ export class AgentRuntime {
             this.fsm.setShouldContinue(false)
             continue
           }
-          // Still waiting — break out (the approval callback will set planPhase and re-enter)
+          // Still waiting for user approval — pause loop
           if (this.fsm.canTransition('REFLECTING')) {
             await this.fsm.transition('REFLECTING')
           }

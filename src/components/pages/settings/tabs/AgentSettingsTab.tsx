@@ -7,8 +7,9 @@ import { ReliabilitySection } from './agent/ReliabilitySection'
 import { HealthSection } from './agent/HealthSection'
 import { TeamSection } from './agent/TeamSection'
 import { MCPSection } from './agent/MCPSection'
+import { LearningSection } from './agent/LearningSection'
 
-type AgentSubTab = 'overview' | 'metrics' | 'skills' | 'feedback' | 'reliability' | 'health' | 'team' | 'mcp'
+type AgentSubTab = 'overview' | 'metrics' | 'skills' | 'feedback' | 'reliability' | 'health' | 'team' | 'mcp' | 'learning'
 
 const SUB_TABS: [AgentSubTab, string, string][] = [
   ['overview', '概览', '📊'],
@@ -17,6 +18,7 @@ const SUB_TABS: [AgentSubTab, string, string][] = [
   ['feedback', '反馈', '💡'],
   ['reliability', '可靠性', '🛡️'],
   ['health', '健康', '🔍'],
+  ['learning', '学习', '📝'],
   ['team', '团队', '👥'],
   ['mcp', 'MCP', '🔌'],
 ]
@@ -84,6 +86,7 @@ export function AgentSettingsTab() {
         {activeSubTab === 'health' && <HealthSection />}
         {activeSubTab === 'team' && <TeamSection />}
         {activeSubTab === 'mcp' && <MCPSection />}
+        {activeSubTab === 'learning' && <LearningSection />}
       </div>
     </div>
   )

@@ -308,7 +308,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Message bubble hover */
 .msg-bubble { transition: background 0.15s ease; border-radius: var(--theme-radius-xl, 16px); }
-.msg-bubble:hover { background: var(--theme-bg-hover, rgba(0, 0, 0, 0.04)) !important; }
+.msg-bubble:hover { filter: brightness(0.96); }
 
 /* ── Theme-Specific Styles ── */
 

@@ -218,6 +218,7 @@ export interface ElectronAPI {
     permissionRecord: (toolName: string, approved: boolean) => Promise<{ success: boolean }>
     permissionPatterns: () => Promise<Record<string, any>>
     getSessionsPath: () => Promise<string>
+    optimize: (configId: string, command: string) => Promise<string>
   }
   appendDebugLog: (name: string, line: string) => Promise<void>
 }

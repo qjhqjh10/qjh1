@@ -208,6 +208,7 @@ const api = {
     permissionRecord: (toolName: string, approved: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:permission-record', toolName, approved),
     permissionPatterns: (): Promise<Record<string, any>> => ipcRenderer.invoke('agent:permission-patterns'),
     getSessionsPath: (): Promise<string> => ipcRenderer.invoke('agent:get-sessions-path'),
+    optimize: (configId: string, command: string): Promise<string> => ipcRenderer.invoke('agent:optimize', configId, command),
   },
   http: {
     fetch: (url: string, options?: Record<string, unknown>): Promise<any> => ipcRenderer.invoke('http:fetch', url, options),

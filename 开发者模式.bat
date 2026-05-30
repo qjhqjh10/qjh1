@@ -2,5 +2,14 @@
 cd /d "%~dp0"
 echo AI小说写作助手 - 开发者模式
 echo.
-call npm run dev
+echo 正在构建最新代码...
+call npm run build
+if %ERRORLEVEL% NEQ 0 (
+  echo 构建失败！
+  pause
+  exit /b 1
+)
+echo.
+echo 构建成功，正在启动...
+call node_modules\.bin\electron.cmd .
 pause

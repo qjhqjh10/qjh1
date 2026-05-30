@@ -1,6 +1,7 @@
-import { IpcMain } from 'electron'
+import { IpcMain, safeStorage } from 'electron'
 import { join } from 'path'
 import { mkdir, readFile, writeFile, readdir, unlink } from 'fs/promises'
+import { spawn } from 'child_process'
 
 // ── Session storage path ──
 function getSessionsPath(projectsPath?: string): string {
@@ -97,5 +98,44 @@ export function registerAgentHandlers(ipcMain: IpcMain, projectsPath?: string) {
 
   ipcMain.handle('agent:get-sessions-path', async () => {
     return sessionsPath
+  })
+
+  // ── Self-Optimize: spawn CLI agent ──
+  ipcMain.handle('agent:optimize', async (_event, configId: string, command: string) => {
+    // Load config from store and decrypt key
+    const { default: Store } = await import('electron-store')
+    const store = new Store()
+    const configs = store.get('configs', []) as any[]
+    const config = configs.find((c: any) => c.id === configId)
+    if (!config) throw new Error('Config not found: ' + configId)
+    const { decryptKey } = await import('./utils')
+    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiUrl = config.apiUrl || 'https://api.deepseek.com'
+    const model = config.model || 'deepseek-chat'
+
+    return new Promise<string>((resolve, reject) => {
+      const scriptPath = join(__dirname, '..', '..', 'scripts', 'agent-cli.mjs')
+      const child = spawn('node', [scriptPath, '--self-optimize',
+        `--key=${apiKey}`, `--api-url=${apiUrl}`, `--model=${model}`,
+        `--command=${command}`, '--max-iters=12',
+      ], {
+        cwd: join(__dirname, '..', '..'),
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let output = ''
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString() })
+
+      child.on('close', (code) => {
+        if (code === 0) resolve(output)
+        else resolve(output + `\n[进程退出码: ${code}]`)
+      })
+      child.on('error', (err) => { reject(err.message) })
+
+      // Timeout after 5 minutes
+      setTimeout(() => { child.kill(); resolve(output + '\n[超时: 5分钟]') }, 300000)
+    })
   })
 }
