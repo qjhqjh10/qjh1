@@ -738,7 +738,7 @@ export default function AIChatWindow() {
             >
               {configs.map(c => (
                 <option key={c.id} value={c.id}>
-                  {c.model}
+                  {c.name || c.model}
                 </option>
               ))}
             </select>

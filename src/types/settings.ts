@@ -1,10 +1,27 @@
+/**
+ * 模型配置模板 — 一个模板包含四个子模型，类似 Claude Code 的 Haiku/Sonnet/Opus
+ * 用户只需在侧边栏切换模板即可同时切换四个子模型
+ */
 export interface ModelConfig {
   id: string
-  name: string
-  provider: string
-  apiUrl: string
-  apiKey: string
-  model: string
+  name: string                    // 模板名称，如 "DeepSeek全家桶" — 侧边栏显示此名称
+  provider: string                // 默认提供商
+  apiUrl: string                  // 默认 API 地址
+  apiKey: string                  // 默认 API 密钥 (加密存储)
+  encrypted?: boolean
+
+  // ── 四个子模型 ──
+  model: string                   // 💪 Main — 主力执行模型 (如 deepseek-chat / gpt-4o)
+  cheapModel: string              // ⚡ Cheap — 分类+意图方案 (如 deepseek-chat 同模型 / gpt-4o-mini)
+  reasoningModel: string          // 🧠 Reasoning — 深度推理 (如 deepseek-reasoner / o1, 留空=用Main)
+  imageModel: string              // 🎨 Image — 图片生成 (如 dall-e-3, 留空=禁用图片)
+
+  // ── 图片模型独立提供商 (图片模型可能用不同于文本模型的 API) ──
+  imageProvider: string           // 图片API提供商 (默认: 同 provider)
+  imageApiUrl: string             // 图片API地址 (默认: 同 apiUrl)
+  imageApiKey: string             // 图片API密钥 (默认: 同 apiKey, 加密存储)
+  imageEncrypted?: boolean
+
   embeddingModel: string
   temperature: number
   maxTokens: number
@@ -15,6 +32,13 @@ export interface ModelConfig {
   outputPricePerM: number
   cacheHitPricePerM: number
   currency: 'USD' | 'CNY'
+}
+
+/** 从 ModelConfig 解析有效的子模型名（留空则回退到 Main） */
+export function resolveModelName(config: ModelConfig, tier: 'cheap' | 'main' | 'reasoning'): string {
+  if (tier === 'cheap') return config.cheapModel || config.model
+  if (tier === 'reasoning') return config.reasoningModel || config.model
+  return config.model
 }
 
 export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
@@ -34,6 +58,12 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   apiUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o',
+  cheapModel: '',
+  reasoningModel: '',
+  imageModel: '',
+  imageProvider: '',
+  imageApiUrl: '',
+  imageApiKey: '',
   embeddingModel: 'text-embedding-3-small',
   temperature: 0.8,
   maxTokens: 0,
@@ -140,15 +170,6 @@ export interface AIAssistantSettings {
   toolRetentionRounds: number                 // 工具结果跨轮保留轮数 (0-10)
   rulesRefreshInterval: number                // 核心规则复述间隔 (0-100, 0=不重复)
   useAgent: boolean                            // 启用 Agent 模式（替代旧 handleSend）
-  pipelineModels: PipelineModels               // 流水线多模型配置 (V2)
-}
-
-/** 流水线四模型: 不同阶段使用不同模型以节省成本 */
-export interface PipelineModels {
-  cheap: string       // configId — 分类器+意图方案 (如 DeepSeek Flash)
-  main: string        // configId — 主力执行 (如 DeepSeek V3)
-  reasoning: string   // configId — 深度推理 (如 DeepSeek R1, 可选, 留空=用main)
-  image: string       // configId — 图片生成 (如 DALL-E 3, 可选, 留空=不启用图片)
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -173,12 +194,6 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   toolRetentionRounds: 3,
   rulesRefreshInterval: 31,
   useAgent: false,
-  pipelineModels: {
-    cheap: '',       // 未配置时自动使用 main
-    main: '',        // 未配置时自动使用 activeConfigId
-    reasoning: '',   // 未配置时自动使用 main
-    image: '',       // 未配置时禁用图片生成
-  },
   customRoles: [
     { id: 'role-expert', name: '小说创作专家', prompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。' },
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。请从结构、语言、人物、节奏等角度进行分析。' },

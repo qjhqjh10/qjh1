@@ -567,14 +567,16 @@ export class AgentChatBridge {
     // ── TaskPipeline: Classifier → Intent+Plan → Approval (V2) ──
     try {
       if (!this.pipeline) {
-        // Read pipeline model configs from settings
+        // Read sub-model names from the active ModelConfig
         const { useSettingsStore } = await import('@/store')
-        const pm = useSettingsStore.getState().aiSettings?.pipelineModels
+        const configs = useSettingsStore.getState().configs
+        const activeConfig = configs.find((c: any) => c.id === this.configId)
+        const cheapModel = (activeConfig as any)?.cheapModel || activeConfig?.model || ''
         this.pipeline = new (await import('./pipeline/TaskPipeline')).TaskPipeline(
           this.configId, this.projectId,
           {
-            classifierModelId: pm?.cheap || undefined,
-            intentPlannerModelId: pm?.cheap || undefined, // Cheap model handles both
+            classifierModelId: cheapModel,
+            intentPlannerModelId: cheapModel,
           },
         )
       }
@@ -647,10 +649,9 @@ export class AgentChatBridge {
       const schemas = toolRegistry.getFilteredSchemas(this.workMode, undefined)
       try {
         const settingsStore = (await import('@/store')).useSettingsStore.getState()
-        const pm = settingsStore.aiSettings?.pipelineModels
-        // Keep generate_image only if an image model is explicitly configured
-        const hasImageModel = !!(pm?.image
-          && settingsStore.configs?.find((c: any) => c.id === pm.image))
+        const activeCfg = settingsStore.configs?.find((c: any) => c.id === this.configId)
+        // Keep generate_image only if current config has an imageModel
+        const hasImageModel = !!(activeCfg?.imageModel)
         if (!hasImageModel) {
           this.runtime.setTools(schemas.filter((s: any) => s.function?.name !== 'generate_image'))
         } else {

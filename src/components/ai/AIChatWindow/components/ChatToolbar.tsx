@@ -15,7 +15,7 @@ interface ChatToolbarProps {
   attachment: { type: 'file' | 'image'; name: string; content: string; previewUrl?: string } | null
   setAttachment: (a: ChatToolbarProps['attachment']) => void
   activeConfigId: string | null
-  configs: Array<{ id: string; model: string }>
+  configs: Array<{ id: string; name: string; model: string }>
   onConfigChange: (id: string) => void
   conversationToolCount: number
   selectedFileIds: string[]
@@ -113,7 +113,7 @@ export function ChatToolbar(props: ChatToolbarProps) {
         title="切换模型配置"
       >
         {props.configs.map(c => (
-          <option key={c.id} value={c.id}>{c.model}</option>
+          <option key={c.id} value={c.id}>{c.name || c.model}</option>
         ))}
       </select>
     </div>

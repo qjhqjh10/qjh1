@@ -85,40 +85,6 @@ export function AISettingsTab() {
               <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 4 }}>聊天窗口中也可随时切换。Plan 模式安全无风险。</div>
             </FormField>
 
-            {/* ── 流水线四模型 (V2) ── */}
-            <div style={{ borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 8 }}>🔧 流水线多模型配置</div>
-              <p style={{ ...captionText, marginBottom: 10 }}>不同任务阶段使用不同模型，节省 Token 成本。留空则自动使用当前选中的主模型。</p>
-              {(() => {
-                const configs = useSettingsStore.getState().configs
-                const pm = aiSettings.pipelineModels || { cheap: '', main: '', reasoning: '', image: '' }
-                const updatePM = (k: string, v: string) => update('pipelineModels', { ...pm, [k]: v })
-                const options = [
-                  { key: 'cheap', label: '⚡ 便宜模型', desc: '分类器 + 意图方案 (如 DeepSeek Flash, GPT-4o-mini)' },
-                  { key: 'main', label: '💪 主力模型', desc: '对话执行 + 工具调用 (如 DeepSeek V3, GPT-4o)' },
-                  { key: 'reasoning', label: '🧠 推理模型', desc: '深度分析/复杂推理 (如 DeepSeek R1, o1, 可选)' },
-                  { key: 'image', label: '🎨 图片模型', desc: '图片生成 (如 DALL-E 3, Stable Diffusion, 可选)' },
-                ] as const
-                return options.map(o => (
-                  <div key={o.key} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 3 }}>{o.label}</div>
-                    <div style={{ fontSize: 9, color: '#9b8e84', marginBottom: 3 }}>{o.desc}</div>
-                    <select
-                      value={pm[o.key] || ''}
-                      onChange={e => updatePM(o.key, e.target.value)}
-                      className="focus-ring"
-                      style={{ ...inputStyle, cursor: 'pointer', fontSize: 11 }}
-                    >
-                      <option value="">（自动选择）</option>
-                      {configs.map(c => (
-                        <option key={c.id} value={c.id}>{c.name} ({c.model})</option>
-                      ))}
-                    </select>
-                  </div>
-                ))
-              })()}
-            </div>
-
             <FormField label="默认角色">
               <select value={aiSettings.defaultRole} onChange={e => update('defaultRole', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
                 {aiSettings.customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}

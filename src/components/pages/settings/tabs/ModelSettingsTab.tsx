@@ -279,6 +279,51 @@ export function ModelSettingsTab() {
                       )}
                     </div>
                   </FormField>
+                  {/* ── 子模型配置 (V2) ── */}
+                  <div style={{ borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 10, marginBottom: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 8 }}>🔧 子模型配置</div>
+                    <p style={{ fontSize: 9, color: '#9b8e84', marginBottom: 8, lineHeight: 1.5 }}>
+                      不同任务阶段使用不同模型以节省 Token。分类+方案用便宜模型，执行用主力模型，留空则自动使用主力模型。
+                    </p>
+                    <FormField label="⚡ Cheap 便宜模型">
+                      <input type="text" value={activeConfig.cheapModel || ''}
+                        onChange={e => updateConfig(activeConfig.id, { cheapModel: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
+                        placeholder="如 deepseek-chat / gpt-4o-mini（同模型填相同名即可）" />
+                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>分类器 + 意图方案。建议用 Flash/Mini 等便宜模型</div>
+                    </FormField>
+                    <FormField label="🧠 Reasoning 推理模型">
+                      <input type="text" value={activeConfig.reasoningModel || ''}
+                        onChange={e => updateConfig(activeConfig.id, { reasoningModel: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
+                        placeholder="如 deepseek-reasoner / o1（可选，留空用Main）" />
+                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>深度分析 + 复杂推理。输出速度较慢但推理质量高</div>
+                    </FormField>
+                    <FormField label="🎨 Image 图片模型">
+                      <input type="text" value={activeConfig.imageModel || ''}
+                        onChange={e => updateConfig(activeConfig.id, { imageModel: e.target.value })}
+                        className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
+                        placeholder="如 dall-e-3（可选，留空禁用图片生成）" />
+                      <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>图片生成。可能需要不同 API（如 OpenAI DALL-E），请在下方配置</div>
+                    </FormField>
+                    {/* Image API override fields — only show when imageModel is set */}
+                    {activeConfig.imageModel && (
+                      <>
+                        <FormField label="图片API地址">
+                          <input type="text" value={activeConfig.imageApiUrl || ''}
+                            onChange={e => updateConfig(activeConfig.id, { imageApiUrl: e.target.value })}
+                            className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
+                            placeholder="留空使用默认API地址" />
+                        </FormField>
+                        <FormField label="图片API密钥">
+                          <input type="password" value={activeConfig.imageApiKey || ''}
+                            onChange={e => updateConfig(activeConfig.id, { imageApiKey: e.target.value })}
+                            className="focus-ring" style={{ ...inputStyle, fontSize: 11 }}
+                            placeholder="留空使用默认API密钥" />
+                        </FormField>
+                      </>
+                    )}
+                  </div>
                   <FormField label="Embedding模型">
                     <input
                       type="text"
