@@ -42,14 +42,22 @@ export class DiagnosticLogger {
   private apiCallStart = 0
   private toolCallStarts = new Map<string, number>()
   private stuckTimer: ReturnType<typeof setInterval> | null = null
-  private stuckThresholdMs = 30000 // 30 seconds
+  private stuckThresholdMs = 120000 // 2 min — accommodate DeepSeek reasoning time
   private logFilePath = 'diagnostic-log.jsonl'
   private writeQueue: string[] = []
   private flushTimer: ReturnType<typeof setTimeout> | null = null
 
+  private stuckDetected = false
+
   constructor() {
-    // Check for stuck state every 10 seconds
     this.stuckTimer = setInterval(() => this.checkStuck(), 10000)
+  }
+
+  /** Clear stale events — called on new agent run */
+  clearRecent(): void {
+    this.events = []
+    this.toolCallStarts.clear()
+    this.stuckDetected = false
   }
 
   destroy(): void {
@@ -226,9 +234,13 @@ export class DiagnosticLogger {
 
   private checkStuck(): void {
     if (this.currentPhase === 'IDLE') return
+    // Skip if API call is active — DeepSeek reasoning can be slow
+    if (this.apiCallStart > 0) return
 
     const phaseDuration = Date.now() - this.phaseStartTime
+    if (this.stuckDetected) return // already reported
     if (phaseDuration > this.stuckThresholdMs) {
+      this.stuckDetected = true
       const pendingTools = [...this.toolCallStarts.entries()]
         .map(([id, start]) => `${id}: ${Date.now() - start}ms`)
         .join(', ')
@@ -263,6 +275,10 @@ export class DiagnosticLogger {
     }
 
     // Persist to file (queued, flushed every 2 seconds)
+    // M8: Cap queue at 1000 entries to prevent unbounded memory growth
+    if (this.writeQueue.length >= 1000) {
+      this.writeQueue = this.writeQueue.slice(-500)
+    }
     this.writeQueue.push(JSON.stringify(fullEvent))
     this.scheduleFlush()
   }

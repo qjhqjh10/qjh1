@@ -10,8 +10,16 @@ async function getNotesDir(): Promise<string> {
   }
 }
 
-function sanitizeFileName(name: string): string {
-  return String(name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+import { sanitizeFileName } from '@/utils/security'
+
+// L4: Per-file mutex to prevent lost updates on concurrent append_note calls
+const _appendLocks = new Map<string, Promise<void>>()
+
+function withAppendLock(filePath: string, fn: () => Promise<void>): Promise<void> {
+  const prev = _appendLocks.get(filePath) || Promise.resolve()
+  const next = prev.then(fn, fn)
+  _appendLocks.set(filePath, next.then(() => {}, () => {}))
+  return next
 }
 
 export const noteTools: ToolDefinition[] = [
@@ -50,7 +58,7 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name as string)
+        const noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
         const dir = await getNotesDir()
         const content = await fileService.read(`${dir}/${noteName}`)
@@ -77,7 +85,7 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name as string)
+        const noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
         const dir = await getNotesDir()
         const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
@@ -106,15 +114,18 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name as string)
+        const noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
         const dir = await getNotesDir()
         const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
         const newContent = String(args.content || '')
-        let existing = ''
-        try { existing = await fileService.read(filePath) } catch { /* new file */ }
-        const combined = existing ? existing + '\n\n' + newContent : newContent
-        await fileService.write(filePath, combined)
+        // L4: Serialize append operations to prevent lost updates
+        await withAppendLock(filePath, async () => {
+          let existing = ''
+          try { existing = await fileService.read(filePath) } catch { /* new file */ }
+          const combined = existing ? existing + '\n\n' + newContent : newContent
+          await fileService.write(filePath, combined)
+        })
         return { status: 'success', summary: `已追加到草稿: ${noteName} (+${newContent.length} 字符)` }
       } catch (e) { return { status: 'error', summary: `追加草稿失败: ${e instanceof Error ? e.message : '未知错误'}` } }
     },
@@ -135,7 +146,7 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name as string)
+        const noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
         const dir = await getNotesDir()
         const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')

@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck — TODO: 15+ callback params need explicit types, incremental typing needed
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'

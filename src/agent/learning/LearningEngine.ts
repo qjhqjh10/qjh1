@@ -56,6 +56,7 @@ export class LearningEngine {
       this.patterns.set(key, {
         id,
         toolName,
+        status: (result.status === 'pending_confirm' ? 'error' : result.status) as 'success' | 'error',  // C5: persist status; coerce pending_confirm→error
         summary: result.summary.slice(0, 200),
         detail: result.detail || result.summary,
         occurrenceCount: 1,
@@ -209,7 +210,7 @@ export class LearningEngine {
       if (raw && raw.trim()) {
         const parsed = JSON.parse(raw) as LearnedPattern[]
         for (const p of parsed) {
-          this.patterns.set(this.patternKey(p.toolName, { status: 'error', summary: p.summary }), p)
+          this.patterns.set(this.patternKey(p.toolName, { status: p.status || 'error', summary: p.summary }), p)
         }
         this.patternsLoaded = true
       }

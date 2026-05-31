@@ -11,7 +11,7 @@ export const promptLibraryProvider: ContextProvider = {
   buildContext: async () => ({
     domain: 'prompt-library',
     priority: 60,
-    estimatedTokens: 300,
+    estimatedTokens: 180,
     content: [
       '## 提示词库管理',
       '',

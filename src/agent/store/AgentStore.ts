@@ -113,6 +113,10 @@ export interface AgentStoreState {
 // Track pending tool cleanup timers so they can be cancelled on new run
 const _toolCleanupTimers = new Set<ReturnType<typeof setTimeout>>()
 
+// Throttle state for streaming text updates (module-level, not in Zustand state)
+let _lastStreamUpdate = 0
+let _streamTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useAgentStore = create<AgentStoreState>()(
   immer((set, get) => ({
     sessions: [],
@@ -163,6 +167,9 @@ export const useAgentStore = create<AgentStoreState>()(
       // Clear any pending tool cleanup timers from previous runs
       for (const timer of _toolCleanupTimers) clearTimeout(timer)
       _toolCleanupTimers.clear()
+      // Reset streaming throttle state
+      if (_streamTimer) { clearTimeout(_streamTimer); _streamTimer = null }
+      _lastStreamUpdate = 0
       return set(s => {
         s.run.runId = runId
         s.run.phase = 'RUNNING'
@@ -180,6 +187,8 @@ export const useAgentStore = create<AgentStoreState>()(
     endRun: () => {
       for (const timer of _toolCleanupTimers) clearTimeout(timer)
       _toolCleanupTimers.clear()
+      if (_streamTimer) { clearTimeout(_streamTimer); _streamTimer = null }
+      _lastStreamUpdate = 0
       return set(s => {
         s.run.runId = null
         s.run.phase = 'IDLE'
@@ -229,22 +238,21 @@ export const useAgentStore = create<AgentStoreState>()(
 
     setLastError: (error) => set(s => { s.run.lastError = error }),
 
-    // V1-7: Throttled streaming text updates — max ~20 updates/sec to prevent
+    // Throttled streaming text updates — max ~20 updates/sec to prevent
     // 100+ full-component re-renders per response. 50ms delay is imperceptible.
     setStreamingText: (text) => {
-      const state = get() as any
       const now = Date.now()
-      const last = state._lastStreamUpdate || 0
-      if (now - last < 50) {
-        clearTimeout(state._streamTimer)
-        state._streamTimer = setTimeout(() => {
+      if (now - _lastStreamUpdate < 50) {
+        if (_streamTimer) clearTimeout(_streamTimer)
+        _streamTimer = setTimeout(() => {
           set(s => { s.run.streamingText = text })
-          ;(get() as any)._lastStreamUpdate = Date.now()
+          _lastStreamUpdate = Date.now()
+          _streamTimer = null
         }, 50)
         return
       }
       set(s => { s.run.streamingText = text })
-      ;(get() as any)._lastStreamUpdate = now
+      _lastStreamUpdate = now
     },
     setIsStreaming: (streaming) => {
       // V1-7: Only update if value actually changes (was called on every chunk)

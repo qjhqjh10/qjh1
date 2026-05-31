@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../ToolRegistry'
+import { err } from '../resultHelpers'
 
 export const lspTools: ToolDefinition[] = [
   {
@@ -18,12 +19,17 @@ export const lspTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args) => {
       try {
+        let filePath: string | undefined
+        if (args.file_path) {
+          const { sanitizePath } = await import('@/utils/security')
+          const check = sanitizePath(args.file_path)
+          if (!check.valid) return { status: 'error', summary: check.error! }
+          filePath = check.value
+        }
         const { bridge } = await import('@/services/electronBridge')
-        const result = await bridge.lsp.diagnose(
-          args.file_path ? String(args.file_path) : undefined,
-        )
+        const result = await bridge.lsp.diagnose(filePath)
         return result || { status: 'error', summary: 'LSP 工具不可用' }
-      } catch { return { status: 'error', summary: '诊断失败' } }
+      } catch (e) { return err('lsp_diagnose', e) }
     },
   },
 ]

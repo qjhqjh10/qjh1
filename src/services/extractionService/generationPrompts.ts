@@ -7,8 +7,7 @@ import type {
   EroticExtractionData, EventPattern, ProgressionRhythm,
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
-import { DIMENSION_META } from '@/types/story'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
+// (dead imports removed)
 
 
 export function buildGenerateCharactersPrompt(extraction: NovelExtraction): string {

@@ -32,14 +32,16 @@ export function buildChapterAnalysisPrompt(
   if (has('factionsMentioned')) jsonFields.push(`  "factionSnapshots": [{"name":"势力名","status":"活跃|削弱|覆灭|转型","leader":"首领(无则'')}"}]`)
   if (has('locationsMentioned')) jsonFields.push(`  "locationSnapshots": [{"name":"地点名","status":"存在|毁灭|废弃","significance":"重要性"}]`)
 
-  const requirements: string[] = []
-  if (has('plotEvents')) requirements.push('1. plotEvents 按实际发生的事件列出（过渡章/内心独白章可能仅1-2个事件甚至为空）')
-  if (has('charactersAppeared')) requirements.push('2. 角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50')
-  if (has('charactersAppeared')) requirements.push('3. characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级')
-  if (has('itemsMentioned')) requirements.push('4. itemSnapshots: 本章出现或提及的所有道具,标注当前状态')
-  if (has('factionsMentioned')) requirements.push('5. factionSnapshots: 本章出现或提及的所有势力,标注当前状态')
-  requirements.push('6. 后续章节出现前面的角色/道具/势力时必须继承前面的状态')
-  requirements.push('7. 只提取文中明确写出或强烈暗示的信息')
+  // Build requirements array, then number sequentially
+  const reqs: string[] = []
+  if (has('plotEvents')) reqs.push('plotEvents 按实际发生的事件列出（过渡章/内心独白章可能仅1-2个事件甚至为空）')
+  if (has('charactersAppeared')) reqs.push('角色role+importance标准: 男主=100, 女主=90(可多名), 重要男配=75-85, 重要女配=70-80, 反派按威胁程度=60-90, 其他配角=0-50')
+  if (has('charactersAppeared')) reqs.push('characterSnapshots: 本章出场或提及的所有角色,标注当前生死状态和等级')
+  if (has('itemsMentioned')) reqs.push('itemSnapshots: 本章出现或提及的所有道具,标注当前状态')
+  if (has('factionsMentioned')) reqs.push('factionSnapshots: 本章出现或提及的所有势力,标注当前状态')
+  reqs.push('后续章节出现前面的角色/道具/势力时必须继承前面的状态')
+  reqs.push('只提取文中明确写出或强烈暗示的信息')
+  const requirements = reqs.map((r, i) => `${i + 1}. ${r}`)
 
   return `你是一位专业的小说分析师。请分析以下章节，聚焦于"剧情理解"和"设定提取"。输出JSON（不要markdown）：
 

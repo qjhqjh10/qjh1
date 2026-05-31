@@ -1,6 +1,10 @@
-// @ts-nocheck
 import { useEffect } from "react";
 import { useStore } from "@/store";
+import type { Character } from "@/types/character";
+import { EMPTY_CHARACTER } from "@/types/character";
+import { nanoid } from "nanoid";
+import { logError } from "@/utils/logger";
+import { buildStylePrompt } from "@/utils/styleInjector";
 
 export function useWriteTabInjection(deps: {
   previewTab: string; novelType: string; extraction: any;

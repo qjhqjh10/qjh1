@@ -19,10 +19,14 @@ export const projectTools: ToolDefinition[] = [
     category: 'project',
     availableInPlanMode: false,
     executor: async (args) => {
+      const { sanitizeFileName } = await import('@/utils/security')
+      const nameCheck = sanitizeFileName(args.name)
+      if (!nameCheck.valid) return { status: 'error', summary: nameCheck.error! }
+      const projName = nameCheck.value
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([{
-          callId: 'tool', toolName: 'create_project', args, confirmed: true,
+          callId: 'tool', toolName: 'create_project', args: { ...args, name: projName }, confirmed: true,
         }])
         return results[0] || { status: 'error', summary: '创建失败' }
       } catch (e) { return { status: 'error', summary: `创建项目失败: ${e instanceof Error ? e.message : '未知错误'}` } }

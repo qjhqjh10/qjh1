@@ -1,5 +1,6 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { fileService } from '@/services/fileService'
+import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 
 // Static schema documentation (fallback when no project)
 const SCHEMA_DOC = [
@@ -64,7 +65,7 @@ export const characterProvider: ContextProvider = {
         if (mentionedNames.length > 0 && targetFiles.length < jsonFiles.length) {
           lines.push(`共 ${jsonFiles.length} 个角色，已读取与"${mentionedNames.join('、')}"相关的 ${targetFiles.length} 个。如需查看更多角色，请指定角色名。`)
         }
-        return { domain: 'characters', priority: 80, estimatedTokens: Math.min(Math.ceil(lines.join('\n').length / 3), 4000), content: lines.join('\n') }
+        return { domain: 'characters', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(lines), 4000), content: lines.join('\n') }
       }
 
       // Create character or general reference: inject summary
@@ -74,7 +75,9 @@ export const characterProvider: ContextProvider = {
         try {
           const content = await fileService.read(`${projectId}/characters/${f}`)
           const obj = JSON.parse(content)
-          const rel = obj.relationships ? ` | 关系: ${String(obj.relationships).slice(0, 50)}` : ''
+          const rel = obj.relationships && Array.isArray(obj.relationships)
+            ? ` | 关系: ${obj.relationships.map((r: any) => r.name || r.character || String(r)).join(', ').slice(0, 50)}`
+            : obj.relationships ? ` | 关系: ${String(obj.relationships).slice(0, 50)}` : ''
           summaries.push(`- ${obj.name || f} (${obj.role || '-'}): ${(obj.personality || '-').slice(0, 40)}${rel}`)
         } catch { summaries.push(`- ${f.replace('.json', '')}`) }
       }
@@ -84,7 +87,7 @@ export const characterProvider: ContextProvider = {
         ? '\n\n创建新角色时，请确保 name 不与已有角色重复，relationships 字段要引用已有角色名。\n\n' + SCHEMA_DOC
         : '\n\n如需查看某个角色的完整设定，使用 read_file("characters/{id}.json")。'
 
-      return { domain: 'characters', priority: 80, estimatedTokens: Math.min(Math.ceil(summaries.join('\n').length / 3), 2000), content: summaries.join('\n') + extra }
+      return { domain: 'characters', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(summaries), 2000), content: summaries.join('\n') + extra }
     } catch {
       return { domain: 'characters', priority: 80, estimatedTokens: 300, content: SCHEMA_DOC }
     }

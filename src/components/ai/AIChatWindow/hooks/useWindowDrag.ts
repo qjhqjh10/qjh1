@@ -21,11 +21,6 @@ export function useWindowDrag(windowKey: string) {
     return () => { cleanupDragRef.current?.() }
   }, [])
 
-  const [cumulativeTokens, setCumulativeTokens] = useState(0)
-  const [lastPromptTokens, setLastPromptTokens] = useState(0)
-  const [peakPromptTokens, setPeakPromptTokens] = useState(0)
-  const [tokenBreakdown, setTokenBreakdown] = useState<{ label: string; chars: number }[]>([])
-
   const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
     resizeRef.current = { startX: e.clientX, startY: e.clientY, startW: winSize.width, startH: winSize.height, startR: winPos.right, startB: winPos.bottom, corner }

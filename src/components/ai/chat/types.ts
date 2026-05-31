@@ -22,6 +22,9 @@ export interface Message {
   toolsUsed?: string[]
   thinkingPlan?: { intent: string; files: string[]; steps: { tool: string; action: string }[] }
   reasoningContent?: string
+  outputBreakdown?: { label: string; tokens: number }[]
+  iterationCount?: number
+  totalIterations?: number
 }
 
 export interface Conversation {

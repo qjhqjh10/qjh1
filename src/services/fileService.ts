@@ -119,7 +119,7 @@ export const aiService = {
     const cleanupError = e().ai.onChatError((data) => { cleanupAll(); onError(data) })
     const cleanupCancelled = e().ai.onChatCancelled((data) => { cleanupAll(); onCancelled?.(data) })
 
-    const cleanupAll = () => { cleanupChunk(); cleanupDone(); cleanupError(); cleanupCancelled() }
+    function cleanupAll() { cleanupChunk(); cleanupDone(); cleanupError(); cleanupCancelled() }
 
     const abort = () => {
       e().ai.abortStream()

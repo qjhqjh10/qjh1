@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { StyleProject, StyleChapter, ChapterAnalysis, StyleProfile, StyleProjectMeta } from '@/types/story';
 import type { ResultTab } from '../constants';
 import { DIMENSION_META, NOVEL_TYPE_DIMS, NOVEL_TYPES } from '@/types/story';
@@ -31,10 +30,10 @@ export function DetailView({ ws }: { ws: any }) {
 
       {/* Analyze bar */}
       <div style={{ padding: '10px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.01)', flexWrap: 'wrap' }}>
-        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.map(c => c.id)))} style={linkBtn}>全选</button>
+        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.map((c: { id: string }) => c.id)))} style={linkBtn}>全选</button>
         <button onClick={() => ws.setAnalyzeIds(new Set())} style={linkBtn}>清空</button>
-        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.slice(0, 50).map(c => c.id)))} style={linkBtn}>前50章</button>
-        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.slice(0, 10).map(c => c.id)))} style={linkBtn}>前10章</button>
+        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.slice(0, 50).map((c: { id: string }) => c.id)))} style={linkBtn}>前50章</button>
+        <button onClick={() => ws.setAnalyzeIds(new Set(ws.selectedProject.chapters.slice(0, 10).map((c: { id: string }) => c.id)))} style={linkBtn}>前10章</button>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {ws.analyzeIds.size}章</span>
         <select value={ws.analyzeMode} onChange={e => ws.setAnalyzeMode(e.target.value as 'precise' | 'quick')} style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11 }}><option value="precise">全量分析</option><option value="quick">抽样分析</option></select>
         <Button size="sm" variant="secondary" onClick={() => ws.setShowDimConfig(true)}>配置维度 ({ws.enabledDimensions.length})</Button>
@@ -49,7 +48,7 @@ export function DetailView({ ws }: { ws: any }) {
         {/* Left: chapter list */}
         <div style={{ width: 340, borderRight: '1px solid rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <ScrollArea maxHeight="100%" style={{ flex: 1, padding: 6 }}>
-            {ws.selectedProject.chapters.map(ch => (
+            {ws.selectedProject.chapters.map((ch: any) => (
               <div key={ch.id} style={{
                 display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', cursor: 'pointer',
                 borderRadius: 8, background: ws.selectedChapterId === ch.id ? 'rgba(124,58,237,0.06)' : 'transparent',
@@ -106,7 +105,7 @@ export function DetailView({ ws }: { ws: any }) {
               {ws.analyzedChapters.length === 0 ? (
                 <p style={{ textAlign: 'center', color: '#9b8e84', fontSize: 13, padding: 40 }}>暂无已分析的章节</p>
               ) : (
-                ws.analyzedChapters.map(ch => (
+                ws.analyzedChapters.map((ch: any) => (
                   <div key={ch.id} style={{ padding: '12px 14px', borderRadius: 12, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.04)', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{ch.title}</span>
@@ -131,7 +130,7 @@ export function DetailView({ ws }: { ws: any }) {
                       return (
                         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 2 }}>深度分析维度:</div>
-                          {extraDims.map(([dk, da]) => (
+                          {extraDims.map(([dk, da]: any) => (
                             <div key={dk} style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11, lineHeight: 1.5, color: '#4a3f38' }}>
                               <span style={{ fontWeight: 700, color: '#7c3aed' }}>{FEATURE_LABELS[dk] || DIMENSION_META[dk]?.label || dk}:</span>
                               <span> {da.description?.slice(0, 200) || '(无描述)'}</span>
@@ -227,7 +226,7 @@ export function DetailView({ ws }: { ws: any }) {
                       <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>堕落弧线</div>
                       <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
                         <div>{ws.selectedProject.profile.features.corruptionArc.overallTrajectory}</div>
-                        {ws.selectedProject.profile.features.corruptionArc.characterStates?.map((cs, i) => (
+                        {ws.selectedProject.profile.features.corruptionArc.characterStates?.map((cs: any, i: number) => (
                           <div key={i} style={{ marginTop: 6, paddingLeft: 8, borderLeft: '2px solid rgba(220,38,38,0.3)' }}>
                             <strong>{cs.characterName}</strong>: {cs.originalState} → {cs.currentState}
                             {cs.progressionSteps?.length > 0 && <span style={{ fontSize: 10, color: '#9b8e84' }}> ({cs.progressionSteps.join(' → ')})</span>}
@@ -323,7 +322,7 @@ export function DetailView({ ws }: { ws: any }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#6b5e54', marginTop: 4 }}>深度分析维度 ({extraDims.length}维)</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          {extraDims.map(([dk, da]) => {
+                          {extraDims.map(([dk, da]: any) => {
                             const isErotic = DIMENSION_META[dk]?.category === '情色专属'
                             const isComplex = complexKeys.includes(dk)
                             const accentColor = isErotic ? '#ec4899' : '#7c3aed'
@@ -340,7 +339,7 @@ export function DetailView({ ws }: { ws: any }) {
                                 )}
                                 {da.writingRules && da.writingRules.length > 0 && (
                                   <div style={{ marginTop: 4, fontSize: 10, color: '#9b8e84' }}>
-                                    <strong>规则:</strong> {da.writingRules.slice(0, 5).map((r, i) => <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {r}</div>)}
+                                    <strong>规则:</strong> {da.writingRules.slice(0, 5).map((r: string, i: number) => <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {r}</div>)}
                                   </div>
                                 )}
                               </div>
@@ -429,15 +428,15 @@ export function DetailView({ ws }: { ws: any }) {
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginLeft: 8 }}>类型:</span>
             {['通用','情色','玄幻','奇幻','灵异','游戏','末世','轻小说','都市','修仙','恋爱','古风','悬疑'].map(genre => (
               <button key={genre} onClick={() => {
-                let dims = ws.enabledDimensions.filter(k => DIMENSION_META[k].category !== '类型专属' && DIMENSION_META[k].category !== '情色专属')
+                let dims = ws.enabledDimensions.filter((k: string) => (DIMENSION_META as any)[k].category !== '类型专属' && (DIMENSION_META as any)[k].category !== '情色专属')
                 if (genre === '情色') { ws.setEnabledDimensions(NOVEL_TYPE_DIMS['情色'] || []) }
                 else if (genre === '通用') { ws.setEnabledDimensions(dims) }
                 else {
                   const genreKeyMap: Record<string, string> = {'都市':'socialRealism','修仙':'cultivationCombat','恋爱':'romanceArc','古风':'archaicStyle','悬疑':'suspensePacing'}
                   const genreKey = genreKeyMap[genre]
                   if (genreKey) {
-                    const others = Object.keys(DIMENSION_META).filter(k => DIMENSION_META[k].category === '类型专属' && k !== genreKey)
-                    ws.setEnabledDimensions([...dims.filter(k => !others.includes(k)), genreKey])
+                    const others = Object.keys(DIMENSION_META).filter((k: string) => (DIMENSION_META as any)[k].category === '类型专属' && k !== genreKey)
+                    ws.setEnabledDimensions([...dims.filter((k: string) => !others.includes(k)), genreKey])
                   }
                 }
               }} style={presetBtn}>{genre}</button>
@@ -452,7 +451,7 @@ export function DetailView({ ws }: { ws: any }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
                 {Object.entries(DIMENSION_META).filter(([, m]) => m.category === cat).map(([k, m]) => (
                   <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
-                    <input type="checkbox" checked={ws.enabledDimensions.includes(k)} onChange={() => { ws.setEnabledDimensions(prev => prev.includes(k) ? prev.filter(d => d !== k) : [...prev, k]) }} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
+                    <input type="checkbox" checked={ws.enabledDimensions.includes(k)} onChange={() => { ws.setEnabledDimensions((prev: string[]) => prev.includes(k) ? prev.filter((d: string) => d !== k) : [...prev, k]) }} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
                     {m.label}
                   </label>
                 ))}
@@ -469,7 +468,7 @@ export function DetailView({ ws }: { ws: any }) {
       <Modal isOpen={ws.showApply} onClose={() => ws.setShowApply(false)} title={`应用风格 — ${ws.selectedProject?.name || ''}`} width={500}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ fontSize: 13, color: '#6b5e54' }}>选择要应用此风格的目标写作项目：</p>
-          {ws.projectsList.map(p => (
+          {ws.projectsList.map((p: any) => (
             <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#2d2520', background: ws.styleAssignments[p.id] === ws.selectedProject?.id ? 'rgba(124,58,237,0.04)' : 'transparent' }}>
               <input type="checkbox" checked={ws.styleAssignments[p.id] === ws.selectedProject?.id}
                 onChange={e => ws.handleApplyStyle(p.id, e.target.checked ? (ws.selectedProject?.id || '') : '')}

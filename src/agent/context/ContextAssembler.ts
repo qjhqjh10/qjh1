@@ -69,8 +69,12 @@ export class ContextAssembler {
     // Build context blocks (all above threshold, regardless of token budget)
     const allBlocks: ContextBlock[] = []
     for (const { provider } of aboveThreshold) {
-      const block = await provider.buildContext(projectId, userMessage)
-      allBlocks.push(block)
+      try {
+        const block = await provider.buildContext(projectId, userMessage)
+        allBlocks.push(block)
+      } catch (err) {
+        console.warn(`[ContextAssembler] Provider ${provider.domain} failed:`, err)
+      }
     }
 
     // Sort by priority DESC (high-priority blocks first), then truncate by token budget

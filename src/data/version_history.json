@@ -12,7 +12,8 @@
         "DeepSeek V4 Pro 1M上下文适配: 全量37工具始终可见,移除5级渐进压缩,移除ToolSubsetRouter",
         "Provider智能化: chapterWritingProvider写第N章自动注入前章内容,characterProvider/outlineProvider扩展章节写作激活",
         "安全模型简化: 12层→3层(path隔离+JSON校验+危险工具门),仅delete/shell需要用户确认",
-        "上下文注入修复: MemoryIndex直接注入系统提示词,切换项目自动同步projectId"
+        "上下文注入修复: MemoryIndex直接注入系统提示词,切换项目自动同步projectId",
+        "v2架构优化(2026-05-31): Token估算统一(CJK感知),共享安全模块(sanitizePath/validateUrl/checkCommand),工具结果辅助函数(ok/err/errMsg),IndexedDB对话存储迁移,React ErrorBoundary防白屏,AgentEventEmitter暂停/恢复,VirtualMessageList虚拟滚动,useConversationState hook,对话列表虚拟化(>20条启用),37工具统一错误格式,4文件@ts-nocheck移除,webSearch query截断,死代码删除(AiHarnessConfig/HookEngine/FileRouter),8个死import清理,webSearch query长度限制,CLAUDE.md架构文档更新"
       ]
     },
     {

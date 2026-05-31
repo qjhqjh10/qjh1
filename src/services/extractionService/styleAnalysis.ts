@@ -8,7 +8,6 @@ import type {
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
 
 
 import { extractJSON } from './jsonParsers';
@@ -157,8 +156,8 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
     const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const patterns = [
       // V4: Markdown header ## dimKey: label or ## label（dimKey）
-      new RegExp(`##\\s+${escapedKey}\\s*[:：]\\s*${escapedLabel}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|---\\n---RULES|---\\n---TONE|$)`, 'im'),
-      new RegExp(`##\\s+${escapedLabel}\\s*[（(]?\\s*${escapedKey}\\s*[）)]?\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|---\\n---RULES|---\\n---TONE|$)`, 'im'),
+      new RegExp(`##\\s+${escapedKey}\\s*[:：]\\s*${escapedLabel}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
+      new RegExp(`##\\s+${escapedLabel}\\s*[（(]?\\s*${escapedKey}\\s*[）)]?\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
       // V3: === dimKey: label ===
       new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
       new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
@@ -372,7 +371,7 @@ export function buildFewShotExcerpts(
       const sensoryCount = (p.match(/热|烫|紧|软|湿|黏|滑|硬|粗|嫩/g) || []).length
       score += sensoryCount
       // Body part words
-      const bodyCount = (p.match(/屁眼|鸡巴|卵蛋|龟头|肉穴|阴唇|子宫|乳房|臀部|肚/g) || []).length
+      const bodyCount = (p.match(/屁眼|鸡巴|卵蛋|龟头|肉穴|阴唇|子宫|乳房|臀部/g) || []).length
       score += bodyCount * 2
       // Exclamation density (emotional intensity)
       const exclCount = (p.match(/[！!]/g) || []).length

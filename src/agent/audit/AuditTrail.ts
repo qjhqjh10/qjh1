@@ -18,6 +18,11 @@ export class AuditTrail {
   }
 
   startSession(sessionId: string): void {
+    // M9: warn if prior events were not persisted
+    if (this.events.length > 0) {
+      console.warn('[AuditTrail] Starting new session without persisting prior events')
+      this.persist().catch(() => {})
+    }
     this.sessionId = sessionId
     this.events = []
     this.record('session:start', {})

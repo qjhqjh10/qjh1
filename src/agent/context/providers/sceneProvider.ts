@@ -11,7 +11,7 @@ export const sceneProvider: ContextProvider = {
   buildContext: async () => ({
     domain: 'scene',
     priority: 75,
-    estimatedTokens: 600,
+    estimatedTokens: 300,
     content: [
       '## 场景模板',
       '场景模板存储在 scene_templates/ 目录，使用 create_scene_template 工具创建。',

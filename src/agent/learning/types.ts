@@ -16,6 +16,8 @@ export type LearningStage =
 export interface LearnedPattern {
   id: string
   toolName: string
+  /** C5: Persisted status so load() restores the correct S:/E: key prefix */
+  status: 'success' | 'error'
   /** Summary of the observed behavior (error or success pattern) */
   summary: string
   /** Full detail of the pattern */

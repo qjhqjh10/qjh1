@@ -1,6 +1,7 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { fileService } from '@/services/fileService'
 import { extractMarkdownStructure } from '../contentExtractor'
+import { estimateTokens } from '../../utils/tokenEstimation'
 
 const STATIC_DOC = [
   '## 大纲与世界观',
@@ -34,7 +35,7 @@ export const outlineProvider: ContextProvider = {
       if (plot && plot.trim()) {
         const extracted = extractMarkdownStructure(plot, 2000)
         parts.push('### 故事剧情', extracted, '')
-        totalTokens += Math.ceil(extracted.length / 3)
+        totalTokens += estimateTokens(extracted)
       }
     } catch { /* file not found */ }
 
@@ -44,7 +45,7 @@ export const outlineProvider: ContextProvider = {
       if (wb && wb.trim()) {
         const extracted = extractMarkdownStructure(wb, 1000)
         parts.push('### 世界观设定', extracted, '')
-        totalTokens += Math.ceil(extracted.length / 3)
+        totalTokens += estimateTokens(extracted)
       }
     } catch { /* file not found */ }
 

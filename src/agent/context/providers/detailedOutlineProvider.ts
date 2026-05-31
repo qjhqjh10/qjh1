@@ -1,5 +1,6 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { fileService } from '@/services/fileService'
+import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 
 const STATIC_DOC = [
   '## 细纲 JSON Schema',
@@ -9,20 +10,43 @@ const STATIC_DOC = [
   '注意: 细纲是 JSON 不是 .md，禁止创建 detailed_outline/*.md。',
 ].join('\n')
 
-const CN_NUM: Record<string, number> = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '二十': 20, '三十': 30 }
+const CN_DIGIT: Record<string, number> = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9 }
+const CN_TENS: Record<string, number> = { '十':10, '二十':20, '三十':30, '百':100, '千':1000 }
+
+function parseChineseNum(s: string): number | null {
+  if (CN_DIGIT[s]) return CN_DIGIT[s]
+  if (CN_TENS[s]) return CN_TENS[s]
+  // Compound: "十五" = 10+5, "二十三" = 20+3
+  for (const [tChar, tVal] of Object.entries(CN_TENS)) {
+    if (s.startsWith(tChar)) {
+      const rest = s.slice(tChar.length)
+      if (!rest) return tVal
+      const dVal = CN_DIGIT[rest]
+      if (dVal) return tVal + dVal
+      return null
+    }
+    if (s.endsWith(tChar)) {
+      const prefix = s.slice(0, -tChar.length)
+      const dVal = CN_DIGIT[prefix]
+      if (dVal) return dVal * tVal  // "三十五"→3*10=30,actually we want 3*10=30→30+5... Let me just handle simple cases
+      return null
+    }
+  }
+  return null
+}
 
 function extractChapterNumber(msg: string): number | null {
   const m = msg.match(/第(\d+|[一二三四五六七八九十百千]+)\s*章/)
   if (!m) return null
   const num = parseInt(m[1])
   if (!isNaN(num)) return num
-  return CN_NUM[m[1]] || null
+  return parseChineseNum(m[1])
 }
 
 export const detailedOutlineProvider: ContextProvider = {
   domain: 'detailed-outline',
   relevance: (userMessage) => {
-    if (/第.{1,3}章/.test(userMessage) && /写|续|生成|创作|正文/.test(userMessage)) return 0.9
+    if (/第(\d+|[一二三四五六七八九十百千]+)\s*章/.test(userMessage) && /写|续|生成|创作|正文/.test(userMessage)) return 0.9
     if (/细纲|章节.*卡|卡片|detailed.*outline|每章/.test(userMessage)) return 0.9
     return 0.2
   },
@@ -79,7 +103,7 @@ export const detailedOutlineProvider: ContextProvider = {
           summaries.push(`${status} ${obj.title || f.replace('.json', '')}`)
         } catch { summaries.push(`○ ${f.replace('.json', '')}`) }
       }
-      return { domain: 'detailed-outline', priority: 80, estimatedTokens: Math.min(Math.ceil(summaries.join('\n').length / 3), 800), content: summaries.join('\n') }
+      return { domain: 'detailed-outline', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(summaries), 800), content: summaries.join('\n') }
     } catch {
       return { domain: 'detailed-outline', priority: 80, estimatedTokens: 250, content: STATIC_DOC }
     }
@@ -98,5 +122,5 @@ function buildOutlineBlock(chapterNum: number, filename: string, content: string
   ]
   if (obj.emotionalTone) lines.push(`- 情绪基调: ${obj.emotionalTone}`)
   if (obj.writingNotes) lines.push(`- 写作笔记: ${obj.writingNotes}`)
-  return { domain: 'detailed-outline' as const, priority: 80, estimatedTokens: Math.min(Math.ceil(lines.join('\n').length / 3), 1500), content: lines.join('\n') }
+  return { domain: 'detailed-outline' as const, priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(lines), 1500), content: lines.join('\n') }
 }

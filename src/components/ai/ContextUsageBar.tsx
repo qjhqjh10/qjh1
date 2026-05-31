@@ -4,7 +4,7 @@ interface Props {
   usedTokens: number
   contextWindow: number
   onCompress?: () => void
-  breakdown?: { label: string; chars: number }[]
+  breakdown?: { label: string; chars: number; tokens?: number }[]
 }
 
 export function ContextUsageBar({ usedTokens, contextWindow, onCompress, breakdown }: Props) {
@@ -15,16 +15,21 @@ export function ContextUsageBar({ usedTokens, contextWindow, onCompress, breakdo
 
   const formatK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : `${n}`
 
-  const estTokens = (chars: number) => Math.round(chars / 2)
+  // CJK-aware: Chinese ~1.8 chars/token, Latin ~4 chars/token
+  const estTokens = (chars: number) => Math.round(chars / 1.8)
+
+  // breakdown items may have 'tokens' (from bridge) or 'chars' (legacy)
+  const getTokens = (b: { label: string; chars: number; tokens?: number }) =>
+    b.tokens ?? estTokens(b.chars)
 
   return (
     <div style={{ padding: '6px 18px 4px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
-          style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap', flexShrink: 0, cursor: breakdown ? 'pointer' : 'default' }}
-          onClick={() => breakdown && setShowBreakdown(!showBreakdown)}
-          title={breakdown ? '点击查看Token分解' : undefined}
-        >用量 {breakdown ? (showBreakdown ? '▾' : '▸') : ''}</span>
+          style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap', flexShrink: 0, cursor: breakdown?.length ? 'pointer' : 'default' }}
+          onClick={() => breakdown?.length && setShowBreakdown(!showBreakdown)}
+          title={breakdown?.length ? '点击查看Token分解' : undefined}
+        >用量 {breakdown?.length ? (showBreakdown ? '▾' : '▸') : ''}</span>
         <div style={{ flex: 1, height: 7, borderRadius: 4, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 4, transition: 'width 0.5s', minWidth: pct > 0 ? 4 : 0 }} />
         </div>
@@ -32,17 +37,20 @@ export function ContextUsageBar({ usedTokens, contextWindow, onCompress, breakdo
           {usedTokens > 0 ? `${formatK(usedTokens)} / ${formatK(contextWindow)}` : `上限 ${formatK(contextWindow)}`}
         </span>
       </div>
-      {showBreakdown && breakdown && (
+      {showBreakdown && breakdown && breakdown.length > 0 && (
         <div style={{ marginTop: 6, padding: '8px 12px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', fontSize: 10, color: '#6b5e54', lineHeight: 1.8 }}>
-          {breakdown.map((b, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{b.label}</span>
-              <span style={{ fontWeight: 600, color: '#4a3f38' }}>~{estTokens(b.chars).toLocaleString()} tokens ({b.chars.toLocaleString()} 字)</span>
-            </div>
-          ))}
+          {breakdown.map((b, i) => {
+            const t = getTokens(b)
+            return (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{b.label}</span>
+                <span style={{ fontWeight: 600, color: '#4a3f38' }}>~{t.toLocaleString()} tokens</span>
+              </div>
+            )
+          })}
           <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
-            <span>合计（估算）</span>
-            <span>~{estTokens(breakdown.reduce((s, b) => s + b.chars, 0)).toLocaleString()} tokens</span>
+            <span>本轮输入合计</span>
+            <span>~{breakdown.reduce((s, b) => s + getTokens(b), 0).toLocaleString()} tokens</span>
           </div>
         </div>
       )}

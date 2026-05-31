@@ -17,9 +17,8 @@ export function registerFileHandlers(
   if (basePath) projectsBasePath = basePath
   const globalNotesPath = path.join(path.dirname(projectsBasePath), 'notes')
   const globalSessionsPath = path.join(path.dirname(projectsBasePath), 'agent-sessions')
-
-  // Allow paths within projects dir, global notes dir, global sessions dir, or global uploads dir
   const globalUploadsPath = path.join(path.dirname(projectsBasePath), 'uploads')
+  const globalAppDataPath = path.join(path.dirname(projectsBasePath), '.appdata')
   // Normalize: strip leading slashes (AI sometimes generates /outline/plot.md)
   // and resolve relative to allowed directories. Must match safeResolve in fileToolHandlers.
   const normalizeSafe = (p: string) => p.replace(/\\/g, '/').replace(/^\/+/, '')
@@ -33,7 +32,8 @@ export function registerFileHandlers(
     if (isSafePath(resolved, projectsBasePath)
       || isSafePath(resolved, globalNotesPath)
       || isSafePath(resolved, globalSessionsPath)
-      || isSafePath(resolved, globalUploadsPath)) {
+      || isSafePath(resolved, globalUploadsPath)
+      || isSafePath(resolved, globalAppDataPath)) {
       return resolved
     }
     return null

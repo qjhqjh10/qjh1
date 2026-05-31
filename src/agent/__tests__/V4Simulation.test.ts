@@ -434,7 +434,7 @@ describe('Agent 功能全景验证', () => {
     expect(p).toContain('青剑')
     expect(p).toContain('project-structure')
     expect(p).toContain('project-context')
-    expect(p).toContain('你的工作方式')
+    expect(p).toContain('工作模式')
   })
 
   // ── 诊断日志 ──

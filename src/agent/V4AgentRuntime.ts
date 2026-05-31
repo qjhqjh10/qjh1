@@ -5,6 +5,7 @@
 
 import { AgentEventEmitter } from './runtime/AgentEventEmitter'
 import { ContractExecutor } from './context/ContractExecutor'
+import { ContextCompressor } from './context/ContextCompressor'
 import { toolRegistry } from './tools/ToolRegistry'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
@@ -39,6 +40,8 @@ export interface V4AgentRunResult {
   text: string
   toolCalls: number
   totalTokens: number
+  promptTokens: number
+  completionTokens: number
   phase: AgentPhase
   toolsUsed: string[]
   contextBreakdown?: Array<{ domain: string; tokens: number }>
@@ -88,6 +91,8 @@ export class V4AgentRuntime {
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private toolsUsed: string[] = []
+  private compressor = new ContextCompressor(1_000_000)
+  private compressedAt = 0
 
   constructor(config: V4AgentConfig) {
     this.config = config
@@ -113,18 +118,20 @@ export class V4AgentRuntime {
 
   async run(input: V4AgentRunInput): Promise<V4AgentRunResult> {
     const store = useAgentStore.getState()
-    const runId = Date.now().toString(36)
+    const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const runStartTime = Date.now()
     const RUN_TIMEOUT = 300_000 // 5 minutes wall-clock
 
     if (!this.aiService || !this.toolExecutor) {
-      return { success: false, text: 'AI 服务未配置', toolCalls: 0, totalTokens: 0, phase: 'ERROR' as AgentPhase, toolsUsed: [], iterationCount: 0 }
+      return { success: false, text: 'AI 服务未配置', toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, phase: 'ERROR' as AgentPhase, toolsUsed: [], iterationCount: 0 }
     }
 
     store.startRun(runId)
 
     // ── ① Assemble initial messages ──
     let totalTokens = 0
+    let totalPromptTokens = 0
+    let totalCompletionTokens = 0
     let toolCallsCount = 0
     let collectedText = ''
     this.toolsUsed = []
@@ -141,8 +148,11 @@ export class V4AgentRuntime {
       contextResult = { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
     }
 
+    // v4: Agent 4 — full constitution on iteration 1, minimal on iterations 2+
+    const fullSystemMessages = contextResult.systemMessages
+
     this.messagesForApi = [
-      ...contextResult.systemMessages,
+      ...fullSystemMessages,
       ...this.historyMessages,
       { role: 'user', content: input.userMessage },
     ]
@@ -167,34 +177,81 @@ export class V4AgentRuntime {
 
       iteration++
       store.setIteration(iteration)
+
+      // v4 Agent 4: On iteration 2+, replace full constitution with minimal execute prompt
+      if (iteration >= 2 && fullSystemMessages.length > 0) {
+        this.messagesForApi[0] = {
+          role: 'system',
+          content: `执行任务: ${input.userMessage.slice(0, 100)}。根据工具返回结果继续，完成后直接回复用户。`,
+        }
+      }
       this.emitter.emit('thinking:start', { intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now() })
 
-      // ── API Call ──
-      const isLastIteration = iteration >= this.config.maxIterations
-      const toolsForThisRound = isLastIteration ? [] : this.tools
+      // ── Context Compression (Claude-style, transparent) ──
+      const estimatedTokens = this.compressor.estimateMessages(this.messagesForApi)
+      if (this.compressor.needsCompression(estimatedTokens)) {
+        const stage = this.compressor.getStage(estimatedTokens)
+        const before = this.messagesForApi.length
+        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens)
+        diagnosticLogger.recordInfo(`上下文压缩: ${stage} | ${before}→${this.messagesForApi.length}条 | ~${Math.round(estimatedTokens/1000)}K tokens`)
+        this.compressedAt = iteration
+      }
 
-      diagnosticLogger.recordApiCallStart()
+      // ── API Call (with single retry for transient failures) ──
+      const isLastIteration = iteration >= this.config.maxIterations
+      // v4: Scoped tools. Last iteration = no tools (force text).
+      // v4: Always send full tools — DeepSeek caches identical array → 10% after first call
+      const toolsForThisRound = isLastIteration ? [] : this.tools
       const API_TIMEOUT = 90_000
+      const MAX_RETRIES = 1
+
       let response
-      try {
-        const apiPromise = this.aiService.chatWithTools(
-          this.messagesForApi,
-          this.config.configId,
-          this.config.projectId || undefined,
-          toolsForThisRound,
-        )
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`API 超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT)
-        )
-        response = await Promise.race([apiPromise, timeoutPromise])
-      } catch (apiErr) {
-        const errMsg = apiErr instanceof Error ? apiErr.message : 'API 调用失败'
+      let lastApiErr: Error | null = null
+
+      for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+        if (this.config.abortSignal.aborted) { shouldContinue = false; break }
+        diagnosticLogger.recordApiCallStart()
+        try {
+          const apiPromise = this.aiService.chatWithTools(
+            this.messagesForApi,
+            this.config.configId,
+            this.config.projectId || undefined,
+            toolsForThisRound,
+          )
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`API 超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT)
+          )
+          response = await Promise.race([apiPromise, timeoutPromise])
+          break // Success — exit retry loop
+        } catch (apiErr) {
+          lastApiErr = apiErr instanceof Error ? apiErr : new Error('API 调用失败')
+          const isTransient = lastApiErr.message.includes('超时') ||
+                              lastApiErr.message.includes('timeout') ||
+                              lastApiErr.message.includes('network') ||
+                              lastApiErr.message.includes('ECONNREFUSED') ||
+                              lastApiErr.message.includes('ETIMEDOUT') ||
+                              lastApiErr.message.includes('429') ||
+                              lastApiErr.message.includes('503') ||
+                              lastApiErr.message.includes('502')
+          if (retry < MAX_RETRIES && isTransient) {
+            diagnosticLogger.recordInfo(`API 重试 ${retry + 1}/${MAX_RETRIES}: ${lastApiErr.message}`)
+            await new Promise(r => setTimeout(r, 2000 * (retry + 1))) // Exponential backoff
+            continue
+          }
+          break // Non-transient or retries exhausted
+        }
+      }
+
+      if (!response) {
+        const errMsg = lastApiErr?.message || 'API 调用失败'
         collectedText = `错误: ${errMsg}`
         shouldContinue = false
         break
       }
 
       totalTokens += response.usage?.total_tokens || 0
+      totalPromptTokens += response.usage?.prompt_tokens || 0
+      totalCompletionTokens += response.usage?.completion_tokens || 0
       store.addTokens(response.usage?.total_tokens || 0)
       diagnosticLogger.recordApiCallEnd(response.usage?.total_tokens || 0, (response.toolCalls?.length ?? 0) > 0)
 
@@ -209,7 +266,7 @@ export class V4AgentRuntime {
       // ── Has tool calls → execute ──
       toolCallsCount += response.toolCalls.length
 
-      // Add assistant message to context (preserve reasoning_content for DeepSeek)
+      // Add assistant message to context (I3: strip reasoning_content to avoid re-sending)
       const assistantMsg: Message = {
         role: 'assistant',
         content: response.text,
@@ -218,7 +275,11 @@ export class V4AgentRuntime {
           id: tc.id,
           function: { name: tc.name, arguments: tc.arguments },
         })),
-        reasoning_content: response.reasoning_content || undefined,
+        // reasoning_content NOT included in messagesForApi — stored via store/emitter for UI only
+      }
+      // Emit reasoning_content to store for UI display (not re-sent to API)
+      if (response.reasoning_content) {
+        store.setStreamingText(response.reasoning_content) // piggyback on streaming for UI
       }
       this.messagesForApi.push(assistantMsg)
 
@@ -239,21 +300,23 @@ export class V4AgentRuntime {
       // Execute read-only tools in parallel
       if (readOnlyCalls.length > 0 && !this.config.abortSignal.aborted) {
         await Promise.all(readOnlyCalls.map(tc =>
-          this.executeSingleTool(tc, runId, store)
+          this.executeSingleTool(tc, runId, store, iteration)
         ))
       }
 
       // Execute write tools sequentially
       for (const tc of writeCalls) {
         if (this.config.abortSignal.aborted) break
-        await this.executeSingleTool(tc, runId, store)
+        await this.executeSingleTool(tc, runId, store, iteration)
       }
 
-      // ── Last iteration with tools → inject final prompt ──
-      if (isLastIteration) {
+      // v3.1: Inject stop prompt on late iterations to prevent excessive internal thinking
+      if (iteration >= 5) {
         this.messagesForApi.push({
           role: 'system',
-          content: '[最后轮次] 已达到最大操作轮次。请基于已完成的工具结果生成最终文本回复。',
+          content: iteration >= this.config.maxIterations
+            ? '[最后轮次] 已达到最大操作轮次。请基于已完成的工具结果生成最终文本回复。'
+            : `[效率提示] 当前第${iteration}轮。如果已有足够信息回复用户，请直接输出文本回复，不要继续工具调用。`,
         })
       }
     }
@@ -291,6 +354,8 @@ export class V4AgentRuntime {
       text: collectedText,
       toolCalls: toolCallsCount,
       totalTokens,
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
       phase: this.config.abortSignal.aborted ? 'ABORTED' as AgentPhase : 'DONE' as AgentPhase,
       toolsUsed: this.toolsUsed,
       contextBreakdown: contextResult.breakdown,
@@ -304,6 +369,7 @@ export class V4AgentRuntime {
     tc: ToolCallRequest,
     runId: string,
     store: ReturnType<typeof useAgentStore.getState>,
+    iteration = 0,
   ): Promise<void> {
     if (!this.toolsUsed.includes(tc.name)) this.toolsUsed.push(tc.name)
 
@@ -365,6 +431,10 @@ export class V4AgentRuntime {
 
     // Filter result for API context (ContractExecutor: strip verbose detail)
     const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
+    // I5: Progressive trim — after iteration 1, truncate read tool detail to 500 chars
+    if (iteration > 1 && resultForApi.detail && resultForApi.detail.length > 500) {
+      resultForApi.detail = resultForApi.detail.slice(0, 500) + '…(已截断)'
+    }
     const finalResult = note ? { ...resultForApi, note } : resultForApi
     this.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
   }

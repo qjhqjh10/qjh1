@@ -67,10 +67,14 @@ export function injectChunks(
   const chars = block.length
 
   if (position === 'before') {
-    return { prompt: block + '\n\n' + prompt, chunksInjected: chunks.length, charsInjected: chars }
+    const combined = block + '\n\n' + prompt
+    if (combined.length > 100000) console.warn('[KnowledgePipeline] Combined prompt exceeds ~100K chars, may hit context limit')
+    return { prompt: combined, chunksInjected: chunks.length, charsInjected: chars }
   }
   if (position === 'after') {
-    return { prompt: prompt + '\n\n' + block, chunksInjected: chunks.length, charsInjected: chars }
+    const combined = prompt + '\n\n' + block
+    if (combined.length > 100000) console.warn('[KnowledgePipeline] Combined prompt exceeds ~100K chars, may hit context limit')
+    return { prompt: combined, chunksInjected: chunks.length, charsInjected: chars }
   }
   // 'before-writing': 在"创作要求"之前注入
   const reqIdx = prompt.lastIndexOf('【创作要求】')

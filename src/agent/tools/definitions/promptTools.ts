@@ -85,6 +85,7 @@ export const promptTools: ToolDefinition[] = [
         if (args.content) updates.content = String(args.content)
         if (args.type) updates.type = String(args.type)
         if (Object.keys(updates).length === 0) return { status: 'error', summary: '没有提供要修改的字段' }
+        if (!store.prompts.find(p => p.id === pid)) return { status: 'error', summary: `未找到提示词: ${pid}` }
         store.updatePrompt(pid, updates)
         const fields = Object.keys(updates).join('、')
         return { status: 'success', summary: `已更新提示词 ${fields}` }

@@ -1,6 +1,7 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { fileService } from '@/services/fileService'
 import { extractChapterTail, extractSummary } from '../contentExtractor'
+import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 
 const STATIC_DOC = [
   '## 章节写作',
@@ -67,7 +68,7 @@ export const chapterWritingProvider: ContextProvider = {
 
           try {
             const content = await fileService.read(`${projectId}/chapters/${prevFile}`)
-            const tail = extractChapterTail(content, 2500)
+            const tail = extractChapterTail(content, 50)  // C6: 50 trailing lines, not 2500 (was line count, not char count)
             parts.push('### 上一章末尾', tail, '')
           } catch { /* file read error */ }
 
@@ -78,7 +79,7 @@ export const chapterWritingProvider: ContextProvider = {
             }
           } catch { /* no summary */ }
 
-          return { domain: 'chapter-writing', priority: 70, estimatedTokens: Math.min(Math.ceil(parts.join('\n').length / 3), 3500), content: parts.join('\n') }
+          return { domain: 'chapter-writing', priority: 70, estimatedTokens: Math.min(estimateTokensFromLines(parts), 3500), content: parts.join('\n') }
         }
       } catch { /* directory error */ }
     }

@@ -1,6 +1,9 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { extractSummary } from '../contentExtractor'
 import { isTaskMessage } from '../../utils/taskDetection'
+import { estimateTokens } from '../../utils/tokenEstimation'
+import { buildMemoryIndex } from '../MemoryIndex'
+import { fileService } from '@/services/fileService'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
@@ -20,14 +23,12 @@ export const coreRulesProvider: ContextProvider = {
     let projectIndex = ''
     if (projectId && isTask) {
       try {
-        const { buildMemoryIndex } = await import('../MemoryIndex')
         projectIndex = await buildMemoryIndex(projectId)
       } catch { /* best effort */ }
     }
 
     let feedbackContent = ''
     try {
-      const { fileService } = await import('@/services/fileService')
       const raw = await fileService.read('.aiharness/feedback/auto-suggestions.md')
       if (raw && raw.trim()) {
         const sections = raw.split('## 自动反馈')
@@ -41,7 +42,7 @@ export const coreRulesProvider: ContextProvider = {
     return {
       domain: 'core-rules',
       priority: 100,
-      estimatedTokens: 250 + Math.ceil((projectIndex.length + feedbackContent.length) / 3),
+      estimatedTokens: 250 + estimateTokens(projectIndex) + estimateTokens(feedbackContent),
       content: [
         '你是一位专业的小说写作助手，通过工具直接操作项目文件。',
 

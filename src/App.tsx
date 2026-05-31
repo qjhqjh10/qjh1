@@ -1,4 +1,4 @@
-import { useEffect, useCallback, Component, Suspense } from 'react'
+import { useEffect, useCallback, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { appService, projectService, settingsService, aiService, continuationService } from '@/services/fileService'
@@ -9,21 +9,7 @@ import { DEFAULT_PROMPTS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { injectThemeVars } from '@/theme'
 import { getTheme } from '@/themes'
-
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
-  constructor(props: { children: React.ReactNode }) { super(props); this.state = { error: null } }
-  static getDerivedStateFromError(error: Error) { return { error } }
-  render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 20, color: '#dc2626', fontSize: 13, lineHeight: 1.8, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-          <strong>AI 助手加载失败:</strong>{"\n"}{this.state.error.message}{"\n\n"}{this.state.error.stack}
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
+import { AgentErrorBoundary as ErrorBoundary } from '@/components/ai/ErrorBoundary'
 import AppLayout from '@/components/layout/AppLayout'
 import HomePage from '@/components/pages/HomePage'
 import OutlinePage from '@/components/pages/OutlinePage'

@@ -2,6 +2,7 @@
 // Converts MCP tool schemas to ToolDefinition format for ToolRegistry.
 
 import type { ToolDefinition } from '../ToolRegistry'
+import { err } from '../resultHelpers'
 
 interface MCPToolSchema {
   name: string
@@ -39,9 +40,7 @@ export function mcpToolToDefinition(
         const { bridge } = await import('@/services/electronBridge')
         const result = await bridge.mcp.callTool(serverName, schema.name, args)
         return result || { status: 'error', summary: 'MCP 工具调用失败' }
-      } catch {
-        return { status: 'error', summary: 'MCP 工具不可用' }
-      }
+      } catch (e) { return err('mcp', e) }
     },
   }
 }

@@ -30,3 +30,8 @@ coverage/
 scripts/v4-test.mjs
 scripts/v4-full-test.mjs
 scripts/v4-smart-test.mjs
+scripts/v4-chat-test.mjs
+scripts/v4-mixed-test.mjs
+scripts/v4-compress-test.mjs
+scripts/v4-deep-test.mjs
+scripts/v4-real-test.mjs

@@ -81,41 +81,41 @@ export async function saveDetailedChapter(projectPath: string, chapter: Detailed
 export async function loadDetailedChapters(projectPath: string): Promise<DetailedChapter[]> {
   try {
     const files = await fileService.listDir(`${projectPath}/detailed_outline`)
-    const chapters: DetailedChapter[] = []
     const seenIds = new Set<string>()
 
-    // Prefer .json files
+    // Prefer .json files — load in parallel (M14)
     const jsonFiles = files.filter(f => f.endsWith('.json'))
-    for (const file of jsonFiles) {
-      try {
-        // Strip non-JSON wrapper text and attempt repair
-        let content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
-        // Handle AI wrapping JSON in markdown code fences
-        const fenceMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/)
-        if (fenceMatch) content = fenceMatch[1].trim()
-        // Strip any leading/trailing non-JSON text
-        const jsonStart = content.indexOf('{')
-        const jsonEnd = content.lastIndexOf('}')
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-          content = content.slice(jsonStart, jsonEnd + 1)
-        } else if (jsonStart >= 0) {
-          content = content.slice(jsonStart)
-        }
+    const jsonResults = await Promise.allSettled(jsonFiles.map(async (file) => {
+      // Strip non-JSON wrapper text and attempt repair
+      let content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
+      // Handle AI wrapping JSON in markdown code fences
+      const fenceMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/)
+      if (fenceMatch) content = fenceMatch[1].trim()
+      // Strip any leading/trailing non-JSON text
+      const jsonStart = content.indexOf('{')
+      const jsonEnd = content.lastIndexOf('}')
+      if (jsonStart >= 0 && jsonEnd > jsonStart) {
+        content = content.slice(jsonStart, jsonEnd + 1)
+      } else if (jsonStart >= 0) {
+        content = content.slice(jsonStart)
+      }
 
-        const repaired = repairJson(content)
-        if (!repaired) throw new Error('JSON 无法修复')
-        const ch = JSON.parse(repaired) as DetailedChapter
-        if (!ch.id) ch.id = file.replace('.json', '')
-        if (!ch.title) ch.title = file.replace('.json', '')
-        // Merge summary from standalone file (priority), fallback to JSON field
-        const fileSummary = await loadSummary(projectPath, ch.id).catch(() => '')
-        if (fileSummary) {
-          ch.summary = fileSummary
-        }
-        chapters.push(ch)
-        seenIds.add(ch.id || file.replace('.json', ''))
-      } catch (e) {
-        logError(`解析细纲JSON文件失败: ${file}`, e)
+      const repaired = repairJson(content)
+      if (!repaired) throw new Error('JSON 无法修复')
+      const ch = JSON.parse(repaired) as DetailedChapter
+      if (!ch.id) ch.id = file.replace('.json', '')
+      if (!ch.title) ch.title = file.replace('.json', '')
+      // Merge summary from standalone file (priority), fallback to JSON field
+      const fileSummary = await loadSummary(projectPath, ch.id).catch(() => '')
+      if (fileSummary) ch.summary = fileSummary
+      return ch
+    }))
+
+    const chapters: DetailedChapter[] = []
+    for (const r of jsonResults) {
+      if (r.status === 'fulfilled') {
+        chapters.push(r.value)
+        seenIds.add(r.value.id || '')
       }
     }
 

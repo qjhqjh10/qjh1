@@ -2,6 +2,7 @@
 // Agent tools for making HTTP requests.
 
 import type { ToolDefinition } from '../ToolRegistry'
+import { validateUrl } from '@/utils/security'
 
 export const httpTools: ToolDefinition[] = [
   {
@@ -21,8 +22,11 @@ export const httpTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args) => {
       try {
+        const check = validateUrl(args.url)
+        if (!check.valid) return { status: 'error', summary: check.error || 'URL 无效' }
+        const url = check.value
         const { bridge } = await import('@/services/electronBridge')
-        const result = await bridge.http.get(String(args.url))
+        const result = await bridge.http.get(url)
         return result || { status: 'error', summary: 'HTTP 工具不可用' }
       } catch {
         return { status: 'error', summary: 'HTTP 请求失败' }
@@ -49,13 +53,16 @@ export const httpTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
+        const check = validateUrl(args.url)
+        if (!check.valid) return { status: 'error', summary: check.error || 'URL 无效' }
+        const url = check.value
         let headers: Record<string, string> | undefined
         if (args.headers) {
           try { headers = JSON.parse(String(args.headers)) } catch { return { status: 'error', summary: '请求头 JSON 格式无效，请检查语法' } }
         }
         const { bridge } = await import('@/services/electronBridge')
         const result = await bridge.http.fetch(
-          String(args.url),
+          url,
           {
             method: String(args.method || 'GET'),
             headers,

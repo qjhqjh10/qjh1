@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
@@ -438,7 +437,7 @@ export default function ImitationPage() {
                 onSave={() => {
                   if (!chapterWriteView) return
                   const updated = { ...chapterContents, [chapterWriteView]: writeContent }
-                  setChapterContents(updated)
+                  setChapterContents(updated as any)
                   if (extraction) handlers.saveExtraction({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() })
                   setToast('已保存')
                   setTimeout(() => setToast(''), 3000)
@@ -447,7 +446,7 @@ export default function ImitationPage() {
                 onNavigateChapter={(dir) => {
                   const target = dir === 'prev' ? parseInt(chapterWriteView || '0') - 1 : parseInt(chapterWriteView || '0') + 1
                   const d = detailGenResults.length > 0 ? detailGenResults.find((d: any) => d.chapterNumber === target) : null
-                  if (d) { const updated = { ...chapterContents, [chapterWriteView || '']: writeContent }; setChapterContents(updated); if (extraction) handlers.saveExtraction({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() }); setChapterWriteView(String(target)); setWriteContent(chapterContents[String(target)] || '') }
+                  if (d) { const updated = { ...chapterContents, [chapterWriteView || '']: writeContent }; setChapterContents(updated as any); if (extraction) handlers.saveExtraction({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() }); setChapterWriteView(String(target)); setWriteContent(chapterContents[String(target)] || '') }
                 }}
               />
 
@@ -457,7 +456,7 @@ export default function ImitationPage() {
               onClose={() => setShowWriteAIGen(false)}
               chapterId={chapterWriteView || ''}
               currentContent={writeContent}
-              onApply={(newContent) => { setWriteContent(newContent); const updated = { ...chapterContents, [chapterWriteView || '']: newContent }; setChapterContents(updated); if (extraction) handlers.saveExtraction({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() }) }}
+              onApply={(newContent) => { setWriteContent(newContent); const updated = { ...chapterContents, [chapterWriteView || '']: newContent }; setChapterContents(updated as any); if (extraction) handlers.saveExtraction({ ...extraction, chapterContents: updated, updatedAt: new Date().toISOString() }) }}
               onVersionSaved={(v) => setWriteVersionHistory(prev => [v, ...prev])}
               onGenStart={() => { setWriteGenOverlay(true); setWriteGenWordCount(0) }}
               onGenChunk={(data: any) => { setWriteGenWordCount(data.charCount) }}

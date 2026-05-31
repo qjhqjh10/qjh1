@@ -68,6 +68,18 @@ export class ToolRegistry {
     }))
   }
 
+  /** v4: Return compact schemas — name + one-line description only, no full parameters */
+  getCompactSchemas(): Array<{ type: 'function'; function: { name: string; description: string; parameters: { type: 'object'; properties: {}; required: [] } } }> {
+    return this.getAllDefinitions().map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.schema.name,
+        description: t.schema.description.slice(0, 80),  // one-line summary
+        parameters: { type: 'object' as const, properties: {}, required: [] },
+      },
+    }))
+  }
+
   getFilteredSchemas(workMode: 'plan' | 'action', enabledToolNames?: Set<string>): Array<{ type: 'function'; function: ToolDefinition['schema'] }> {
     let defs = this.getAllDefinitions()
     if (workMode === 'plan') {

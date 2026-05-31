@@ -11,7 +11,7 @@ export const styleProvider: ContextProvider = {
   buildContext: async () => ({
     domain: 'style',
     priority: 75,
-    estimatedTokens: 550,
+    estimatedTokens: 280,
     content: [
       '## 风格分析 (26 维度)',
       '风格模板存储在 style_templates/ 目录，使用 create_style_template 工具创建。',

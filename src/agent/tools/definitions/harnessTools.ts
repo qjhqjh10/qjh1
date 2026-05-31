@@ -30,7 +30,7 @@ export const harnessTools: ToolDefinition[] = [
         const files = await fileService.listDir('.aiharness/rules')
         for (const f of files) {
           if (f.endsWith('.md')) {
-            try { rules.push(f) } catch { /* */ }
+            rules.push(`[规则] ${f}`)  // L2: consistent format with auto-learned rules
           }
         }
       } catch { /* no rules dir */ }

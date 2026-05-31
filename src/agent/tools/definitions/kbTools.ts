@@ -37,9 +37,12 @@ export const kbTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args, ctx) => {
       try {
+        const { sanitizeFileName } = await import('@/utils/security')
+        const nameCheck = sanitizeFileName(args.name)
+        if (!nameCheck.valid) return { status: 'error', summary: nameCheck.error! }
         const { kbService } = await import('@/services/fileService')
         const result = await kbService.create(
-          (args.name as string) || '未命名.md',
+          nameCheck.value || '未命名.md',
           (args.content as string) || '',
           ctx.projectId || undefined,
         )

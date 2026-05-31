@@ -30,13 +30,35 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / OpenAI
 ## 架构
 
 ```
-electron/ipc/     — IPC handler 层（文件/项目/AI/KB/Agent 等）
-src/agent/        — Agent 运行时（Runtime/FSM/Tools/Context 等 55 文件）
-src/services/     — 服务层（file/character/chapter/scene/extraction）
-src/components/   — UI 层（12 页面 + 20 共享组件）
-src/store/        — Zustand 状态
-src/types/        — 类型定义
+electron/ipc/      — IPC handler 层
+src/agent/         — V4 Agent 运行时（Runtime/Tools/Context/Learning/Diagnostics）
+  tools/           — 37 工具（file/kb/note/image/template/project/prompt/harness/http/browser/shell/lsp）
+  context/         — 10 上下文 Provider + Compressor + Assembler + MemoryIndex
+  utils/           — tokenEstimation, taskDetection
+src/services/      — 服务层（file/character/chapter/scene/extraction/chatStorage）
+src/utils/         — 共享工具（security, logger, textUtils）
+src/components/    — UI 层（12 页面 + AIChatWindow + ErrorBoundary + VirtualMessageList）
+src/store/         — Zustand 状态（useStore, useSettingsStore, useAgentStore）
+src/types/         — 类型定义
 ```
+
+## v2 新增/变更
+
+| 新增文件 | 用途 |
+|----------|------|
+| `src/utils/security.ts` | 统一路径消毒/URL验证/命令白名单 |
+| `src/agent/tools/resultHelpers.ts` | 工具结果统一格式化 ok()/err()/errMsg() |
+| `src/agent/utils/tokenEstimation.ts` | CJK 感知 token 估算 |
+| `src/services/chatStorageService.ts` | IndexedDB 对话持久化（替代 localStorage） |
+| `src/components/ai/ErrorBoundary.tsx` | React 错误边界（防止白屏） |
+| `src/components/ai/AIChatWindow/components/VirtualMessageList.tsx` | 虚拟滚动消息列表（>20条启用） |
+| `src/components/ai/AIChatWindow/hooks/useConversationState.ts` | 会话状态管理 hook |
+
+| 已删除 | 原因 |
+|--------|------|
+| `src/agent/config/AiHarnessConfig.ts` | 未使用 |
+| `src/agent/hooks/HookEngine.ts` + `types.ts` | 未集成到 V4 |
+| `src/agent/context/FileRouter.ts` | 未使用 |
 
 ## 操作原则
 
@@ -44,3 +66,6 @@ src/types/        — 类型定义
 - 编辑 Markdown/JSON 前 read_file 确认，用 edit_file 精确替换，失败用 `__FULL_REPLACE__`
 - 创建 JSON 时系统自动校验格式，失败根据错误提示修正
 - 工具按需选择：闲聊不用工具，任务才启用，优先读取直接路径而非遍历
+- 安全验证使用 `src/utils/security.ts` 共享模块，不要在各工具内联实现
+- Token 估算使用 `src/agent/utils/tokenEstimation.ts`，不要手写 `chars/3`
+- 对话持久化使用 `src/services/chatStorageService.ts`，不要直接操作 localStorage

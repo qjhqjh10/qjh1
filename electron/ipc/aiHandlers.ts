@@ -93,7 +93,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     })
 
     const apiMessages = [
-      ...messages.map(m => ({ role: validateRole(m.role) as 'user' | 'assistant', content: m.content })),
+      ...messages.map((m, i) => {
+        const msg: Record<string, unknown> = { role: validateRole(m.role) as 'user' | 'assistant', content: m.content }
+        if (i === 0 && m.role === 'system') msg.cache_control = { type: 'ephemeral' }
+        return msg
+      }),
     ]
 
     try {
@@ -156,7 +160,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
 
     const apiMessages = [
-      ...messages.map(m => ({ role: validateRole(m.role) as 'user' | 'assistant', content: m.content })),
+      ...messages.map((m, i) => {
+        const msg: Record<string, unknown> = { role: validateRole(m.role) as 'user' | 'assistant', content: m.content }
+        if (i === 0 && m.role === 'system') msg.cache_control = { type: 'ephemeral' }
+        return msg
+      }),
     ]
 
     const abortController = new AbortController()
@@ -174,9 +182,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     })
 
     try {
-      // @ts-ignore TS2769 — reasoning_effort not in OpenAI SDK types yet
+      // @ts-expect-error TS2769 — reasoning_effort not in OpenAI SDK types yet
       const stream = await client.chat.completions.create({
-        model: config.model, messages: apiMessages, temperature: config.temperature,
+        model: config.model, messages: apiMessages as any, temperature: config.temperature,
         max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined, stream: true,
         ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
       }, { signal: abortController.signal })
@@ -345,24 +353,36 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         toolChatAbortHandlers.delete(wcId)
       })
 
-      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string }> = [
-        ...messages.map(m => {
+      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: string } }> = messages.map((m, i) => {
           const msg: Record<string, unknown> = {
             role: validateRole(m.role),
             content: m.content,
           }
           if (m.tool_calls) {
-            // Normalize tool_calls: ensure each has type: "function" (required by many API providers)
             msg.tool_calls = (m.tool_calls as any[]).map(tc => ({
               ...tc,
               type: tc.type || 'function',
             }))
           }
           if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
-          if ((m as Record<string, unknown>).reasoning_content) msg.reasoning_content = (m as Record<string, unknown>).reasoning_content
-          return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }
-        }),
-      ]
+          // v3.1: Strip reasoning_content — never re-send to API (wastes 1K-5K tokens)
+          // if ((m as Record<string, unknown>).reasoning_content) msg.reasoning_content = ...
+          // v3.1: Mark first system message for prefix caching (DeepSeek supports cache_control)
+          if (i === 0 && m.role === 'system') {
+            msg.cache_control = { type: 'ephemeral' }
+          }
+          return msg as any
+        })
+
+      // 🔧 Dump API messages to file for debugging (rotate per call)
+      try {
+        const { writeFileSync, mkdirSync } = await import('fs')
+        const dump = apiMessages.map((m, i) =>
+          `[${i}] ${m.role}${m.cache_control ? ' [CACHED]' : ''}\n${(m.content || '').slice(0, 4000)}${(m.content || '').length > 4000 ? '...' : ''}`
+        ).join('\n\n---\n\n')
+        mkdirSync('.appdata', { recursive: true })
+        writeFileSync('.appdata/last-prompt.txt', `API call at ${new Date().toISOString()}\nMessages: ${apiMessages.length}\n\n${dump}`)
+      } catch {}
 
       // Hard timeout: abort API call after 90 seconds at the IPC level
       const IPC_API_TIMEOUT = 90000
@@ -378,7 +398,12 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         }
 
         if (tools && tools.length > 0) {
-          params.tools = tools
+          // v3.2: Cache tool definitions too — mark last tool for prefix caching
+          const cachedTools = tools.map((t: any, i: number) => {
+            if (i === tools.length - 1) return { ...t, cache_control: { type: 'ephemeral' } }
+            return t
+          })
+          params.tools = cachedTools
           params.tool_choice = 'auto'
         }
 
@@ -393,8 +418,14 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
         }
 
-        const usage = completion.usage
+        const usage = completion.usage as Record<string, number> | undefined
         if (usage) {
+          // v3.1: Log cache hit info (DeepSeek reports cached tokens in usage)
+          const cachedInput = usage.prompt_cache_hit_tokens || usage.cache_read_input_tokens || 0
+          const cacheMiss = usage.prompt_cache_miss_tokens || 0
+          if (cachedInput > 0) {
+            console.log(`[Cache] ✅ ${cachedInput.toLocaleString()} cached input tokens (90% discount)`)
+          }
           logTokenUsage({
             timestamp: localISOString(),
             projectId: projectId || '__global__',

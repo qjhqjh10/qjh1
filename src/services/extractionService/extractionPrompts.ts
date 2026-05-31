@@ -7,7 +7,6 @@ import type {
   EroticExtractionData, EventPattern, ProgressionRhythm,
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
-import { DIMENSION_META } from '@/types/story'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 
 
@@ -79,7 +78,7 @@ export function buildExtractionPrompt(chapterTitle: string, chapterContent: stri
 
 【章节标题】${chapterTitle}
 【章节内容】
-${chapterContent}
+${chapterContent.slice(0, 15000)}
 
 请严格输出以下 JSON（不要markdown，不要额外说明）。未选中的维度不要输出，选中的维度必须填写（无数据填[]或""）：
 {

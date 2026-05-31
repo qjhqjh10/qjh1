@@ -107,6 +107,9 @@ type EventHandler<T> = (data: T) => void
 export class AgentEventEmitter {
   private handlers = new Map<string, Set<EventHandler<unknown>>>()
   private aborted = false
+  private paused = false
+  private pendingEvents: Array<{ event: string; data: unknown }> = []
+  private maxPendingEvents = 50
 
   on<K extends keyof AgentEventMap>(event: K, handler: EventHandler<AgentEventMap[K]>): () => void {
     if (!this.handlers.has(event)) {
@@ -119,11 +122,27 @@ export class AgentEventEmitter {
   }
 
   emit<K extends keyof AgentEventMap>(event: K, data: AgentEventMap[K]): void {
-    if (this.aborted && event !== 'aborted' && event !== 'error') return
+    // During abort: queue events (don't drop) unless it's abort/error signal
+    if (this.aborted && event !== 'aborted' && event !== 'error') {
+      if (this.pendingEvents.length < this.maxPendingEvents) {
+        this.pendingEvents.push({ event, data })
+      }
+      return
+    }
+    // During pause: queue all events
+    if (this.paused) {
+      if (this.pendingEvents.length < this.maxPendingEvents) {
+        this.pendingEvents.push({ event, data })
+      }
+      return
+    }
+    this.dispatchHandlers(event, data)
+  }
+
+  private dispatchHandlers<K extends keyof AgentEventMap>(event: K, data: AgentEventMap[K]): void {
     this.handlers.get(event)?.forEach(h => {
       try { h(data) } catch (err) {
         console.error(`[AgentEventEmitter] Handler error for event "${event}":`, err)
-        // Emit handler errors so the UI can display diagnostics
         if (event !== 'error') {
           try {
             this.handlers.get('error')?.forEach(eh => {
@@ -135,6 +154,23 @@ export class AgentEventEmitter {
     })
   }
 
+  /** Pause event dispatch — events are queued, not dropped */
+  pause(): void {
+    this.paused = true
+  }
+
+  /** Resume from pause or abort — flushes queued events */
+  resume(): void {
+    this.aborted = false
+    this.paused = false
+    // Flush pending events
+    const events = [...this.pendingEvents]
+    this.pendingEvents = []
+    for (const { event, data } of events) {
+      try { this.dispatchHandlers(event as keyof AgentEventMap, data as AgentEventMap[keyof AgentEventMap]) } catch { /* defensive */ }
+    }
+  }
+
   abort(): void {
     this.aborted = true
     this.emit('aborted', { timestamp: Date.now() })
@@ -142,10 +178,12 @@ export class AgentEventEmitter {
 
   reset(): void {
     this.aborted = false
+    this.paused = false
+    this.pendingEvents = []
     this.handlers.clear()
   }
 
-  get isAborted(): boolean {
-    return this.aborted
-  }
+  get isAborted(): boolean { return this.aborted }
+  get isPaused(): boolean { return this.paused }
+  get pendingCount(): number { return this.pendingEvents.length }
 }

@@ -18,12 +18,16 @@ export const imageTools: ToolDefinition[] = [
     category: 'image',
     availableInPlanMode: true,
     executor: async (args, ctx) => {
-      const { aiService } = await import('@/services/fileService')
-      const results = await aiService.executeFileTools([{
-        callId: 'tool', toolName: 'search_images',
-        args: { query: args.query, count: args.count },
-      }])
-      return results[0] || { status: 'error', summary: '图片搜索失败' }
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([{
+          callId: 'tool', toolName: 'search_images',
+          args: { query: args.query, count: args.count, projectId: ctx.projectId || undefined },
+        }])
+        return results[0] || { status: 'error', summary: '图片搜索失败' }
+      } catch (e) {
+        return { status: 'error', summary: `图片搜索失败: ${e instanceof Error ? e.message : '未知错误'}` }
+      }
     },
   },
   {
@@ -44,12 +48,13 @@ export const imageTools: ToolDefinition[] = [
     category: 'image',
     availableInPlanMode: true,
     executor: async (args, ctx) => {
-      const { aiService } = await import('@/services/fileService')
-      // Use the active ModelConfig — image generation reads imageModel/imageApiUrl/imageApiKey
+      const prompt = String(args.prompt ?? '').trim().slice(0, 1000)
+      if (!prompt) return { status: 'error', summary: '图片描述不能为空' }
       try {
+        const { aiService } = await import('@/services/fileService')
         const result = await aiService.generateImage(
-          String(args.prompt || '').slice(0, 1000),
-          ctx.configId,  // IPC handler reads imageModel from this config
+          prompt,
+          ctx.configId,
           ctx.projectId || undefined,
           String(args.size || '1024x1024'),
           String(args.style || 'vivid'),

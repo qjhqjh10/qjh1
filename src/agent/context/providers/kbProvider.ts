@@ -3,7 +3,7 @@ import type { ContextProvider } from '../ContextAssembler'
 export const kbProvider: ContextProvider = {
   domain: 'knowledge-base',
   relevance: (userMessage) => {
-    if (/知识库|kb|素材|资料|参考|保存|索引|embedding/i.test(userMessage)) return 0.8
+    if (/知识库|素材|资料|参考|保存|索引|embedding/i.test(userMessage)) return 0.8
     if (/保存.*知识库|添加到.*知识库|索引.*文件/.test(userMessage)) return 1.0
     return 0.2
   },
@@ -11,7 +11,7 @@ export const kbProvider: ContextProvider = {
   buildContext: async () => ({
     domain: 'knowledge-base',
     priority: 70,
-    estimatedTokens: 350,
+    estimatedTokens: 200,
     content: [
       '## 知识库操作',
       '',

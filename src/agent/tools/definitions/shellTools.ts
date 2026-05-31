@@ -1,4 +1,8 @@
 import type { ToolDefinition } from '../ToolRegistry'
+import { err } from '../resultHelpers'
+import { checkCommand, sanitizeFileName } from '@/utils/security'
+
+const ALLOWED_COMMANDS = new Set(['node', 'python', 'python3', 'git', 'npm', 'npx'])
 
 export const shellTools: ToolDefinition[] = [
   {
@@ -18,14 +22,14 @@ export const shellTools: ToolDefinition[] = [
     category: 'shell',
     availableInPlanMode: false,
     executor: async (args) => {
+      const check = checkCommand(args.command, ALLOWED_COMMANDS)
+      if (!check.valid) return { status: 'error', summary: check.error! }
+      const cmd = check.value
       try {
         const { bridge } = await import('@/services/electronBridge')
-        const result = await bridge.shell.exec(
-          String(args.command),
-          args.cwd ? String(args.cwd) : undefined,
-        )
+        const result = await bridge.shell.exec(cmd, args.cwd ? String(args.cwd) : undefined)
         return result || { status: 'error', summary: 'Shell 工具不可用' }
-      } catch { return { status: 'error', summary: '命令执行失败' } }
+      } catch (e) { return err('shell_exec', e) }
     },
   },
   {
@@ -44,11 +48,14 @@ export const shellTools: ToolDefinition[] = [
     category: 'shell',
     availableInPlanMode: false,
     executor: async (args) => {
+      const check = sanitizeFileName(args.name)
+      if (!check.valid) return { status: 'error', summary: check.error! }
+      const name = check.value
       try {
         const { bridge } = await import('@/services/electronBridge')
-        const result = await bridge.shell.runScript(String(args.name))
+        const result = await bridge.shell.runScript(name)
         return result || { status: 'error', summary: '脚本工具不可用' }
-      } catch { return { status: 'error', summary: '脚本执行失败' } }
+      } catch (e) { return err('shell_run_script', e) }
     },
   },
 ]

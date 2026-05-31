@@ -1,4 +1,6 @@
 import type { ToolDefinition } from '../ToolRegistry'
+import { err } from '../resultHelpers'
+import { validateUrl } from '@/utils/security'
 
 export const browserTools: ToolDefinition[] = [
   {
@@ -18,10 +20,12 @@ export const browserTools: ToolDefinition[] = [
     availableInPlanMode: false,
     executor: async (args) => {
       try {
+        const check = validateUrl(args.url)
+        if (!check.valid) return { status: 'error', summary: check.error || 'URL 无效' }
         const { bridge } = await import('@/services/electronBridge')
-        const result = await bridge.browser.open(String(args.url))
+        const result = await bridge.browser.open(check.value)
         return result || { status: 'error', summary: '浏览器工具不可用' }
-      } catch { return { status: 'error', summary: '打开页面失败' } }
+      } catch (e) { return err('browser_open', e) }
     },
   },
   {

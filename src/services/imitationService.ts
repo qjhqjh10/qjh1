@@ -3,6 +3,18 @@ import { logError } from '@/utils/logger'
 import { repairJson } from '@/services/chapterService'
 import type { NovelExtraction, DetailGenResult } from '@/types/story'
 
+// C3: Per-file mutex to prevent read-modify-write races on extraction.json.
+// Multiple concurrent saveDimResult / saveDetailResults calls queue up
+// for the same file, ensuring each one completes before the next begins.
+const _writeLocks = new Map<string, Promise<void>>()
+
+function withLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const prev = _writeLocks.get(filePath) || Promise.resolve()
+  const next = prev.then(fn, fn)  // run fn even if previous lock rejected
+  _writeLocks.set(filePath, next.then(() => {}, () => {}))  // clear after completion
+  return next
+}
+
 export async function loadExtraction(projectPath: string): Promise<NovelExtraction | null> {
   try {
     const raw = await fileService.read(`${projectPath}/extraction.json`)
@@ -26,11 +38,14 @@ export async function loadOutlineResults(projectPath: string): Promise<Record<st
 }
 
 export async function saveDimResult(projectPath: string, dimKey: string, result: string): Promise<void> {
-  const ext = await loadExtraction(projectPath)
-  if (!ext) return
-  ext.outlineResults = { ...(ext.outlineResults || {}), [dimKey]: result }
-  ext.updatedAt = new Date().toISOString()
-  await saveExtraction(projectPath, ext)
+  const filePath = `${projectPath}/extraction.json`
+  return withLock(filePath, async () => {
+    const ext = await loadExtraction(projectPath)
+    if (!ext) return
+    ext.outlineResults = { ...(ext.outlineResults || {}), [dimKey]: result }
+    ext.updatedAt = new Date().toISOString()
+    await saveExtraction(projectPath, ext)
+  })
 }
 
 export async function loadDetailResults(projectPath: string): Promise<DetailGenResult[]> {
@@ -39,10 +54,13 @@ export async function loadDetailResults(projectPath: string): Promise<DetailGenR
 }
 
 export async function saveDetailResults(projectPath: string, results: DetailGenResult[]): Promise<void> {
-  const ext = await loadExtraction(projectPath)
-  if (!ext) return
-  ext.detailGenResults = results
-  ext.detailsResults = JSON.stringify(results)
-  ext.updatedAt = new Date().toISOString()
-  await saveExtraction(projectPath, ext)
+  const filePath = `${projectPath}/extraction.json`
+  return withLock(filePath, async () => {
+    const ext = await loadExtraction(projectPath)
+    if (!ext) return
+    ext.detailGenResults = results
+    ext.detailsResults = JSON.stringify(results)
+    ext.updatedAt = new Date().toISOString()
+    await saveExtraction(projectPath, ext)
+  })
 }

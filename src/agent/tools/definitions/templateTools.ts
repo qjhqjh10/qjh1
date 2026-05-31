@@ -30,10 +30,13 @@ export const templateTools: ToolDefinition[] = [
       try {
         const { styleTemplateService } = await import('@/services/fileService')
         let dims = args.dimensions || {}
-        if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { /* keep */ } }
+        if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { return { status: 'error', summary: 'dimensions JSON 格式错误' } } }
+        if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
+          return { status: 'error', summary: 'dimensions 必须是一个对象' }
+        }
         let tone = args.tone || {}
-        if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { /* keep */ } }
-        const rules = ((args.writingRules as unknown[]) || []).map((r: unknown) => Array.isArray(r) ? (r as string[])[0] || '' : String(r))
+        if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { return { status: 'error', summary: 'tone JSON 格式错误' } } }
+        const rules = (Array.isArray(args.writingRules) ? args.writingRules : []).flat().map((r: unknown) => String(r))
 
         const tmpl: StyleTemplate = {
           name: String(args.name || '未命名模板'),
@@ -42,7 +45,7 @@ export const templateTools: ToolDefinition[] = [
           description: String(args.description || ''),
           fullDescription: String(args.fullDescription || args.description || ''),
           dimensions: dims as Record<string, DimAnalysis>,
-          vocabularyList: (Array.isArray(args.vocabularyList) ? args.vocabularyList : []) as string[],
+          vocabularyList: (Array.isArray(args.vocabularyList) ? args.vocabularyList.map((v: unknown) => String(v)) : []) as string[],
           writingRules: rules,
           tone: tone as { word: string; description: string; attitude: string },
           source: 'ai-generated',

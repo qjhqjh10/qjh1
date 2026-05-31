@@ -3,12 +3,14 @@
 
 /** Extract last N lines from text (for chapter tail) */
 export function extractChapterTail(content: string, lines = 10): string {
+  if (!content || typeof content !== 'string') return ''
   const allLines = content.split('\n')
   return allLines.slice(-lines).join('\n')
 }
 
 /** Extract the first heading-level summary from markdown */
 export function extractSummary(content: string, maxLen = 500): string {
+  if (!content || typeof content !== 'string') return ''
   const lines = content.split('\n')
   const result: string[] = []
   for (const line of lines) {
@@ -21,6 +23,7 @@ export function extractSummary(content: string, maxLen = 500): string {
 
 /** Extract markdown structure: headings and first line after each */
 export function extractMarkdownStructure(content: string, _maxLen?: number): string {
+  if (!content || typeof content !== 'string') return ''
   const lines = content.split('\n')
   const result: string[] = []
   for (let i = 0; i < lines.length; i++) {

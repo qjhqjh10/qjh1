@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService, styleTemplateService, templateService, settingsService } from '@/services/fileService'
@@ -26,7 +26,43 @@ import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStatusBar } from './components/AgentStatusBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
 import { StreamingMessage } from './components/StreamingMessage'
+import { VirtualMessageList } from './components/VirtualMessageList'
 
+// ── Module-level utilities (M12: moved out of render to avoid re-creation) ──
+
+function fmtTime(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const timeStr = d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })
+  if (d.toDateString() === now.toDateString()) return timeStr
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${timeStr}`
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${timeStr}`
+}
+
+function actionBtnStyle(color: string): React.CSSProperties {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px',
+    borderRadius: 8, border: `1px solid ${color}20`, background: `${color}08`,
+    color, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.1s ease',
+  }
+}
+
+const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8,
+      border: active ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)',
+      background: active ? 'rgba(124,58,237,0.06)' : 'transparent',
+      color: active ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: active ? 600 : 400,
+      cursor: 'pointer', transition: 'all 0.1s ease',
+    }}>
+      {icon} {label}
+    </button>
+  )
+})
+
+// ── Component ──
 
 export default function AIChatWindow() {
   const isOpen = useStore(s => s.isAIChatOpen)
@@ -95,14 +131,18 @@ export default function AIChatWindow() {
   // KB file selector
   const [showKBFileList, setShowKBFileList] = useState(false)
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
+  const [kbLoadError, setKbLoadError] = useState(false)  // M3: distinguish error from empty
   const currentSelections = aiSettings.kbFileSelections || {}
   const selectedFileIds: string[] = currentSelections[activePage] || []
 
   const loadKBFileList = async () => {
     try {
+      setKbLoadError(false)
       const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
-      setKbFiles(meta.files.filter(f => f.projects.includes(activeProjectId || '')))
-    } catch (e) { logError('加载知识库文件列表失败', e); setKbFiles([]) }
+      if (Array.isArray(meta?.files)) {
+        setKbFiles(meta.files.filter(f => f.projects?.includes(activeProjectId || '')))
+      } else { setKbFiles([]) }
+    } catch (e) { logError('加载知识库文件列表失败', e); setKbLoadError(true); setKbFiles([]) }
   }
 
   // Action mode now works without a project (global notes, templates, KB)
@@ -129,21 +169,48 @@ export default function AIChatWindow() {
   const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) return p } } catch (e) { logError('加载对话历史失败', e) }
+    // Synchronous init: try localStorage as bootstrap fallback while IndexedDB loads async
+    try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) return p } } catch { /* */ }
     return [makeConversation('default', '新对话')]
   })
-  const [activeConversationId, setActiveConversationId] = useState(() => {
-    try { const s = localStorage.getItem(STORAGE_KEY); if (s) { const p = JSON.parse(s) as Conversation[]; if (Array.isArray(p) && p.length > 0) {
-      const newest = p[p.length - 1]
-      if (newest && newest.id !== 'default') return newest.id
-    } } } catch {}
-    try { const la = localStorage.getItem(LAST_ACTIVE_KEY); if (la && la !== 'default') return la } catch {}
-    return 'default'
-  })
-  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)) } catch (e) { logError('保存对话历史失败', e) } }, [conversations])
-  useEffect(() => { try { localStorage.setItem(LAST_ACTIVE_KEY, activeConversationId) } catch (e) { logError('保存活动对话ID失败', e) } }, [activeConversationId])
-  // Reset token counter on conversation switch
-  useEffect(() => { setCumulativeTokens(0) }, [activeConversationId])
+  const [convsLoaded, setConvsLoaded] = useState(false)
+  const [activeConversationId, setActiveConversationId] = useState('default')
+
+  // Init 3: Load conversations from IndexedDB on mount and migrate localStorage
+  useEffect(() => {
+    let cancelled = false
+    import('@/services/chatStorageService').then(async ({ loadConversations, loadLastActiveId, finalizeMigration }) => {
+      try {
+        const stored = await loadConversations()
+        if (cancelled) return
+        if (stored.length > 0) {
+          setConversations(stored)
+          const lastId = await loadLastActiveId()
+          if (lastId && stored.some(c => c.id === lastId)) setActiveConversationId(lastId)
+          else if (stored.length > 0) setActiveConversationId(stored[stored.length - 1].id)
+        }
+        finalizeMigration()
+      } catch (e) { logError('IndexedDB 加载对话失败', e) }
+      setConvsLoaded(true)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // M1→I3: Persist conversations via IndexedDB (auto-debounced by chatStorageService)
+  const persistConversations = useCallback(async (convs: Conversation[]) => {
+    try {
+      const { saveConversations, saveLastActiveId } = await import('@/services/chatStorageService')
+      await saveConversations(convs)
+      await saveLastActiveId(activeConversationId)
+    } catch (e) { logError('保存对话历史失败', e) }
+  }, [activeConversationId])
+
+  useEffect(() => {
+    persistConversations(conversations)
+  }, [conversations, persistConversations])
+  useEffect(() => {
+    import('@/services/chatStorageService').then(m => m.saveLastActiveId(activeConversationId)).catch(() => {})
+  }, [activeConversationId])
   // Token reset handled directly in switchConversation/handleNewConversation/handleClearConversation
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -164,12 +231,14 @@ export default function AIChatWindow() {
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
   const [compressing, setCompressing] = useState(false)
-  const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleThinking = (id: string) => setExpandedThinking(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const togglePlan = (id: string) => setExpandedPlans(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  // H3: Stable callback references for React.memo optimization
+  const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
+  const toggleThinking = useCallback((id: string) => setExpandedThinking(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
+  const togglePlan = useCallback((id: string) => setExpandedPlans(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
+  const handleContextMenu = useCallback((msgId: string, x: number, y: number) => setContextMenu({ msgId, x, y }), [])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const toggleSelectMsg = (id: string) => setSelectedMsgIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleSelectMsg = useCallback((id: string) => setSelectedMsgIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
 
   const deleteSelectedMsgs = () => {
     setMessages(prev => prev.filter(m => !selectedMsgIds.has(m.id)))
@@ -201,9 +270,9 @@ export default function AIChatWindow() {
         })
         .join('\n')
 
-      // Estimate tokens saved (rough: 3 chars ≈ 1 token for Chinese)
+      // Use CJK-aware divisor (Chinese ~1.8-2.2 chars/token vs ~4 for Latin)
       const compressedChars = toCompress.reduce((s, m) => s + (m.content || '').length, 0)
-      const estimatedTokens = Math.round(compressedChars / 3)
+      const estimatedTokens = Math.round(compressedChars / 2.2)
 
       const result = await aiService.chatWithUsage([
         { role: 'user', content: `请将以下对话历史压缩为一段简洁的上下文摘要（200-400字），保留关键信息：用户的核心需求和目标、已做出的重要决策、创建/修改了哪些文件及原因、当前任务的进展和下一步、用户的偏好和习惯。\n\n对话历史：\n${conversationText}\n\n只输出摘要文本，不要加前缀或解释。` }
@@ -245,11 +314,17 @@ export default function AIChatWindow() {
   // Build history messages for the bridge: include user/assistant, and strip tool_calls without matching tool results
   function buildHistoryMessages(msgs: Message[]) {
     // Exclude welcome message and compression summaries — they're for the user, not the AI
-    const filtered = msgs.filter(m =>
+    let filtered = msgs.filter(m =>
       (m.role === 'user' || m.role === 'assistant')
       && m.id !== 'welcome'
       && !(m as any).compressedSummary
     )
+    // I6: Keep only last 20 user messages to prevent history bloat
+    if (filtered.length > 40) {
+      const userIndices: number[] = []
+      filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
+      if (userIndices.length > 20) filtered = filtered.slice(userIndices[userIndices.length - 20])
+    }
     // If an assistant message has tool_calls, strip them (tool results are not in history)
     return filtered.map(m => {
       if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
@@ -261,7 +336,7 @@ export default function AIChatWindow() {
 
   const abortToolLoop = () => { abortRef.current = true; bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
   const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
-  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
+  const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
   const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
@@ -346,13 +421,18 @@ export default function AIChatWindow() {
     return () => { bridgeRef.current?.destroy(); bridgeRef.current = null }
   }, [])
 
+  // Double-send guard — prevents race between async checkApiConnection and setLoading
+  const sendLockRef = useRef(false)
+
   const handleSend = async () => {
     const isRetry = !!pendingCorrection.current
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
+    if (sendLockRef.current) return  // H8: prevent double-send during async gap
+    sendLockRef.current = true
 
     // Pre-flight: verify API connectivity
     const connected = await checkApiConnection()
-    if (!connected) return  // don't send if connection is known bad
+    if (!connected) { sendLockRef.current = false; return }
 
     setFileEditNotify(null)
     let attachText = ''
@@ -363,52 +443,67 @@ export default function AIChatWindow() {
     }
     const capturedInputLength = input.trim().length
     const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: fullContent, timestamp: Date.now() }
+    const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+    const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setAttachment(null)
     setLoading(true)
 
-    // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
-    if (!bridgeRef.current) {
-      bridgeRef.current = new V4AgentChatBridge(activeProjectId)
-      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages) })
-    } else {
-      // V4: always sync project — user may have switched projects between messages
-      bridgeRef.current.updateProject(activeProjectId)
-      bridgeRef.current.updateHistory(buildHistoryMessages(messages))
-    }
-    let collectedText = ''
     try {
+      // H2: Read latest state from stores, not render closure
+      const latestConfigId = useSettingsStore.getState().activeConfigId || activeConfigId
+      const latestProjectId = useStore.getState().activeProjectId
+      const latestKbEnabled = kbEnabled
+      const latestWebSearch = webSearchEnabled
+      const latestFileIds = latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []) : []
+
+      // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
+      if (!bridgeRef.current) {
+        bridgeRef.current = new V4AgentChatBridge(latestProjectId)
+        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages) })
+      } else {
+        bridgeRef.current.updateProject(latestProjectId)
+        bridgeRef.current.updateHistory(buildHistoryMessages(messages))
+      }
+      let collectedText = ''
       const result = await bridgeRef.current.sendMessage(fullContent, {
-        kbEnabled, webSearchEnabled, selectedKbFileIds: kbEnabled ? selectedFileIds : [],
+        kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           const fallbackText = runResult.toolsUsed.length > 0
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
             : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
-          // ── Input breakdown — what THIS API call contributed (not full history) ──
-          const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: '系统上下文: ' + b.domain, chars: b.tokens * 2 })) || []
+          // Token breakdown — initial context only (first API call).
+          // Cumulative total = promptTokens across all iterations (includes tool results + assistant msgs)
+          if (runResult.contextBreakdown && runResult.contextBreakdown.length > 0) {
+            setTokenBreakdown([
+              ...runResult.contextBreakdown.map(b => ({ label: b.domain, chars: b.tokens })),
+              { label: `API输入 (${runResult.iterationCount || 1}轮)`, chars: runResult.promptTokens || 0 },
+            ])
+          }
+
+          const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: b.domain, chars: b.tokens * 2 })) || []
+          // Show context composition + API-reported actuals (not double-counted)
           const inputBreakdown = [
             ...ctxBreakdown,
-            { label: '当前消息', chars: capturedInputLength },
+            { label: `API输入 (${runResult.iterationCount}轮)`, chars: (runResult.promptTokens || 0) * 2 },
+            { label: 'API输出', chars: (runResult.completionTokens || 0) * 2 },
           ].filter(b => b.chars > 0)
 
-          // ── Output breakdown ──
           const outputBreakdown: { label: string; tokens: number }[] = []
-          outputBreakdown.push({ label: 'AI 文本回复', tokens: (collectedText || runResult.text || '').length ? Math.ceil((collectedText || runResult.text || '').length / 2.5) : 0 })
+          outputBreakdown.push({ label: 'AI 输出', tokens: runResult.completionTokens || 0 })
           setMessages(prev => [...prev, {
-            id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
+            id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
             breakdown: inputBreakdown,
             outputBreakdown,
             iterationCount: runResult.iterationCount || 1,
-            usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
+            usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
             totalIterations: runResult.iterationCount || 1,
           }])
         },
         onApprovalRequired: async (tools) => {
-          // V4: Simple dangerous-tool confirmation — only triggered for delete/shell
           return new Promise<boolean>((resolve) => {
             const toolList = tools.map(t => `• ${t.name}: ${JSON.stringify(t.args).slice(0, 80)}`).join('\n')
             const confirmed = window.confirm(`AI 需要执行危险操作:\n\n${toolList}\n\n是否允许?`)
@@ -416,15 +511,19 @@ export default function AIChatWindow() {
           })
         },
       })
-      // Track tokens locally (bypasses Zustand)
-      setCumulativeTokens(prev => prev + (result.totalTokens || 0))
+      // C1: Use functional updater to avoid stale closure on cumulativeTokens
+      setCumulativeTokens(prev => {
+        const newTotal = prev + (result.totalTokens || 0)
+        setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
+        return newTotal
+      })
       useAgentStore.getState().addTokens(result.totalTokens)
-      const newTotal = cumulativeTokens + (result.totalTokens || 0)
-      setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
     } catch (err) {
-      setMessages(prev => [...prev, { id: Date.now().toString() + '_e', role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}` }])
+      setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
+    } finally {
+      setLoading(false)
+      sendLockRef.current = false
     }
-    setLoading(false)
   }
 
   // @ reference handling
@@ -695,43 +794,15 @@ export default function AIChatWindow() {
           )}
 
           {/* Messages */}
-          <div ref={scrollRef} className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
-
-            {/* V4: No PlanCard — model self-orchestrates. Only dangerous tools trigger confirmation dialogs. */}
-
-            {/* Hook feedback indicator */}
-            {agentHookFeedback && (
-              <div style={{
-                padding: '4px 12px', borderRadius: 6, marginBottom: 8, fontSize: 11,
-                background: agentHookFeedback.passed ? 'rgba(22,163,74,0.06)' : 'rgba(220,38,38,0.06)',
-                border: `1px solid ${agentHookFeedback.passed ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)'}`,
-                color: agentHookFeedback.passed ? '#16a34a' : '#dc2626',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <span style={{ fontSize: 12 }}>{agentHookFeedback.passed ? '✓' : '✗'}</span>
-                <span style={{ fontWeight: 600 }}>{agentHookFeedback.hookName}</span>
-                <span style={{ color: '#6b5e54' }}>{agentHookFeedback.feedback}</span>
-              </div>
-            )}
-
-            {/* V2-7: Isolated streaming component — updates at display refresh rate via rAF */}
-            {agentIsStreaming && <StreamingMessage content={agentStreamingText} />}
-
-            {messages.map((msg, i) => {
-              // WeChat-style time separator
-              const prevMsg = i > 0 ? messages[i - 1] : null
+          <VirtualMessageList
+            messages={messages}
+            renderMessage={(msg, i, prevMsg) => {
+              // prevMsg is passed by VirtualMessageList when virtualized, or null otherwise
+              const prev = prevMsg ?? (i > 0 ? messages[i - 1] : null)
               const isFirst = i === 0
-              const hasGap = msg.timestamp && prevMsg?.timestamp && (msg.timestamp - prevMsg.timestamp > 3 * 60 * 1000)
+              const hasGap = msg.timestamp && prev?.timestamp && (msg.timestamp - prev.timestamp > 3 * 60 * 1000)
               const showTime = msg.timestamp && (isFirst || hasGap)
-              const fmtTime = (ts: number) => {
-                const d = new Date(ts)
-                const now = new Date()
-                const timeStr = d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })
-                if (d.toDateString() === now.toDateString()) return timeStr
-                const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
-                if (d.toDateString() === yesterday.toDateString()) return `昨天 ${timeStr}`
-                return `${d.getMonth() + 1}月${d.getDate()}日 ${timeStr}`
-              }
+              const timeStr = fmtTime(msg.timestamp!)
               const timeSep = showTime ? (
                 <div key={`t_${msg.id}`} style={{ textAlign: 'center', padding: '14px 0 10px', fontSize: 12, color: '#b0a89e', letterSpacing: 0.5 }}>
                   {fmtTime(msg.timestamp!)}
@@ -764,7 +835,7 @@ export default function AIChatWindow() {
                 return (
                   <div key={`w_${msg.id}`}>
                     {timeSep}
-                    <div onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY }) }}
+                    <div onContextMenu={e => { e.preventDefault(); handleContextMenu(msg.id, e.clientX, e.clientY) }}
                       style={{ background: selectedMsgIds.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8 }}>
                       <div style={{
                         margin: '0 18px 10px', padding: '12px 16px', borderRadius: 12,
@@ -784,8 +855,8 @@ export default function AIChatWindow() {
               return (
               <div key={`w_${msg.id}`}>
                 {timeSep}
-                {/* Compressed summary card */}
-              <div onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY }) }}
+                {/* Compressed summary card — msg.compressedSummary already handled above, this is for context menu on body */}
+              <div onContextMenu={e => { e.preventDefault(); handleContextMenu(msg.id, e.clientX, e.clientY) }}
                 style={{ background: (selectedMsgIds.has(msg.id) || contextMenu?.msgId === msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8, transition: 'background 0.15s' }}>
                 {/* Tool call indicator for assistant messages with tool_calls but no text */}
                 {isToolCallOnly && (
@@ -1045,22 +1116,27 @@ export default function AIChatWindow() {
                 )}
               </div>
               </div>
-            )})}
+            )
+          }}
+        />
 
-            {loading && (
-              <div style={{ textAlign: 'center', padding: 6 }}>
-                <button onClick={abortToolLoop} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px',
-                  borderRadius: 20, border: '1px solid rgba(220,38,38,0.25)', background: '#fff',
-                  color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: 'inherit', transition: 'all 0.15s',
-                }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#dc2626' }} />
-                  停止生成
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Hook feedback + streaming + loading — rendered outside virtualizer (always visible) */}
+          {agentHookFeedback && (
+            <div style={{ padding: '4px 12px', borderRadius: 6, margin: '8px 18px', fontSize: 11, background: agentHookFeedback.passed ? 'rgba(22,163,74,0.06)' : 'rgba(220,38,38,0.06)', border: `1px solid ${agentHookFeedback.passed ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)'}`, color: agentHookFeedback.passed ? '#16a34a' : '#dc2626', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12 }}>{agentHookFeedback.passed ? '✓' : '✗'}</span>
+              <span style={{ fontWeight: 600 }}>{agentHookFeedback.hookName}</span>
+              <span style={{ color: '#6b5e54' }}>{agentHookFeedback.feedback}</span>
+            </div>
+          )}
+          {agentIsStreaming && <StreamingMessage content={agentStreamingText} />}
+          {loading && (
+            <div style={{ textAlign: 'center', padding: 6 }}>
+              <button onClick={abortToolLoop} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, border: '1px solid rgba(220,38,38,0.25)', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#dc2626' }} />
+                停止生成
+              </button>
+            </div>
+          )}
 
           <AgentStatusBar />
           <DiagnosticPanel />
@@ -1340,28 +1416,6 @@ const ctxMenuBtn: React.CSSProperties = {
   background: 'transparent', cursor: 'pointer',
   fontSize: 12, color: '#2d2520', fontFamily: 'inherit',
   textAlign: 'left' as const, transition: 'background 0.1s',
-}
-
-function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8,
-      border: active ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)',
-      background: active ? 'rgba(124,58,237,0.06)' : 'transparent',
-      color: active ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: active ? 600 : 400,
-      cursor: 'pointer', transition: 'all 0.1s ease',
-    }}>
-      {icon} {label}
-    </button>
-  )
-}
-
-function actionBtnStyle(color: string): React.CSSProperties {
-  return {
-    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px',
-    borderRadius: 8, border: `1px solid ${color}20`, background: `${color}08`,
-    color, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.1s ease',
-  }
 }
 
 const convBtn: React.CSSProperties = {

@@ -4,22 +4,16 @@
 //
 // Layer 1: Path Isolation — prevent access outside project directory
 // Layer 2: JSON Validation — catch malformed JSON before file write
-// Layer 3: Dangerous Tool Gate — user confirmation for delete/shell
+// Layer 3: Dangerous Tool Gate — user confirmation for dangerous/project-scoped tools
+//         Uses toolRegistry as the single source of truth for permission levels.
+
+import { toolRegistry } from './tools/ToolRegistry'
 
 export interface SecurityCheckResult {
   allowed: boolean
   needsApproval: boolean
   reason?: string
 }
-
-/** Tools that always require user confirmation */
-const DANGEROUS_TOOLS = new Set([
-  'delete_file',
-  'delete_project',
-  'delete_note',
-  'shell_exec',
-  'shell_run_script',
-])
 
 export class V4SecurityFence {
   private projectId: string | null
@@ -38,11 +32,15 @@ export class V4SecurityFence {
     if (!jsonResult.allowed) return jsonResult
 
     // ── Layer 3: Dangerous Tool Gate ──
-    if (DANGEROUS_TOOLS.has(toolName)) {
+    // Uses toolRegistry.getPermissionLevel() as the single source of truth.
+    // Triggers approval for DANGEROUS_ASK and PROJECT_ASK permissions.
+    if (toolRegistry.needsApproval(toolName)) {
+      const perm = toolRegistry.getPermissionLevel(toolName)
+      const label = perm === 'PROJECT_ASK' ? '项目操作' : '危险操作'
       return {
         allowed: true,
         needsApproval: true,
-        reason: `危险操作 "${toolName}" 需要用户确认`,
+        reason: `${label} "${toolName}" 需要用户确认`,
       }
     }
 

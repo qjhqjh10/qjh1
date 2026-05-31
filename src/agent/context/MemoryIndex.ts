@@ -1,12 +1,11 @@
 /**
- * Memory Index (V2-2, hotfix: cached + parallel I/O)
+ * Memory Index (V3.1)
  *
- * Inspired by Claude Code's MEMORY.md pattern: instead of injecting full
- * file contents into the context, inject one-line summaries as pointers.
- * The AI reads files on-demand via tools.
+ * Outputs direct read_file instructions instead of passive file listings.
+ * This eliminates list_directory/search_files exploration — the model
+ * knows exact paths and can read files directly in one iteration.
  *
- * Cached with 120s TTL to avoid repeated IPC calls on every message.
- * All file scans run in parallel (Promise.all) — 6 IPC calls → 1 round trip.
+ * Cached with 120s TTL. All file scans run in parallel.
  */
 
 // Module-level cache to survive across messages in the same session
@@ -40,39 +39,61 @@ export async function buildMemoryIndex(projectId: string): Promise<string> {
         styleTemplateService.list().catch(() => []),
       ])
 
-    const lines: string[] = ['## 项目文件索引\n']
+    const lines: string[] = ['## 项目文件索引 — 直接 read_file 即可，无需探索\n']
+    const prefix = projectId
 
     // Chapters
     const chFiles = chapterFiles.status === 'fulfilled' ? (chapterFiles.value || []) : []
-    const txtFiles = chFiles.filter((f: string) => f.endsWith('.txt')).sort()
+    const txtFiles = chFiles.filter((f: string) => f.endsWith('.txt')).sort((a: string, b: string) => {
+      const numA = parseInt(a.replace(/\D/g, '')) || 0
+      const numB = parseInt(b.replace(/\D/g, '')) || 0
+      return numA - numB || a.localeCompare(b)
+    })
     if (txtFiles.length > 0) {
-      lines.push('### 章节')
-      for (const f of txtFiles.slice(0, 10)) { lines.push(`- chapters/${f} — 章节 ${f.replace('.txt', '')}`) }
+      const newest = txtFiles.slice(-3)
+      lines.push(`已有 ${txtFiles.length} 章正文: ${newest.join(', ')}${txtFiles.length > 3 ? ' 等' : ''}`)
+      if (txtFiles.length > 0) lines.push(`  读最新章节: read_file("${prefix}/chapters/${txtFiles[txtFiles.length - 1]}")`)
       lines.push('')
     }
 
-    // Characters
+    // Characters — show names from filenames as hints
     const cFiles = charFiles.status === 'fulfilled' ? (charFiles.value || []) : []
     const jsonFiles = cFiles.filter((f: string) => f.endsWith('.json')).sort()
     if (jsonFiles.length > 0) {
-      lines.push('### 角色')
-      for (const f of jsonFiles.slice(0, 8)) { lines.push(`- characters/${f}`) }
+      lines.push(`### 角色 (${jsonFiles.length}个)`)
+      for (const f of jsonFiles.slice(0, 6)) {
+        const name = f.replace('.json', '').replace(/_/g, ' ')
+        lines.push(`  read_file("${prefix}/characters/${f}")`)
+      }
+      if (jsonFiles.length > 6) lines.push(`  还有 ${jsonFiles.length - 6} 个角色，read_file("${prefix}/characters/角色拼音.json")`)
       lines.push('')
     }
 
-    // Outline
-    if (outlinePlot.status === 'fulfilled' && outlinePlot.value) lines.push('- outline/plot.md — 剧情大纲')
-    if (outlineWorld.status === 'fulfilled' && outlineWorld.value) lines.push('- outline/worldbuilding.md — 世界观设定')
+    // Outline — direct paths with purpose
+    if (outlinePlot.status === 'fulfilled' && outlinePlot.value) {
+      lines.push(`read_file("${prefix}/outline/plot.md") — 故事剧情`)
+    }
+    if (outlineWorld.status === 'fulfilled' && outlineWorld.value) {
+      lines.push(`read_file("${prefix}/outline/worldbuilding.md") — 世界观设定`)
+    }
+    if ((outlinePlot.status === 'fulfilled' && outlinePlot.value) || (outlineWorld.status === 'fulfilled' && outlineWorld.value)) lines.push('')
 
     // Detailed outline
     const dFiles = detailFiles.status === 'fulfilled' ? (detailFiles.value || []) : []
-    const dJson = dFiles.filter((f: string) => f.endsWith('.json'))
-    if (dJson.length > 0) { lines.push(`- detailed_outline/ — ${dJson.length} 章节的细纲\n`) }
+    const dJson = dFiles.filter((f: string) => f.endsWith('.json')).sort()
+    if (dJson.length > 0) {
+      lines.push(`### 细纲 (${dJson.length} 章)`)
+      for (const f of dJson.slice(0, 5)) {
+        lines.push(`  read_file("${prefix}/detailed_outline/${f}")`)
+      }
+      if (dJson.length > 5) lines.push(`  还有 ${dJson.length - 5} 章细纲`)
+      lines.push('')
+    }
 
     // Style templates
     const tmpls = templates.status === 'fulfilled' ? (templates.value || []) : []
     if (tmpls.length > 0) {
-      const names = (tmpls as any[]).map((t: any) => t.name).slice(0, 5)
+      const names = (tmpls as any[]).map((t: any) => t.name).slice(0, 3)
       lines.push(`风格模板: ${names.join(', ')}`)
     }
 

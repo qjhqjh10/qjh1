@@ -45,9 +45,9 @@ describe('V4 System Prompt', () => {
   it('core prompt is not empty and has key sections', () => {
     expect(CORE_SYSTEM_PROMPT.length).toBeGreaterThan(100)
     expect(CORE_SYSTEM_PROMPT).toContain('青剑')
-    expect(CORE_SYSTEM_PROMPT).toContain('你的工作哲学')
-    expect(CORE_SYSTEM_PROMPT).toContain('安全')
-    expect(CORE_SYSTEM_PROMPT).toContain('行动者')
+    expect(CORE_SYSTEM_PROMPT).toContain('工作模式')
+    expect(CORE_SYSTEM_PROMPT).toContain('核心规则')
+    expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
   it('selectDomainModules picks relevant modules', () => {
@@ -62,7 +62,7 @@ describe('V4 System Prompt', () => {
       CHARACTER_DOMAIN_MODULE,
     ], '测试项目', '测试上下文')
     expect(prompt).toContain('青剑')
-    expect(prompt).toContain('角色操作要点')
+    expect(prompt).toContain('角色操作')
     expect(prompt).toContain('测试项目')
     expect(prompt).toContain('测试上下文')
   })

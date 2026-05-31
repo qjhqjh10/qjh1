@@ -1,8 +1,11 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
 
+import { sanitizeFileName } from '@/utils/security'
+
 function summaryPath(projectPath: string, chapterId: string): string {
-  return `${projectPath}/summaries/${chapterId}.md`
+  const safe = sanitizeFileName(chapterId).value || 'unknown'
+  return `${projectPath}/summaries/${safe}.md`
 }
 
 export async function loadSummary(projectPath: string, chapterId: string): Promise<string> {
