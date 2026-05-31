@@ -10,6 +10,7 @@ projects/
 knowledge_base/
 style_projects/
 continuation_projects/
+.appdata/
 
 # OS files
 .DS_Store
