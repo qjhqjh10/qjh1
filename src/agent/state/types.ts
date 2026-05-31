@@ -1,47 +1,56 @@
-// ── Agent State Machine Types ──
+// ── Agent State Types (V4 Simplified) ──
+// Reduced from V3's 13-phase FSM to 4 essential phases.
+// Removed: VerificationReport, StateTransition, planPhase, executionPlan fields.
+// Added: Message, ToolResult, ToolExecutionContext (extracted from old AgentRuntime).
+// Kept: ThinkingPlan, ThinkingStep (used by ContractExecutor).
 
-export type AgentPhase =
-  | 'IDLE'
-  | 'THINKING'
-  | 'ASSEMBLING_CONTEXT'
-  | 'CALLING_API'
-  | 'AWAITING_TOOLS'
-  | 'PLANNING'
-  | 'EXECUTING'
-  | 'AWAITING_APPROVAL'
-  | 'REFLECTING'
-  | 'VERIFYING'
-  | 'RESPONDING'
-  | 'ERROR'
-  | 'ABORTED'
+// ── Phase ──
 
-export interface StateTransition {
-  from: AgentPhase
-  to: AgentPhase
-  guard?: (state: AgentState) => boolean
-  effect?: (state: AgentState) => Promise<void>
+export type AgentPhase = 'IDLE' | 'RUNNING' | 'WAITING_APPROVAL' | 'DONE' | 'ERROR' | 'ABORTED'
+
+// ── Messages ──
+
+export interface Message {
+  role: string
+  content: string
+  tool_calls?: unknown[]
+  tool_call_id?: string
+  reasoning_content?: string
 }
 
-export interface VerificationReport {
-  planStepId: string
-  expectedOutcome: string
-  actualOutcome: string
-  status: 'passed' | 'failed' | 'skipped'
-  discrepancy?: string
+// ── Tool Calls ──
+
+export interface ToolCallRequest {
+  id: string
+  name: string
+  arguments: string
 }
 
-export interface AgentState {
-  phase: AgentPhase
-  iteration: number
-  maxIterations: number
-  pendingToolCalls: ToolCallRequest[]
-  errors: AgentError[]
-  lastApiResponse: ApiResponse | null
-  shouldContinue: boolean
-  executionPlan: ThinkingPlan | null
-  planPhase: 'none' | 'generating' | 'awaiting_approval' | 'approved' | 'rejected'
-  verificationReports: VerificationReport[]
+export interface ToolResult {
+  status: 'success' | 'error' | 'pending_confirm'
+  summary: string
+  detail?: string
+  confirmArgs?: Record<string, unknown>
 }
+
+export interface ToolExecutionContext {
+  projectId: string | null
+  configId: string
+  callId: string
+  toolName: string
+  signal: AbortSignal
+}
+
+// ── API ──
+
+export interface ApiResponse {
+  text: string
+  toolCalls: ToolCallRequest[] | null
+  finishReason: string
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
+}
+
+// ── Plan (kept for ContractExecutor compatibility) ──
 
 export interface ThinkingStep {
   id: string
@@ -58,15 +67,18 @@ export interface ThinkingStep {
 export interface ThinkingPlan {
   intent: string
   steps: ThinkingStep[]
-  neededTools: string[]       // AI-declared tool names needed for execution
+  neededTools: string[]
   estimatedTokens: number
   dependencies: number[][]
 }
 
-export interface ToolCallRequest {
-  id: string
-  name: string
-  arguments: string
+// ── Agent State ──
+
+export interface AgentState {
+  phase: AgentPhase
+  iteration: number
+  maxIterations: number
+  errors: AgentError[]
 }
 
 export interface AgentError {
@@ -76,11 +88,4 @@ export interface AgentError {
   timestamp: number
 }
 
-export interface ApiResponse {
-  text: string
-  toolCalls: ToolCallRequest[] | null
-  finishReason: string
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
-}
-
-export const DEFAULT_MAX_ITERATIONS = 20
+export const DEFAULT_MAX_ITERATIONS = 30

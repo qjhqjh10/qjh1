@@ -1,4 +1,4 @@
-import type { ToolResult, ToolExecutionContext } from '../runtime/AgentRuntime'
+import type { ToolResult, ToolExecutionContext } from '../state/types'
 import type { ToolProgressEvent } from '../runtime/AgentEventEmitter'
 
 // ── Tool Definition ──

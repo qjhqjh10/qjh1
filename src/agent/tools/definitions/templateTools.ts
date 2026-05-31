@@ -6,7 +6,7 @@ export const templateTools: ToolDefinition[] = [
   {
     schema: {
       name: 'create_style_template',
-      description: '创建风格模板并保存到模板库。type 为小说类型，dimensions 为各维度分析结果。',
+      description: '创建风格模板并保存到模板库。何时使用：分析完文本的26个文风维度后，将结果保存为模板。dimensions 是各维度的分析结果对象，每个维度含 description/examples/writingRules/vocabularyList。有信号的维度详填，无信号的跳过。tone 含 word/description/attitude。不确定时先 read_file 参考已有模板。',
       parameters: {
         type: 'object',
         properties: {
@@ -57,7 +57,7 @@ export const templateTools: ToolDefinition[] = [
   {
     schema: {
       name: 'create_scene_template',
-      description: '创建场景模板并保存到场景工坊。根据细纲分析填写尽可能多的字段。',
+      description: '创建场景模板并保存到场景工坊。何时使用：根据细纲或上传文件分析创建场景配置时。能推断的字段直接填值，无法确定的字段名列入 autoFields 数组（不超过10个）。先 read_file 读细纲JSON了解场景需求。与风格模板的区别：场景模板管"这一章怎么写"，风格模板管"整体用什么文风"。',
       parameters: {
         type: 'object',
         properties: {

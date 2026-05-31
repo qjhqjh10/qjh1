@@ -1,18 +1,28 @@
 import type { ContextProvider } from '../ContextAssembler'
-import { buildProjectSummary } from '../projectSummary'
 import { extractSummary } from '../contentExtractor'
 import { isTaskMessage } from '../../utils/taskDetection'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
-  relevance: () => 1.0,
+  relevance: (userMessage) => {
+    // V1-3: Dynamic relevance gating — avoid injecting ~800 tokens of core rules
+    // into simple greetings or casual chat that doesn't need tools
+    if (!userMessage || userMessage.trim().length < 5) return 0.1
+    if (isTaskMessage(userMessage)) return 0.8  // task messages need rules
+    if (/^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye)[!！。.]?$/i.test(userMessage.trim())) return 0.0
+    return 0.4  // non-task messages: below default 0.4 threshold → only included if explicitly relevant
+  },
 
   buildContext: async (projectId, userMessage) => {
     const isTask = userMessage && isTaskMessage(userMessage)
 
-    let projectSummary = ''
+    // V2-2: Use MemoryIndex (compact pointer list) instead of verbose projectSummary
+    let projectIndex = ''
     if (projectId && isTask) {
-      try { projectSummary = await buildProjectSummary(projectId) } catch { /* best effort */ }
+      try {
+        const { buildMemoryIndex } = await import('../MemoryIndex')
+        projectIndex = await buildMemoryIndex(projectId)
+      } catch { /* best effort */ }
     }
 
     let feedbackContent = ''
@@ -31,7 +41,7 @@ export const coreRulesProvider: ContextProvider = {
     return {
       domain: 'core-rules',
       priority: 100,
-      estimatedTokens: 250 + Math.ceil((projectSummary.length + feedbackContent.length) / 3),
+      estimatedTokens: 250 + Math.ceil((projectIndex.length + feedbackContent.length) / 3),
       content: [
         '你是一位专业的小说写作助手，通过工具直接操作项目文件。',
 
@@ -41,7 +51,7 @@ export const coreRulesProvider: ContextProvider = {
         '3. 编辑前先 read_file 确认内容。创建 JSON 文件→系统自动校验格式→按错误提示修正。',
         '4. 完成后报告结果。不要反复调用同一工具。不确定时用工具查找，不要编造理由。',
 
-        projectSummary ? `\n## 当前项目\n${projectSummary}` : '',
+        projectIndex ? `\n${projectIndex}` : '',
 
         '\n## 项目导航',
         '需要了解项目结构或规则详情时，用 read_file 读取：',

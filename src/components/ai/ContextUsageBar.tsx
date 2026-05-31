@@ -8,6 +8,7 @@ interface Props {
 }
 
 export function ContextUsageBar({ usedTokens, contextWindow, onCompress, breakdown }: Props) {
+
   const [showBreakdown, setShowBreakdown] = useState(false)
   const pct = usedTokens > 0 ? Math.min(100, (usedTokens / contextWindow) * 100) : 0
   const barColor = pct > 85 ? '#dc2626' : pct > 60 ? '#d97706' : '#16a34a'

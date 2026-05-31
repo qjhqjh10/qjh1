@@ -13,7 +13,7 @@ import {
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
-import { debugApiError, debugBatchApprove, debugBatchDeny, debugSysError } from '@/services/debugLogService'
+import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
@@ -21,15 +21,11 @@ import ImageLightbox from '@/components/common/ImageLightbox'
 
 import { makeConversation } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
-import { BatchApprovalPanel, FileGroup, batchBtnStyle, type BatchCard } from "./components/BatchApprovalPanel";
-import { PlanCard } from './components/PlanCard'
-import { VerificationPanel } from './components/VerificationPanel'
-import { AgentChatBridge } from '@/agent/AgentChatBridge'
+import { V4AgentChatBridge } from '@/agent/V4AgentChatBridge'
 import { useAgentStore } from '@/agent/store/AgentStore'
-import { AgentStateBar } from './components/AgentStateBar'
-import { AgentThinkingPanel } from './components/AgentThinkingPanel'
-import { ToolExecutionPanel } from './components/ToolExecutionCard'
+import { AgentStatusBar } from './components/AgentStatusBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
+import { StreamingMessage } from './components/StreamingMessage'
 
 
 export default function AIChatWindow() {
@@ -125,9 +121,9 @@ export default function AIChatWindow() {
   
   // Cleanup drag/resize listeners on unmount
 
+  // V2-4: Read cumulative tokens from AgentStore (single source of truth)
+  // Local state for token tracking — incremented per message, reset on conversation switch
   const [cumulativeTokens, setCumulativeTokens] = useState(0)
-  const [lastPromptTokens, setLastPromptTokens] = useState(0)
-  const [peakPromptTokens, setPeakPromptTokens] = useState(0)
   const [tokenBreakdown, setTokenBreakdown] = useState<{ label: string; chars: number }[]>([])
 
   const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
@@ -146,13 +142,9 @@ export default function AIChatWindow() {
   })
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)) } catch (e) { logError('保存对话历史失败', e) } }, [conversations])
   useEffect(() => { try { localStorage.setItem(LAST_ACTIVE_KEY, activeConversationId) } catch (e) { logError('保存活动对话ID失败', e) } }, [activeConversationId])
-  // Restore token counts from persisted conversation on mount/switch
-  useEffect(() => {
-    const conv = conversations.find(c => c.id === activeConversationId)
-    setCumulativeTokens(conv?.totalTokens || 0)
-    setLastPromptTokens(conv?.lastPromptTokens || 0)
-    setPeakPromptTokens(conv?.peakPromptTokens || conv?.lastPromptTokens || 0)
-  }, [activeConversationId])
+  // Reset token counter on conversation switch
+  useEffect(() => { setCumulativeTokens(0) }, [activeConversationId])
+  // Token reset handled directly in switchConversation/handleNewConversation/handleClearConversation
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(false)
@@ -172,46 +164,6 @@ export default function AIChatWindow() {
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
   const [compressing, setCompressing] = useState(false)
-  // Task-level approval: when true, skip batch gate for subsequent rounds
-  const planApprovedRef = useRef(false)
-
-  // Batch approval gate state
-  const pendingBatchRef = useRef<{
-    toolCalls: Array<{ tc: any; routeArgs: Record<string, unknown> }>
-    summary: { reads: string[]; writes: string[]; creates: string[]; deletes: string[]; lists: string[] }
-    thinkingPlan: string
-    onResolve: (approved: boolean, feedback?: string) => void
-  } | null>(null)
-  const [batchCard, setBatchCard] = useState<BatchCard | null>(null)
-  const [batchFeedback, setBatchFeedback] = useState('')
-  const [showBatchFeedback, setShowBatchFeedback] = useState(false)
-
-  const handleBatchApprove = () => {
-    debugBatchApprove(activeConversationId)
-    const batch = pendingBatchRef.current
-    pendingBatchRef.current = null
-    setBatchCard(null)
-    if (!batch) {
-      debugSysError(activeConversationId, 'handleBatchApprove', 'pendingBatchRef is null')
-      // Batch was already resolved (timeout, race condition) — clean up UI
-      setMessages(prev => prev)
-      return
-    }
-    batch.onResolve(true)
-  }
-
-  const handleBatchDeny = (feedback?: string) => {
-    debugBatchDeny(activeConversationId, feedback)
-    const batch = pendingBatchRef.current
-    pendingBatchRef.current = null
-    setBatchCard(null)
-    setShowBatchFeedback(false)
-    setBatchFeedback('')
-    setMessages(prev => prev)
-    if (!batch) return
-    batch.onResolve(false, feedback || undefined)
-  }
-
   const toggleExpand = (id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleThinking = (id: string) => setExpandedThinking(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const togglePlan = (id: string) => setExpandedPlans(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -307,10 +259,10 @@ export default function AIChatWindow() {
     })
   }
 
-  const abortToolLoop = () => { abortRef.current = true; aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
-  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
-  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); setCumulativeTokens(0); setLastPromptTokens(0); setPeakPromptTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const abortToolLoop = () => { abortRef.current = true; bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
+  const handleNewConversation = () => { abortToolLoop(); const id = Date.now().toString(); setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
+  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
   // Dismiss context menu on click outside
@@ -387,7 +339,7 @@ export default function AIChatWindow() {
   }
 
   // ── Agent mode refs ──
-  const bridgeRef = useRef<AgentChatBridge | null>(null)
+  const bridgeRef = useRef<V4AgentChatBridge | null>(null)
 
   // Cleanup bridge on component unmount
   useEffect(() => {
@@ -402,9 +354,6 @@ export default function AIChatWindow() {
     const connected = await checkApiConnection()
     if (!connected) return  // don't send if connection is known bad
 
-    // Reset task-level approval for new user messages
-    planApprovedRef.current = false
-
     setFileEditNotify(null)
     let attachText = ''
     if (attachment) {
@@ -412,6 +361,7 @@ export default function AIChatWindow() {
         attachText = `[上传文件: ${attachment.name}]\n文件已保存到全局 uploads 目录。如需读取内容，请用 read_file("${attachment.name}")。`
       } else { attachText = attachment.content }
     }
+    const capturedInputLength = input.trim().length
     const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
@@ -421,77 +371,55 @@ export default function AIChatWindow() {
 
     // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
     if (!bridgeRef.current) {
-      bridgeRef.current = new AgentChatBridge()
-      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, workMode: aiSettings.workMode, maxIterations: 20, historyMessages: buildHistoryMessages(messages) })
+      bridgeRef.current = new V4AgentChatBridge(activeProjectId)
+      bridgeRef.current.init({ configId: activeConfigId!, projectId: activeProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages) })
     } else {
+      // V4: always sync project — user may have switched projects between messages
+      bridgeRef.current.updateProject(activeProjectId)
       bridgeRef.current.updateHistory(buildHistoryMessages(messages))
     }
     let collectedText = ''
     try {
       const result = await bridgeRef.current.sendMessage(fullContent, {
-        kbEnabled, webSearchEnabled, toolsEnabled: toolInvokeEnabled, selectedRefs, selectedKbFileIds: kbEnabled ? selectedFileIds : [],
+        kbEnabled, webSearchEnabled, selectedKbFileIds: kbEnabled ? selectedFileIds : [],
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           const fallbackText = runResult.toolsUsed.length > 0
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
             : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
-          // ── Input breakdown — ALL prompt components ──
-          const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: '系统提示: ' + b.domain, chars: b.tokens * 2 })) || []
-          const sysChars = messages.filter(m => m.role === 'system').reduce((s, m) => s + (m.content?.length || 0), 0)
-          const histUserChars = messages.filter(m => m.role === 'user').reduce((s, m) => s + (m.content?.length || 0), 0)
-          const histAsstChars = messages.filter(m => m.role === 'assistant').reduce((s, m) => s + (m.content?.length || 0), 0)
-          const toolResultChars = messages.filter(m => m.role === 'tool').reduce((s, m) => s + (m.content?.length || 0), 0)
-          const toolResultCount = messages.filter(m => m.role === 'tool').length
+          // ── Input breakdown — what THIS API call contributed (not full history) ──
+          const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: '系统上下文: ' + b.domain, chars: b.tokens * 2 })) || []
           const inputBreakdown = [
             ...ctxBreakdown,
-            { label: '对话历史·用户 (' + messages.filter(m => m.role === 'user').length + '条)', chars: histUserChars },
-            { label: '对话历史·助手 (' + messages.filter(m => m.role === 'assistant').length + '条)', chars: histAsstChars },
-            { label: '工具调用结果 (' + toolResultCount + '条)', chars: toolResultChars },
-            { label: '工具定义 (37个)', chars: 37 * 300 },
-            { label: '当前用户消息', chars: input.length },
-            { label: '消息结构开销', chars: messages.length * 20 },
+            { label: '当前消息', chars: capturedInputLength },
           ].filter(b => b.chars > 0)
 
           // ── Output breakdown ──
           const outputBreakdown: { label: string; tokens: number }[] = []
           outputBreakdown.push({ label: 'AI 文本回复', tokens: (collectedText || runResult.text || '').length ? Math.ceil((collectedText || runResult.text || '').length / 2.5) : 0 })
-          if (runResult.reasoningContent) {
-            outputBreakdown.push({ label: '推理过程 (reasoning)', tokens: Math.ceil(runResult.reasoningContent.length / 2.5) })
-          }
           setMessages(prev => [...prev, {
             id: Date.now().toString() + '_r', role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
-            toolsUsed: runResult.toolsUsed, reasoningContent: runResult.reasoningContent || undefined,
+            toolsUsed: runResult.toolsUsed,
             breakdown: inputBreakdown,
             outputBreakdown,
+            iterationCount: runResult.iterationCount || 1,
             usage: runResult.totalTokens > 0 ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
+            totalIterations: runResult.iterationCount || 1,
           }])
         },
         onApprovalRequired: async (tools) => {
+          // V4: Simple dangerous-tool confirmation — only triggered for delete/shell
           return new Promise<boolean>((resolve) => {
-            // In plan mode, PlanCard handles approval — the Promise is resolved by PlanCard callbacks
-            const agentStore = useAgentStore.getState()
-            if (agentStore.run.planPhase === 'awaiting_approval' && agentStore.run.executionPlan) {
-              // Store resolve for PlanCard to use
-              ;(window as any).__planResolve = resolve
-              return // PlanCard will call resolve via onApproveAll/onRejectAll
-            }
-            // Normal batch approval
-            const summary = { reads: [] as string[], writes: [] as string[], creates: [] as string[], deletes: [] as string[], lists: [] as string[], settings: [] as string[], templates: [] as string[], images: [] as string[] }
-            for (const t of tools) {
-              if (/read_file|list_directory/.test(t.name)) summary.reads.push(String(t.args.file_path || t.args.dir_path || ''))
-              else if (/edit_file/.test(t.name)) summary.writes.push(String(t.args.file_path || ''))
-              else if (/create_file/.test(t.name)) summary.creates.push(String(t.args.file_path || ''))
-              else if (/delete_file/.test(t.name)) summary.deletes.push(String(t.args.file_path || ''))
-              else summary.writes.push(t.name)
-            }
-            const timeout = setTimeout(() => { pendingBatchRef.current = null; setBatchCard(null); resolve(false) }, 180000)
-            pendingBatchRef.current = { toolCalls: tools.map(t => ({ tc: { function: { name: t.name } }, routeArgs: t.args })), summary: summary as any, thinkingPlan: '', onResolve: (approved: boolean) => { clearTimeout(timeout); pendingBatchRef.current = null; setBatchCard(null); resolve(approved) } }
-            setBatchCard({ id: `batch_${Date.now()}`, summary: summary as any, previews: { editDiffs: [], createPreviews: [] }, thinkingPlan: '' })
+            const toolList = tools.map(t => `• ${t.name}: ${JSON.stringify(t.args).slice(0, 80)}`).join('\n')
+            const confirmed = window.confirm(`AI 需要执行危险操作:\n\n${toolList}\n\n是否允许?`)
+            resolve(confirmed)
           })
         },
       })
-      const newTotal = cumulativeTokens + result.totalTokens
-      setCumulativeTokens(newTotal)
+      // Track tokens locally (bypasses Zustand)
+      setCumulativeTokens(prev => prev + (result.totalTokens || 0))
+      useAgentStore.getState().addTokens(result.totalTokens)
+      const newTotal = cumulativeTokens + (result.totalTokens || 0)
       setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
     } catch (err) {
       setMessages(prev => [...prev, { id: Date.now().toString() + '_e', role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}` }])
@@ -768,53 +696,8 @@ export default function AIChatWindow() {
 
           {/* Messages */}
           <div ref={scrollRef} className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
-            {/* ── Agent mode UI ── */}
-            <AgentStateBar />
-            <AgentThinkingPanel />
-            <ToolExecutionPanel />
-            <DiagnosticPanel />
 
-            {/* ── Plan card (Plan→Approve→Execute→Verify workflow) ── */}
-            {(() => {
-              const planPhase = useAgentStore.getState().run.planPhase
-              const execPlan = useAgentStore.getState().run.executionPlan
-              const verifyReports = useAgentStore.getState().run.verificationReports
-              if (planPhase === 'awaiting_approval' && execPlan) {
-                return (
-                  <PlanCard
-                    plan={execPlan}
-                    onApproveAll={() => {
-                      execPlan.steps.forEach(s => { s.approvalStatus = 'approved' })
-                      useAgentStore.getState().setPlanPhase('approved')
-                      useAgentStore.getState().setExecutionPlan({ ...execPlan, steps: [...execPlan.steps] })
-                      // Resolve the pending approval promise
-                      const resolve = (window as any).__planResolve
-                      if (resolve) { resolve(true); delete (window as any).__planResolve }
-                    }}
-                    onRejectAll={(feedback) => {
-                      useAgentStore.getState().setPlanPhase('rejected')
-                      const resolve = (window as any).__planResolve
-                      if (resolve) { resolve(false); delete (window as any).__planResolve }
-                    }}
-                    onToggleStep={(stepId, approved) => {
-                      execPlan.steps.forEach(s => {
-                        if (s.id === stepId) s.approvalStatus = approved ? 'approved' : 'rejected'
-                      })
-                      useAgentStore.getState().setExecutionPlan({ ...execPlan, steps: [...execPlan.steps] })
-                    }}
-                  />
-                )
-              }
-              if (verifyReports.length > 0) {
-                return (
-                  <VerificationPanel
-                    reports={verifyReports}
-                    onDismiss={() => useAgentStore.getState().setVerificationReports([])}
-                  />
-                )
-              }
-              return null
-            })()}
+            {/* V4: No PlanCard — model self-orchestrates. Only dangerous tools trigger confirmation dialogs. */}
 
             {/* Hook feedback indicator */}
             {agentHookFeedback && (
@@ -831,24 +714,8 @@ export default function AIChatWindow() {
               </div>
             )}
 
-            {/* Streaming text bubble */}
-            {agentIsStreaming && agentStreamingText && (
-              <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 8, animation: 'fadeInUp 0.3s ease-out' }}>
-                <div style={{
-                  maxWidth: '80%', padding: '12px 16px', borderRadius: 16,
-                  borderBottomLeftRadius: 4,
-                  background: 'rgba(245,242,239,0.9)',
-                  backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(0,0,0,0.04)',
-                  color: '#2d2520',
-                  fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                }}>
-                  {agentStreamingText}
-                  <span className="typewriter-cursor" style={{ fontSize: 14 }} />
-                </div>
-              </div>
-            )}
+            {/* V2-7: Isolated streaming component — updates at display refresh rate via rAF */}
+            {agentIsStreaming && <StreamingMessage content={agentStreamingText} />}
 
             {messages.map((msg, i) => {
               // WeChat-style time separator
@@ -1179,6 +1046,7 @@ export default function AIChatWindow() {
               </div>
               </div>
             )})}
+
             {loading && (
               <div style={{ textAlign: 'center', padding: 6 }}>
                 <button onClick={abortToolLoop} style={{
@@ -1193,6 +1061,9 @@ export default function AIChatWindow() {
               </div>
             )}
           </div>
+
+          <AgentStatusBar />
+          <DiagnosticPanel />
 
           {/* Input */}
           <div className="glass" style={{ padding: '10px 14px', borderTop: '1px solid rgba(0,0,0,0.06)', position: 'relative' }}>
@@ -1233,26 +1104,12 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
-              {/* ── Batch approval panel (floating above input) ── */}
-              {batchCard && (
-                <BatchApprovalPanel
-                  batchCard={batchCard}
-                  showBatchFeedback={showBatchFeedback}
-                  batchFeedback={batchFeedback}
-                  onFeedbackChange={setBatchFeedback}
-                  onShowFeedback={setShowBatchFeedback}
-                  onToggleFeedback={() => setShowBatchFeedback(!showBatchFeedback)}
-                  onApprove={handleBatchApprove}
-                  onApproveAll={() => { planApprovedRef.current = true; handleBatchApprove() }}
-                  onDeny={handleBatchDeny}
-                />
-              )}
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              placeholder={batchCard ? '请先审批 AI 的操作计划...' : activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
-              disabled={!activeConfigId || !!batchCard} rows={2}
+              placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
+              disabled={!activeConfigId || loading} rows={2}
               className="focus-ring"
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: batchCard ? '#9b8e84' : '#2d2520', background: batchCard ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.02)' }}
+              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)' }}
             />
             <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
               style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: input.trim() && activeConfigId ? '#7c3aed' : '#e5e0da', color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' }}>
@@ -1354,6 +1211,11 @@ export default function AIChatWindow() {
         }} onClick={e => e.stopPropagation()} className="custom-scrollbar">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>Token 分解</h3>
+            <span style={{ fontSize: 10, color: '#9b8e84' }}>
+              {breakdownModal.totalTokens && breakdownModal.totalTokens > (breakdownModal.inputBreakdown.reduce((s, b) => s + Math.round(b.chars / 2), 0) + (breakdownModal.outputBreakdown || []).reduce((s, b) => s + b.tokens, 0)) * 1.5
+                ? '⚠ 含多轮 API 调用（Agent 反复思考+执行）'
+                : '单轮 API 调用'}
+            </span>
             <button onClick={() => setBreakdownModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
           </div>
           {/* ── 📥 INPUT ── */}
@@ -1429,7 +1291,7 @@ export default function AIChatWindow() {
                   )}
                   {breakdownModal.totalTokens != null && breakdownModal.totalTokens > 0 && (
                     <div style={{ marginTop: 2, fontSize: 9, color: '#9b8e84' }}>
-                      含全部 Agent 迭代的 API 调用
+                      含全部 Agent 迭代的 {breakdownModal.totalTokens > 30000 ? '多轮' : ''} API 调用 + 对话历史
                     </div>
                   )}
                 </div>

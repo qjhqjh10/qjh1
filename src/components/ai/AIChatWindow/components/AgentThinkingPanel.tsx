@@ -8,7 +8,7 @@ export function AgentThinkingPanel() {
 
   if (!thinking || !isRunning) return null
 
-  const isThinking = phase === 'THINKING' || phase === 'ASSEMBLING_CONTEXT'
+  const isThinking = phase === 'RUNNING'
 
   return (
     <AnimatePresence>

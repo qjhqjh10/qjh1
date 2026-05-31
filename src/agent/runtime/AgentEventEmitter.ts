@@ -1,4 +1,4 @@
-import type { AgentPhase, AgentState, ToolCallRequest, ApiResponse, ThinkingPlan, VerificationReport } from '../state/types'
+import type { AgentPhase, AgentState, ToolCallRequest, ApiResponse } from '../state/types'
 
 // ── Event Payloads ──
 
@@ -97,16 +97,7 @@ export interface AgentEventMap {
   'run:start': { timestamp: number }
   'run:complete': { iterations: number; toolCalls: number; tokenUsage: number }
   'api:call': { promptTokens: number; completionTokens: number; totalTokens: number; timestamp: number }
-  'planning:start': { intent: string; timestamp: number }
-  'plan:proposed': ThinkingPlan
-  'plan:approved': { timestamp: number }
-  'plan:rejected': { feedback: string; timestamp: number }
   'plan:deviation': { toolName: string; args: Record<string, unknown>; plannedSteps: string[]; timestamp: number }
-  'plan:stepStart': { stepId: string; action: string }
-  'plan:stepComplete': { stepId: string; action: string; summary: string }
-  'verify:start': { stepCount: number; timestamp: number }
-  'verify:stepResult': VerificationReport
-  'verify:complete': { total: number; passed: number; failed: number }
 }
 
 // ── Type-safe EventEmitter ──

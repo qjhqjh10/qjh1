@@ -26,8 +26,8 @@ export interface AssembledContext {
 
 export class ContextAssembler {
   private providers: ContextProvider[] = []
-  private relevanceThreshold = 0.3
-  private maxContextTokens = 50000
+  private relevanceThreshold = 0.4  // V1-3: raised from 0.3 to filter out weakly-relevant providers
+  private maxContextTokens = 500000  // V4: raised for 1M context window
 
   register(provider: ContextProvider): void {
     // Deduplicate: replace existing provider with same domain instead of adding a duplicate
@@ -62,25 +62,28 @@ export class ContextAssembler {
       score: p.relevance(userMessage, history),
     }))
 
-    // Select providers above threshold
-    const selected = scored
+    // Select providers above relevance threshold
+    const aboveThreshold = scored
       .filter(s => s.score > this.relevanceThreshold)
-      .sort((a, b) => b.score - a.score) // highest relevance first
 
-    // Build context blocks
+    // Build context blocks (all above threshold, regardless of token budget)
+    const allBlocks: ContextBlock[] = []
+    for (const { provider } of aboveThreshold) {
+      const block = await provider.buildContext(projectId, userMessage)
+      allBlocks.push(block)
+    }
+
+    // Sort by priority DESC (high-priority blocks first), then truncate by token budget
+    allBlocks.sort((a, b) => b.priority - a.priority)
+
     const blocks: ContextBlock[] = []
     let totalTokens = 0
-
-    for (const { provider } of selected) {
-      const block = await provider.buildContext(projectId, userMessage)
+    for (const block of allBlocks) {
       if (totalTokens + block.estimatedTokens <= this.maxContextTokens) {
         blocks.push(block)
         totalTokens += block.estimatedTokens
       }
     }
-
-    // Sort by priority
-    blocks.sort((a, b) => b.priority - a.priority)
 
     const systemMessages = blocks.map(b => ({
       role: 'system' as const,

@@ -1,4 +1,20 @@
 import { IpcMain, SafeStorage } from 'electron'
+
+/** ISO timestamp with local timezone offset (e.g. 2026-05-31T10:34:09+08:00) */
+function localISOString(): string {
+  const d = new Date()
+  const off = -d.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' +
+    pad(d.getMonth() + 1) + '-' +
+    pad(d.getDate()) + 'T' +
+    pad(d.getHours()) + ':' +
+    pad(d.getMinutes()) + ':' +
+    pad(d.getSeconds()) + sign +
+    pad(Math.floor(off / 60)) + ':' +
+    pad(off % 60)
+}
 import { logTokenUsage } from './statsHandlers'
 import { decryptKey, encryptKey, MASKED_KEY, getOpenAI, getConfigStore } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
@@ -93,7 +109,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const usage = completion.usage
       if (usage) {
         logTokenUsage({
-          timestamp: new Date().toISOString(),
+          timestamp: localISOString(),
           projectId: projectId || '__global__',
           configId: config.id,
           configName: config.name,
@@ -189,7 +205,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       streamAbortHandlers.delete(wcId)
       if (usageInfo) {
         logTokenUsage({
-          timestamp: new Date().toISOString(),
+          timestamp: localISOString(),
           projectId: projectId || '__global__',
           configId: config.id,
           configName: config.name,
@@ -380,7 +396,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         const usage = completion.usage
         if (usage) {
           logTokenUsage({
-            timestamp: new Date().toISOString(),
+            timestamp: localISOString(),
             projectId: projectId || '__global__',
             configId: config.id,
             configName: config.name,
@@ -494,7 +510,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
       // Log token usage for stats
       logTokenUsage({
-        timestamp: new Date().toISOString(),
+        timestamp: localISOString(),
         projectId: projectId || '__global__',
         configId: config.id,
         configName: config.name || '',

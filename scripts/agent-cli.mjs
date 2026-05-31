@@ -133,6 +133,7 @@ async function gitSnapshot(label = 'pre-edit') {
 function parseArgs() {
   const args = {
     apiKey: process.env.AI_API_KEY || '',
+    apiKeyStdin: false,    // secure: read key from stdin pipe instead of env
     apiUrl: process.env.AI_API_URL || 'https://api.deepseek.com',
     model: process.env.AI_MODEL || 'deepseek-chat',
     projectsDir: process.env.PROJECTS_DIR || path.join(APP_ROOT, 'projects'),
@@ -150,6 +151,7 @@ function parseArgs() {
     if (arg === '--help' || arg === '-h') { args.help = true }
     else if (arg === '--interactive' || arg === '-i') { args.interactive = true }
     else if (arg === '--self-optimize' || arg === '-S') { args.selfOptimize = true; args.maxIterations = 20 }
+    else if (arg === '--api-key-stdin') { args.apiKeyStdin = true }
     else if (arg.startsWith('--api-key=')) { console.warn('\x1b[33m⚠ 警告: --api-key 已弃用，请使用 AI_API_KEY 环境变量。密钥作为命令行参数在所有进程中可见。\x1b[0m'); args.apiKey = arg.slice(10) }
     else if (arg.startsWith('--key=')) { console.warn('\x1b[33m⚠ 警告: --key 已弃用，请使用 AI_API_KEY 环境变量。密钥作为命令行参数在所有进程中可见。\x1b[0m'); args.apiKey = arg.slice(6) }
     else if (arg.startsWith('--api-url=')) { args.apiUrl = arg.slice(10) }
@@ -174,7 +176,8 @@ AI 写作助手 — 命令行 Agent (Headless CLI)
   node scripts/agent-cli.mjs [选项]
 
 选项:
-  --key=KEY          ⚠ 已弃用: API 密钥 (推荐使用 AI_API_KEY 环境变量)
+  --key=KEY          ⚠ 已弃用: API 密钥 (推荐通过 agent:optimize IPC 自动传递)
+  --api-key-stdin    从 stdin 读取 API 密钥 (最安全，由 Electron 主进程自动使用)
   --api-url=URL      API 地址 (默认: https://api.deepseek.com)
   --model=NAME       模型名称 (默认: deepseek-chat)
   --project=NAME     项目名称 (指定要操作的项目)
@@ -1405,6 +1408,27 @@ async function main() {
   const args = parseArgs()
 
   if (args.help) { showHelp(); process.exit(0) }
+
+  // ── Secure key read from stdin (replaces AI_API_KEY env var) ──
+  if (args.apiKeyStdin) {
+    try {
+      const chunks = []
+      // Read only the first line from stdin (key sent by parent process)
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk)
+        break  // Only first chunk — key is a single line
+      }
+      const keyFromStdin = Buffer.concat(chunks).toString().trim()
+      if (keyFromStdin && keyFromStdin.length > 10) {
+        args.apiKey = keyFromStdin
+        console.log('\x1b[90m从安全管道获取 API 密钥\x1b[0m')
+      }
+      // Close stdin — no more input
+      process.stdin.destroy()
+    } catch (err) {
+      console.error('\x1b[31m无法从 stdin 读取密钥:\x1b[0m', err.message)
+    }
+  }
 
   if (!args.apiKey) {
     console.error('\x1b[31m错误: 未提供 API 密钥。使用 --key=YOUR_KEY 或设置 AI_API_KEY 环境变量\x1b[0m')

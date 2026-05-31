@@ -18,6 +18,8 @@ export const characterProvider: ContextProvider = {
     if (/创建.*角色|添加.*人物|新建.*角色|写.*角色/.test(userMessage)) return 1.0
     if (/检查.*角色|角色.*矛盾|角色.*一致|人物.*矛盾|人物.*一致/.test(userMessage)) return 1.0
     if (/角色|人物|男主|女主|配角|反派|character/i.test(userMessage)) return 0.8
+    // V4: chapter writing tasks need character context (who appears in this chapter)
+    if (/写.*第.*章|创作.*第.*章|生成.*第.*章|续写|章节.*写/i.test(userMessage)) return 0.6
     return 0.2
   },
 

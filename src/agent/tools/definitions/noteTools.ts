@@ -18,7 +18,7 @@ export const noteTools: ToolDefinition[] = [
   {
     schema: {
       name: 'list_notes',
-      description: '列出全局 notes/ 目录下的所有草稿笔记。',
+      description: '列出全局 notes/ 目录下的所有草稿笔记。何时使用：需要查看已有草稿时。草稿是全局的（不绑定项目），适合记录灵感、暂存想法。与知识库的区别：草稿是临时性的，知识库是长期积累的参考资料。',
       parameters: { type: 'object', properties: {}, required: [] },
     },
     permission: 'AUTO',
@@ -37,7 +37,7 @@ export const noteTools: ToolDefinition[] = [
   {
     schema: {
       name: 'read_note',
-      description: '读取指定草稿笔记的完整内容。',
+      description: '读取指定草稿笔记的完整内容。何时使用：需要查看某篇草稿的具体内容时。note_name 是文件名（如"灵感记录.md"），先用 list_notes 确认文件名。注意区分：读取项目文件用 read_file，读取草稿用 read_note。',
       parameters: {
         type: 'object',
         properties: { note_name: { type: 'string', description: '草稿文件名' } },
@@ -61,7 +61,7 @@ export const noteTools: ToolDefinition[] = [
   {
     schema: {
       name: 'write_note',
-      description: '创建或覆写草稿笔记。',
+      description: '创建或覆写草稿笔记。何时使用：记录灵感、保存分析结果、暂存对话中的重要信息。如果文件已存在会覆写全文——如果只想追加内容请用 append_note。草稿是全局的不绑定项目。',
       parameters: {
         type: 'object',
         properties: {

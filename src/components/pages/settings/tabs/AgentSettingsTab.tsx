@@ -1,30 +1,20 @@
 import { useState } from 'react'
-import { OverviewSection } from './agent/OverviewSection'
-import { MetricsSection } from './agent/MetricsSection'
-import { SkillsSection } from './agent/SkillsSection'
 import { FeedbackSection } from './agent/FeedbackSection'
 import { ReliabilitySection } from './agent/ReliabilitySection'
-import { HealthSection } from './agent/HealthSection'
-import { TeamSection } from './agent/TeamSection'
 import { MCPSection } from './agent/MCPSection'
 import { LearningSection } from './agent/LearningSection'
 
-type AgentSubTab = 'overview' | 'metrics' | 'skills' | 'feedback' | 'reliability' | 'health' | 'team' | 'mcp' | 'learning'
+type AgentSubTab = 'feedback' | 'reliability' | 'mcp' | 'learning'
 
 const SUB_TABS: [AgentSubTab, string, string][] = [
-  ['overview', '概览', '📊'],
-  ['metrics', '指标', '📈'],
-  ['skills', '技能', '🧠'],
   ['feedback', '反馈', '💡'],
   ['reliability', '可靠性', '🛡️'],
-  ['health', '健康', '🔍'],
   ['learning', '学习', '📝'],
-  ['team', '团队', '👥'],
   ['mcp', 'MCP', '🔌'],
 ]
 
 export function AgentSettingsTab() {
-  const [activeSubTab, setActiveSubTab] = useState<AgentSubTab>('overview')
+  const [activeSubTab, setActiveSubTab] = useState<AgentSubTab>('feedback')
 
   return (
     <div style={{
@@ -78,13 +68,8 @@ export function AgentSettingsTab() {
 
       {/* Content */}
       <div style={{ flex: 1, overflow: 'hidden', animation: 'fadeInUp 0.25s ease-out' }} className="custom-scrollbar" key={activeSubTab}>
-        {activeSubTab === 'overview' && <OverviewSection />}
-        {activeSubTab === 'metrics' && <MetricsSection />}
-        {activeSubTab === 'skills' && <SkillsSection />}
         {activeSubTab === 'feedback' && <FeedbackSection />}
         {activeSubTab === 'reliability' && <ReliabilitySection />}
-        {activeSubTab === 'health' && <HealthSection />}
-        {activeSubTab === 'team' && <TeamSection />}
         {activeSubTab === 'mcp' && <MCPSection />}
         {activeSubTab === 'learning' && <LearningSection />}
       </div>

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { AgentPhase, ThinkingPlan, VerificationReport } from '../state/types'
+import type { AgentPhase } from '../state/types'
 import type { ToolProgressEvent, ThinkingContext } from '../runtime/AgentEventEmitter'
 
 // ── Types ──
@@ -35,10 +35,6 @@ export interface AgentRunState {
   streamingText: string
   isStreaming: boolean
   hookFeedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null
-  executionPlan: ThinkingPlan | null
-  planPhase: 'none' | 'generating' | 'awaiting_approval' | 'approved' | 'rejected'
-  verificationReports: VerificationReport[]
-  planDeviation: { toolName: string; message: string } | null
 }
 
 export interface PermissionPattern {
@@ -99,12 +95,6 @@ export interface AgentStoreState {
   setStreamingText: (text: string) => void
   setIsStreaming: (streaming: boolean) => void
   setHookFeedback: (feedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null) => void
-  setExecutionPlan: (plan: ThinkingPlan | null) => void
-  setPlanPhase: (phase: AgentRunState['planPhase']) => void
-  setVerificationReports: (reports: VerificationReport[]) => void
-  addVerificationReport: (report: VerificationReport) => void
-  setPlanDeviation: (deviation: { toolName: string; message: string } | null) => void
-
   // Actions — Permissions
   recordPermission: (toolName: string, approved: boolean) => void
   getPermissionPattern: (toolName: string) => PermissionPattern | undefined
@@ -139,10 +129,6 @@ export const useAgentStore = create<AgentStoreState>()(
       streamingText: '',
       isStreaming: false,
       hookFeedback: null,
-      executionPlan: null,
-      planPhase: 'none',
-      verificationReports: [],
-      planDeviation: null,
     },
 
     permissionPatterns: [],
@@ -179,7 +165,7 @@ export const useAgentStore = create<AgentStoreState>()(
       _toolCleanupTimers.clear()
       return set(s => {
         s.run.runId = runId
-        s.run.phase = 'THINKING'
+        s.run.phase = 'RUNNING'
         s.run.isRunning = true
         s.run.iteration = 0
         s.run.thinking = null
@@ -188,10 +174,6 @@ export const useAgentStore = create<AgentStoreState>()(
         s.run.streamingText = ''
         s.run.isStreaming = false
         s.run.hookFeedback = null
-        s.run.executionPlan = null
-        s.run.planPhase = 'none'
-        s.run.verificationReports = []
-        s.run.planDeviation = null
       })
     },
 
@@ -209,10 +191,6 @@ export const useAgentStore = create<AgentStoreState>()(
         s.run.streamingText = ''
         s.run.isStreaming = false
         s.run.hookFeedback = null
-        s.run.executionPlan = null
-        s.run.planPhase = 'none'
-        s.run.verificationReports = []
-        s.run.planDeviation = null
       })
     },
 
@@ -250,15 +228,30 @@ export const useAgentStore = create<AgentStoreState>()(
     }),
 
     setLastError: (error) => set(s => { s.run.lastError = error }),
-    setStreamingText: (text) => set(s => { s.run.streamingText = text }),
-    setIsStreaming: (streaming) => set(s => { s.run.isStreaming = streaming }),
+
+    // V1-7: Throttled streaming text updates — max ~20 updates/sec to prevent
+    // 100+ full-component re-renders per response. 50ms delay is imperceptible.
+    setStreamingText: (text) => {
+      const state = get() as any
+      const now = Date.now()
+      const last = state._lastStreamUpdate || 0
+      if (now - last < 50) {
+        clearTimeout(state._streamTimer)
+        state._streamTimer = setTimeout(() => {
+          set(s => { s.run.streamingText = text })
+          ;(get() as any)._lastStreamUpdate = Date.now()
+        }, 50)
+        return
+      }
+      set(s => { s.run.streamingText = text })
+      ;(get() as any)._lastStreamUpdate = now
+    },
+    setIsStreaming: (streaming) => {
+      // V1-7: Only update if value actually changes (was called on every chunk)
+      if (get().run.isStreaming !== streaming) set(s => { s.run.isStreaming = streaming })
+    },
     setHookFeedback: (feedback) => set(s => { s.run.hookFeedback = feedback }),
 
-    setExecutionPlan: (plan) => set(s => { s.run.executionPlan = plan }),
-    setPlanPhase: (phase) => set(s => { s.run.planPhase = phase }),
-    setVerificationReports: (reports) => set(s => { s.run.verificationReports = reports }),
-    addVerificationReport: (report) => set(s => { s.run.verificationReports.push(report) }),
-    setPlanDeviation: (deviation) => set(s => { s.run.planDeviation = deviation }),
 
     // ── Permission Actions ──
 

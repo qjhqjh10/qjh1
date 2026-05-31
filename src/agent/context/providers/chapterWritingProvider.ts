@@ -27,7 +27,16 @@ export const chapterWritingProvider: ContextProvider = {
     const msg = userMessage || ''
     const isContinuation = /续写|接着写|继续写|接着上/.test(msg)
 
-    if (isContinuation) {
+    // Detect chapter number from message (e.g. "写第3章" → 3)
+    const chapterMatch = msg.match(/第\s*(\d+)\s*章/)
+    const targetChapterNum = chapterMatch ? parseInt(chapterMatch[1]) : null
+
+    // Inject previous chapter context when:
+    // 1. Explicit continuation ("续写") → inject latest chapter
+    // 2. Writing chapter N where N>1 ("写第3章") → inject chapter N-1
+    const needsPreviousChapter = isContinuation || (targetChapterNum !== null && targetChapterNum > 1)
+
+    if (needsPreviousChapter) {
       try {
         const files = await fileService.listDir(`${projectId}/chapters`)
         const txtFiles = files.filter((f: string) => f.endsWith('.txt')).sort((a, b) => {
@@ -35,13 +44,29 @@ export const chapterWritingProvider: ContextProvider = {
           const numB = parseInt(b.replace(/\D/g, '')) || 0
           return numA - numB
         })
-        if (txtFiles.length > 0) {
-          const latestFile = txtFiles[txtFiles.length - 1]
-          const chId = latestFile.replace('.txt', '')
-          const parts: string[] = [`## 续写上下文 — 最新章节 ${chId}`, '']
+
+        // Find the specific previous chapter file, or fall back to latest
+        let prevFile: string | null = null
+        if (targetChapterNum !== null && targetChapterNum > 1) {
+          // Find chapter N-1 by matching file numbers
+          const prevNum = targetChapterNum - 1
+          prevFile = txtFiles.find((f: string) => {
+            const num = parseInt(f.replace(/\D/g, ''))
+            return num === prevNum
+          }) || null
+        }
+        // Fallback: use latest chapter
+        if (!prevFile && txtFiles.length > 0) {
+          prevFile = txtFiles[txtFiles.length - 1]
+        }
+
+        if (prevFile) {
+          const chId = prevFile.replace('.txt', '')
+          const label = targetChapterNum ? `写第${targetChapterNum}章 — 前章(${chId})上下文` : `续写上下文 — 最新章节 ${chId}`
+          const parts: string[] = [`## ${label}`, '']
 
           try {
-            const content = await fileService.read(`${projectId}/chapters/${latestFile}`)
+            const content = await fileService.read(`${projectId}/chapters/${prevFile}`)
             const tail = extractChapterTail(content, 2500)
             parts.push('### 上一章末尾', tail, '')
           } catch { /* file read error */ }

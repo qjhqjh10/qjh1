@@ -78,9 +78,13 @@ export function ToolExecutionCard({ tool }: { tool: ToolExecutionState }) {
 
 export function ToolExecutionPanel() {
   const activeTools = useAgentStore(s => s.run.activeTools)
+  const isRunning = useAgentStore(s => s.run.isRunning)
   const tools = Object.values(activeTools)
 
-  if (tools.length === 0) return null
+  if (tools.length === 0) {
+    if (!isRunning) return null
+    return <div style={{ fontSize: 10, color: '#9b8e84', padding: '4px 14px' }}>⏳ 等待工具执行...</div>
+  }
 
   return (
     <div style={{ padding: '4px 0' }}>

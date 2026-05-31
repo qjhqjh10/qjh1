@@ -15,6 +15,8 @@ export const outlineProvider: ContextProvider = {
   relevance: (userMessage) => {
     if (/修改.*outline|编辑.*大纲|写.*大纲/.test(userMessage)) return 1.0
     if (/大纲|剧情|情节|故事线|世界观|设定|worldbuilding|outline|plot/i.test(userMessage)) return 0.9
+    // V4: writing/editing chapters needs plot context (where are we in the story?)
+    if (/写.*第.*章|创作.*第.*章|生成.*第.*章|续写|修改|编辑|章节/i.test(userMessage)) return 0.6
     return 0.2
   },
 

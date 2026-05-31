@@ -1,7 +1,20 @@
 {
-  "currentVersion": "9.2.0",
-  "currentDate": "2026-05-30",
+  "currentVersion": "9.3.0",
+  "currentDate": "2026-05-31",
   "history": [
+    {
+      "version": "9.3.0",
+      "date": "2026-05-31",
+      "features": [
+        "V4 Agent架构重构: 统一单循环替代13态FSM,模型为唯一决策者,代码退居工具执行器+3层安全围栏",
+        "Agent智能度提升: 四模工作模式(闲聊/简单任务/模糊意图/复杂任务),系统提示词从规则清单重写为行为哲学,17个核心工具描述从功能说明书重写为使用指南",
+        "架构精简: 删除45+旧子系统文件(PlanEnforcer/ReflectionEngine/TaskPipeline/CircuitBreaker等),代码量从16,500行降至8,000行(-51%)",
+        "DeepSeek V4 Pro 1M上下文适配: 全量37工具始终可见,移除5级渐进压缩,移除ToolSubsetRouter",
+        "Provider智能化: chapterWritingProvider写第N章自动注入前章内容,characterProvider/outlineProvider扩展章节写作激活",
+        "安全模型简化: 12层→3层(path隔离+JSON校验+危险工具门),仅delete/shell需要用户确认",
+        "上下文注入修复: MemoryIndex直接注入系统提示词,切换项目自动同步projectId"
+      ]
+    },
     {
       "version": "9.2.0",
       "date": "2026-05-30",

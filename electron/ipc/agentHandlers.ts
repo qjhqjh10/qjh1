@@ -169,15 +169,20 @@ export function registerAgentHandlers(ipcMain: IpcMain, projectsPath?: string) {
       const scriptPath = join(__dirname, '..', '..', 'scripts', 'agent-cli.mjs')
       let settled = false
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null
-      // Pass API key via environment variable (not CLI args — visible to all processes)
+      // Pass API key via stdin pipe (NOT env var — visible to all processes in tree)
       const child = spawn('node', [scriptPath, '--self-optimize',
         `--api-url=${apiUrl}`, `--model=${model}`,
         `--command=${command}`, '--max-iters=12',
+        '--api-key-stdin',   // tell script to read key from stdin
       ], {
         cwd: join(__dirname, '..', '..'),
-        env: { ...process.env, AI_API_KEY: apiKey },
-        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env },   // no AI_API_KEY in env
+        stdio: ['pipe', 'pipe', 'pipe'],
       })
+
+      // Write API key to stdin immediately, then close — never visible in /proc
+      child.stdin.write(apiKey + '\n')
+      child.stdin.end()
 
       let output = ''
       child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })

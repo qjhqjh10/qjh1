@@ -4,7 +4,7 @@ export const kbTools: ToolDefinition[] = [
   {
     schema: {
       name: 'kb_list',
-      description: '列出知识库中所有文件的名称、ID 和类型。保存前应先调用此工具查看已有文件。',
+      description: '列出知识库中所有文件的名称、ID 和类型。何时使用：保存内容到知识库之前，先查看已有文件列表。根据已有文件决定追加到现有文件（kb_append_file）还是创建新文件（kb_create_file）。返回文件列表含名称和ID——后续追加/索引操作需要用到ID。',
       parameters: { type: 'object', properties: {}, required: [] },
     },
     permission: 'AUTO',
@@ -22,7 +22,7 @@ export const kbTools: ToolDefinition[] = [
   {
     schema: {
       name: 'kb_create_file',
-      description: '在知识库中创建新的 .md 文件保存资料。',
+      description: '在知识库创建新文件保存资料。何时使用：要保存的内容不匹配任何已有知识库文件时。先调用 kb_list 确认是否需要新建。文件名应描述性（如"古风服饰描写收集.md"）。创建后可调用 kb_index_file 建立语义搜索索引。',
       parameters: {
         type: 'object',
         properties: {
@@ -53,7 +53,7 @@ export const kbTools: ToolDefinition[] = [
   {
     schema: {
       name: 'kb_append_file',
-      description: '向知识库已有文件末尾追加内容。先 kb_list 查看文件列表。',
+      description: '向知识库已有文件末尾追加内容。何时使用：新内容与已有知识库文件主题相关时。先 kb_list 获取文件列表，确认目标文件的 ID（不是名称）。追加内容会以分隔线隔开。',
       parameters: {
         type: 'object',
         properties: {
@@ -77,7 +77,7 @@ export const kbTools: ToolDefinition[] = [
   {
     schema: {
       name: 'kb_index_file',
-      description: '对知识库文件建立 embedding 语义搜索索引。',
+      description: '对知识库文件建立语义搜索索引。何时使用：创建或追加知识库文件内容后，调用此工具使内容可被语义搜索检索。需要从 kb_list 获取目标文件的 ID。',
       parameters: {
         type: 'object',
         properties: { file_id: { type: 'string', description: '目标文件 ID' } },

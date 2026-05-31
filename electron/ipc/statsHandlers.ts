@@ -40,8 +40,21 @@ export async function logTokenUsage(entry: TokenUsageEntry) {
     await ensureStatsDir()
     const logPath = path.join(getStatsPath(), 'usage.jsonl')
     await fs.appendFile(logPath, JSON.stringify(entry) + '\n', 'utf-8')
+    // Debug: verify write succeeded by checking file size
+    try {
+      const stat = await fs.stat(logPath)
+      if (stat.size === 0) console.warn(`[stats] WARNING: usage.jsonl is empty after append`)
+    } catch {}
   } catch (err) {
-    console.error(`[stats] logTokenUsage failed (path: ${getStatsPath()}):`, err)
+    console.error(`[stats] logTokenUsage primary failed (path: ${getStatsPath()}):`, err)
+    // Fallback: write to app root so we can debug
+    try {
+      const fallbackPath = path.join(app.getAppPath(), 'stats-fallback.jsonl')
+      await fs.appendFile(fallbackPath, JSON.stringify(entry) + '\n', 'utf-8')
+      console.log(`[stats] Fallback written to ${fallbackPath}`)
+    } catch (err2) {
+      console.error(`[stats] Fallback also failed:`, err2)
+    }
   }
 }
 

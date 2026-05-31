@@ -4,25 +4,15 @@ import type { AgentPhase } from '@/agent/state/types'
 
 const PHASE_LABELS: Record<AgentPhase, { label: string; color: string; bg: string }> = {
   IDLE:               { label: '就绪',    color: '#9b8e84', bg: 'transparent' },
-  THINKING:           { label: '思考中',  color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
-  ASSEMBLING_CONTEXT: { label: '组装上下文', color: '#6366f1', bg: 'rgba(99,102,241,0.08)' },
-  CALLING_API:        { label: '调用 AI',  color: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
-  AWAITING_TOOLS:     { label: '等待工具', color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
-  EXECUTING:          { label: '执行中',  color: '#059669', bg: 'rgba(5,150,105,0.08)' },
-  AWAITING_APPROVAL:  { label: '待审批',  color: '#d97706', bg: 'rgba(217,119,6,0.10)' },
-  PLANNING:           { label: '规划中',  color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)' },
-  REFLECTING:         { label: '反思中',  color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
-  VERIFYING:          { label: '验证中',  color: '#059669', bg: 'rgba(5,150,105,0.08)' },
-  RESPONDING:         { label: '回复中',  color: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
+  RUNNING:            { label: '思考中',  color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
+  WAITING_APPROVAL:   { label: '待审批',  color: '#d97706', bg: 'rgba(217,119,6,0.10)' },
+  DONE:               { label: '完成',    color: '#059669', bg: 'rgba(5,150,105,0.08)' },
   ERROR:              { label: '错误',    color: '#dc2626', bg: 'rgba(220,38,38,0.10)' },
   ABORTED:            { label: '已中止',  color: '#9b8e84', bg: 'rgba(155,142,132,0.08)' },
 }
 
-// Phase progress weights for the progress bar
 const PHASE_PROGRESS: Record<AgentPhase, number> = {
-  IDLE: 0, THINKING: 5, ASSEMBLING_CONTEXT: 10, CALLING_API: 20,
-  AWAITING_TOOLS: 50, PLANNING: 15, EXECUTING: 60, AWAITING_APPROVAL: 55,
-  REFLECTING: 70, VERIFYING: 75, RESPONDING: 90, ERROR: 0, ABORTED: 0,
+  IDLE: 0, RUNNING: 50, WAITING_APPROVAL: 55, DONE: 100, ERROR: 0, ABORTED: 0,
 }
 
 export function AgentStateBar() {
@@ -33,7 +23,14 @@ export function AgentStateBar() {
   const error = useAgentStore(s => s.run.lastError)
   const maxIterations = 15
 
-  if (!isRunning && phase === 'IDLE') return null
+  // Always show bar — even IDLE state is informative
+  if (!isRunning && phase === 'IDLE' && !error) {
+    return (
+      <div style={{ padding: '3px 14px', fontSize: 10, color: '#9b8e84', opacity: 0.5 }}>
+        就绪 · 输入消息开始
+      </div>
+    )
+  }
 
   const info = PHASE_LABELS[phase] || PHASE_LABELS.IDLE
   const phaseProgress = PHASE_PROGRESS[phase] || 0
