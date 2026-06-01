@@ -60,12 +60,15 @@ async function safeResolve(
   }
   // Strip bare ".." at boundaries
   clean = clean.replace(/\/\.\.$/, '').replace(/^\.\.$/, '')
-  const joined = path.join(projectPath, clean)
-  if (!isSafePath(joined, projectPath)) return null
+  // Normalize projectPath via realpath to handle Windows short names (RUNNER~1 → runneradmin)
+  let realProjectPath = projectPath
+  try { realProjectPath = await fsp.realpath(projectPath) } catch {}
+  const joined = path.join(realProjectPath, clean)
+  if (!isSafePath(joined, realProjectPath)) return null
   // Resolve symlinks to get real path, then re-check (Issue #5)
   try {
     const real = await fsp.realpath(joined)
-    if (!isSafePath(real, projectPath)) return null
+    if (!isSafePath(real, realProjectPath)) return null
     return real
   } catch {
     // File doesn't exist yet (e.g., create_file) — return joined path as-is
