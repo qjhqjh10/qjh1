@@ -73,7 +73,7 @@ export const STYLE_DOMAIN_MODULE = `
 ## 风格模板
 用户上传或引用文本后，分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
 必填: name(模板名), type(小说类型), dimensions(分析结果对象)
-dimensions 每个维度格式: { "维度": "维度名", "值": "具体特征值", "说明": "原文依据和解释" }
+dimensions每个维度格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填，examples/writingRules/vocabularyList若无则填空数组[]
 可选: worldType(世界观类型), description(简短描述), fullDescription(完整综述)
 可选: vocabularyList(词汇清单数组), writingRules(写作规则数组)
 可选: tone({ word: "基调词", description: "基调描述", attitude: "态度" })
