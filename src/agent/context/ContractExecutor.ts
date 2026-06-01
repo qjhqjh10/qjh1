@@ -26,6 +26,9 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   read_note:      ['status', 'summary', 'detail'],
   kb_list:        ['status', 'summary', 'detail'],
   kb_index_file:  ['status', 'summary', 'detail'],
+  // ── Template tools: strip detail (template JSON) to stay lean ──
+  create_style_template: ['status', 'summary'],
+  create_scene_template:  ['status', 'summary'],
   // ── Write tools: strip detail to stay lean ──
   create_file:    ['status', 'summary'],
   edit_file:      ['status', 'summary'],

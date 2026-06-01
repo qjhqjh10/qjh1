@@ -28,10 +28,9 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。直�
 写:create_file/edit_file
 模板:create_style_template/create_scene_template
 图片:search_images/generate_image
-仅delete/shell需确认
+编辑/创建/删除文件需用户确认。shell/项目级操作需额外确认。
 
-⚠️ 严禁在文字中模拟工具调用！不要写 <read_file> 之类的伪标签。
-调用工具必须通过 Function Calling 机制，不是写在文字里。
+⚠️ 调用工具必须通过 Function Calling 机制。不要在回复文本中描述工具调用过程。不要模仿工具调用的XML格式。
 
 ## 项目
 __PROJECT_STRUCTURE__

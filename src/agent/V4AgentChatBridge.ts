@@ -6,7 +6,7 @@
 
 import { V4AgentRuntime } from './V4AgentRuntime'
 import { V4SecurityFence } from './V4SecurityFence'
-import { buildSystemPrompt, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
+import { buildSystemPrompt, selectDomainModules, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './tools/ToolRegistry'
@@ -168,6 +168,7 @@ export class V4AgentChatBridge {
       const taskKey: string = (() => {
         if (/风格|文风|仿写|分析.*文/.test(msg))                               return 'style'
         if (/场景.*(?:模板|创建|生成)|创建.*场景/.test(msg))                     return 'scene'
+        if (/模板|创建.*模板|生成.*模板/.test(msg))                             return 'template'
         if (/创建.*角色|添加.*角色|角色.*创建|新建.*角色/.test(msg))              return 'character'
         if (/写.{0,5}章|创作|生成.{0,5}章|续写|章节.*写|写.*第[一二三\d]/.test(msg)) return 'chapter'
         if (/知识库|kb|素材.*保存|保存.*素材|索引.*知识/.test(msg))              return 'kb'
@@ -189,6 +190,7 @@ export class V4AgentChatBridge {
         character: { core: new Set([...READ, 'create_file']),   extended: new Set([...WRITE, 'search_files', 'search_content']) },
         style:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([...READ, 'search_content']) },
         scene:     { core: new Set(['read_file', 'create_scene_template']), extended: new Set([...READ, 'create_style_template']) },
+        template:  { core: new Set(['read_file', ...TMPL]),     extended: new Set([...READ, 'search_content']) },
         kb:        { core: KB,                                  extended: new Set([...READ, ...WRITE]) },
         note:      { core: NOTE,                                extended: new Set([...READ, 'delete_note']) },
         image:     { core: IMG,                                 extended: READ },
@@ -257,17 +259,16 @@ export class V4AgentChatBridge {
       //
       // V9.5.2: Use selectDomainModules to only include relevant modules.
       // Previously all 6 were hardcoded, bloating prompt with irrelevant instructions.
-      const { selectDomainModules } = await import('./V4SystemPrompt')
       const selectedModules = selectDomainModules(userMessage)
-      const coreDomainModules = [
-        CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE,  // always needed
-        ...selectedModules.filter(m =>
-          m !== CHARACTER_DOMAIN_MODULE && m !== OUTLINE_DOMAIN_MODULE && m !== CHAPTER_DOMAIN_MODULE
-        ),
-      ]
+      // V9.5.2: All domain modules selected dynamically via selectDomainModules.
+      // Fallback: always include CHARACTER + OUTLINE for simple/chat intents.
+      const coreDomainModules = selectedModules.length > 0
+        ? selectedModules
+        : [CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE]
       // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
       // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
-      const CORE_PROMPT = buildSystemPrompt(coreDomainModules, '', '') + planInstruction
+      // V9.5.2: planInstruction moved to dynamicContent to keep CORE_PROMPT stable for cache
+      const CORE_PROMPT = buildSystemPrompt(coreDomainModules, '', '')
       const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
       const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -337,6 +338,7 @@ export class V4AgentChatBridge {
           projectIndex,                                            // 项目索引: PROJECT.md + 文件列表
           ...base.systemMessages.map(m => m.content),              // Context Providers
           searchContext,                                           // 知识库/网络搜索
+          planInstruction,                                         // 复杂任务执行方案(移自CORE保持缓存)
           planPrompt,                                              // Plan模式提示
         ].filter(Boolean).join('\n\n')
 
@@ -511,11 +513,14 @@ export class V4AgentChatBridge {
   abort(): void {
     this.abortController.abort()
     this.runtime?.abort()
+    // Persist audit trail before aborting (best-effort)
+    this.auditTrail.persist().catch(() => {})
     // Dynamic import for abort stream — fire-and-forget
     import('@/services/fileService').then(m => m.aiService?.abortStream?.()).catch(() => {})
   }
 
   destroy(): void {
+    this.auditTrail.persist().catch(() => {})
     this.abort()
     this.runtime = null
   }

@@ -371,14 +371,18 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           return msg as any
         })
 
-      // 🔧 Dump API messages to file for debugging (rotate per call)
+      // 🔧 Dump API messages to file for debugging (env-guarded, safe path)
       try {
-        const { writeFileSync, mkdirSync } = await import('fs')
-        const dump = apiMessages.map((m, i) =>
-          `[${i}] ${m.role}${m.cache_control ? ' [CACHED]' : ''}\n${(m.content || '').slice(0, 4000)}${(m.content || '').length > 4000 ? '...' : ''}`
-        ).join('\n\n---\n\n')
-        mkdirSync('.appdata', { recursive: true })
-        writeFileSync('.appdata/last-prompt.txt', `API call at ${new Date().toISOString()}\nMessages: ${apiMessages.length}\n\n${dump}`)
+        if (process.env.QINGJIAN_DEBUG_PROMPT === '1') {
+          const { writeFileSync, mkdirSync } = await import('fs')
+          const { join } = await import('path')
+          const debugDir = join(app.getPath('userData'), 'debug')
+          const dump = apiMessages.map((m, i) =>
+            `[${i}] ${m.role}${m.cache_control ? ' [CACHED]' : ''}\n${(m.content || '').slice(0, 4000)}${(m.content || '').length > 4000 ? '...' : ''}`
+          ).join('\n\n---\n\n')
+          mkdirSync(debugDir, { recursive: true })
+          writeFileSync(join(debugDir, 'last-prompt.txt'), `API call at ${new Date().toISOString()}\nMessages: ${apiMessages.length}\n\n${dump}`)
+        }
       } catch {}
 
       // Hard timeout: abort API call after 90 seconds at the IPC level

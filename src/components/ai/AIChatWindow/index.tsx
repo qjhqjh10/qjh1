@@ -314,7 +314,7 @@ export default function AIChatWindow() {
     // displayOnly: 软件功能/能力自述 → 仅显示，不入 AI 上下文
     let filtered = msgs.filter(m =>
       (m.role === 'user' || m.role === 'assistant')
-      && m.id !== 'welcome'
+      && !String(m.id).startsWith('welcome')
       && !(m as any).compressedSummary
       && !(m as any).displayOnly
     )
