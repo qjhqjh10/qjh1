@@ -272,9 +272,10 @@ export interface SessionStatsResult {
 // ── Session Stats Helper ──
 
 async function getAuditBasePath(projectsPath?: string): Promise<string> {
-  if (projectsPath) return join(projectsPath, '..', '.aiharness', 'audit')
-  // Fallback: use app.getPath('userData')
-  return join(app.getPath('userData'), '.aiharness', 'audit')
+  // V9.5.2: AuditTrail writes to projectsPath/.aiharness/audit/
+  // (fileService.resolvePath resolves relative .aiharness/audit/ against projectsPath)
+  if (projectsPath) return join(projectsPath, '.aiharness', 'audit')
+  return join(app.getPath('userData'), 'projects', '.aiharness', 'audit')
 }
 
 async function readSessionStats(projectsPath?: string): Promise<SessionStatsResult> {

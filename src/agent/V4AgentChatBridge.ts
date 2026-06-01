@@ -474,6 +474,8 @@ export class V4AgentChatBridge {
       store.setIsStreaming(false)
       options.onComplete?.(result)
       store.endRun()
+      // V9.5.2: 会话结束时持久化审计数据到磁盘
+      this.auditTrail.persist().catch(() => {})
 
 
       return {
@@ -489,6 +491,7 @@ export class V4AgentChatBridge {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
       store.setLastError(errMsg)
       store.endRun()
+      this.auditTrail.persist().catch(() => {})
       return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, phase: 'ERROR' }
     } finally {
       // Clean up all emitter listeners to prevent leaks on re-send
