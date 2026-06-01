@@ -16,7 +16,7 @@
     "narrativePOV": "第三人称",
     "pacing": "渐进",
     "detail": "",
-    "autoFields": []
+    "autoFields": {}
   },
   "source": "cli-generated"
 }

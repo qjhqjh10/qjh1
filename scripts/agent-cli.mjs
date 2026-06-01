@@ -571,7 +571,13 @@ class NodeToolExecutor {
             bodyLanguage: safeStr(args.bodyLanguage, ''),
             detail: safeStr(args.detail, ''),
             extraNote: safeStr(args.extraNote, ''),
-            autoFields: arr(args.autoFields),
+            autoFields: (() => {
+              const fields = arr(args.autoFields)
+              if (fields.length === 0) return {}
+              const obj = {}
+              for (const f of fields) obj[f] = true
+              return obj
+            })(),
             intensity: Number(args.intensity || args.eroticIntensity || 0),
             selectedKinks: arr(args.selectedKinks),
             opening: arr(args.opening),
@@ -888,7 +894,7 @@ dimensions格式: { "维度名": { "description": "特征描述", "examples": ["
 必填: name, type
 通用字段: sceneType, conflictType, characters, location, time, weather, atmosphere, wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
 情色额外字段: intensity(1-5), selectedKinks[], opening[], climax[], aftermath[], soundDensity, moanStyle, degradeLangs[], bodyFluidFocus[], bodyPartFocus[], tactileFocus[], sensoryAnchors, dominantEmotion, emotionCurveInput
-⚠️ 铁律: 输入里有信号的必须填, 没有的不要强行编造——跳过或列autoFields。
+⚠️ 铁律: 输入里有信号的必须填, 没有的或把握不好的列入autoFields——让用户一键自动填充。
 
 ## 知识库
 - 保存前先 kb_list，让用户选追加还是新建

@@ -92,7 +92,7 @@ export const SCENE_DOMAIN_MODULE = `
   soundDensity(低|中|高|极高), moanStyle, degradeLangs[]
   bodyFluidFocus[], bodyPartFocus[], tactileFocus[]
   sensoryAnchors, dominantEmotion, emotionCurveInput
-⚠️ 铁律：输入内容里有信号的必须填，没有的不要强行编造——跳过或列入autoFields。宁可少而精。先read_file参考已有模板格式。`
+⚠️ 铁律：输入内容里有信号的必须填，没有的不要强行编造——跳过或列入autoFields。把握不好的字段也列入autoFields，让用户一键自动填充。宁可少而精。先read_file参考已有模板格式。`
 
 export const KB_DOMAIN_MODULE = `
 ## 知识库

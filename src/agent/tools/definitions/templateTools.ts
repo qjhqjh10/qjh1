@@ -81,7 +81,7 @@ export const templateTools: ToolDefinition[] = [
           bodyLanguage: { type: 'string', description: '肢体语言描写重点' },
           detail: { type: 'string', description: '详细场景配置(Markdown)' },
           extraNote: { type: 'string', description: '额外要求' },
-          autoFields: { type: 'array', items: { type: 'string' }, description: '无法确定的字段名' },
+          autoFields: { type: 'array', items: { type: 'string' }, description: '把握不好、无法确定的字段名列表。这些字段将显示AI自动按钮，用户可一键自动填充。不确定的字段优先列入此数组，不要强行填值。' },
           // 情色场景字段（情色类型时填写）
           intensity: { type: 'number', description: '情色浓度1-5' },
           selectedKinks: { type: 'array', items: { type: 'string' }, description: '玩法标签' },
@@ -125,7 +125,14 @@ export const templateTools: ToolDefinition[] = [
           bodyLanguage: str(args.bodyLanguage),
           detail: str(args.detail),
           extraNote: str(args.extraNote),
-          autoFields: arr(args.autoFields),
+          autoFields: (() => {
+            // Convert ["time","weather"] → { time: true, weather: true }
+            const fields = arr(args.autoFields)
+            if (fields.length === 0) return {}
+            const obj: Record<string, boolean> = {}
+            for (const f of fields) obj[f] = true
+            return obj
+          })(),
           // Erotic-specific
           intensity: Number(args.intensity || args.eroticIntensity || 0),
           selectedKinks: arr(args.selectedKinks),
