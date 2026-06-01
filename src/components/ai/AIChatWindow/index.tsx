@@ -445,16 +445,12 @@ export default function AIChatWindow() {
     let attachText = ''
     if (attachment) {
       if (attachment.type === 'file') {
-        // Save uploaded file to disk: uploads/files/
-        // fileService.write auto-caches via shared fileReadCache — no separate setCachedFile needed
+        // 文件保存到 uploads/files/，AI 通过 read_file 工具读取后分析
         const filePath = `uploads/files/${attachment.name}`
         try {
           await fileService.ensureDir('uploads/files')
           await fileService.write(filePath, attachment.content)
-          // Send full content (up to 15000 chars) so AI can start analysis without read_file roundtrip
-          const preview = attachment.content.slice(0, 15000)
-          const truncated = attachment.content.length > 15000 ? '\n…(内容已截断，完整文件用 read_file 读取)' : ''
-          attachText = `[上传文件: ${attachment.name} — 已保存到 ${filePath}]\n\n--- 文件内容 ---\n${preview}${truncated}\n--- 内容结束 ---`
+          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 ${filePath}。请用 read_file 读取内容后分析。`
         } catch {
           attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
         }
