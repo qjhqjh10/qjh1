@@ -1,7 +1,22 @@
 {
-  "currentVersion": "9.5.1",
-  "currentDate": "2026-06-01",
+  "currentVersion": "9.5.2",
+  "currentDate": "2026-06-02",
   "history": [
+    {
+      "version": "9.5.2",
+      "date": "2026-06-02",
+      "features": [
+        "CI修复: GitHub Actions node-version 20→22，修复npm ci与lockfileVersion 3不兼容导致持续失败",
+        "共享文件读缓存: fileReadCache.ts统一GUI(fileService)和AI(FileCache)读缓存，读自动缓存/写自动更新/删自动淘汰",
+        "上传TXT完整保留: 移除50KB硬截断(text.slice(0,50000))，完整内容上传到uploads/files/",
+        "章节查看缓存: fileService.read接入fileReadCache，多次打开同一章节不走磁盘",
+        "粘贴文本缓存阈值降低: 500→200字符即自动保存到uploads/clips/",
+        "软件功能/AI能力回答不入上下文: displayOnly机制，用户询问软件功能时问答仅显示不消耗后续对话token",
+        "打包安全体系: packaging-rules.md记忆文件(16项黑名单+历史事故+审查清单)+12个自动测试",
+        "版本更新审查清单扩展: 7→9项(新增docs/同步+打包安全检查)，修正架构文件工具数37→39/故事脉络13→14Tab",
+        "测试: 355→392用例(新增UploadReadEditWorkflow 25例+PackagingSafety 12例)"
+      ]
+    },
     {
       "version": "9.5.1",
       "date": "2026-06-01",

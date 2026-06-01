@@ -142,6 +142,16 @@ export const SCENE_DOMAIN_MODULE = `
 
 ⚠️ 铁律：原文有信号的→必须填。原文没有或把握不好的→跳过或入autoFields。先 read_file 读原文和已有细纲。`
 
+export const ARCHITECTURE_DOCS_HINT = `
+## 技术文档
+项目 docs/ 目录下有两份技术文档：
+- docs/软件架构.md — 四层Harness架构、37工具分类、数据流、核心功能流程 (136行)
+- docs/文件作用速查.md — 按目录分层的全量文件清单 (194行)
+
+用户问架构/文件结构/技术实现时，先判断用户意图。如果是浅层了解，用自己的知识简要回复，不要读文件。如果用户明确表示要深入了解，用 read_file 读取这两份文档后为用户讲解。
+
+这两份文档加载一次后会被 FileCache 缓存，后续再读不会重复走磁盘。只在用户明确要求时读取，不要主动预加载。`
+
 export const REWRITE_DOMAIN_MODULE = `
 ## 小说改写
 - 改写功能通过操作项目文件实现：读取章节正文 → AI 分析 → 创建改写版本
@@ -156,7 +166,7 @@ export const KB_DOMAIN_MODULE = `
 
 export const AI_CAPABILITIES_MODULE = `
 ## AI 助手能力说明
-用户问"你能做什么""你会什么""你有什么能力""AI助手能做什么""AI能做什么"时触发。这是问你的能力，不是问软件的功能。不需要调用工具，直接输出文本回复。
+用户问"你能做什么""你会什么""你有什么能力""AI助手能做什么""AI能做什么"时触发。这是问你的能力，不是问软件的功能。不需要调用工具，直接输出文本回复。此回答仅显示给用户，不进入后续对话上下文。
 
 你是青剑内置的 AI 写作助手。你能直接操作项目文件，完成以下任务：
 
@@ -178,9 +188,11 @@ export const AI_CAPABILITIES_MODULE = `
 
 export const SOFTWARE_FEATURES_MODULE = `
 ## 软件功能说明
-用户问"软件有什么功能""软件说明""功能介绍""软件能做什么""这个软件是什么""软件功能"时触发。这是问软件（青剑）的整体功能，不是你（AI助手）的能力。不需要调用工具，直接输出文本回复。
+用户问"软件有什么功能""软件说明""功能介绍""软件能做什么""这个软件是什么""软件功能"时触发。这是问软件（青剑）的整体功能，不是你（AI助手）的能力。不需要调用工具，直接输出文本回复。此回答仅显示给用户，不进入后续对话上下文。
 
-青剑 v9.5.0 是 AI 辅助小说创作桌面软件。主要功能模块：
+⚠️ 同步规则：此模块的功能描述需与 src/data/softwareGuide.ts 的 SOFTWARE_FEATURES_SUMMARY 保持一致。
+
+青剑是 AI 辅助小说创作桌面软件。主要功能模块：
 
 📁 项目管理 — 支持普通写作/仿写/续写三种项目类型，项目卡片 + ZIP 导出导入
 💬 AI 写作助手 — 39 个工具，悬浮聊天窗，Plan/Action 双模式，可操作项目文件
@@ -196,7 +208,9 @@ export const SOFTWARE_FEATURES_MODULE = `
 📕 导出 — EPUB 3.0 + 自动目录 + 封面嵌入
 ⚙️ 设置 — 10+ AI 服务商 + 多模型管理 + Token 用量统计 + 7 套主题
 
-回复格式：直接列出以上模块，每项一行，最后加一句"需要了解哪个功能的详细信息？"`
+回复格式：直接列出以上模块，每项一行，最后加一句"需要了解哪个功能的详细信息？"
+
+如果用户想深入了解软件的技术架构或文件结构，可以告诉用户：docs/ 目录下有「软件架构.md」和「文件作用速查.md」两份详细文档，你可以读取后为用户讲解。这两份文档比较大（各 130+ 行），只在用户明确要求时才读取，不要主动预加载。`
 
 export function buildSystemPrompt(
   domainModules: string[],
@@ -222,5 +236,6 @@ export function selectDomainModules(userMessage: string): string[] {
   if (/你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么/.test(msg)) modules.push(AI_CAPABILITIES_MODULE)
   if (/软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/.test(msg)) modules.push(SOFTWARE_FEATURES_MODULE)
   if (/改写|重写|rewrite/.test(msg) && !/仿写|续写/.test(msg)) modules.push(REWRITE_DOMAIN_MODULE)
+  if (/架构|文件结构|代码结构|技术文档|底层|实现原理/.test(msg)) modules.push(ARCHITECTURE_DOCS_HINT)
   return modules
 }

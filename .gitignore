@@ -27,6 +27,9 @@ uploads/
 # Coverage reports (generated)
 coverage/
 
+# Test data
+测试/
+
 # CLI test scripts (contain API keys for local testing only)
 scripts/v4-test.mjs
 scripts/v4-full-test.mjs

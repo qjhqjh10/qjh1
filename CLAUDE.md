@@ -51,6 +51,7 @@ src/types/         — 类型定义
 | `src/utils/imageCompress.ts` | 头像图片压缩+存盘（256px JPEG） |
 | `src/data/softwareGuide.ts` | 软件功能说明单一数据源（UI+AI共用） |
 | `src/utils/security.ts` | 路径消毒/URL验证/命令白名单 |
+| `src/utils/fileReadCache.ts` | 共享文件读缓存（GUI+AI共用，读写删自动同步） |
 | `src/agent/utils/tokenEstimation.ts` | CJK 感知 token 估算 |
 
 ## 验证命令
@@ -58,7 +59,7 @@ src/types/         — 类型定义
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 运行全部测试（355 用例） |
+| `npx vitest run` | 运行全部测试（380 用例） |
 
 ## 操作原则
 

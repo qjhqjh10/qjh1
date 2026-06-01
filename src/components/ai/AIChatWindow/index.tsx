@@ -308,11 +308,13 @@ export default function AIChatWindow() {
 
   // Build history messages for the bridge: include user/assistant, and strip tool_calls without matching tool results
   function buildHistoryMessages(msgs: Message[]) {
-    // Exclude welcome message and compression summaries — they're for the user, not the AI
+    // Exclude welcome message, compression summaries, and display-only messages
+    // displayOnly: 软件功能/能力自述 → 仅显示，不入 AI 上下文
     let filtered = msgs.filter(m =>
       (m.role === 'user' || m.role === 'assistant')
       && m.id !== 'welcome'
       && !(m as any).compressedSummary
+      && !(m as any).displayOnly
     )
     // I6: Keep only last 20 user messages to prevent history bloat
     if (filtered.length > 40) {
@@ -394,15 +396,17 @@ export default function AIChatWindow() {
       }
       r.readAsDataURL(file)
     } else {
-      // Text file — save to global uploads/ so AI can search and read_file
+      // Text file — save to uploads/files/ so AI can search and read_file
+      // No truncation: full content preserved. fileService.write auto-caches via fileReadCache.
       const r = new FileReader()
       r.onload = async () => {
         const text = r.result as string
         if (!text.trim()) return
-        const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
-        const uploadsDir = `${base}/uploads`
-        try { await fileService.ensureDir(uploadsDir); await fileService.write(`${uploadsDir}/${file.name}`, text.slice(0, 50000)) } catch (e) { console.error('上传文件失败', e) }
-        setAttachment({ type: 'file', name: file.name, content: text.slice(0, 50000) })
+        try {
+          await fileService.ensureDir('uploads/files')
+          await fileService.write(`uploads/files/${file.name}`, text)
+        } catch (e) { console.error('上传文件失败', e) }
+        setAttachment({ type: 'file', name: file.name, content: text })
       }
       r.readAsText(file, 'UTF-8')
     }
@@ -415,6 +419,12 @@ export default function AIChatWindow() {
   useEffect(() => {
     return () => { bridgeRef.current?.destroy(); bridgeRef.current = null }
   }, [])
+
+  // V9.5.2: 软件功能/能力自述消息不入上下文 — 仅显示，不发送给 API
+  const pendingDisplayOnlyRef = useRef(false)
+  // Patterns matching "软件功能" or "AI 能力" queries (same as selectDomainModules in V4SystemPrompt)
+  const DISPLAY_ONLY_PATTERN = /你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么|软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/
+  const isDisplayOnlyQuery = (msg: string) => DISPLAY_ONLY_PATTERN.test(msg)
 
   // Double-send guard — prevents race between async checkApiConnection and setLoading
   const sendLockRef = useRef(false)
@@ -433,13 +443,57 @@ export default function AIChatWindow() {
     let attachText = ''
     if (attachment) {
       if (attachment.type === 'file') {
-        attachText = `[上传文件: ${attachment.name}]\n文件已保存到全局 uploads 目录。如需读取内容，请用 read_file("${attachment.name}")。`
-      } else { attachText = attachment.content }
+        // Save uploaded file to disk: uploads/files/
+        // fileService.write auto-caches via shared fileReadCache — no separate setCachedFile needed
+        const filePath = `uploads/files/${attachment.name}`
+        try {
+          await fileService.ensureDir('uploads/files')
+          await fileService.write(filePath, attachment.content)
+          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 uploads/files/${attachment.name}。要读取内容，使用 read_file("${filePath}")。`
+        } catch {
+          attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
+        }
+      } else {
+        // Save uploaded image to disk: uploads/images/
+        const imgPath = `uploads/images/${attachment.name}`
+        try {
+          await fileService.ensureDir('uploads/images')
+          const base64 = (attachment.previewUrl || '').split(',')[1]
+          if (base64) {
+            await fileService.writeBinary(imgPath, base64)
+            attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
+          } else {
+            attachText = attachment.content
+          }
+        } catch {
+          attachText = attachment.content
+        }
+      }
     }
+
+    // Auto-save pasted text (>200 chars with no attachment) to disk
+    // fileService.write auto-caches via shared fileReadCache
+    // This ensures AI can reference it later even if conversation context is compressed
+    let pasteClipPath = ''
+    if (!attachment && input.trim().length > 200) {
+      try {
+        const ts = Date.now().toString(36)
+        pasteClipPath = `uploads/clips/clip_${ts}.txt`
+        await fileService.ensureDir('uploads/clips')
+        await fileService.write(pasteClipPath, input.trim())
+      } catch { pasteClipPath = '' }
+    }
+
     const capturedInputLength = input.trim().length
-    const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : input.trim())
+    const pasteRef = pasteClipPath ? `[粘贴文本已保存: ${pasteClipPath}。要精准修改内容，使用 read_file("${pasteClipPath}") 读取后用 edit_file 替换。]\n\n` : ''
+    const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : pasteRef + input.trim())
+
+    // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
+    const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
+    pendingDisplayOnlyRef.current = isDisplayOnly
+
     const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-    const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now() }
+    const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), ...(isDisplayOnly ? { displayOnly: true } : {}) }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setAttachment(null)
@@ -488,6 +542,10 @@ export default function AIChatWindow() {
 
           const outputBreakdown: { label: string; tokens: number }[] = []
           outputBreakdown.push({ label: 'AI 输出', tokens: runResult.completionTokens || 0 })
+          // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
+          const markDisplayOnly = pendingDisplayOnlyRef.current
+          pendingDisplayOnlyRef.current = false
+
           setMessages(prev => [...prev, {
             id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
@@ -496,6 +554,7 @@ export default function AIChatWindow() {
             iterationCount: runResult.iterationCount || 1,
             usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
             totalIterations: runResult.iterationCount || 1,
+            ...(markDisplayOnly ? { displayOnly: true } : {}),
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -513,7 +572,9 @@ export default function AIChatWindow() {
       })
       useAgentStore.getState().addTokens(result.totalTokens)
     } catch (err) {
-      setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
+      const errDisplayOnly = pendingDisplayOnlyRef.current
+      pendingDisplayOnlyRef.current = false
+      setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now(), ...(errDisplayOnly ? { displayOnly: true } : {}) }])
     } finally {
       setLoading(false)
       sendLockRef.current = false
@@ -738,8 +799,8 @@ export default function AIChatWindow() {
               active={toolInvokeEnabled}
               onClick={() => { setToolInvokeEnabled(!toolInvokeEnabled); if (!toolInvokeEnabled) setShowToolHint(false) }}
             />
-            {/* 上传入口②：按钮 → 文本文件。流程同 handleDrop 的文件分支，见上方注释 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); await fileService.write(`${uploadsDir}/${f.name}`, text.slice(0, 50000)) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text.slice(0, 50000) }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
+            {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { await fileService.ensureDir('uploads/files'); await fileService.write(`uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
             {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {/* Model switcher */}

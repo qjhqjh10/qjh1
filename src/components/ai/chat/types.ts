@@ -25,6 +25,8 @@ export interface Message {
   outputBreakdown?: { label: string; tokens: number }[]
   iterationCount?: number
   totalIterations?: number
+  /** V9.5.2: 软件功能/能力自述消息 — 仅显示，不进入对话上下文 */
+  displayOnly?: boolean
 }
 
 export interface Conversation {

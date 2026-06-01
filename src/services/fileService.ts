@@ -4,6 +4,7 @@ import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import type { ModelPrice, SessionStatsResult } from '@/types/electron'
 import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
+import { getFileCache, setFileCache, invalidateFileCache, invalidateDirCache } from '@/utils/fileReadCache'
 
 function e() {
   if (!window.electron) throw new Error('Electron bridge not available - run in Electron environment')
@@ -11,12 +12,29 @@ function e() {
 }
 
 export const fileService = {
-  read: (path: string) => e().files.read(path),
-  write: (path: string, content: string) => e().files.write(path, content),
+  /** Read file with shared cache — GUI and AI reads share the same cache layer */
+  read: async (path: string) => {
+    const cached = getFileCache(path)
+    if (cached !== undefined) return cached
+    const content = await e().files.read(path)
+    setFileCache(path, content)
+    return content
+  },
+  /** Write file and update shared cache so subsequent reads hit cache */
+  write: async (path: string, content: string) => {
+    await e().files.write(path, content)
+    setFileCache(path, content)
+  },
   listDir: (dirPath: string) => e().files.listDir(dirPath),
   ensureDir: (dirPath: string) => e().files.ensureDir(dirPath),
-  deleteFile: (path: string) => e().files.deleteFile(path),
-  deleteDir: (dirPath: string) => e().files.deleteDir(dirPath),
+  deleteFile: async (path: string) => {
+    await e().files.deleteFile(path)
+    invalidateFileCache(path)
+  },
+  deleteDir: async (dirPath: string) => {
+    await e().files.deleteDir(dirPath)
+    invalidateDirCache(dirPath)
+  },
   readBinary: (filePath: string) => e().files.readBinary(filePath),
   writeBinary: (filePath: string, base64: string) => e().files.writeBinary(filePath, base64),
   saveImageUrl: (imageUrl: string, projectPath: string) => e().files.saveImageUrl(imageUrl, projectPath),

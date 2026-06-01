@@ -1,5 +1,6 @@
 import type { ToolDefinition } from '../ToolRegistry'
 import type { ToolResult, ToolExecutionContext } from '../../state/types'
+import { getCachedFile, setCachedFile } from '../../context/FileCache'
 
 // ── Helper: IPC call for backend file tools ──
 async function ipcExecute(toolName: string, args: Record<string, unknown>, projectId: string | null): Promise<ToolResult> {
@@ -33,7 +34,23 @@ export const fileTools: ToolDefinition[] = [
     permission: 'AUTO',
     category: 'file',
     availableInPlanMode: true,
-    executor: async (args, ctx) => ipcExecute('read_file', args, ctx.projectId),
+    executor: async (args, ctx) => {
+      const filePath = args.file_path as string
+      if (filePath && ctx.projectId) {
+        // Check FileCache first (avoids redundant IPC disk reads)
+        const cached = getCachedFile(filePath)
+        if (cached !== undefined) {
+          return { status: 'success', summary: `已读取: ${filePath} (缓存)`, detail: cached }
+        }
+        // Cache miss — read via IPC, then populate cache
+        const result = await ipcExecute('read_file', args, ctx.projectId)
+        if (result.status === 'success' && result.detail) {
+          setCachedFile(filePath, result.detail)
+        }
+        return result
+      }
+      return ipcExecute('read_file', args, ctx.projectId)
+    },
   },
   {
     schema: {

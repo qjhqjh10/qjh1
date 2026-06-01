@@ -19,9 +19,10 @@ describe('fileService', () => {
     expect(typeof fileService.onExternalChange).toBe('function')
   })
 
-  it('methods throw without Electron bridge', () => {
-    expect(() => fileService.read('/test')).toThrow('Electron bridge not available')
-    expect(() => fileService.write('/test', 'content')).toThrow('Electron bridge not available')
+  it('methods throw without Electron bridge', async () => {
+    // V9.5.2: read/write now async with caching — reject rather than throw synchronously
+    await expect(fileService.read('/test')).rejects.toThrow('Electron bridge not available')
+    await expect(fileService.write('/test', 'content')).rejects.toThrow('Electron bridge not available')
   })
 })
 
