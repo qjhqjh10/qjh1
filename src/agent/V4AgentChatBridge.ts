@@ -254,9 +254,16 @@ export class V4AgentChatBridge {
       // v4: Split System Prompt — core (locked, cached) + dynamic (index + providers)
       // Core never changes → DeepSeek prefix caching → 10% billing
       // Dynamic rebuilt per message → fresh project index + relevant providers
+      //
+      // V9.5.2: Use selectDomainModules to only include relevant modules.
+      // Previously all 6 were hardcoded, bloating prompt with irrelevant instructions.
+      const { selectDomainModules } = await import('./V4SystemPrompt')
+      const selectedModules = selectDomainModules(userMessage)
       const coreDomainModules = [
-        CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE,
-        STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE,
+        CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE,  // always needed
+        ...selectedModules.filter(m =>
+          m !== CHARACTER_DOMAIN_MODULE && m !== OUTLINE_DOMAIN_MODULE && m !== CHAPTER_DOMAIN_MODULE
+        ),
       ]
       // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
       // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
