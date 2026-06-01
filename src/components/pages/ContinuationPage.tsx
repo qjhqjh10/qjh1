@@ -81,9 +81,9 @@ export default function ContinuationPage() {
   }
 
   const statusColor = (s: string) =>
-    s === 'writing' ? '#16a34a' : s === 'planned' ? '#7c3aed' : s === 'analyzed' ? '#3b82f6' : '#9b8e84'
+    s === 'writing' ? '#16a34a' : s === 'planned' ? '#7c3aed' : s === 'merged' ? '#8b5cf6' : s === 'outlining' ? '#f59e0b' : s === 'analyzed' ? '#3b82f6' : s === 'analyzing' ? '#06b6d4' : '#9b8e84'
   const statusLabel = (s: string) =>
-    s === 'writing' ? '续写中' : s === 'planned' ? '已计划' : s === 'analyzed' ? '已分析' : '已导入'
+    s === 'writing' ? '续写中' : s === 'planned' ? '已计划' : s === 'merged' ? '已融合' : s === 'outlining' ? '大纲中' : s === 'analyzed' ? '已分析' : s === 'analyzing' ? '分析中' : '已导入'
 
   return (
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

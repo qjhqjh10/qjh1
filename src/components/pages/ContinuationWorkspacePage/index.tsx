@@ -8,6 +8,7 @@ import type { StyleTemplate } from '@/types/styleTemplate'
 import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
+import { safeJsonParse, safeJsonParseAs } from '@/utils/safeJsonParse'
 import Button from '@/components/common/Button'
 import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -30,11 +31,14 @@ export default function ContinuationWorkspacePage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
 
   const [project, setProject] = useState<ContinuationProject | null>(null)
+  const [workspaceError, setWorkspaceError] = useState('')
   const [chapters, setChapters] = useState<ContinuationChapter[]>([])
   const [step, setStep] = useState<Step>(1)
   const [selectedChapterIdx, setSelectedChapterIdx] = useState(0)
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<number>>(new Set())
   const chaptersRef = useRef(chapters)
+  const abortRef = useRef(false)
+  const pausedRef = useRef(false)
 
   const [importing, setImporting] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -100,7 +104,7 @@ export default function ContinuationWorkspacePage() {
         const s = found.status
         setStep(s === 'writing' ? 7 : s === 'planned' ? 6 : s === 'merged' ? 5 : s === 'outlining' ? 4 : s === 'analyzed' ? 3 : 1)
       }
-    } catch (err) { logError('加载续写项目失败', err) }
+    } catch (err) { logError('加载续写项目失败', err); setWorkspaceError('加载项目失败，请返回重试') }
   }
 
   const save = async (updates: Partial<ContinuationProject>) => {
@@ -158,9 +162,8 @@ export default function ContinuationWorkspacePage() {
     try {
       const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) {
-        const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+      const json = safeJsonParseAs<Record<string, any>>(reply)
+      if (json) {
         const chars: any[] = json.charactersAppeared || []
         const analysis: ContinuationChapterAnalysis = {
           charactersAppeared: chars.map((c: any) => ({ name: c.name, role: (c.role || '其他') as CharacterRole, importance: c.importance || 0, action: c.action || '', newInfo: c.newInfo || '' })), plotEvents: json.plotEvents || [],
@@ -182,24 +185,32 @@ export default function ContinuationWorkspacePage() {
         setChapters(updated)
         await save({ sourceChapters: updated, status: 'analyzed' })
       }
-    } catch (err) { logError('分析失败', err) }
+    } catch (err) { logError('分析失败', err); setWorkspaceError(`第${chapters[idx]?.chapterNumber || '?'}章分析失败: ${err instanceof Error ? err.message : '未知错误'}`); setTimeout(() => setWorkspaceError(''), 8000) }
     setAnalyzingChapter(null)
   }
 
   const handleAnalyzeRemaining = async () => {
     if (!activeConfigId) return
+    abortRef.current = false; pausedRef.current = false
     setAnalyzing(true)
     const currentChapters = chaptersRef.current
-    for (let i = 0; i < currentChapters.length; i++) { if (!currentChapters[i].analysis) await handleAnalyzeChapter(i) }
+    for (let i = 0; i < currentChapters.length; i++) {
+      if (abortRef.current) { setAnalyzing(false); return }
+      while (pausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
+      if (!currentChapters[i].analysis) await handleAnalyzeChapter(i)
+    }
     setAnalyzing(false)
   }
 
   const handleAnalyzeSelected = async () => {
     if (!activeConfigId || selectedChapterIds.size === 0) return
+    abortRef.current = false; pausedRef.current = false
     setAnalyzing(true)
     const currentChapters = chaptersRef.current
     const toAnalyze = [...selectedChapterIds].sort((a, b) => a - b)
     for (const idx of toAnalyze) {
+      if (abortRef.current) { setAnalyzing(false); setSelectedChapterIds(new Set()); return }
+      while (pausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
       if (idx < currentChapters.length && !currentChapters[idx].analysis) {
         await handleAnalyzeChapter(idx)
       }
@@ -212,12 +223,39 @@ export default function ContinuationWorkspacePage() {
     if (!activeConfigId || !project) return
     const ch = chapters[idx]
     if (!ch.analysis) return
-    const { analysis: _removed, ...rest } = ch
-    const updated = [...chapters]
-    updated[idx] = rest as ContinuationChapter
-    setChapters(updated)
-    await save({ sourceChapters: updated, status: 'analyzed' })
-    await handleAnalyzeChapter(idx)
+    setAnalyzingChapter(idx)
+    try {
+      const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
+      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const json = safeJsonParseAs<Record<string, any>>(reply)
+      if (json) {
+        const chars: any[] = json.charactersAppeared || []
+        const analysis: ContinuationChapterAnalysis = {
+          charactersAppeared: chars.map((c: any) => ({ name: c.name, role: (c.role || '其他') as CharacterRole, importance: c.importance || 0, action: c.action || '', newInfo: c.newInfo || '' })),
+          plotEvents: json.plotEvents || [],
+          foreshadowingPlanted: json.foreshadowingPlanted || [],
+          foreshadowingResolved: json.foreshadowingResolved || [],
+          worldbuildingRevealed: json.worldbuildingRevealed || [],
+          powerSystemMentions: json.powerSystemMentions || [],
+          itemsMentioned: json.itemsMentioned || [],
+          factionsMentioned: json.factionsMentioned || [],
+          locationsMentioned: json.locationsMentioned || [],
+          emotionalTone: json.emotionalTone || '',
+          timelinePosition: json.timelinePosition || '',
+          chapterRole: json.chapterRole || 'development',
+          unresolvedQuestions: json.unresolvedQuestions || [],
+          characterSnapshots: (json.characterSnapshots || []).map((s: any) => ({ name: s.name || '', alive: s.alive !== false, powerLevel: s.powerLevel || '', location: s.location || '' })),
+          itemSnapshots: (json.itemSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '完好') as any, owner: s.owner || '' })),
+          factionSnapshots: (json.factionSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '活跃') as any, leader: s.leader || '' })),
+          locationSnapshots: (json.locationSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '存在') as any, significance: s.significance || '' })),
+        }
+        const updated = [...chapters]
+        updated[idx] = { ...ch, analysis }
+        setChapters(updated)
+        await save({ sourceChapters: updated, status: 'analyzed' })
+      }
+    } catch (err) { logError('重新分析失败，保留旧数据', err) }
+    setAnalyzingChapter(null)
   }
 
   const handleAggregate = async () => {
@@ -228,10 +266,7 @@ export default function ContinuationWorkspacePage() {
       if (analyzed.length === 0) { setAggregating(false); return }
 
       // Helper to parse AI JSON reply
-      const parseReply = (reply: string) => {
-        const m = reply.match(/\{[\s\S]*\}/)
-        return m ? JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) : null
-      }
+      const parseReply = (reply: string) => safeJsonParse(reply)
 
       const BATCH_SIZE = 50
       const totalChapters = chapters.length
@@ -269,7 +304,7 @@ export default function ContinuationWorkspacePage() {
           const summaries = batch.map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('; ')}`)
           const prompt = cs.buildBatchSummaryPrompt(summaries, b + 1, totalBatches, firstChapter, lastChapter, prevEndingState)
           const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-          const parsed = parseReply(reply)
+          const parsed = parseReply(reply) as Record<string, any> | null
           if (parsed) {
             batchResults.push(JSON.stringify(parsed))
             // Extract ending character states for next batch continuity
@@ -297,7 +332,7 @@ export default function ContinuationWorkspacePage() {
           setStoryUnderstand(su); await save({ storyUnderstanding: su })
         }
       }
-    } catch (err) { logError('聚合失败', err) }
+    } catch (err) { logError('聚合失败', err); setWorkspaceError('AI全局理解失败，请重试'); setTimeout(() => setWorkspaceError(''), 8000) }
     setAggregationProgress('')
     setAggregating(false)
   }
@@ -316,7 +351,7 @@ export default function ContinuationWorkspacePage() {
       const seg: PlotDirectionSegment = { id: 'pd_' + Date.now(), content: reply, label: '首次生成', generatedAt: new Date().toISOString() }
       setPlotDirection([seg])
       await save({ plotDirection: [seg], status: 'outlining' })
-    } catch (err) { logError('剧情走向生成失败', err) }
+    } catch (err) { logError('剧情走向生成失败', err); setWorkspaceError('剧情走向生成失败，请重试'); setTimeout(() => setWorkspaceError(''), 8000) }
     setAggregating(false)
   }
 
@@ -327,13 +362,12 @@ export default function ContinuationWorkspacePage() {
     try {
       const prompt = cs.buildOutlineMergePrompt(fullPlot, JSON.stringify(storyUnderstand))
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) {
-        const om = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as OutlineMergeData
+      const om = safeJsonParseAs<OutlineMergeData>(reply)
+      if (om) {
         setOutlineMerge(om)
         await save({ outlineMerge: om, status: 'merged' })
       }
-    } catch (err) { logError('大纲融合失败', err) }
+    } catch (err) { logError('大纲融合失败', err); setWorkspaceError('大纲融合失败，请重试'); setTimeout(() => setWorkspaceError(''), 8000) }
     setAggregating(false)
   }
 
@@ -342,14 +376,14 @@ export default function ContinuationWorkspacePage() {
     setAggregating(true)
     // Estimate chapter count from plot direction (rough: ~3000 chars per chapter)
     const totalChars = plotDirection.reduce((sum, s) => sum + s.content.length, 0)
-    const estimatedChapters = Math.max(5, Math.round(totalChars / 1000))
+    const estimatedChapters = Math.max(5, Math.round(totalChars / 3000))
     try {
       const mergeJson = outlineMerge ? JSON.stringify(outlineMerge) : '{}'
       const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), mergeJson, estimatedChapters)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) { const cp = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as ContinuationPlan; setContinuationPlan(cp); await save({ continuationPlan: cp, status: 'planned' }) }
-    } catch (err) { logError('计划生成失败', err) }
+      const cp = safeJsonParseAs<ContinuationPlan>(reply)
+      if (cp) { setContinuationPlan(cp); await save({ continuationPlan: cp, status: 'planned' }) }
+    } catch (err) { logError('计划生成失败', err); setWorkspaceError('续写计划生成失败，请重试'); setTimeout(() => setWorkspaceError(''), 8000) }
     setAggregating(false)
   }
 
@@ -406,7 +440,7 @@ export default function ContinuationWorkspacePage() {
       const result = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
       setWritingContent(result)
       setWritingChapter({ chapterNumber: plan.relativeChapterNumber, title: plan.tentativeTitle, content: result, plan, generatedAt: new Date().toISOString() })
-    } catch (err) { logError('续写失败', err) }
+    } catch (err) { logError('续写失败', err); setWorkspaceError(`续写失败: ${err instanceof Error ? err.message : '未知错误'}`); setTimeout(() => setWorkspaceError(''), 8000) }
     setWritingLoading(false)
   }
 
@@ -419,6 +453,19 @@ export default function ContinuationWorkspacePage() {
   }
 
   const analyzedCount = chapters.filter(c => c.analysis).length
+
+  // Step validation: check prerequisites for each step
+  const stepWarnings: Record<number, string | null> = {
+    1: null,
+    2: chapters.length === 0 ? '请先导入小说章节' : null,
+    3: analyzedCount === 0 ? '请先分析至少一章内容' : null,
+    4: !storyUnderstand ? '请先在步骤3完成AI全局理解' : null,
+    5: plotDirection.length === 0 ? '请先在步骤4生成剧情走向' : null,
+    6: !outlineMerge ? '请先在步骤5完成大纲融合' : null,
+    7: !continuationPlan ? '请先在步骤6生成续写细纲' : null,
+  }
+  // Show warning for the current step
+  const currentStepWarning = stepWarnings[step]
 
   // Style constants
   if (!project) return <div style={{ flex: 1, padding: 24 }}><SkeletonCard lines={3} /></div>
@@ -439,6 +486,20 @@ export default function ContinuationWorkspacePage() {
           ))}
         </div>
       </div>
+
+      {/* Step validation warning */}
+      {currentStepWarning && (
+        <div style={{ padding: '6px 16px', background: 'rgba(245,158,11,0.08)', borderBottom: '1px solid rgba(245,158,11,0.15)', fontSize: 11, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>⚠️</span> {currentStepWarning}
+        </div>
+      )}
+
+      {workspaceError && (
+        <div style={{ padding: '6px 16px', background: 'rgba(220,38,38,0.08)', borderBottom: '1px solid rgba(220,38,38,0.15)', fontSize: 11, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
+          <span>❌ {workspaceError}</span>
+          <button onClick={() => setWorkspaceError('')} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>×</button>
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div className="glass" style={{ width: 210, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
@@ -469,6 +530,16 @@ export default function ContinuationWorkspacePage() {
             </div>
             <Button size="sm" onClick={handleAnalyzeRemaining} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>{analyzing ? '分析中...' : '分析剩余章节'}</Button>
             {selectedChapterIds.size > 0 && <Button size="sm" variant="secondary" onClick={handleAnalyzeSelected} disabled={analyzing || !activeConfigId} style={{ width: '100%', fontSize: 10 }}>分析选中({selectedChapterIds.size})</Button>}
+            {analyzing && (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <Button size="sm" variant="ghost" onClick={() => { pausedRef.current = !pausedRef.current }}>
+                  {pausedRef.current ? '继续' : '暂停'}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => { abortRef.current = true; pausedRef.current = false }}>
+                  停止
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -675,7 +746,16 @@ export default function ContinuationWorkspacePage() {
                 {continuationPlan.chapterPlans?.map((plan, i) => {
                   const written = project?.writtenChapters?.find(c => c.chapterNumber === plan.relativeChapterNumber)
                   return (
-                    <div key={i} onClick={() => handleWriteChapter(plan)} style={{
+                    <div key={i} onClick={() => {
+                      const written = project?.writtenChapters?.find(c => c.chapterNumber === plan.relativeChapterNumber)
+                      if (written) {
+                        setWritingContent(written.content)
+                        setWritingChapter(written)
+                        setWritingLoading(false)
+                      } else {
+                        handleWriteChapter(plan)
+                      }
+                    }} style={{
                       padding: '8px 10px', borderRadius: 8, cursor: 'pointer', marginBottom: 4,
                       background: written ? 'rgba(22,163,74,0.04)' : '#faf9f8',
                       border: '1px solid rgba(0,0,0,0.04)',

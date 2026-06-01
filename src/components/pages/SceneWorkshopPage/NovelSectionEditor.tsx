@@ -94,7 +94,7 @@ export function NovelSectionEditor({ section, novelConfig, characters, novelGenr
       case 4: return (<AutoField field="genreElements" autoFields={novelConfig.autoFields} onToggle={onToggleAuto}>
             <div>
           <div style={{ marginBottom: 6, fontSize: 11 }}>
-            小说类型: <select value={novelGenreType} onChange={e => { onSetNovelGenreType(e.target.value); setNC({...nc, genreElements: []}) }} style={inputStyle}>{Object.keys(NOVEL_GENRE_ELEMENTS).map(g => <option key={g}>{g}</option>)}</select>
+            小说类型: <select value={novelGenreType} onChange={e => onSetNovelGenreType(e.target.value)} style={inputStyle}>{Object.keys(NOVEL_GENRE_ELEMENTS).map(g => <option key={g}>{g}</option>)}</select>
           </div>
           {NOVEL_GENRE_ELEMENTS[novelGenreType]?.map(el => (
             <label key={el} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:10,cursor:'pointer',fontSize:11 }}>

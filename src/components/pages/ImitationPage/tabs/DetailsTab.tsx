@@ -1,12 +1,7 @@
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
 import type { NovelExtraction, DetailGenResult } from '@/types/story'
-
-function safeItemName(i: unknown): string {
-  if (typeof i === 'string') return i
-  if (i && typeof i === 'object') return (i as Record<string, unknown>).name as string || (i as Record<string, unknown>).title as string || String(i)
-  return String(i)
-}
+import { safeItemName } from '../utils'
 
 interface Props {
   isSrc: boolean

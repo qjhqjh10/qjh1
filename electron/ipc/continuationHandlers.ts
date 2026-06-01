@@ -7,7 +7,12 @@ import type { ContinuationProject } from '../../src/types/continuation'
 let projectsPath = ''
 
 function safeFilePath(id: string): string {
-  const safe = path.basename(id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+  // Strip only characters that are illegal in Windows file paths.
+  // Preserves CJK, emoji, and all other Unicode.
+  // Illegal on Windows: < > : " / \ | ? * and control chars (0x00-0x1F)
+  const safe = path.basename(id)
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .slice(0, 200)
   if (!safe) throw new Error('Invalid continuation project ID')
   return path.join(projectsPath, `${safe}.json`)
 }

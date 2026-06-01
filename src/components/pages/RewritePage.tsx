@@ -11,7 +11,7 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import PolishPreview from '@/components/common/PolishPreview'
 import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
-import { parseAiErrorMessage } from '@/utils/textUtils'
+import { safeJsonParseAs } from '@/utils/safeJsonParse'
 import { useRewriteInsertion } from '@/hooks/useRewriteInsertion'
 import { aiCapability } from '@/services/aiCapabilityService'
 
@@ -147,9 +147,8 @@ export default function RewritePage() {
       try {
         const prompt = buildRewriteAnalysisPrompt(ch.title, ch.content, ch.chapterNumber)
         const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-        const m = reply.match(/\{[\s\S]*\}/)
-        if (m) {
-          const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+        const data = safeJsonParseAs<ChapterAnalysis>(reply)
+        if (data) {
           ans[ch.id] = data
           await rewriteService.writeAnalysis(projectId, ch.id, JSON.stringify(data))
         }

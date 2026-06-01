@@ -3,12 +3,7 @@ import Button from '@/components/common/Button'
 import type { NovelExtraction, DetailGenResult } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import { SparklesIcon, CheckCircleIcon, UserGroupIcon, GlobeAltIcon, LightBulbIcon, BookOpenIcon, FireIcon } from '@heroicons/react/24/outline'
-
-function safeItemName(i: unknown): string {
-  if (typeof i === 'string') return i
-  if (i && typeof i === 'object') return (i as Record<string, unknown>).name as string || (i as Record<string, unknown>).title as string || String(i)
-  return String(i)
-}
+import { safeItemName } from '../utils'
 
 interface Props {
   extraction: NovelExtraction

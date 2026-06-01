@@ -53,46 +53,94 @@ plot.md 格式: # 标题 → ## 一句话梗概 → ### 第X章·标题(状态) 
 worldbuilding.md 格式: # 标题 → ## 核心设定 → ### 各子系统设定
 追加: read_file读末尾→取最后一段做old_string→new_string=原文+新内容
 修改: read_file确认原文→用整段做old_string→替换
-old_string必须逐字精确匹配（含换行和空格）`
+old_string必须逐字精确匹配（含换行和空格）
+新增设定: 字数>500字的新设定章节→可单独创建 outline/worldbuilding_supplement.md 作为补充文档，并在 worldbuilding.md 末尾追加引用链接`
 
 export const CHAPTER_DOMAIN_MODULE = `
 ## 细纲格式
-detailed_outline/{章节id}.json，每章一个JSON文件:
-必填: id(如chapter1), title, order(数字), status(incomplete|in_progress|complete), plotOverview(剧情概述), characters(出场角色+情绪线), location(场景地点), keyEvents(关键事件列表)
-可选: eroticContent(情色内容), customContent(场景分幕详细描述), emotionCurve(情绪曲线), writingNotes(写作要点), summary(摘要)
-注意: 细纲是JSON不是.md。先read_file参考已有细纲格式再创建。
+detailed_outline/{章节id}.json，每章一个JSON文件。先read_file参考已有细纲格式再创建。
+必填: id(如chapter1), title, order(数字,从0开始), status(incomplete|in_progress|complete), plotOverview(200-400字剧情概述), characters(出场角色+每个角色的情绪线), location(场景地点), keyEvents(关键事件，用\\n分隔的多行文本，每行一个事件)
+可选: eroticContent(情色内容，有则详写含具体描写，无情色则填"本章无情色内容"并简述原因), customContent(场景分幕详细描述，有详细分幕设计时填写，过渡/悬疑章可省略), emotionCurve(情绪曲线), writingNotes(写作要点，含视角/节奏/感官侧重/伏笔), summary(摘要)
+
+## 章节摘要
+summaries/{章节id}.md，Markdown格式，200-400字:
+格式: ## 第X章·标题 → 段落概述(1-2段) → 出场角色(列表) → 关键事件(3-5条) → 情色标注(有/无+简述)
+注意: 摘要是给AI创作后续章节时快速回顾用的，必须简洁，不要复制细纲全文
 
 ## 章节创作
 - 创作前必读：大纲 → 本章出场角色卡 → 本章细纲 → 前章摘要(summaries/)
 - 用 summaries/ 读摘要（几百字），不要读 chapters/ 全文（几千字）
 - 章节正文: chapters/{id}.txt，Markdown格式，# 标题 → ## 分节
 - 用户指定字数时必须达标
-- 完成后主动问是否保存或导出`
+- 完成后主动问是否保存或导出
+
+## 世界设定补充
+当新发现的设定达到以下条件时，创建独立补充文档:
+- 新增一个完整的设定子系统(如新的觉醒路径/新的地图区域/新的异能)
+- 内容超过500字
+- 文件名: outline/worldbuilding_supplement.md
+- 格式: # 标题 → ## 第N节·章节名 → 表格+段落
+- 创建后在 worldbuilding.md 末尾追加一行引用链接`
 
 export const STYLE_DOMAIN_MODULE = `
 ## 风格模板
-用户上传或引用文本后，分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
-必填: name(模板名), type(小说类型: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说), dimensions(分析结果对象)
-dimensions每个维度格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填，examples/writingRules/vocabularyList若无则填空数组[]
-可选: worldType(世界观类型), description(简短描述), fullDescription(完整综述)
-可选: vocabularyList(词汇清单数组), writingRules(写作规则数组)
-可选: tone({ word: "基调词", description: "基调描述", attitude: "态度" })
-26个维度包括: 叙事视角/叙事语调/时间处理/空间构建/感官密度/比喻风格/对话比例/心理深度/节奏控制/反差美学/环境氛围/语言风格/重复手法/留白处理/身体描写等
-⚠️ 铁律：原文有的信号必须分析填写。原文没有的维度不要强行编造——直接跳过不填。宁可少而精，不多而滥。先read_file参考已有模板格式。`
+用户上传或引用文本后，逐维度分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
+
+必填: name, type(情色小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|奇幻小说|灵异小说|游戏小说|末世小说|轻小说|都市小说|穿越小说|普通小说), dimensions
+可选: worldType, description, fullDescription(200-400字散文式综述), vocabularyList(50-100个高频词), writingRules(10-20条), tone
+
+【维度分层 — 严格按此分析，维度key与 dimTiers.ts 保持同步】
+
+✅ 必须分析（任何小说都有，每个维度写100-300字具体描述）：
+  narrativeTone(叙事基调) sentenceStyle(句式) vocabularyStyle(词汇) rhetoricStyle(修辞)
+  rhythmStyle(节奏) dialogueStyle(对话) moodStyle(氛围) perspectiveStyle(视角)
+  bodyLanguageStyle(身体/动作描写) sensoryStyle(感官) descriptionPattern(描写结构)
+
+🔍 有证据才分析（原文找到≥2处证据→详析；无证据→跳过不填）：
+  tensionStyle(心理张力) compoundWordPattern(自造复合词) onomatopoeiaSystem(拟声词系统)
+
+🔞 情色专属（仅type=情色小说时分析）：
+  corruptionArc(堕落弧线) degradationRitual(调教场景机制) narrativeVoice(叙事声音反差)
+  shameVoyeurLoop(羞耻-窥视循环) sensoryPackFormula(感官打包句型) bodyMindBetrayal(身心背离)
+  humiliationTemplate(羞辱场景模板)
+
+📖 类型专属（仅匹配小说类型时分析，否则跳过）：
+  socialRealism(社会现实-都市/历史/科幻) cultivationCombat(修炼战斗-修仙/武侠/玄幻)
+  romanceArc(感情线-恋爱) archaicStyle(古风文言-古风/历史/武侠) suspensePacing(悬疑节奏-悬疑/灵异)
+
+dimensions每个维度格式: { "维度key": { "description": "100-300字具体分析+原文引用", "examples": ["原文例句1", "例句2", "例句3..."], "writingRules": ["可执行的写作规则1", "规则2..."], "vocabularyList": ["原文高频词1", "词2..."] } }
+key必须用上面列出的英文维度名，不要用中文。
+
+⚠️ 铁律：原文有信号的→必须填（description≥100字+examples≥3个+rules≥3条+vocab≥10词）。原文无信号的→跳过该维度，不要出现在dimensions里。不确定的→看上面分层判断。先 read_file 参考 style_templates/ 已有模板格式。`
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
-用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
-必填: name, type
-通用字段(有则填，无则列入autoFields):
-  sceneType, conflictType, scenePurpose[], characters, location, time, weather, atmosphere
-  wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
-情色类型额外字段:
-  intensity(1-5), selectedKinks[], opening[], climax[], aftermath[]
-  soundDensity(低|中|高|极高), moanStyle, degradeLangs[]
-  bodyFluidFocus[], bodyPartFocus[], tactileFocus[]
-  sensoryAnchors, dominantEmotion, emotionCurveInput
-⚠️ 铁律：输入内容里有信号的必须填，没有的不要强行编造——跳过或列入autoFields。把握不好的字段也列入autoFields，让用户一键自动填充。宁可少而精。先read_file参考已有模板格式。`
+用户上传或引用文本后，分析场景结构特征，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
+
+必填: name, type(同风格模板的小说类型值)
+
+【通用场景字段 — 从原文提取，有则填、无则留空】
+  sceneType(日常|战斗|对话|内心独白|过渡|高潮|情色)
+  conflictType(冲突类型) scenePurpose[](场景目的数组)
+  characters(出场角色及情绪状态，用文字描述如"赵亮:掌控得意; 重玲:抗拒→羞耻")
+  location(地点+环境描述) time(时间) weather(天气) atmosphere(氛围)
+  wordTarget(目标字数,数字) narrativePOV(叙事视角) pacing(节奏)
+  bodyLanguage(肢体语言描写重点) sensoryAnchors(感官锚点)
+  dominantEmotion(主导情绪) emotionCurveInput(情绪曲线)
+  plotOverview(场景剧情概述,200-500字) sceneTurningPoint(转折点描述)
+  props(道具清单) appearance(人物外貌) detail(详细配置Markdown)
+  extraNote(额外要求)
+
+【情色专属 — 仅type=情色小说时填写】
+  intensity(1-5) selectedKinks[](玩法标签数组) opening[]/climax[]/aftermath[](各阶段描写要点)
+  soundDensity(低|中|高|极高) moanStyle(呻吟风格) degradeLangs[](羞辱语言)
+  bodyFluidFocus[](体液描写) bodyPartFocus[](身体部位描写) tactileFocus[](触觉描写)
+
+【重要字段: autoFields】
+  把握不好、无法确定的字段名放入 autoFields 数组。这些字段在场景工坊中会显示AI自动按钮。
+  不确定 → 入autoFields。不要强填不确定的值。
+
+⚠️ 铁律：原文有信号的→必须填。原文没有或把握不好的→跳过或入autoFields。先 read_file 读原文和已有细纲。`
 
 export const KB_DOMAIN_MODULE = `
 ## 知识库

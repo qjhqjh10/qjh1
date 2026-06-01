@@ -96,7 +96,7 @@ export default function ImitationPage() {
   const [extStyleId, setExtStyleId] = useState('')
   const [extStyleTpls, setExtStyleTpls] = useState<StyleTemplate[]>([])
   const [outlineGenerated, setOutlineGenerated] = useState<Record<string, boolean>>({})
-  const [outlineResults, setOutlineResults] = useState<Record<string, 'new' | 'skip' | 'overwrite' | 'merge'>>({})
+  const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
   const [chapterWriteView, setChapterWriteView] = useState<string | null>(null)
   const [chapterContents, setChapterContents] = useState<Record<string, 'new' | 'skip' | 'overwrite' | 'merge'>>({})
   const [writeContent, setWriteContent] = useState('')
@@ -162,7 +162,8 @@ export default function ImitationPage() {
     setGenLoading, setGenType, setGenPreview, setOutlineGenerated, setOutlineResults,
     setDetailGenRunning, setDetailGenCurrent, setDetailGenResults, setDetailsResults,
     setImportChars, setExistingChars, setCharActions, setShowImportModal, setShowDetailModal, setEditingDetail,
-    setLoading, setNovelType, setChapterContents, setExtractIds,
+    setLoading, setNovelType, setChapterContents, setExtractIds, setToast,
+    importChars, existingChars, charActions,
     novelType, extraction, extractIds, extractDims, styleChapterIds, styleDims,
     outlineResults, detailGenResults, detailsResults, chapterContents,
     selectedChapterId,

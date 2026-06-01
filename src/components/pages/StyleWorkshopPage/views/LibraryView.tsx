@@ -5,6 +5,7 @@ import Modal from '@/components/common/Modal';
 import ScrollArea from '@/components/common/ScrollArea';
 import { inputStyle } from '@/components/common/styles';
 import { DIMENSION_META, NOVEL_TYPE_DIMS, NOVEL_TYPES, NOVEL_TYPE_LABELS } from '@/types/story';
+import { classifyDimTiers } from '@/utils/dimTiers';
 import { getTemplateDims } from '@/types/styleTemplate';
 import { SparklesIcon, PlusIcon, TrashIcon, XMarkIcon, DocumentTextIcon, PaintBrushIcon, FolderOpenIcon, MagnifyingGlassIcon, ArrowsUpDownIcon, ArrowPathIcon, TagIcon } from '@heroicons/react/24/outline';
 import { FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, presetBtn, linkBtn, labelStyle, cardActionBtn } from '../constants';
@@ -12,7 +13,8 @@ import EmptyState from '@/components/common/EmptyState';
 import type { DimAnalysis, StyleProject } from '@/types/story';
 import { styleProjectService, aiService } from '@/services/fileService';
 import { useSettingsStore } from '@/store';
-import { logError } from '@/utils/logger';
+import { logError } from '@/utils/logger'
+import { safeJsonParseAs } from '@/utils/safeJsonParse';
 import type { WorkspaceTab } from '../constants';
 
 export function LibraryView({ ws }: { ws: any }) {
@@ -368,7 +370,7 @@ export function LibraryView({ ws }: { ws: any }) {
         {/* ───── 编辑模板 Modal ───── */}
         <AnimatePresence>
           {ws.editTemplate !== null && (() => { const editTemplate = ws.editTemplate!; return (
-            <Modal isOpen={true} onClose={() => { ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={720}>
+            <Modal isOpen={true} onClose={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={720}>
               <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }} className="custom-scrollbar">
                 {/* Basic info */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
@@ -476,7 +478,7 @@ export function LibraryView({ ws }: { ws: any }) {
                 {/* AI辅助填充维度 */}
                 <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>✨ AI辅助填充维度</div>
-                  <p style={{ fontSize: 11, color: '#6b5e54', margin: '0 0 8px' }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。</p>
+                  <p style={{ fontSize: 11, color: '#6b5e54', margin: '0 0 8px' }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。仅填充适用的维度，不适用的自动跳过。</p>
                   <textarea
                     id="aiDescInput"
                     placeholder="例如：适合修仙小说的风格，战斗场面招式华丽，日常对话幽默轻松，古风文言和现代白话交织，节奏紧凑步步推进..."
@@ -490,28 +492,40 @@ export function LibraryView({ ws }: { ws: any }) {
                       ws.setAiGenLoading(true)
                       try {
                         const dimKeys = getTemplateDims(ws.editTemplate.type)
-                        const dimList = dimKeys.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')
+                        const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dimKeys, ws.editTemplate.type)
+                        const tieredList = [
+                          mustAnalyze.length > 0 ? `✅ 必须填充（任何${ws.editTemplate.type}都适用）: ${mustAnalyze.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
+                          checkFirst.length > 0 ? `🔍 有证据则填: ${checkFirst.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
+                          skipHint.length > 0 ? `⏭️ 跳过（非本类型小说）: ${skipHint.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
+                        ].filter(Boolean).join('\n')
+
                         const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${ws.editTemplate.type}生成风格模板的维度数据。
 
 风格描述: ${desc}
 
-需要填充的维度: ${dimList}
+【维度分层 — 严格按此处理】
+${tieredList}
 
-对每个维度，请用JSON格式输出：
+【分析规则】
+1. ✅ 必须填充的维度：每个维度输出100-200字具体描述+3条以上写作规则+10-20个相关词汇
+2. 🔍 先判断再填的维度：只有在风格描述中有明确提及或可合理推断时填充。无证据则跳过（不出现在输出JSON中）
+3. ⏭️ 跳过的维度：绝对不要出现在输出JSON中
+4. 所有词汇必须贴合${ws.editTemplate.type}的语境
+5. examples字段可以用典型例句（可从风格描述中推断），每个维度2-3个
+
+【输出JSON格式】
 {
   "dimensions": {
-    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["原文例证1", "例证2"], "writingRules": ["写作规则1", "规则2"], "vocabularyList": ["词汇1", "词汇2"] },
-    ...
+    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["典型例句1", "例句2"], "writingRules": ["写作规则1", "规则2", "规则3"], "vocabularyList": ["词汇1", "词汇2", ...] }
   },
-  "fullDescription": "整体风格综述(200-400字)",
-  "tone": { "word": "叙事基调词", "description": "基调描述(50-100字)" }
+  "fullDescription": "整体风格综述(200-400字)，用流畅散文描述该风格的全貌",
+  "tone": { "word": "叙事基调词(2-6字)", "description": "基调描述(50-100字)", "attitude": "冷漠旁观|欣赏把玩|幽默调侃|温柔包容|神圣庄严|冷酷写实|热忱歌颂|暧昧诱导|疑惑探索" }
 }
 
-只输出JSON，不要markdown。`
+只输出JSON，不要markdown，不要尾逗号。`
                         const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId!)
-                        const m = reply.match(/\{[\s\S]*\}/)
-                        if (m) {
-                          const json = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+                        const json = safeJsonParseAs<{ fullDescription?: string; tone?: any; dimensions?: any }>(reply)
+                        if (json) {
                           ws.setEditTemplate((prev: any) => prev ? {
                             ...prev,
                             fullDescription: json.fullDescription || prev.fullDescription,
@@ -667,8 +681,8 @@ export function LibraryView({ ws }: { ws: any }) {
 
               {/* Footer */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #f0ece8' }}>
-                <Button variant="secondary" onClick={() => { ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }}>取消</Button>
-                <Button onClick={ws.handleSaveTemplate} disabled={!editTemplate.name.trim()}>保存模板</Button>
+                <Button variant="secondary" onClick={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }}>取消</Button>
+                <Button onClick={ws.handleSaveTemplate} disabled={!editTemplate.name.trim() || ws.templateSaving}>{ws.templateSaving ? '保存中...' : '保存模板'}</Button>
               </div>
             </Modal>
           ); })()}

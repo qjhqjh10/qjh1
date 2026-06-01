@@ -1,5 +1,6 @@
 export { aggregateExtractions } from './extractionService/aggregation'
 export { buildExtractionPrompt, parseExtractionReply, splitChapters, buildEroticExtractionPrompt, parseExtractionReplyWithErotic, chaptersToStyleChapters } from './extractionService/extractionPrompts'
 export { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3, buildSummarizePromptV3, buildFewShotExcerpts } from './extractionService/styleAnalysis'
+export { DIM_TIERS, classifyDimTiers, getTieredDimInstructions } from '@/utils/dimTiers'
 export { computePacingTemplate, computeEventPattern, computeProgressionRhythm, computeCharacterArchetype, computeEmotionCurve } from './extractionService/computation'
 export { buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt } from './extractionService/generationPrompts'

@@ -8,6 +8,7 @@ import type {
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 
 import { extractJSON } from './jsonParsers';
@@ -90,43 +91,64 @@ export function parseStyleAnalysisReply(reply: string): ChapterAnalysis {
 // V3 Style Analysis: marked blocks + flat arrays (resilient to JSON errors)
 // ============================================================
 
-export function buildStyleAnalyzePromptV3(dims: string[]): string {
-  const dimensionInstructions = dims.map(k => {
+import { DIM_TIERS, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
+
+export function buildStyleAnalyzePromptV3(dims: string[], novelType?: string): string {
+  const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dims, novelType)
+
+  const fmtGroup = (items: string[], prefix: string) => items.map(k => {
     const meta = DIMENSION_META[k]
-    return meta ? `  ${k}: ${meta.label}（${meta.category}）` : `  ${k}`
+    return `  ${prefix} ${k}: ${meta?.label || k}（${(DIM_TIERS[k] || { desc: '内容判定' }).desc}）`
   }).join('\n')
+
+  const mustList = fmtGroup(mustAnalyze, '✅')
+  const checkList = fmtGroup(checkFirst, '🔍')
+  const skipList = fmtGroup(skipHint, '⏭️')
 
   return `你是专业的文学风格分析师。请对以下章节进行深度写作风格分析。
 
-【可选的分析维度（参考清单）】
-${dimensionInstructions}
+【维度分析策略 — 极其重要，仔细阅读并严格执行】
 
-【输出格式 — 严格遵循】
-使用 Markdown 二级标题输出每个维度的分析。格式如下：
+以下维度按适用性分为三类，每类有不同的分析要求：
+
+1️⃣ 必须分析（任何叙事文本都包含这些特征，必须输出分析）：
+${mustList || '  （无）'}
+
+2️⃣ 先检查再决定（在原文中找到 ≥2处证据 → 详细分析；找不到 → 静默跳过）：
+${checkList || '  （无）'}
+
+3️⃣ 类型不匹配（非当前小说类型的专属维度，强烈建议全部跳过）：
+${skipList || '  （无）'}
+
+【分析三原则】
+✅ 有证据 → 必须写: 200-400字深度分析 + ≥3个原文例句(> 引用) + 具体写作规则
+❌ 无证据 → 必须跳: 不输出该维度的 ## 区块，不写占位内容，不强行编造
+🔍 证据标准: 至少能在原文中找到2处以上明确的、可直接引用的原文词句
+
+【输出格式】
+每个有证据的维度输出一个 Markdown 二级标题区块：
 
 ## 维度key: 中文标签
-200-400字深度分析。必须包含：具体描述 + 引用3个以上原文词句作为证据。引用原文时用 > 标记。
-> 原文例句1
-> 原文例句2
-
-（重复以上格式，每个维度一个 ## 区块）
+200-400字深度分析。引用原文词句时用 > 标记。
+> 原文例句（必须直接从原文摘录）
+> 原文例句
+> 原文例句
 
 ---VOCABULARY---
-["原文词1","原文词2","原文词3",...]
+["原文词1","原文词2",...]（20-50个高频/特色词，双引号，无尾逗号）
 
 ---RULES---
-["写作规则1","写作规则2","写作规则3",...]
+["写作规则1","规则2",...]（3-10条可执行的具体写作指令）
 
 ---TONE---
-{"word":"基调词","description":"100字基调描述","attitude":"态度词"}
+{"word":"基调词","description":"100字叙事基调描述","attitude":"冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索（选一）"}
 
-【关键规则】
-1. 每个维度用 ## {dimKey}: {中文标签} 作为标题
-2. 仅分析在原文中找到实际证据的维度。没有证据的维度直接跳过，不要写"不适用"之类的占位
-3. VOCABULARY/RULES/TONE 三个标记块必须从行首开始，单独一行
-4. VOCABULARY 和 RULES 是 JSON 数组，字符串用双引号
-5. TONE 是 JSON 对象，attitude 可选值: 冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索
-6. 不要用 \\\`\\\`\\\` 代码块包裹`
+【格式铁律】
+1. 标题严格用 ## dimKey: 中文标签（如 ## sentenceStyle: 句式）
+2. VOCABULARY/RULES/TONE 三个标记独占一行，从行首开始
+3. 所有JSON用双引号，数组和对象末尾不要有逗号
+4. 全文只输出一次 VOCABULARY/RULES/TONE（各一个），汇总所有维度
+5. 禁止用代码块包裹输出内容`
 }
 
 // Parses V3 marked-block format into ChapterAnalysis
@@ -197,7 +219,7 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
     const block = (nextMarker < Infinity ? after.slice(0, nextMarker) : after).trim()
 
     // Try JSON.parse with fixes
-    const candidates = [block, block.replace(/,(\s*[\]])/g, '$1'), block.replace(/，/g, ',').replace(/,(\s*[\]])/g, '$1')]
+    const candidates = [block, block.replace(/,\s*\]/g, ']'), block.replace(/，/g, ',').replace(/,\s*\]/g, ']')]
     for (const c of candidates) {
       try {
         const arrMatch = c.match(/\[[\s\S]*\]/)
@@ -234,10 +256,10 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
     try {
       const objMatch = toneBlock.match(/\{[\s\S]*?\}/)
       if (objMatch) {
-        const parsed = JSON.parse(objMatch[0].replace(/,(\s*[}\]])/g, '$1'))
-        toneWord = typeof parsed.word === 'string' ? parsed.word : ''
-        toneDesc = typeof parsed.description === 'string' ? parsed.description : ''
-        toneAttitude = typeof parsed.attitude === 'string' ? parsed.attitude : ''
+        const parsed = safeJsonParse(objMatch[0]) as Record<string, unknown> | null
+        toneWord = typeof parsed?.word === 'string' ? parsed.word : ''
+        toneDesc = typeof parsed?.description === 'string' ? parsed.description : ''
+        toneAttitude = typeof parsed?.attitude === 'string' ? parsed.attitude : ''
       }
     } catch { /* keep defaults */ }
   }
@@ -311,9 +333,17 @@ export function buildSummarizePromptV3(
   dimAnalysesSummary: string,
   novelType: string,
 ): string {
+  // Determine which tier-3/4 dims are relevant for this novel type
+  const isErotic = novelType === '情色小说' || novelType === 'erotic'
+
+  const typeNote = isErotic
+    ? `【类型提示】当前为情色小说。情色专属维度（corruptionArc/degradationRitual/narrativeVoice/shameVoyeurLoop/sensoryPackFormula/bodyMindBetrayal/humiliationTemplate）如果各章分析中有数据，必须重点综合。`
+    : `【类型提示】当前为${novelType || '未指定'}类型。非本类型专属的维度不要强行总结。`
+
   return `你是专业的文学风格分析师。请综合以下 ${analyzedCount} 章的逐章分析，生成一份完整的风格档案。
 
 【小说类型】${novelType}
+${typeNote}
 
 【各章分析汇总】
 ${dimAnalysesSummary}
@@ -337,12 +367,11 @@ ${dimAnalysesSummary}
 ---TONE---
 {"word":"整体叙事基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索，或自定义）"}
 
-【规则】
-1. 综合各章分析，提炼最具代表性的特征。如果某维度在多数章节都有体现，重点分析；如果某维度仅偶尔出现，简要提及即可
-2. 全书写词汇优先列出出现频率最高、最具辨识度的词
-3. 全局写作规则应提炼为可跨章节执行的通用原则
-4. 只输出 JSON 合法的数组和对象，不要尾部逗号
-5. 不要用代码块包裹内容`
+【综合规则】
+1. 只总结在逐章分析中实际出现过的维度。未出现的维度说明原文没有相关特征，不要强行补充
+2. 如果某维度在 ≥30% 的章节中被分析到，重点综合；如果仅在个别章节出现，简要提及即可；如果从未出现，跳过
+3. 全书写词汇和规则从各章分析中提炼，去重合并。优先列出高频词和可跨章执行的通用规则
+4. 所有 JSON 数组和对象不要尾部逗号，不要用代码块包裹内容`
 }
 
 // ---- Extract representative excerpts for few-shot prompting ----

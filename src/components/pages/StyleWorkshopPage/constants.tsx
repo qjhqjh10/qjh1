@@ -25,7 +25,7 @@ import {
 
 export type ViewMode = 'library' | 'detail'
 export type ResultTab = 'chapters' | 'overall'
-export type WorkspaceTab = 'archives' | 'templates'
+export type WorkspaceTab = 'archives' | 'ws.templates'
 export type SortKey = 'updatedAt' | 'name' | 'type' | 'dimCount'
 
 export function splitChapters(content: string): StyleChapter[] {

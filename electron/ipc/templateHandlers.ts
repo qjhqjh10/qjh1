@@ -7,7 +7,9 @@ let basePath = ''
 
 function sanitizeId(id: string): string {
   // Keep Chinese, letters, digits, spaces, common punct. Strip path-dangerous chars only.
-  return path.basename(id).replace(/[\\/:*?"<>|]/g, '_')
+  const sanitized = path.basename(id).replace(/[\\/:*?"<>|]/g, '_').trim()
+  if (!sanitized) throw new Error('Invalid template ID: empty after sanitization')
+  return sanitized
 }
 
 export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string) {
@@ -23,7 +25,7 @@ export function registerTemplateHandlers(ipcMain: IpcMain, templatesPath: string
         templates.push(JSON.parse(await fs.readFile(path.join(basePath, f), 'utf-8')))
       } catch { /* skip invalid */ }
     }
-    templates.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    templates.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
     return templates
   })
 

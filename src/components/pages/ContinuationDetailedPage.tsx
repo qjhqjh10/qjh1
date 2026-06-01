@@ -10,6 +10,7 @@ import { ChapterListPanel } from '@/components/panels/ChapterListPanel'
 import { ArrowLeftIcon, SparklesIcon, PencilIcon } from '@heroicons/react/24/outline'
 import * as cs from '@/services/continuationService'
 import { logError } from '@/utils/logger'
+import { safeJsonParseAs } from '@/utils/safeJsonParse'
 import { nanoid } from 'nanoid'
 import type { ContinuationProject, PlotDirectionSegment } from '@/types/continuation'
 import type { DetailedChapter } from '@/types/chapter'
@@ -50,9 +51,8 @@ export default function ContinuationDetailedPage() {
       const content = segments[selectedSegIdx].content
       const prompt = cs.buildSegmentChapterPlansPrompt(content, 10)
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (!m) { setGenerating(false); return }
-      const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+      const data = safeJsonParseAs<{ chapters: any[] }>(reply)
+      if (!data) { setGenerating(false); return }
       const plans: any[] = data.chapters || []
 
       // Ensure project directory exists

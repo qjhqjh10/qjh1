@@ -16,6 +16,7 @@ import { splitChapters, FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITU
 export function useStyleWorkshop() {
   const setActivePage = useStore(s => s.setActivePage)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('archives')
@@ -52,6 +53,17 @@ export function useStyleWorkshop() {
   const [customAttitude, setCustomAttitude] = useState('')
 
   const saveCounter = useRef(0)
+  const isDirty = useRef(false)
+
+  // Auto-expand all dimensions when a template is opened for editing
+  const prevEditId = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const currentId = editTemplate ? (editTemplate.id || '__new__') : undefined
+    if (currentId && currentId !== prevEditId.current) {
+      setExpandedDims(new Set(getTemplateDims(editTemplate!.type)))
+    }
+    prevEditId.current = currentId
+  }, [editTemplate])
 
   const toggleDimExpanded = (key: string) => {
     setExpandedDims(prev => {
@@ -111,8 +123,10 @@ export function useStyleWorkshop() {
     return list
   }, [templates, templateTab, templateSearch, templateSort])
 
+  const markDirty = () => { isDirty.current = true }
+
   const updateDim = (key: string, field: keyof DimAnalysis, value: string | string[]) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const existing = dims[key] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
     dims[key] = { ...existing, [field]: value }
@@ -120,7 +134,7 @@ export function useStyleWorkshop() {
   }
 
   const addVocabItem = (dimKey: string) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const existing = dims[dimKey] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
     dims[dimKey] = { ...existing, vocabularyList: [...existing.vocabularyList, ''] }
@@ -128,7 +142,7 @@ export function useStyleWorkshop() {
   }
 
   const updateVocabItem = (dimKey: string, idx: number, value: string) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const list = [...(dims[dimKey]?.vocabularyList || [])]
     list[idx] = value
@@ -137,7 +151,7 @@ export function useStyleWorkshop() {
   }
 
   const removeVocabItem = (dimKey: string, idx: number) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const list = [...(dims[dimKey]?.vocabularyList || [])]
     list.splice(idx, 1)
@@ -146,7 +160,7 @@ export function useStyleWorkshop() {
   }
 
   const addRule = (dimKey: string) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const existing = dims[dimKey] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
     dims[dimKey] = { ...existing, writingRules: [...existing.writingRules, ''] }
@@ -154,7 +168,7 @@ export function useStyleWorkshop() {
   }
 
   const updateRule = (dimKey: string, idx: number, value: string) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const list = [...(dims[dimKey]?.writingRules || [])]
     list[idx] = value
@@ -163,7 +177,7 @@ export function useStyleWorkshop() {
   }
 
   const removeRule = (dimKey: string, idx: number) => {
-    if (!editTemplate) return
+    if (!editTemplate) return; markDirty()
     const dims = { ...editTemplate.dimensions }
     const list = [...(dims[dimKey]?.writingRules || [])]
     list.splice(idx, 1)
@@ -265,7 +279,7 @@ export function useStyleWorkshop() {
         for (let idx = 0; idx < sample.length; idx++) {
           try {
             const ch = sample[idx]
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
             updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
             batchSaveProject()
           } catch (err) { logError(`分析章节失败: ${sample[idx].title}`, err) }
@@ -278,7 +292,7 @@ export function useStyleWorkshop() {
           setAnalyzeProgress(`全量分析: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
             try {
-              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
               updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
               batchSaveProject()
             } catch (err) { logError(`分析章节失败: ${ch.title}`, err) }
@@ -451,7 +465,7 @@ export function useStyleWorkshop() {
     try {
       await styleTemplateService.save(template)
       await loadTemplates()
-      setWorkspaceTab('templates')
+      setWorkspaceTab('ws.templates')
       alert('已保存为风格模板！')
     } catch { alert('保存失败') }
   }
@@ -475,22 +489,29 @@ export function useStyleWorkshop() {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
     setShowCreateTemplate(false)
+    isDirty.current = false
     setEditTemplate(t)
   }
 
+  const [templateSaving, setTemplateSaving] = useState(false)
+
   const handleSaveTemplate = async () => {
-    if (!editTemplate) return
+    if (!editTemplate || templateSaving) return
     const clean = { ...editTemplate }
     if (clean.worldType === '__custom__') clean.worldType = ''
     if (clean.tone?.attitude === '__custom__') clean.tone = { ...clean.tone, attitude: '' }
+    setTemplateSaving(true)
     try {
-      await styleTemplateService.save({ ...clean, updatedAt: new Date().toISOString() })
+      const saved = await styleTemplateService.save({ ...clean, updatedAt: new Date().toISOString() })
       await loadTemplates()
+      setFileEditNotify({ filePath: 'style_templates/' + (saved.id || ''), newContent: '' })
+      isDirty.current = false
       setEditTemplate(null)
       setExpandedDims(new Set())
       setCustomWorldType('')
       setCustomAttitude('')
     } catch { alert('保存失败') }
+    setTemplateSaving(false)
   }
 
   const selectedChapter = selectedProject?.chapters.find(c => c.id === selectedChapterId)
@@ -514,7 +535,7 @@ export function useStyleWorkshop() {
     filteredAndSortedTemplates,
     loadTemplates,
     handleCloneTemplate, handleDeleteTemplate,
-    handleCreateFromType, handleSaveTemplate,
+    handleCreateFromType, handleSaveTemplate, templateSaving, isDirty,
     toggleDimExpanded, updateDim,
     addVocabItem, updateVocabItem, removeVocabItem,
     addRule, updateRule, removeRule,

@@ -8,6 +8,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import { ArrowLeftIcon, SparklesIcon, ChevronDownIcon, ChevronRightIcon, PencilIcon, CheckCircleIcon, BookOpenIcon, LightBulbIcon, DocumentTextIcon, CubeIcon, MapPinIcon, ShieldCheckIcon, ArrowTrendingUpIcon, FlagIcon, GlobeAltIcon, UserGroupIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
+import { safeJsonParse, safeJsonParseAs } from '@/utils/safeJsonParse'
 import type { ContinuationProject, StoryUnderstanding, OutlineMergeData, PlotDirectionSegment, CharacterRole } from '@/types/continuation'
 
 const cardStyle: React.CSSProperties = { padding: 20, borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }
@@ -46,8 +47,7 @@ export default function ContinuationOutlinePage() {
   }
 
   const parseReply = (reply: string) => {
-    const m = reply.match(/\{[\s\S]*\}/)
-    return m ? JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) : null
+    return safeJsonParse(reply)
   }
 
   // ====================== Card 1: 原作理解 ======================
@@ -75,7 +75,7 @@ export default function ContinuationOutlinePage() {
           const summaries = batch.map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('; ')}`)
           const prompt = cs.buildBatchSummaryPrompt(summaries, b + 1, totalBatches, batch[0].chapterNumber, batch[batch.length - 1].chapterNumber, prevEndingState)
           const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-          const parsed = parseReply(reply)
+          const parsed = parseReply(reply) as Record<string, any> | null
           if (parsed) { batchResults.push(JSON.stringify(parsed)); if (parsed.endingCharacterStates) prevEndingState = JSON.stringify(parsed.endingCharacterStates) }
         }
         const lastStart = Math.max(0, analyzed.length - 20)
@@ -138,9 +138,8 @@ export default function ContinuationOutlinePage() {
       const fullPlot = project.plotDirection.map(s => s.content).join('\n\n')
       const prompt = cs.buildOutlineMergePrompt(fullPlot, JSON.stringify(project.storyUnderstanding))
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) {
-        const om = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')) as OutlineMergeData
+      const om = safeJsonParseAs<OutlineMergeData>(reply)
+      if (om) {
         await save({ outlineMerge: om, status: 'merged' })
       }
     } catch (err) { logError('大纲融合失败', err) }

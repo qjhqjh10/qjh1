@@ -34,7 +34,9 @@ export function buildScenePrompt(tpl: SceneTemplate): string {
     }
     if (a('opening')) parts.push('【起始：AI根据上下文自主决定】')
     else if (ec.opening?.length > 0) parts.push(`【起始】${ec.opening.join('、')}`)
-    parts.push(a('mainPose') ? '【主戏：AI根据上下文自主决定】' : `【主戏】姿势: ${ec.mainPose || ''} | 节奏: ${ec.mainRhythm || ''} | 转换: ${ec.poseChanges || ''}`)
+    const mainParts = [ec.mainPose && `姿势: ${ec.mainPose}`, ec.mainRhythm && `节奏: ${ec.mainRhythm}`, ec.poseChanges && `转换: ${ec.poseChanges}`].filter(Boolean)
+    if (mainParts.length > 0) parts.push(`【主戏】${mainParts.join(' | ')}`)
+    else if (a('mainPose')) parts.push('【主戏：AI根据上下文自主决定】')
     if (a('climax')) parts.push('【高潮：AI根据上下文自主决定】')
     else if (ec.climax?.length > 0) parts.push(`【高潮】${ec.climax.join('、')}`)
     if (a('aftermath')) parts.push('【余韵：AI根据上下文自主决定】')
@@ -52,7 +54,9 @@ export function buildScenePrompt(tpl: SceneTemplate): string {
       parts.push(degradeLine)
     }
     if (!a('bannedWords') && ec.bannedWords) parts.push(`【禁用词】${ec.bannedWords}`)
-    parts.push(a('soundDensity') ? '【声音：AI根据上下文自主决定】' : `【声音】密度: ${ec.soundDensity || ''} | 呻吟: ${ec.moanStyle || ''}`)
+    const soundParts = [ec.soundDensity && `密度: ${ec.soundDensity}`, ec.moanStyle && `呻吟: ${ec.moanStyle}`].filter(Boolean)
+    if (soundParts.length > 0) parts.push(`【声音】${soundParts.join(' | ')}`)
+    else if (a('soundDensity')) parts.push('【声音：AI根据上下文自主决定】')
     if (a('dominantEmotion')) parts.push('【情绪：AI根据上下文自主决定】')
     else if (ec.dominantEmotion) parts.push(`【情绪】${ec.dominantEmotion}${ec.emotionCurveInput ? ' | 曲线: ' + ec.emotionCurveInput : ''}${ec.triggerWords ? ' | 触发: ' + ec.triggerWords : ''}`)
     if (a('narrativeStyle')) parts.push('【叙事：AI根据上下文自主决定】')
@@ -66,6 +70,10 @@ export function buildScenePrompt(tpl: SceneTemplate): string {
     if (a('aftercareDetail')) parts.push('【事后关怀：AI根据上下文自主决定】')
     else if (ec.aftercareDetail) parts.push(`【事后关怀】${ec.aftercareDetail}`)
     if (!a('extraNote') && ec.extraNote) parts.push('【额外要求】' + ec.extraNote)
+    if (!a('plotOverview') && (ec as any).plotOverview) parts.push(`【剧情概述】${(ec as any).plotOverview}`)
+    if (!a('sceneTurningPoint') && (ec as any).sceneTurningPoint) parts.push(`【转折点】${(ec as any).sceneTurningPoint}`)
+    if (!a('props') && (ec as any).props) parts.push(`【道具】${(ec as any).props}`)
+    if (!a('appearance') && (ec as any).appearance) parts.push(`【外观】${(ec as any).appearance}`)
     return parts.join('\n')
   } else {
     const nc = tpl.config as NovelSceneConfig
@@ -79,7 +87,7 @@ export function buildScenePrompt(tpl: SceneTemplate): string {
     if (a('genreElements')) parts.push('【类型要素：AI根据上下文自主决定】')
     else if (nc.genreElements?.length) parts.push(`【类型要素】${nc.genreElements.join('、')}`)
     parts.push(a('dialogueRatio') ? '【对话：AI根据上下文自主决定】' : `【对话】${nc.dialogueRatio || ''} | 潜台词: ${nc.subtextLevel || ''} | ${nc.sentenceStyle || ''} | 段落: ${nc.paragraphDensity || ''}`)
-    parts.push(a('wordTarget') ? '【篇幅：AI根据上下文自主决定】' : `【篇幅】${nc.wordTarget}字 | ${nc.narrativePOV || ''}`)
+    parts.push(a('wordTarget') ? '【篇幅：AI根据上下文自主决定】' : `【场景篇幅参考】约${nc.wordTarget}字（此场景内容约占本章总字数的参考比例，非独立字数要求） | ${nc.narrativePOV || ''}`)
     if (a('emotionStart')) parts.push('【情绪：AI根据上下文自主决定】')
     else if (nc.emotionStart) parts.push(`【情绪】${nc.emotionStart}→${nc.emotionEnd || ''}`)
     if (a('narrativeStyle')) parts.push('【叙事技法：AI根据上下文自主决定】')
@@ -300,7 +308,20 @@ export function buildPrompt(opts: BuildPromptOptions): string {
   }
 
   const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。正文用空行分隔自然段，禁止全文一堆到底。'
-  parts.push(`【创作要求】\n${template}\n\n字数目标: ${wordTarget}字\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}\n\n重要格式要求:\n- 每个自然段之间必须用空行分隔（即两个换行），不得所有文字连成一片\n- 对话密集处适当分段，同一角色的连续对白可合为一段，角色切换或场景转换必须另起一段\n- 段落不宜过长，一般3-8行为宜，避免超过15行的超大段落`)
+
+  // Build unified word target instruction — the modal's wordTarget is the MASTER total.
+  // Scene template's wordTarget is a SUBSET hint, not additive.
+  const sceneWordTarget = (selectedScene?.config as any)?.wordTarget || 0
+  let wordTargetText = `【总字数目标】${wordTarget}字（这是本章正文的总字数要求，必须严格遵守）`
+  if (sceneWordTarget > 0) {
+    if (sceneWordTarget > wordTarget) {
+      wordTargetText += `\n场景模板内容约占本章主要篇幅（场景模板自身要求${sceneWordTarget}字，但本章总字数仍控制在${wordTarget}字左右，场景内容为本章主体）`
+    } else {
+      wordTargetText += `\n其中场景模板描述的内容约占${sceneWordTarget}字`
+    }
+  }
+
+  parts.push(`【创作要求】\n${template}\n\n${wordTargetText}\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}\n\n重要格式要求:\n- 每个自然段之间必须用空行分隔（即两个换行），不得所有文字连成一片\n- 对话密集处适当分段，同一角色的连续对白可合为一段，角色切换或场景转换必须另起一段\n- 段落不宜过长，一般3-8行为宜，避免超过15行的超大段落`)
 
   return parts.join('\n\n---\n\n')
 }

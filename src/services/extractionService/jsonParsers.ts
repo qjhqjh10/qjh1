@@ -36,16 +36,20 @@ export function extractJSON(reply: string): Record<string, any> {
 
   for (const raw of candidates) {
     try { return JSON.parse(raw) } catch { /* try fixes */ }
-    // Fix 1: Remove trailing commas
-    try { return JSON.parse(raw.replace(/,(\s*[}\]])/g, '$1')) } catch { /* */ }
-    // Fix 2: Remove all commas before } or ] (aggressive)
-    try { return JSON.parse(raw.replace(/,(\s*\n?\s*[}\]])/g, '$1')) } catch { /* */ }
+    // Fix 1: Remove trailing commas (targeted: only commas immediately before } or ])
+    try { return JSON.parse(raw.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']')) } catch { /* */ }
+    // Fix 2: Also fix single quotes (AI sometimes uses ' instead of ")
+    try {
+      let fixed = raw.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']')
+      fixed = fixed.replace(/'([^']*)'/g, (_, content) => `"${content.replace(/"/g, '\\"')}"`)
+      return JSON.parse(fixed)
+    } catch { /* */ }
     // Fix 3: Truncate to last complete object
     try {
       const lastBrace = raw.lastIndexOf('}')
       if (lastBrace > 0) {
         let truncated = raw.slice(0, lastBrace + 1)
-        truncated = truncated.replace(/,(\s*[}\]])/g, '$1')
+        truncated = truncated.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']')
         return JSON.parse(truncated)
       }
     } catch { /* */ }
@@ -58,7 +62,7 @@ export function extractJSON(reply: string): Record<string, any> {
       }
       if (start >= 0 && end > start) {
         const balancedObj = raw.slice(start, end + 1)
-        return JSON.parse(balancedObj.replace(/,(\s*[}\]])/g, '$1'))
+        return JSON.parse(balancedObj.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']'))
       }
     } catch { /* */ }
   }
@@ -73,7 +77,7 @@ function extractJSONArray(reply: string): any[] {
   const m = reply.match(/\[[\s\S]*\]/)
   if (!m) throw new Error('未找到JSON数组')
   try { return JSON.parse(m[0]) } catch { /* try fix */ }
-  try { return JSON.parse(m[0].replace(/,(\s*[\]])/g, '$1')) } catch { /* */ }
+  try { return JSON.parse(m[0].replace(/,\s*\]/g, ']')) } catch { /* */ }
   // Fallback: find balanced brackets
   let depth = 0, start = -1
   for (let i = 0; i < reply.length; i++) {
@@ -81,7 +85,7 @@ function extractJSONArray(reply: string): any[] {
     else if (reply[i] === ']') { depth--; if (depth === 0 && start >= 0) break }
   }
   if (start >= 0 && depth === 0) {
-    return JSON.parse(reply.slice(start, reply.lastIndexOf(']') + 1).replace(/,(\s*[\]])/g, '$1'))
+    return JSON.parse(reply.slice(start, reply.lastIndexOf(']') + 1).replace(/,\s*\]/g, ']'))
   }
   throw new Error('无法解析AI返回的JSON数组')
 }

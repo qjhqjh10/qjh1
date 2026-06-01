@@ -30,6 +30,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
   const chapterSummaryMap = useStore(s => s.chapterSummaryMap)
   const setChapterSummary = useStore(s => s.setChapterSummary)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
   const currentChapter = detailedChapters.find(c => c.id === chapterId)
   const prevChapters = detailedChapters.filter(c => c.order < (currentChapter?.order ?? 0)).sort((a, b) => a.order - b.order)
   const prevChaptersWithSummary = prevChapters.filter(c => chapterSummaryMap[c.id]?.trim())
@@ -111,6 +112,17 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       }
     }
   }, [isOpen])
+
+  // Listen for template creation/update from other pages and refresh dropdowns
+  useEffect(() => {
+    if (!fileEditNotify?.filePath) return
+    if (fileEditNotify.filePath.includes('style_templates')) {
+      styleTemplateService.list().then(list => setStyleTemplates(Array.isArray(list) ? list : [])).catch(() => {})
+    }
+    if (fileEditNotify.filePath.includes('scene_templates')) {
+      templateService.list().then(list => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => {})
+    }
+  }, [fileEditNotify])
 
   const selectedScene = selectedSceneId ? sceneTemplates.find(t => t.id === selectedSceneId) : null
 
@@ -314,15 +326,21 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   const autoDetectCharacters = () => {
-    const desc = (currentChapter?.description || '')
+    const searchText = [
+      currentChapter?.description || '',
+      currentChapter?.characters || '',
+      currentChapter?.plotOverview || '',
+    ].join(' ')
     const found = characters.filter(c => {
-      if (!c.name) return false
-      // Match character name as a word (surrounded by punctuation, space, or string boundary)
-      const escaped = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const re = new RegExp(`(^|[\\s，。、；：？！""''（）\\-—…])${escaped}($|[\\s，。、；：？！""''（）\\-—…])`)
-      return re.test(desc)
+      if (!c.name || c.name.length < 1) return false
+      // Simple includes check — more robust than regex for CJK names
+      return searchText.includes(c.name)
     })
     selectIds(setSelectedCharacterIds, found.map(c => c.id))
+    if (found.length === 0) {
+      setError('未在细纲描述/出场角色/剧情概述中匹配到任何角色名。请手动选择或检查细纲中是否正确填写了角色名。')
+      setTimeout(() => setError(''), 5000)
+    }
   }
 
   return (
@@ -579,14 +597,18 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
               </div>
               {selectedStyleTemplate && (
                 <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, maxHeight: 100, overflow: 'auto', color: '#4a3f38', lineHeight: 1.5 }}>
-                  {selectedStyleTemplate.tone?.word && <span style={{ fontWeight: 600, color: '#7c3aed' }}>基调: {selectedStyleTemplate.tone.word} | </span>}
                   {(() => {
-                    // Show key dimensions summary
-                    const dims = selectedStyleTemplate.dimensions || {}
+                    const t = selectedStyleTemplate
+                    const parts: string[] = []
+                    if (t.tone?.word) parts.push(`基调: ${t.tone.word}`)
+                    const dims = t.dimensions || {}
                     const keys = Object.keys(dims).filter(k => dims[k]?.description)
-                    return keys.length > 0
-                      ? keys.slice(0, 4).map(k => `${k}: ${(dims[k].description || '').slice(0, 40)}`).join('；')
-                      : (selectedStyleTemplate.description?.slice(0, 100) || '已加载')
+                    if (keys.length > 0) {
+                      parts.push(keys.slice(0, 4).map(k => `${k}: ${(dims[k].description || '').slice(0, 40)}`).join('；'))
+                    }
+                    if (t.fullDescription) parts.push(t.fullDescription.slice(0, 100))
+                    if (t.description && parts.length === 0) parts.push(t.description.slice(0, 100))
+                    return parts.length > 0 ? parts.join(' | ') : '⚠️ 此模板无有效维度数据，建议更换或先填充维度'
                   })()}
                 </div>
               )}

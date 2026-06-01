@@ -6,6 +6,7 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { logError } from '@/utils/logger'
+import { safeJsonParseAs } from '@/utils/safeJsonParse'
 import { loadDetailedChapters, saveDetailedChapter } from '@/services/chapterService'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import * as continuationService from '@/services/continuationService'
@@ -128,7 +129,7 @@ export default function StoryMapPage() {
         try {
           const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
           let snaps: any = null
-          try { const m = reply.match(/\{[\s\S]*\}/); if (m) { const p = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')); snaps = { characterSnapshots: p.characterSnapshots || [], itemSnapshots: p.itemSnapshots || [], factionSnapshots: p.factionSnapshots || [], locationSnapshots: p.locationSnapshots || [] } } } catch {}
+          const p = safeJsonParseAs<{ characterSnapshots?: any[]; itemSnapshots?: any[]; factionSnapshots?: any[]; locationSnapshots?: any[] }>(reply); if (p) { snaps = { characterSnapshots: p.characterSnapshots || [], itemSnapshots: p.itemSnapshots || [], factionSnapshots: p.factionSnapshots || [], locationSnapshots: p.locationSnapshots || [] } }
           results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: reply, snapshots: snaps })
         } catch { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }) }
       }
@@ -155,9 +156,8 @@ export default function StoryMapPage() {
       const hardResult = hardConflicts.length > 0 ? `已由硬规则引擎检测到以下冲突:\n${hardConflicts.map(c => `- ${c.summary}`).join('\n')}\n\n请检测除此之外的软规则冲突:` : ''
       const prompt = continuationService.buildConflictDetectionPrompt(summaries, sortedChapters.length) + '\n' + hardResult
       const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
-      const m = reply.match(/\{[\s\S]*\}/)
-      if (m) {
-        const data = JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1'))
+      const data = safeJsonParseAs<{ conflicts: any[]; summary: string }>(reply)
+      if (data) {
         aiConflicts = data.conflicts || []
         summary = data.summary || ''
       }

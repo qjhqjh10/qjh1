@@ -1,7 +1,27 @@
 {
-  "currentVersion": "9.4.0",
+  "currentVersion": "9.5.0",
   "currentDate": "2026-06-01",
   "history": [
+    {
+      "version": "9.5.0",
+      "date": "2026-06-01",
+      "features": [
+        "DIM_TIERS统一数据源: 维度分层表从3处重复定义抽取为dimTiers.ts单一数据源",
+        "场景/风格模板创建后章节生成下拉框即时刷新: 模板保存时通知ChapterGenerationModal自动重载",
+        "情色场景prompt补充4个缺失字段: plotOverview/sceneTurningPoint/props/appearance注入buildScenePrompt",
+        "buildScenePrompt空值过滤: mainPose/soundDensity等空字段不再输出浪费token",
+        "章节生成字数逻辑修正: AI按钮wordTarget为主控,场景模板wordTarget标注为参考比例,风格注入不再硬编码4500字",
+        "safeJsonParse统一使用: chapterService+styleAnalysis+jsonParsers改用safeJsonParse替代内联regex",
+        "普通小说专属修复: styleInjector的叙事基调/角色构架/服装/动作微观分解3段包入isErotic检测,避免向普通小说注入情色内容",
+        "续写功能修复: 章节数估算除数修正(1000→3000)+7种状态标签补全+9处AI失败添加用户可见错误横幅",
+        "仿写功能修复: @ts-nocheck消除+saveExtraction文件锁+提取失败章节跟踪+safeItemName合并为单一定义",
+        "续写中文项目名修复: safeFilePath保留Unicode字符(仅过滤Windows非法字符)",
+        "模板生命周期防护: isDirty脏追踪+保存按钮loading防重复+存为模板tab值修正+场景类型切换不清除元素",
+        "大纲foreshadowing prompt补充埋设/回收章节号注入",
+        "续写冗余regex guard移除: handleReanalyzeChapter简化为直接safeJsonParseAs",
+        "改写dead import移除: RewritePage删除未使用的parseAiErrorMessage"
+      ]
+    },
     {
       "version": "9.4.0",
       "date": "2026-06-01",

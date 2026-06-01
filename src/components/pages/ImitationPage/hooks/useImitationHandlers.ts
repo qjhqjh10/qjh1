@@ -1,5 +1,4 @@
-// @ts-nocheck — TODO: 15+ callback params need explicit types, incremental typing needed
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { extractionService, aiService, fileService, styleProjectService, exportService, dialogService } from '@/services/fileService'
@@ -55,14 +54,80 @@ import ExtractionProgressDialog from '../dialogs/ExtractionProgressDialog'
 import DimensionSelectionDialog from '../dialogs/DimensionSelectionDialog'
 import StyleDimensionDialog from '../dialogs/StyleDimensionDialog'
 import ImportCharactersModal from '../dialogs/ImportCharactersModal'
+import { safeItemName } from '../utils'
 
-export function useImitationHandlers(d: any) {
+interface ImitationHandlersDeps {
+  // State setters
+  setExtraction: Dispatch<SetStateAction<NovelExtraction | null>>
+  setSelectedChapterId: Dispatch<SetStateAction<string | null>>
+  setStep: Dispatch<SetStateAction<Step>>
+  setProgress: Dispatch<SetStateAction<{ current: number; total: number; text: string }>>
+  setExtracting: Dispatch<SetStateAction<boolean>>
+  setStyleLoading: Dispatch<SetStateAction<boolean>>
+  setStyleProgress: Dispatch<SetStateAction<string>>
+  setStylePaused: Dispatch<SetStateAction<boolean>>
+  setGenLoading: Dispatch<SetStateAction<boolean>>
+  setGenType: Dispatch<SetStateAction<string | null>>
+  setGenPreview: Dispatch<SetStateAction<string>>
+  setOutlineGenerated: Dispatch<SetStateAction<Record<string, boolean>>>
+  setOutlineResults: Dispatch<SetStateAction<Record<string, string>>>
+  setDetailGenRunning: Dispatch<SetStateAction<boolean>>
+  setDetailGenCurrent: Dispatch<SetStateAction<number>>
+  setDetailGenResults: Dispatch<SetStateAction<DetailGenResult[]>>
+  setDetailsResults: Dispatch<SetStateAction<string>>
+  setImportChars: Dispatch<SetStateAction<any[]>>
+  setExistingChars: Dispatch<SetStateAction<any[]>>
+  setCharActions: Dispatch<SetStateAction<Record<string, any>>>
+  setShowImportModal: Dispatch<SetStateAction<boolean>>
+  setShowDetailModal: Dispatch<SetStateAction<boolean>>
+  setEditingDetail: Dispatch<SetStateAction<DetailGenResult | null>>
+  setLoading: Dispatch<SetStateAction<boolean>>
+  setNovelType: Dispatch<SetStateAction<NovelType>>
+  setChapterContents: Dispatch<SetStateAction<Record<string, 'new' | 'skip' | 'overwrite' | 'merge'>>>
+  setExtractIds: Dispatch<SetStateAction<Set<string>>>
+  // Toast
+  setToast: Dispatch<SetStateAction<string>>
+  // Import state values
+  importChars: any[]
+  existingChars: any[]
+  charActions: Record<string, any>
+  // State values
+  novelType: NovelType
+  extraction: NovelExtraction | null
+  extractIds: Set<string>
+  extractDims: Set<string>
+  styleChapterIds: Set<string>
+  styleDims: Set<string>
+  outlineResults: Record<string, string>
+  detailGenResults: DetailGenResult[]
+  detailsResults: string
+  chapterContents: Record<string, 'new' | 'skip' | 'overwrite' | 'merge'>
+  selectedChapterId: string | null
+  // Refs
+  abortRef: MutableRefObject<boolean>
+  pausedRef: MutableRefObject<boolean>
+  styleAbortRef: MutableRefObject<boolean>
+  stylePausedRef: MutableRefObject<boolean>
+  detailGenAbortRef: MutableRefObject<boolean>
+  // Other
+  activeConfigId: string | null
+  activeProjectId: string | null
+  projectsBasePath: string | null
+  setCharacters: (chars: Character[]) => void
+  setOutlineContent: (content: string) => void
+  setWorldbuildingContent: (content: string) => void
+  setActiveProject: (id: string, type?: string) => void
+  navigate: ReturnType<typeof useNavigate>
+}
+
+export function useImitationHandlers(d: ImitationHandlersDeps) {
   const { setExtraction, setSelectedChapterId, setStep, setProgress, setExtracting,
     setStyleLoading, setStyleProgress, setStylePaused,
     setGenLoading, setGenType, setGenPreview, setOutlineGenerated, setOutlineResults,
     setDetailGenRunning, setDetailGenCurrent, setDetailGenResults, setDetailsResults,
     setImportChars, setExistingChars, setCharActions, setShowImportModal, setShowDetailModal, setEditingDetail,
-    setLoading, setNovelType, setChapterContents, setExtractIds,
+    setLoading, setNovelType, setChapterContents, setExtractIds, setToast,
+    importChars, existingChars, charActions,
     novelType, extraction, extractIds, extractDims, styleChapterIds, styleDims,
     outlineResults, detailGenResults, detailsResults, chapterContents,
     selectedChapterId,
@@ -71,14 +136,23 @@ export function useImitationHandlers(d: any) {
     setCharacters, setOutlineContent, setWorldbuildingContent, setActiveProject,
     navigate } = d;
 
-
-
+  // Per-file mutex to prevent read-modify-write races on extraction.json.
+  const _writeLocks = new Map<string, Promise<void>>()
+  function withLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const prev = _writeLocks.get(filePath) || Promise.resolve()
+    const next = prev.then(fn, fn)  // run fn even if previous lock rejected
+    _writeLocks.set(filePath, next.then(() => {}, () => {}))  // clear after completion
+    return next
+  }
 
   const saveExtraction = async (data: NovelExtraction) => {
     if (!activeProjectId || !projectsBasePath) return
     const pp = `${projectsBasePath}/${activeProjectId}`
-    await fileService.ensureDir(pp)
-    await fileService.write(`${pp}/extraction.json`, JSON.stringify(data, null, 2))
+    const filePath = `${pp}/extraction.json`
+    return withLock(filePath, async () => {
+      await fileService.ensureDir(pp)
+      await fileService.write(filePath, JSON.stringify(data, null, 2))
+    })
   }
 
 
@@ -100,7 +174,7 @@ export function useImitationHandlers(d: any) {
         setOutlineGenerated(gen)
         if (ext.detailsResults) setDetailsResults(ext.detailsResults)
         if (ext.detailGenResults) setDetailGenResults(ext.detailGenResults)
-        if (ext.chapterContents) setChapterContents(ext.chapterContents)
+        if (ext.chapterContents) setChapterContents(ext.chapterContents as Record<string, 'new' | 'skip' | 'overwrite' | 'merge'>)
         if (ext.status === 'completed') setStep('completed')
         else if (ext.styleProfile) setStep('generating')
         else if (ext.aggregated) setStep('extracting')
@@ -150,13 +224,6 @@ export function useImitationHandlers(d: any) {
   const selectedChapter = extraction?.chapters.find(c => c.chapterId === selectedChapterId)
   const extractedCount = extraction?.chapters.filter(c => c.extractedAt).length || 0
   const ag = extraction?.aggregated || null
-function safeItemName(i: unknown): string {
-  if (typeof i === 'string') return i
-  if (i && typeof i === 'object') return (i as Record<string, unknown>).name as string || (i as Record<string, unknown>).title as string || String(i)
-  return String(i)
-}
-
-
   // ---- Extract ----
   const handleStartExtract = async () => {
     if (!extraction || !activeConfigId) return
@@ -164,6 +231,7 @@ function safeItemName(i: unknown): string {
     if (chs.length === 0) { alert('请先选择章节'); return }
     abortRef.current = false; pausedRef.current = false; setExtracting(true); setStep('extracting')
     const chapters = [...extraction.chapters]
+    const failedChapterNums: number[] = []
     for (let i = 0; i < chs.length; i++) {
       if (abortRef.current) { setProgress({ current: i, total: chs.length, text: '已停止' }); setExtracting(false); return }
       while (pausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
@@ -184,7 +252,15 @@ function safeItemName(i: unknown): string {
         if (idx !== -1) chapters[idx] = parsed
         const updated = { ...extraction, chapters, updatedAt: new Date().toISOString(), status: 'extracting' as const }
         setExtraction(updated); await saveExtraction(updated)
-      } catch (err) { logError(`提取失败 第${ch.chapterNumber}章`, err) }
+      } catch (err) {
+        logError(`提取失败 第${ch.chapterNumber}章`, err)
+        failedChapterNums.push(ch.chapterNumber)
+      }
+    }
+    // Alert if any chapters failed
+    if (failedChapterNums.length > 0 && !abortRef.current) {
+      setToast(`提取完成，${failedChapterNums.length}章失败: 第${failedChapterNums.join('、')}章。可重新选择这些章节再次提取`)
+      setTimeout(() => setToast(''), 8000)
     }
     if (!abortRef.current) {
       setProgress({ current: chs.length, total: chs.length, text: '聚合中...' })
@@ -222,7 +298,7 @@ function safeItemName(i: unknown): string {
       while (stylePausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
       setStyleProgress(`风格: ${i + 1}/${chs.length}`)
       try {
-        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(dims)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
+        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(dims, novelType)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
         const a = parseStyleAnalysisReplyV3(reply, dims)
         chapterAnalyses.push({ chapterNum: chs[i].chapterNumber, analysis: a })
       } catch (err) { logError(`风格分析失败 第${chs[i].chapterNumber}章`, err) }

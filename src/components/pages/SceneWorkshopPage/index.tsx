@@ -42,6 +42,8 @@ export default function SceneWorkshopPage() {
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const setActivePage = useStore(s => s.setActivePage)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
+  const [saving, setSaving] = useState(false)
   const [editorType, setEditorType] = useState<EditorType>(null)
   const [templateType, setTemplateType] = useState<SceneTemplateType>('普通小说')
   const [templates, setTemplates] = useState<SceneTemplate[]>([])
@@ -128,15 +130,19 @@ export default function SceneWorkshopPage() {
 
   const handleSaveTemplate = async () => {
     if (!templateName.trim()) { alert('请输入模板名称'); return }
+    if (saving) return
     const tpl: SceneTemplate = {
       id: editingTemplate?.id || nanoid(8), name: templateName.trim(), type: templateType,
       config: editorType === 'erotic' ? eroticConfig : novelConfig,
       createdAt: editingTemplate?.createdAt || new Date().toISOString(),
     } as SceneTemplate
+    setSaving(true)
     try {
-      await templateService.save(tpl)
+      const saved = await templateService.save(tpl)
+      setFileEditNotify({ filePath: 'scene_templates/' + (saved.id || ''), newContent: '' })
       setShowEditor(false); loadTemplates()
     } catch { alert('保存失败，请重试') }
+    setSaving(false)
   }
 
   const handleDeleteTemplate = async (id: string) => {
@@ -276,7 +282,7 @@ export default function SceneWorkshopPage() {
                   ))}
                   <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12 }}>
                     <Button variant="secondary" onClick={() => setShowEditor(false)}>取消</Button>
-                    <Button onClick={handleSaveTemplate}>💾 保存模板</Button>
+                    <Button onClick={handleSaveTemplate} disabled={saving}>{saving ? '保存中...' : '💾 保存模板'}</Button>
                   </div>
                 </div>
               </ScrollArea>
@@ -304,7 +310,7 @@ export default function SceneWorkshopPage() {
                   ))}
                   <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12 }}>
                     <Button variant="secondary" onClick={() => setShowEditor(false)}>取消</Button>
-                    <Button onClick={handleSaveTemplate}>💾 保存模板</Button>
+                    <Button onClick={handleSaveTemplate} disabled={saving}>{saving ? '保存中...' : '💾 保存模板'}</Button>
                   </div>
                 </div>
               </ScrollArea>

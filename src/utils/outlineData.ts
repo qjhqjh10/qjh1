@@ -82,8 +82,13 @@ async function loadForeshadowingPrompt(projectPath: string): Promise<string> {
     const data = await loadOutlineData<{ foreshadowing: ForeshadowItem[] }>(projectPath, 'outline_meta.json', { foreshadowing: [] })
     if (!data.foreshadowing?.length) return ''
     const lines = data.foreshadowing.map(f => {
-      const fields = [f.description, f.status].filter(Boolean)
-      return `- ${fields.join(' | 状态: ')}`
+      const fields = [
+        f.description,
+        f.plantChapterId && `埋设:${f.plantChapterId}`,
+        f.payoffChapterId && `回收:${f.payoffChapterId}`,
+        `状态:${f.status || 'planted'}`,
+      ].filter(Boolean)
+      return `- ${fields.join(' | ')}`
     })
     return `【伏笔】\n${lines.join('\n')}`
   } catch (err) { logError('Failed to load outline prompt', err); return '' }

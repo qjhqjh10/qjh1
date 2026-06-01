@@ -2,6 +2,7 @@ import { fileService } from '@/services/fileService'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { logError } from '@/utils/logger'
 import { loadSummary } from '@/services/summaryService'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 function jsonPath(projectPath: string, id: string) {
   return `${projectPath}/detailed_outline/${id}.json`
@@ -56,13 +57,15 @@ export function repairJson(raw: string): string | null {
     try { const f = fixJsonNewlines(closed); JSON.parse(f); return f } catch { /* continue */ }
   }
 
-  // Strategy 4: remove trailing commas (common AI mistake)
-  const noTrailing = raw.replace(/,(\s*[}\]])/g, '$1')
-  try { const f = fixJsonNewlines(noTrailing); JSON.parse(f); return f } catch { /* continue */ }
+  // Strategy 4: try safeJsonParse utility (handles trailing commas + single quotes)
+  try {
+    const result = safeJsonParse(raw)
+    if (result) return JSON.stringify(result, null, 2)
+  } catch { /* continue */ }
 
   // Strategy 5: missing braces + trailing commas combined
   if (openBraces > closeBraces) {
-    const both = noTrailing.trimEnd() + '\n' + '}'.repeat(openBraces - closeBraces)
+    const both = raw.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']').trimEnd() + '\n' + '}'.repeat(openBraces - closeBraces)
     try { const f = fixJsonNewlines(both); JSON.parse(f); return f } catch { /* continue */ }
   }
 
