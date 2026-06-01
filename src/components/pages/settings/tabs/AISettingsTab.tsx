@@ -11,12 +11,21 @@ import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESE
 import { inputStyle, textareaStyle, captionText } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import { FormField, StatCard } from '../shared'
+import { compressAndSaveImage, loadAvatar } from '@/utils/imageCompress'
 
 export function AISettingsTab() {
   const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
   const setAISettings = useSettingsStore(s => s.setAISettings)
 
   const update = (k: keyof AIAssistantSettings, v: unknown) => setAISettings({ [k]: v })
+
+  // Resolve avatar file paths to data URLs for display
+  const [userAvatarSrc, setUserAvatarSrc] = useState('')
+  const [aiAvatarSrc, setAiAvatarSrc] = useState('')
+  useEffect(() => {
+    loadAvatar(aiSettings.userAvatar || '').then(setUserAvatarSrc)
+    loadAvatar(aiSettings.assistantAvatar || '').then(setAiAvatarSrc)
+  }, [aiSettings.userAvatar, aiSettings.assistantAvatar])
 
   return (
     <div className="custom-scrollbar" style={{ overflowY: 'auto', paddingRight: 16, height: '100%' }}>
@@ -269,11 +278,11 @@ export function AISettingsTab() {
             {/* User Avatar */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 11, color: '#6b5e54' }}>你的头像</span>
-              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('userAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; compressAndSaveImage(f, 'user').then(path => update('userAvatar', path)).catch(e => alert(e.message)); }; i.click() }}
                 className="interactive"
                 style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
-                {aiSettings.userAvatar
-                  ? <img src={aiSettings.userAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {userAvatarSrc
+                  ? <img src={userAvatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <span style={{ fontSize: 22 }}>✍️</span>}
               </div>
               {aiSettings.userAvatar && (
@@ -283,11 +292,11 @@ export function AISettingsTab() {
             {/* Assistant Avatar */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 11, color: '#6b5e54' }}>AI 头像</span>
-              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => update('assistantAvatar', r.result as string); r.readAsDataURL(f) }; i.click() }}
+              <div onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => { const f = i.files?.[0]; if (!f) return; compressAndSaveImage(f, 'assistant').then(path => update('assistantAvatar', path)).catch(e => alert(e.message)); }; i.click() }}
                 className="interactive"
                 style={{ width: 56, height: 56, borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.02)' }}>
-                {aiSettings.assistantAvatar
-                  ? <img src={aiSettings.assistantAvatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {aiAvatarSrc
+                  ? <img src={aiAvatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <span style={{ fontSize: 22 }}>📖</span>}
               </div>
               {aiSettings.assistantAvatar && (

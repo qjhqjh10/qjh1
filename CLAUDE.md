@@ -42,23 +42,23 @@ src/store/         — Zustand 状态（useStore, useSettingsStore, useAgentStor
 src/types/         — 类型定义
 ```
 
-## v2 新增/变更
+## 关键工具
 
-| 新增文件 | 用途 |
-|----------|------|
-| `src/utils/security.ts` | 统一路径消毒/URL验证/命令白名单 |
-| `src/agent/tools/resultHelpers.ts` | 工具结果统一格式化 ok()/err()/errMsg() |
+| 文件 | 用途 |
+|------|------|
+| `src/utils/safeJsonParse.ts` | 安全 JSON 解析（多策略回退） |
+| `src/utils/dimTiers.ts` | 26 维度适用层级表（单一数据源） |
+| `src/utils/imageCompress.ts` | 头像图片压缩+存盘（256px JPEG） |
+| `src/data/softwareGuide.ts` | 软件功能说明单一数据源（UI+AI共用） |
+| `src/utils/security.ts` | 路径消毒/URL验证/命令白名单 |
 | `src/agent/utils/tokenEstimation.ts` | CJK 感知 token 估算 |
-| `src/services/chatStorageService.ts` | IndexedDB 对话持久化（替代 localStorage） |
-| `src/components/ai/ErrorBoundary.tsx` | React 错误边界（防止白屏） |
-| `src/components/ai/AIChatWindow/components/VirtualMessageList.tsx` | 虚拟滚动消息列表（>20条启用） |
-| `src/components/ai/AIChatWindow/hooks/useConversationState.ts` | 会话状态管理 hook |
 
-| 已删除 | 原因 |
-|--------|------|
-| `src/agent/config/AiHarnessConfig.ts` | 未使用 |
-| `src/agent/hooks/HookEngine.ts` + `types.ts` | 未集成到 V4 |
-| `src/agent/context/FileRouter.ts` | 未使用 |
+## 验证命令
+
+| 命令 | 用途 |
+|------|------|
+| `npx tsc --noEmit` | TypeScript 类型检查 |
+| `npx vitest run` | 运行全部测试（355 用例） |
 
 ## 操作原则
 

@@ -219,6 +219,16 @@ export function registerStatsHandlers(ipcMain: IpcMain, projectsPath?: string) {
   ipcMain.handle('stats:getSessionStats', async () => {
     return await readSessionStats(projectsPath)
   })
+
+  ipcMain.handle('stats:reset', async () => {
+    try {
+      const logPath = path.join(getStatsPath(), 'usage.jsonl')
+      await fs.writeFile(logPath, '', 'utf-8')
+      return { status: 'success', summary: 'Token 统计数据已清空' }
+    } catch (e) {
+      return { status: 'error', summary: `清除失败: ${e instanceof Error ? e.message : '未知错误'}` }
+    }
+  })
 }
 
 function emptyResult() {

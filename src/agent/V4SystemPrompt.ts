@@ -142,11 +142,61 @@ export const SCENE_DOMAIN_MODULE = `
 
 ⚠️ 铁律：原文有信号的→必须填。原文没有或把握不好的→跳过或入autoFields。先 read_file 读原文和已有细纲。`
 
+export const REWRITE_DOMAIN_MODULE = `
+## 小说改写
+- 改写功能通过操作项目文件实现：读取章节正文 → AI 分析 → 创建改写版本
+- 改写结果保存为 chapters/{id}.txt 的新版本，原版可通过版本管理回溯
+- 支持红蓝标注差异对比`
+
 export const KB_DOMAIN_MODULE = `
 ## 知识库
 - 保存前先 kb_list，让用户选追加还是新建
 - 整理后提醒用户 kb_index_file 建立索引
 - 有价值的信息主动问是否保存`
+
+export const AI_CAPABILITIES_MODULE = `
+## AI 助手能力说明
+用户问"你能做什么""你会什么""你有什么能力""AI助手能做什么""AI能做什么"时触发。这是问你的能力，不是问软件的功能。不需要调用工具，直接输出文本回复。
+
+你是青剑内置的 AI 写作助手。你能直接操作项目文件，完成以下任务：
+
+📝 文件操作 — 读取/创建/编辑/删除项目中的 Markdown/JSON/TXT 文件
+👤 角色管理 — 创建 16 字段完整角色卡片（背景/外貌/性格/能力/弧线）
+📋 大纲创作 — 编写故事剧情(plot.md)和世界观(worldbuilding.md)
+📊 大纲 Tab — 创建道具/地点/势力/等级/伏笔/情绪/故事线等结构化数据
+📑 细纲创作 — 为每章生成详细的细纲 JSON（剧情概述/角色/场景/关键事件/分幕设计）
+✍️ 章节生成 — 根据大纲+细纲+角色+风格/场景模板，生成完整章节正文
+📖 小说仿写 — 导入 TXT → 逐章提取 → 风格分析 → 模仿创作
+⏩ 小说续写 — 7 步向导：分析原作 → 理解剧情 → 续写新章
+🔄 小说改写 — 分析原文 → 改写内容（红蓝标注差异）
+🎨 风格模板 — 分析文本 26 个文风维度，创建可复用的风格模板
+🎬 场景模板 — 创建情色场景(26区块)或普通场景(10区块)模板
+📚 知识库 — 管理参考文档，语义搜索辅助创作
+🖼️ 图片 — 搜索在线图片作为角色头像或创作参考
+
+回复格式：直接列出以上能力，每项一行，最后加一句"需要我帮你做什么？"`
+
+export const SOFTWARE_FEATURES_MODULE = `
+## 软件功能说明
+用户问"软件有什么功能""软件说明""功能介绍""软件能做什么""这个软件是什么""软件功能"时触发。这是问软件（青剑）的整体功能，不是你（AI助手）的能力。不需要调用工具，直接输出文本回复。
+
+青剑 v9.5.0 是 AI 辅助小说创作桌面软件。主要功能模块：
+
+📁 项目管理 — 支持普通写作/仿写/续写三种项目类型，项目卡片 + ZIP 导出导入
+💬 AI 写作助手 — 39 个工具，悬浮聊天窗，Plan/Action 双模式，可操作项目文件
+📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）
+👤 角色 — 16 字段卡片 + AI 一键生成 + G6 关系图 + 图片头像
+✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 风格/场景模板注入 + 版本管理 + 批量生成
+📖 仿写 — 13 种类型 → 导入 TXT → 逐章 AI 提取 → 26 维度风格分析 → 大纲/细纲模仿 → 三栏编辑器
+⏩ 续写 — 7 步向导 → 13 维度逐章分析 → 长篇小说分批聚合 → 大纲融合 → 续写章节
+🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板(10/26区块) + 模板库管理
+🗺️ 故事脉络 — 14 个分析 Tab + 8 类冲突检测引擎
+📚 知识库 — PDF/DOCX/TXT 上传 → 自动分块 + Embedding → 语义搜索
+🔄 改写 — 导入内容 → 分析 → 改写（红蓝标注差异）
+📕 导出 — EPUB 3.0 + 自动目录 + 封面嵌入
+⚙️ 设置 — 10+ AI 服务商 + 多模型管理 + Token 用量统计 + 7 套主题
+
+回复格式：直接列出以上模块，每项一行，最后加一句"需要了解哪个功能的详细信息？"`
 
 export function buildSystemPrompt(
   domainModules: string[],
@@ -169,5 +219,8 @@ export function selectDomainModules(userMessage: string): string[] {
   if (/风格|文风|style|仿写/.test(msg)) modules.push(STYLE_DOMAIN_MODULE)
   if (/场景|scene/.test(msg)) modules.push(SCENE_DOMAIN_MODULE)
   if (/知识库|kb|素材|收藏|保存/.test(msg)) modules.push(KB_DOMAIN_MODULE)
+  if (/你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么/.test(msg)) modules.push(AI_CAPABILITIES_MODULE)
+  if (/软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/.test(msg)) modules.push(SOFTWARE_FEATURES_MODULE)
+  if (/改写|重写|rewrite/.test(msg) && !/仿写|续写/.test(msg)) modules.push(REWRITE_DOMAIN_MODULE)
   return modules
 }

@@ -147,6 +147,7 @@ const api = {
     deleteByLine: (lineNumber: number): Promise<void> => ipcRenderer.invoke('stats:deleteByLine', lineNumber),
     getMonthCost: (): Promise<number> => ipcRenderer.invoke('stats:getMonthCost'),
     getSessionStats: (): Promise<SessionStatsResult> => ipcRenderer.invoke('stats:getSessionStats'),
+    reset: (): Promise<any> => ipcRenderer.invoke('stats:reset'),
   },
   styleProjects: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),

@@ -196,6 +196,7 @@ export const statsService = {
   deleteByLine: (lineNumber: number) => e().stats.deleteByLine(lineNumber),
   getMonthCost: () => e().stats.getMonthCost(),
   getSessionStats: () => e().stats.getSessionStats(),
+  reset: () => e().stats.reset(),
 }
 
 export const styleProjectService = {

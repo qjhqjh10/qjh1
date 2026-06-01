@@ -1,7 +1,23 @@
 {
-  "currentVersion": "9.5.0",
+  "currentVersion": "9.5.1",
   "currentDate": "2026-06-01",
   "history": [
+    {
+      "version": "9.5.1",
+      "date": "2026-06-01",
+      "features": [
+        "Token统计重置按钮修复: 新增stats:reset完整IPC链路(handler+preload+service+UI)",
+        "头像存储优化: 从localStorage拆出改为存文件系统(user_data/avatars/)，彻底解决大图撑爆设置问题",
+        "软件说明数据源统一: softwareGuide.ts单一数据源，SoftwareGuideModal和AI助手共同引用",
+        "AI助手智能意图区分: 独立AI_CAPABILITIES_MODULE和SOFTWARE_FEATURES_MODULE，关键词触发",
+        "小说改写领域模块: 新增REWRITE_DOMAIN_MODULE+selectDomainModules改写匹配",
+        "欢迎消息扩展: 从4个示例扩展到6个，增加风格分析和续写入口",
+        "图片压缩工具: imageCompress.ts(缩放256px+JPEG 0.7)，头像15KB以内",
+        "打包安全: electron-builder.yml移除projects/knowledge_base/scene_templates等用户数据",
+        "未使用imports清理: TokenStatsTab移除7个未引用导入",
+        "设置页面全面测试: 7个Tab所有按钮/IPC链路/持久化验证通过"
+      ]
+    },
     {
       "version": "9.5.0",
       "date": "2026-06-01",

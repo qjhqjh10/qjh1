@@ -127,6 +127,7 @@ export interface StatsAPI {
   deleteByLine: (lineNumber: number) => Promise<void>
   getMonthCost: () => Promise<number>
   getSessionStats: () => Promise<SessionStatsResult>
+  reset: () => Promise<any>
 }
 
 export interface StyleProjectsAPI {
