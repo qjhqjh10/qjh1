@@ -883,7 +883,7 @@ detailed_outline/{章节id}.json，每章一个JSON:
 
 ## 风格模板
 用 create_style_template 保存，禁止手动 create_file 写JSON
-必填: name, type, dimensions(分析结果对象)
+必填: name, type(小说类型: 情色小说|奇幻|都市小说|修仙小说|恋爱小说|古风小说|轻小说|普通小说等), dimensions(分析结果对象)
 dimensions格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填
 26维度: 叙事视角/语调/时间/空间/感官/比喻/对话/心理/节奏/反差/氛围/语言/重复/留白/身体等
 可选: worldType, description, fullDescription, vocabularyList, writingRules, tone({word,description,attitude})

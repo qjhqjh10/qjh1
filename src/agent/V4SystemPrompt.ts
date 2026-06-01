@@ -72,7 +72,7 @@ detailed_outline/{章节id}.json，每章一个JSON文件:
 export const STYLE_DOMAIN_MODULE = `
 ## 风格模板
 用户上传或引用文本后，分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
-必填: name(模板名), type(小说类型), dimensions(分析结果对象)
+必填: name(模板名), type(小说类型: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说), dimensions(分析结果对象)
 dimensions每个维度格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填，examples/writingRules/vocabularyList若无则填空数组[]
 可选: worldType(世界观类型), description(简短描述), fullDescription(完整综述)
 可选: vocabularyList(词汇清单数组), writingRules(写作规则数组)

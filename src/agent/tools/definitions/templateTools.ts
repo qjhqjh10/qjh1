@@ -11,7 +11,7 @@ export const templateTools: ToolDefinition[] = [
         type: 'object',
         properties: {
           name: { type: 'string', description: '模板名称' },
-          type: { type: 'string', description: '小说类型' },
+          type: { type: 'string', description: '小说类型。有效值: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说|穿越小说|末世小说|游戏小说' },
           worldType: { type: 'string', description: '世界观类型' },
           description: { type: 'string', description: '简短描述' },
           fullDescription: { type: 'string', description: '完整风格综述（可选）' },
@@ -65,7 +65,7 @@ export const templateTools: ToolDefinition[] = [
         type: 'object',
         properties: {
           name: { type: 'string', description: '模板名称' },
-          type: { type: 'string', description: '小说类型' },
+          type: { type: 'string', description: '小说类型。有效值: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说|穿越小说|末世小说|游戏小说' },
           // 通用场景字段
           sceneType: { type: 'string', description: '日常|战斗|对话|内心独白|过渡|高潮|情色' },
           conflictType: { type: 'string', description: '冲突类型' },
