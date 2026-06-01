@@ -338,11 +338,18 @@ describe('上传TXT → 风格/场景模板生成 全链路测试', () => {
   // 上传消息格式验证
   // ══════════════════════════════════════════════════════════
 
-  it('16. 上传消息包含 read_file 引导', () => {
+  it('16. 上传消息包含 read_file 引导 + 询问类型', () => {
     const fp = `uploads/files/test.txt`
     const attachText = `[上传文件: test.txt]\n文件已保存到 ${fp}。请用 read_file 读取内容后分析。`
     expect(attachText).toContain('read_file')
     expect(attachText).toContain(fp)
+
+    // 验证 17 种有效类型
+    const validTypes = ['情色小说', '奇幻', '都市小说', '修仙小说', '武侠小说', '恋爱小说',
+      '古风小说', '悬疑小说', '历史小说', '科幻小说', '玄幻小说', '灵异小说',
+      '轻小说', '普通小说', '穿越小说', '末世小说', '游戏小说']
+    expect(validTypes).toHaveLength(17)
+    expect(new Set(validTypes).size).toBe(17) // 无重复
   })
 
   // ══════════════════════════════════════════════════════════

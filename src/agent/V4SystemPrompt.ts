@@ -87,11 +87,15 @@ export const STYLE_DOMAIN_MODULE = `
 用户上传或引用文本后，逐维度分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
 
 工作流程：
-1. 用户上传文件 → 保存到 uploads/files/
-2. 用 read_file("uploads/files/文件名") 读取原文
-3. 逐段分析 → 提取各维度特征 → 调用 create_style_template 保存
+0. ⚡ 先确认类型：询问用户这是什么类型的小说。17种有效类型：
+   情色小说 | 奇幻 | 都市小说 | 修仙小说 | 武侠小说 | 恋爱小说 | 古风小说
+   悬疑小说 | 历史小说 | 科幻小说 | 玄幻小说 | 灵异小说 | 轻小说
+   普通小说 | 穿越小说 | 末世小说 | 游戏小说
+   → 用户确认后再继续，不要自己猜测
+1. 用 read_file("uploads/files/文件名") 读取原文
+2. 逐段分析 → 提取各维度特征 → 调用 create_style_template 保存
 
-必填: name, type(情色小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|奇幻小说|灵异小说|游戏小说|末世小说|轻小说|都市小说|穿越小说|普通小说), dimensions
+必填: name, type(上述17种之一), dimensions
 可选: worldType, description, fullDescription(200-400字散文式综述), vocabularyList(50-100个高频词), writingRules(10-20条), tone
 
 【维度分层 — 严格按此分析，维度key与 dimTiers.ts 保持同步】
@@ -123,11 +127,12 @@ export const SCENE_DOMAIN_MODULE = `
 用户上传或引用文本后，分析场景结构特征，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
 
 工作流程：
-1. 用户上传文件 → 保存到 uploads/files/
-2. 用 read_file("uploads/files/文件名") 读取原文
-3. 分析场景结构 → 提取各字段 → 调用 create_scene_template 保存
+0. ⚡ 先确认类型：询问用户这是什么类型的小说（17种同风格模板）。
+   → 用户确认后再继续，不要自己猜测
+1. 用 read_file("uploads/files/文件名") 读取原文
+2. 分析场景结构 → 提取各字段 → 调用 create_scene_template 保存
 
-必填: name, type(同风格模板的小说类型值)
+必填: name, type(17种类型之一，同风格模板)
 
 【通用场景字段 — 从原文提取，有则填、无则留空】
   sceneType(日常|战斗|对话|内心独白|过渡|高潮|情色)
