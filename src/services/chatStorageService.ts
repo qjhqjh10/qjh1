@@ -39,14 +39,8 @@ function getDb(): Promise<IDBDatabase> {
 // ── File path helpers (use Electron userData, not projectsBasePath) ──
 
 async function getStorageDir(): Promise<string | null> {
-  // Try Electron userData first (always available in production)
-  try {
-    const { appService } = await import('@/services/fileService')
-    const base = await appService?.getStoryWorkspacePath?.()
-    if (base) return base.replace(/[/\\]?$/, '') + '/.appdata'
-  } catch {}
-
-  // Fallback: projectsBasePath (may not be set on fresh start)
+  // Use projectsBasePath → strip /projects → append /.appdata
+  // This path must match globalAppDataPath in fileHandlers.ts resolvePath whitelist
   try {
     const { useStore } = await import('@/store')
     const base = useStore.getState().projectsBasePath
