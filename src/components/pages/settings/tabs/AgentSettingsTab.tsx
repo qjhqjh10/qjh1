@@ -7,7 +7,7 @@ import { LearningSection } from './agent/LearningSection'
 type AgentSubTab = 'feedback' | 'reliability' | 'mcp' | 'learning'
 
 const SUB_TABS: [AgentSubTab, string, string][] = [
-  ['feedback', '反馈', '💡'],
+  ['feedback', '自我优化', '🔧'],
   ['reliability', '可靠性', '🛡️'],
   ['learning', '学习', '📝'],
   ['mcp', 'MCP', '🔌'],

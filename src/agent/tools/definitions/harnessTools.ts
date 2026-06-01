@@ -201,4 +201,37 @@ export const harnessTools: ToolDefinition[] = [
       }
     },
   },
+  {
+    schema: {
+      name: 'write_learning',
+      description: '记录一条学习经验。何时使用：工具调用出错但最终解决了问题（如JSON格式错误→参考已有文件后修正、路径不对→改用正确路径）。写清楚问题和解决方法，供以后参考。每次只记录一条经验。',
+      parameters: {
+        type: 'object',
+        properties: {
+          problem: { type: 'string', description: '出错原因，简短描述。如"JSON字段名缺少双引号导致解析失败"' },
+          solution: { type: 'string', description: '解决方法，具体可操作。如"先read_file参考已有JSON文件格式，确保字段名用双引号包裹"' },
+          category: { type: 'string', description: '分类: file | character | outline | chapter | style | kb | general' },
+        },
+        required: ['problem', 'solution'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'file',
+    availableInPlanMode: true,
+    executor: async (args) => {
+      try {
+        const problem = String(args.problem || '').trim()
+        const solution = String(args.solution || '').trim()
+        if (!problem || !solution) return { status: 'error', summary: '问题和解决方法都不能为空' }
+        const { LearningEngine } = await import('../../learning/LearningEngine')
+        const engine = new LearningEngine()
+        await engine.load()
+        const entry = engine.addEntry(problem, solution, String(args.category || 'general'))
+        await engine.persist()
+        return { status: 'success', summary: `已记录学习经验: ${entry.problem.slice(0, 40)}` }
+      } catch (e) {
+        return { status: 'error', summary: `记录学习经验失败: ${e instanceof Error ? e.message : '未知错误'}` }
+      }
+    },
+  },
 ]

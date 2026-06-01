@@ -1,28 +1,38 @@
 /**
- * Memory Index (V3.1)
+ * Memory Index (V4.1 — Change-driven cache)
  *
  * Outputs direct read_file instructions instead of passive file listings.
- * This eliminates list_directory/search_files exploration — the model
- * knows exact paths and can read files directly in one iteration.
+ * Cache stays valid until a structural change occurs (file created/deleted/renamed,
+ * template created/deleted). Content-only edits (edit_file) do NOT invalidate —
+ * file paths and counts remain the same.
  *
- * Cached with 120s TTL. All file scans run in parallel.
+ * Persisted to disk: survives app restart, loaded on first access.
  */
 
-// Module-level cache to survive across messages in the same session
-let _cachedIndex: { projectId: string; index: string; timestamp: number } | null = null
-const INDEX_CACHE_TTL = 120_000  // 2 minutes
+import { estimateTokens } from '../utils/tokenEstimation'
+
+// Module-level cache — survives across messages and sessions
+let _cachedIndex: { projectId: string; index: string; tokenCount: number } | null = null
+let _dirty = false
+
+const PERSIST_PATH = '.aiharness/memory-index.json'
 
 /**
  * Build a compact project file index suitable for LLM context.
- * Returns cached result if available and fresh.
+ * Returns cached result if available. Rebuilds only when invalidated.
  */
 export async function buildMemoryIndex(projectId: string): Promise<string> {
   if (!projectId) return ''
 
-  // Return cached if fresh
-  if (_cachedIndex && _cachedIndex.projectId === projectId &&
-      Date.now() - _cachedIndex.timestamp < INDEX_CACHE_TTL) {
+  // Return cached if still valid (no invalidation occurred)
+  if (_cachedIndex && _cachedIndex.projectId === projectId) {
     return _cachedIndex.index
+  }
+
+  // Try loading persisted index from disk (survives app restart)
+  if (!_cachedIndex || _cachedIndex.projectId !== projectId) {
+    const persisted = await loadPersisted(projectId)
+    if (persisted) return persisted
   }
 
   try {
@@ -39,7 +49,8 @@ export async function buildMemoryIndex(projectId: string): Promise<string> {
         styleTemplateService.list().catch(() => []),
       ])
 
-    const lines: string[] = ['## 项目文件索引 — 直接 read_file 即可，无需探索\n']
+    const lines: string[] = ['## 项目文件索引 — 直接 read_file 即可，无需探索']
+    lines.push('> 同类型文件超过5个时，先列出概要让用户选择，不要全读。用户指定了具体文件名则直接读。\n')
     const prefix = projectId
 
     // Chapters
@@ -98,14 +109,62 @@ export async function buildMemoryIndex(projectId: string): Promise<string> {
     }
 
     const result = lines.join('\n')
-    _cachedIndex = { projectId, index: result, timestamp: Date.now() }
+    _cachedIndex = { projectId, index: result, tokenCount: estimateTokens(result) }
+    _dirty = true
+    // Fire-and-forget persist
+    persistToDisk(projectId, _cachedIndex).catch(() => {})
     return result
   } catch {
     return ''
   }
 }
 
-/** Force-refresh the cache (call after project file changes) */
+/**
+ * Invalidate the cache. Call after any structural file change:
+ * - create_file, delete_file, rename_file
+ * - create_style_template, create_scene_template
+ * - kb_create_file, kb_delete
+ *
+ * Content-only edits (edit_file) do NOT need invalidation —
+ * file paths and counts remain unchanged.
+ */
 export function invalidateMemoryIndexCache(): void {
   _cachedIndex = null
+  // Remove stale persisted file so it doesn't conflict on next load
+  import('@/services/fileService').then(m =>
+    m.fileService.deleteFile(PERSIST_PATH).catch(() => {})
+  ).catch(() => {})
+}
+
+/** Get the token count of the cached index (0 if not built yet) */
+export function getMemoryIndexTokens(): number {
+  return _cachedIndex?.tokenCount ?? 0
+}
+
+// ── Disk persistence (survives app restart) ──
+
+async function persistToDisk(projectId: string, cache: { projectId: string; index: string; tokenCount: number }): Promise<void> {
+  try {
+    const { fileService } = await import('@/services/fileService')
+    await fileService.ensureDir('.aiharness')
+    await fileService.write(PERSIST_PATH, JSON.stringify({
+      projectId: cache.projectId,
+      index: cache.index,
+      savedAt: Date.now(),
+    }))
+  } catch { /* best-effort */ }
+}
+
+async function loadPersisted(projectId: string): Promise<string | null> {
+  try {
+    const { fileService } = await import('@/services/fileService')
+    const raw = await fileService.read(PERSIST_PATH)
+    if (!raw?.trim()) return null
+    const data = JSON.parse(raw)
+    if (data.projectId !== projectId) return null
+    // Check if persisted index is stale — if any structural change happened
+    // since it was saved, it would have been invalidated (file deleted on disk too)
+    _cachedIndex = { projectId: data.projectId, index: data.index, tokenCount: estimateTokens(data.index) }
+    return data.index
+  } catch { return null }
 }

@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
   registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
   registerAiHandlers(ipcMain, safeStorage, projectsPath)
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
-  registerStatsHandlers(ipcMain)
+  registerStatsHandlers(ipcMain, projectsPath)
 
   const parentDir = dirname(projectsPath)
   const styleProjectsPath = join(parentDir, 'style_projects')

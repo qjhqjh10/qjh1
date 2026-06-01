@@ -103,10 +103,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     try {
       const completion = await client.chat.completions.create({
         model: config.model,
-        messages: apiMessages,
+        messages: apiMessages as any,
         temperature: config.temperature,
         max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
-        ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } as any : {}),
       })
 
       // Log token usage (always, even without projectId)
@@ -182,11 +181,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     })
 
     try {
-      // @ts-expect-error TS2769 — reasoning_effort not in OpenAI SDK types yet
       const stream = await client.chat.completions.create({
         model: config.model, messages: apiMessages as any, temperature: config.temperature,
         max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined, stream: true,
-        ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
       }, { signal: abortController.signal })
 
       let fullContent = ''
@@ -394,7 +391,6 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           messages: apiMessages,
           temperature: config.temperature,
           max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
-          ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
         }
 
         if (tools && tools.length > 0) {
@@ -453,6 +449,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
             prompt_tokens: usage.prompt_tokens || 0,
             completion_tokens: usage.completion_tokens || 0,
             total_tokens: usage.total_tokens || 0,
+            cacheHitTokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
             cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
           } : undefined,
         })
@@ -478,18 +475,21 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const config = configs.find(c => c.id === configId)
       if (!config) throw new Error('Model config not found')
 
-      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      // Image model: use image-specific config, fall back to main config
+      const imageApiKey = config.imageApiKey || config.apiKey
+      const imageEncrypted = config.imageEncrypted ?? config.encrypted
+      const apiKey = decryptKey(imageApiKey, imageEncrypted, safeStorage)
       const OpenAI = await getOpenAI()
       const client = new OpenAI({
         apiKey,
-        baseURL: config.apiUrl || undefined,
+        baseURL: config.imageApiUrl || config.apiUrl || undefined,
         timeout: 180_000,
         maxRetries: 2,
       })
 
       const imageSize = size || '1024x1024'
       const imageStyle = style || 'vivid'
-      const imageModel = config.model || 'dall-e-3'
+      const imageModel = config.imageModel || 'dall-e-3'
 
       // Build generate params — size/style are DALL-E specific, omit for other models
       const genParams: Record<string, unknown> = {
@@ -508,7 +508,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         const msg = err instanceof Error ? err.message : ''
         const status = (err as { status?: number })?.status
         if (status === 404 || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('unsupported')) {
-          throw new Error(`[UNSUPPORTED_OPERATION] 模型 "${imageModel}" 不支持图片生成功能。请使用 dall-e-3 或其他支持图片生成的模型。`)
+          throw new Error(`[UNSUPPORTED_OPERATION] 图片模型 "${imageModel}" 不支持图片生成。请使用 dall-e-3 或在设置中配置支持图片生成的模型。`)
         }
         throw new Error(categorizeError(err))
       }
@@ -535,8 +535,10 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       await writeFile(imagePath, buf)
 
       const relativePath = `images/${fileName}`
-      // Use config pricing or default estimate
-      const costPerImage = config.inputPricePerM > 0 ? config.inputPricePerM / 1000 : 0.04
+      // Use image pricing if available, otherwise estimate
+      const costPerImage = config.imageInputPricePerM > 0
+        ? config.imageInputPricePerM / 1000
+        : config.inputPricePerM > 0 ? config.inputPricePerM / 1000 : 0.04
       const cost = config.currency === 'CNY' ? costPerImage * 7.2 : costPerImage
 
       // Log token usage for stats

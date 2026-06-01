@@ -74,13 +74,11 @@ describe('useSettingsStore', () => {
   it('adds and removes model configs', () => {
     useSettingsStore.getState().addConfig({
       id: 'cfg1', name: 'GPT-4o', provider: 'openai', apiUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test', model: 'gpt-4o', cheapModel: '', reasoningModel: '', imageModel: '',
+      apiKey: 'sk-test', model: 'gpt-4o', imageModel: '',
       imageProvider: '', imageApiUrl: '', imageApiKey: '',
       embeddingModel: 'text-embedding-3-small',
       temperature: 0.8, maxTokens: 0, systemPrompt: '',
       inputPricePerM: 2.5, outputPricePerM: 10, cacheHitPricePerM: 1.25,
-      cheapTemperature: 0.3, cheapMaxTokens: 2000, cheapInputPricePerM: 0, cheapOutputPricePerM: 0, cheapCacheHitPricePerM: 0,
-      reasoningTemperature: 0, reasoningMaxTokens: 32000, reasoningInputPricePerM: 0, reasoningOutputPricePerM: 0, reasoningCacheHitPricePerM: 0,
       imageInputPricePerM: 0, imageOutputPricePerM: 0,
       currency: 'USD' as const,
     })

@@ -28,6 +28,7 @@ export interface V4AgentConfig {
   projectId: string | null
   maxIterations: number
   abortSignal: AbortSignal
+  contextWindow?: number  // 模型上下文窗口大小 (默认 128K)，用于压缩阈值计算
 }
 
 export interface V4AgentRunInput {
@@ -88,14 +89,17 @@ export class V4AgentRuntime {
   private contextAssembler: ContextAssemblerFn | null = null
   private aiService: AIService | null = null
   private tools: unknown[] = []
+  private extendedTools: unknown[] = []  // v4.1: progressive disclosure — added on iteration 3+
+  private toolsExpanded = false
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private toolsUsed: string[] = []
-  private compressor = new ContextCompressor(1_000_000)
+  private compressor: ContextCompressor  // set in constructor from config.contextWindow
   private compressedAt = 0
 
   constructor(config: V4AgentConfig) {
     this.config = config
+    this.compressor = new ContextCompressor(config.contextWindow ?? 128_000)
   }
 
   // ── Dependency Injection ──
@@ -104,6 +108,7 @@ export class V4AgentRuntime {
   setContextAssembler(fn: ContextAssemblerFn): void { this.contextAssembler = fn }
   setAIService(svc: AIService): void { this.aiService = svc }
   setTools(tools: unknown[]): void { this.tools = tools }
+  setExtendedTools(tools: unknown[]): void { this.extendedTools = tools }  // v4.1 progressive disclosure
   setHistory(messages: Message[]): void { this.historyMessages = messages }
 
   getEmitter(): AgentEventEmitter { return this.emitter }
@@ -178,11 +183,27 @@ export class V4AgentRuntime {
       iteration++
       store.setIteration(iteration)
 
-      // v4 Agent 4: On iteration 2+, replace full constitution with minimal execute prompt
-      if (iteration >= 2 && fullSystemMessages.length > 0) {
-        this.messagesForApi[0] = {
+      // v4.1: Keep core prompt intact for DeepSeek prefix caching.
+      // The cache_control on messagesForApi[0] only works if content never changes.
+      // On iteration 3+, inject a brief execution hint as a separate system message
+      // (after the core + dynamic system messages). This preserves prefix caching
+      // across all iterations while still nudging the model to stop when appropriate.
+      if (iteration >= 3) {
+        const hintIdx = fullSystemMessages.length  // after system messages, before history
+        this.messagesForApi.splice(hintIdx, 0, {
           role: 'system',
-          content: `执行任务: ${input.userMessage.slice(0, 100)}。根据工具返回结果继续，完成后直接回复用户。`,
+          content: iteration >= this.config.maxIterations - 1
+            ? '[最后轮次] 已达到最大操作轮次。请基于已完成的工具结果生成最终文本回复。'
+            : `[提示] 当前第${iteration}轮。如果已有足够信息回复用户，请直接输出文本回复，不要继续工具调用。`,
+        })
+        // Remove previous hint if any (to avoid accumulation)
+        if (iteration > 3) {
+          const prevHintIdx = this.messagesForApi.findIndex(m =>
+            m.role === 'system' && typeof m.content === 'string' && m.content.startsWith('[提示]') || m.content.startsWith('[最后轮次]')
+          )
+          if (prevHintIdx >= 0 && prevHintIdx < hintIdx) {
+            this.messagesForApi.splice(prevHintIdx, 1)
+          }
         }
       }
       this.emitter.emit('thinking:start', { intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now() })
@@ -199,8 +220,15 @@ export class V4AgentRuntime {
 
       // ── API Call (with single retry for transient failures) ──
       const isLastIteration = iteration >= this.config.maxIterations
-      // v4: Scoped tools. Last iteration = no tools (force text).
-      // v4: Always send full tools — DeepSeek caches identical array → 10% after first call
+      // v4.1 Progressive tool disclosure:
+      //   Iteration 1-2: core tools only (最小工具集)
+      //   Iteration 3+:   core + extended (扩展工具集) — 核心工具不够用时自动追加
+      //   Last iteration:  no tools (强制文本回复)
+      if (!this.toolsExpanded && iteration >= 3 && this.extendedTools.length > 0) {
+        this.tools = [...this.tools, ...this.extendedTools]
+        this.toolsExpanded = true
+        diagnosticLogger.recordInfo(`工具扩展: +${this.extendedTools.length}个 (迭代${iteration})`)
+      }
       const toolsForThisRound = isLastIteration ? [] : this.tools
       const API_TIMEOUT = 90_000
       const MAX_RETRIES = 1
@@ -310,15 +338,6 @@ export class V4AgentRuntime {
         await this.executeSingleTool(tc, runId, store, iteration)
       }
 
-      // v3.1: Inject stop prompt on late iterations to prevent excessive internal thinking
-      if (iteration >= 5) {
-        this.messagesForApi.push({
-          role: 'system',
-          content: iteration >= this.config.maxIterations
-            ? '[最后轮次] 已达到最大操作轮次。请基于已完成的工具结果生成最终文本回复。'
-            : `[效率提示] 当前第${iteration}轮。如果已有足够信息回复用户，请直接输出文本回复，不要继续工具调用。`,
-        })
-      }
     }
 
     // ── ③ Done ──

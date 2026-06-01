@@ -1,0 +1,26 @@
+[
+  {
+    "id": "learn_test1",
+    "problem": "JSON字段名缺少双引号导致DeepSeek解析失败",
+    "solution": "创建JSON文件前先read_file参考已有文件格式，确保所有字段名用双引号包裹",
+    "category": "file",
+    "createdAt": "2026-06-01T10:30:00.000Z",
+    "applied": false
+  },
+  {
+    "id": "learn_test2",
+    "problem": "角色JSON缺少gender和age必填字段",
+    "solution": "创建角色时逐项检查16个字段：name/gender/age/role/occupation/personality/appearance/background/abilities/relationships/arc/goals/secrets/weakness/items/notes",
+    "category": "character",
+    "createdAt": "2026-06-01T11:00:00.000Z",
+    "applied": false
+  },
+  {
+    "id": "learn_test3",
+    "problem": "edit_file的old_string未逐字匹配导致替换失败",
+    "solution": "使用edit_file前必须先read_file确认原文，复制粘贴精确文本作为old_string，不要手动输入",
+    "category": "file",
+    "createdAt": "2026-06-01T11:30:00.000Z",
+    "applied": false
+  }
+]

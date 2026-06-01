@@ -417,13 +417,13 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具描述质量 ──
-  it('功能10: 工具描述 — 核心工具含"何时使用"指引', () => {
+  it('功能10: 工具描述 — 核心工具含使用指引', () => {
     const coreTools = ['read_file', 'create_file', 'edit_file', 'search_files', 'search_content', 'list_directory', 'delete_file']
     for (const name of coreTools) {
       const def = toolRegistry.get(name)
       expect(def).toBeDefined()
       expect(def!.schema.description.length).toBeGreaterThan(10)
-      expect(def!.schema.description).toMatch(/何时使用|用于|使用此工具/)
+      expect(def!.schema.description).toMatch(/何时使用|用于|使用此工具|直接 read_file|不需要此工具/)
     }
   })
 
@@ -446,13 +446,21 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 学习引擎 ──
-  it('功能13: LearningEngine — 启动和模式追踪', async () => {
+  it('功能13: LearningEngine — 写入和读取学习经验', async () => {
     const { LearningEngine } = await import('../learning/LearningEngine')
     const le = new LearningEngine()
-    le.startSession()
     await le.load()
-    le.onToolResult('read_file', { status: 'success', summary: 'ok' }, 'test')
-    expect(le.hasActivePatterns()).toBeTypeOf('boolean')
+    const entry = le.addEntry('JSON字段名缺少双引号', '先read_file参考已有JSON格式', 'file')
+    expect(entry.problem).toBe('JSON字段名缺少双引号')
+    expect(entry.solution).toContain('read_file')
+    expect(entry.enabled).toBe(false)  // default off
+    const entries = le.getAll()
+    expect(entries.length).toBe(1)
+    const ctx = le.getContextInject()
+    expect(ctx).toBe('')  // not injected when disabled
+    le.toggleEnabled(entry.id)
+    const ctx2 = le.getContextInject()
+    expect(ctx2).toContain('JSON字段名缺少双引号')
   })
 
   // ── 审计日志 ──

@@ -208,7 +208,7 @@ export function ModelSettingsTab() {
   const [savedAt, setSavedAt] = useState(0)
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelList, setModelList] = useState<string[]>([])
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'cheap'|'reasoning'|'image'
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'image'
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -299,7 +299,7 @@ export function ModelSettingsTab() {
                 }}>
                   <div>{config.name}</div>
                   <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 3 }}>
-                    💪{config.model}{config.cheapModel ? ` ⚡${config.cheapModel}` : ''}
+                    💪{config.model}{config.imageModel ? ` 🎨${config.imageModel}` : ''}
                   </div>
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); removeConfig(config.id); if (activeConfigId === config.id) setActiveConfig(configs.filter(c => c.id !== config.id)[0]?.id || null) }}
@@ -336,7 +336,7 @@ export function ModelSettingsTab() {
 
             {/* ── 💪 Main ── */}
             <ModelCard
-              icon="💪" title="Main 主力模型" desc="对话执行、工具调用、章节写作。下方模板默认设置作为所有子模型的共享默认值。"
+              icon="💪" title="Main 主力模型" desc="AI写作助手核心模型 — 对话执行、工具调用、章节创作。所有功能共用此模型。"
               modelValue={activeConfig.model} onModelChange={v => u({ model: v })}
               placeholder="deepseek-chat / gpt-4o"
               tempValue={activeConfig.temperature} onTempChange={v => u({ temperature: v })}
@@ -375,63 +375,12 @@ export function ModelSettingsTab() {
                     <ApiKeyField value={activeConfig.apiKey} onChange={v => u({ apiKey: v })} />
                   </div>
                 </div>
-                <div style={{ marginTop: 8 }}>
-                  <FormField label="推理深度 (reasoning_effort)">
-                    <select value={activeConfig.reasoningEffort || ''}
-                      onChange={e => u({ reasoningEffort: (e.target.value || undefined) as any })}
-                      style={{ ...inputBase, cursor: 'pointer' }}>
-                      <option value="">默认（不传此参数）</option>
-                      <option value="min">min</option><option value="low">low</option>
-                      <option value="medium">medium</option><option value="high">high</option><option value="max">max</option>
-                    </select>
-                  </FormField>
-                </div>
               </div>
             </ModelCard>
 
-            {/* ── ⚡ Cheap ── */}
-            <ModelCard
-              icon="⚡" title="Cheap 便宜模型" desc="分类器 + 意图方案。速度和成本优先，建议用 Flash/Mini。留空模型名则复用 Main。"
-              modelValue={activeConfig.cheapModel} onModelChange={v => u({ cheapModel: v })}
-              placeholder="留空 = 复用 Main 模型"
-              tempValue={safe(activeConfig.cheapTemperature, activeConfig.temperature)}
-              onTempChange={v => u({ cheapTemperature: v })}
-              maxTokValue={safe(activeConfig.cheapMaxTokens, activeConfig.maxTokens)}
-              onMaxTokChange={v => u({ cheapMaxTokens: v })}
-              inPrice={safe(activeConfig.cheapInputPricePerM)} onInPrice={v => u({ cheapInputPricePerM: v })}
-              outPrice={safe(activeConfig.cheapOutputPricePerM)} onOutPrice={v => u({ cheapOutputPricePerM: v })}
-              cachePrice={safe(activeConfig.cheapCacheHitPricePerM)} onCachePrice={v => u({ cheapCacheHitPricePerM: v })}
-              currency={activeConfig.cheapCurrency || activeConfig.mainCurrency || activeConfig.currency}
-              onCurrency={v => u({ cheapCurrency: v })}
-              apiUrl={activeConfig.cheapApiUrl || ''} onApiUrl={v => u({ cheapApiUrl: v })}
-              apiKey={activeConfig.cheapApiKey || ''} onApiKey={v => u({ cheapApiKey: v })}
-              configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
-              modelList={modelList} showDropdown={activeDropdown === 'cheap'} setShowDropdown={(v) => setActiveDropdown(v ? 'cheap' : null)}
-            />
-
-            {/* ── 🧠 Reasoning ── */}
-            <ModelCard
-              icon="🧠" title="Reasoning 推理模型" desc="深度分析、复杂推理。可选。推理模型通常不需要温度参数（自动禁用）。"
-              modelValue={activeConfig.reasoningModel} onModelChange={v => u({ reasoningModel: v })}
-              placeholder="留空 = 复用 Main 模型"
-              tempValue={safe(activeConfig.reasoningTemperature)} onTempChange={v => u({ reasoningTemperature: v })}
-              tempDisabled={!!activeConfig.reasoningModel && /reasoner|o1|o3|r1/i.test(activeConfig.reasoningModel)}
-              maxTokValue={safe(activeConfig.reasoningMaxTokens, activeConfig.maxTokens)}
-              onMaxTokChange={v => u({ reasoningMaxTokens: v })}
-              inPrice={safe(activeConfig.reasoningInputPricePerM)} onInPrice={v => u({ reasoningInputPricePerM: v })}
-              outPrice={safe(activeConfig.reasoningOutputPricePerM)} onOutPrice={v => u({ reasoningOutputPricePerM: v })}
-              cachePrice={safe(activeConfig.reasoningCacheHitPricePerM)} onCachePrice={v => u({ reasoningCacheHitPricePerM: v })}
-              currency={activeConfig.reasoningCurrency || activeConfig.mainCurrency || activeConfig.currency}
-              onCurrency={v => u({ reasoningCurrency: v })}
-              apiUrl={activeConfig.reasoningApiUrl || ''} onApiUrl={v => u({ reasoningApiUrl: v })}
-              apiKey={activeConfig.reasoningApiKey || ''} onApiKey={v => u({ reasoningApiKey: v })}
-              configId={activeConfig.id} onRefreshModels={handleRefreshModels} loadingModels={loadingModels}
-              modelList={modelList} showDropdown={activeDropdown === 'reasoning'} setShowDropdown={(v) => setActiveDropdown(v ? 'reasoning' : null)}
-            />
-
             {/* ── 🎨 Image ── */}
             <ModelCard
-              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用。可使用不同于文本模型的 API。"
+              icon="🎨" title="Image 图片模型" desc="图片生成 — 与 Main 模型在同一会话中协作。留空则禁用图片生成。"
               modelValue={activeConfig.imageModel} onModelChange={v => u({ imageModel: v })}
               placeholder="留空 = 禁用（如 dall-e-3）"
               tempValue={0} onTempChange={() => {}} tempDisabled

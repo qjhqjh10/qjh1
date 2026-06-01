@@ -22,9 +22,11 @@ import ImageLightbox from '@/components/common/ImageLightbox'
 import { makeConversation } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { V4AgentChatBridge } from '@/agent/V4AgentChatBridge'
+import { ContextCompressor } from '@/agent/context/ContextCompressor'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStatusBar } from './components/AgentStatusBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
+import { DangerousToolModal, type DangerousTool } from './components/DangerousToolModal'
 import { StreamingMessage } from './components/StreamingMessage'
 import { VirtualMessageList } from './components/VirtualMessageList'
 
@@ -220,6 +222,8 @@ export default function AIChatWindow() {
   const autoRetryRef = useRef(false)  // prevent infinite auto-retry loops
   const [attachment, setAttachment] = useState<{ type: 'file' | 'image'; name: string; content: string; previewUrl?: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [pendingApproval, setPendingApproval] = useState<DangerousTool[] | null>(null)
+  const approvalResolveRef = useRef<((approved: boolean) => void) | null>(null)
 
 
   const [showConvList, setShowConvList] = useState(false)
@@ -260,32 +264,23 @@ export default function AIChatWindow() {
 
     setCompressing(true)
     try {
-      // Build summary prompt
-      const conversationText = toCompress
-        .filter(m => m.role !== 'tool')
-        .map(m => {
-          const roleLabel = m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role
-          const text = (m.content || '').slice(0, 600).replace(/\n/g, ' ')
-          return `[${roleLabel}]: ${text}`
-        })
-        .join('\n')
-
-      // Use CJK-aware divisor (Chinese ~1.8-2.2 chars/token vs ~4 for Latin)
-      const compressedChars = toCompress.reduce((s, m) => s + (m.content || '').length, 0)
-      const estimatedTokens = Math.round(compressedChars / 2.2)
-
-      const result = await aiService.chatWithUsage([
-        { role: 'user', content: `请将以下对话历史压缩为一段简洁的上下文摘要（200-400字），保留关键信息：用户的核心需求和目标、已做出的重要决策、创建/修改了哪些文件及原因、当前任务的进展和下一步、用户的偏好和习惯。\n\n对话历史：\n${conversationText}\n\n只输出摘要文本，不要加前缀或解释。` }
-      ], activeConfigId!)
+      // v4: Unified compression — ContextCompressor.buildCompressPrompt + aiService
+      const compressor = new ContextCompressor()
+      const { summaryContent, compressedCount, estimatedInputTokens } =
+        await compressor.compressWithLLM(
+          toCompress,
+          (msgs, cid) => aiService.chatWithUsage(msgs, cid),
+          activeConfigId!,
+        )
 
       const summaryMsg: Message = {
         id: `compressed_${Date.now()}`,
         role: 'system',
-        content: result.text || '（压缩摘要生成失败）',
+        content: summaryContent,
         timestamp: Date.now(),
         compressedSummary: true,
-        compressedCount: toCompress.length,
-        compressedTokens: estimatedTokens,
+        compressedCount,
+        compressedTokens: estimatedInputTokens,
       }
 
       setMessages([currentMsgs[0], summaryMsg, ...toKeep])
@@ -461,7 +456,7 @@ export default function AIChatWindow() {
       // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
       if (!bridgeRef.current) {
         bridgeRef.current = new V4AgentChatBridge(latestProjectId)
-        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages) })
+        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages), contextWindow: activeConfig?.contextWindow ?? 128000 })
       } else {
         bridgeRef.current.updateProject(latestProjectId)
         bridgeRef.current.updateHistory(buildHistoryMessages(messages))
@@ -505,9 +500,8 @@ export default function AIChatWindow() {
         },
         onApprovalRequired: async (tools) => {
           return new Promise<boolean>((resolve) => {
-            const toolList = tools.map(t => `• ${t.name}: ${JSON.stringify(t.args).slice(0, 80)}`).join('\n')
-            const confirmed = window.confirm(`AI 需要执行危险操作:\n\n${toolList}\n\n是否允许?`)
-            resolve(confirmed)
+            approvalResolveRef.current = resolve
+            setPendingApproval(tools)
           })
         },
       })
@@ -886,9 +880,11 @@ export default function AIChatWindow() {
                     background: msg.role === 'user' ? 'rgba(124,58,237,0.08)'
                       : msg.role === 'tool' ? 'rgba(22,163,74,0.04)'
                       : (msg.toolsUsed && msg.toolsUsed.length > 0) ? 'rgba(22,163,74,0.06)'
+                      : msg.role === 'assistant' ? 'rgba(22,163,74,0.04)'  // API调用，无工具
                       : '#ffffff',
                     border: msg.role === 'tool' ? '1px solid rgba(22,163,74,0.1)'
                       : (msg.toolsUsed && msg.toolsUsed.length > 0) ? '1px solid rgba(22,163,74,0.15)'
+                      : msg.role === 'assistant' ? '1px solid rgba(22,163,74,0.08)'  // API调用标记
                       : undefined,
                     fontSize: msg.role === 'tool' ? 11 : 13, lineHeight: 1.6, color: '#2d2520', whiteSpace: 'pre-wrap',
                   }}>
@@ -1026,9 +1022,13 @@ export default function AIChatWindow() {
                 {/* Usage footer — only on assistant messages */}
                 {msg.role === 'assistant' && msg.usage && (
                   <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84' }}>
-                    <span>Token: {msg.usage.total_tokens.toLocaleString()}</span>
+                    <span>入 {msg.usage.prompt_tokens?.toLocaleString()} | 出 {msg.usage.completion_tokens?.toLocaleString()} | 合计 {msg.usage.total_tokens?.toLocaleString()}</span>
+                    {(msg.usage as any).cacheHitTokens > 0 && (
+                      <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                        🟢 缓存命中 {(msg.usage as any).cacheHitTokens.toLocaleString()} tok
+                      </span>
+                    )}
                     {msg.usage.cost > 0 && <span>花费 {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
-                    {msg.wordCount && msg.wordCount > 0 && <span>{msg.wordCount.toLocaleString()} 字</span>}
                   </div>
                 )}
                 {/* Tool usage summary — shows which tools were called in this response */}
@@ -1183,7 +1183,7 @@ export default function AIChatWindow() {
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
-              disabled={!activeConfigId || loading} rows={2}
+              disabled={!activeConfigId} rows={2}
               className="focus-ring"
               style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)' }}
             />
@@ -1405,6 +1405,17 @@ export default function AIChatWindow() {
           return null
         })()}
       </div>
+    )}
+    {/* Dangerous tool approval modal — replaces window.confirm() */}
+    {pendingApproval && (
+      <DangerousToolModal
+        tools={pendingApproval}
+        onResolve={(approved) => {
+          approvalResolveRef.current?.(approved)
+          approvalResolveRef.current = null
+          setPendingApproval(null)
+        }}
+      />
     )}
     </>
   )

@@ -1,116 +1,67 @@
 /**
- * Unified Learning Engine (V2-1)
+ * Learning Engine (V5)
  *
- * Replaces SkillLearner + LivingSkillManager with a single 6-stage lifecycle.
- * Eliminates the ~60% functional overlap and the 4-channel context duplication
- * of the old system.
+ * AI-driven learning: the model itself summarizes problems and solutions.
+ * No automatic pattern tracking. The Agent calls write_learning tool after
+ * encountering and solving an issue. Each entry is a human-readable
+ * Chinese description that the user can understand and toggle on/off.
  *
- * Lifecycle: OBSERVED → PATTERN → SOFT_SKILL → CONDITIONAL_RULE → HARD_CONSTRAINT → VERIFIED
- *
- * Single entry points:
- *   onToolResult()    — replaces onToolError + onToolSuccess
- *   getContextInject() — single channel, replaces 4 separate injections
- *   persist() / load() — unified persistence
+ * Data flow:
+ *   Agent encounters error → Agent solves it → Agent calls write_learning
+ *   → saved to disk → shown in Settings UI → injected into system prompt
  */
 
-import type { ToolResult } from '../state/types'
-import type {
-  LearnedPattern, LearningConfig, LearningStage,
-} from './types'
-import { DEFAULT_LEARNING_CONFIG } from './types'
+/** A single learning entry, written by the AI after solving a problem */
+export interface LearningEntry {
+  id: string
+  problem: string       // 出错原因，简短中文
+  solution: string      // 解决方法，具体可操作
+  category: string      // 分类: file | character | outline | chapter | style | kb | general
+  createdAt: string     // ISO timestamp
+  enabled: boolean      // 用户是否启用注入
+}
+
+const PERSIST_PATH = '.aiharness/learnings.json'
 
 export class LearningEngine {
-  private patterns = new Map<string, LearnedPattern>()
-  private config: LearningConfig
-  private sessionStartTime = Date.now()
-  private patternsLoaded = false
+  private entries: LearningEntry[] = []
+  private loaded = false
 
-  constructor(config?: Partial<LearningConfig>) {
-    this.config = { ...DEFAULT_LEARNING_CONFIG, ...config }
-  }
-
-  // ── Observation ──
-
-  /**
-   * Single observation entry point.
-   * Call for every tool execution result (both success and error).
-   */
-  onToolResult(
-    toolName: string,
-    result: ToolResult,
-    projectId: string | null = null,
-  ): void {
-    const key = this.patternKey(toolName, result)
-    const existing = this.patterns.get(key)
-
-    if (existing) {
-      existing.occurrenceCount++
-      existing.updatedAt = Date.now()
-      if (result.status === 'success') {
-        existing.confirmationCount++
-      }
-      this.promoteIfReady(existing)
-    } else {
-      // New observation — create pattern entry
-      const id = `${toolName}_${Date.now().toString(36)}`
-      this.patterns.set(key, {
-        id,
-        toolName,
-        status: (result.status === 'pending_confirm' ? 'error' : result.status) as 'success' | 'error',  // C5: persist status; coerce pending_confirm→error
-        summary: result.summary.slice(0, 200),
-        detail: result.detail || result.summary,
-        occurrenceCount: 1,
-        confirmationCount: result.status === 'success' ? 1 : 0,
-        currentStage: 'OBSERVED',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        projectId,
-      })
-
-      // Evict oldest if over capacity
-      if (this.patterns.size > this.config.maxPatterns) {
-        let oldestKey = ''
-        let oldestTime = Infinity
-        for (const [k, v] of this.patterns) {
-          if (v.updatedAt < oldestTime) { oldestTime = v.updatedAt; oldestKey = k }
-        }
-        this.patterns.delete(oldestKey)
-      }
+  /** Add a new learning entry (called by write_learning tool) */
+  addEntry(problem: string, solution: string, category = 'general'): LearningEntry {
+    const entry: LearningEntry = {
+      id: `learn_${Date.now().toString(36)}`,
+      problem: problem.slice(0, 200),
+      solution: solution.slice(0, 500),
+      category: category.slice(0, 30),
+      createdAt: new Date().toISOString(),
+      enabled: false,  // default off, user must enable
     }
+    this.entries.push(entry)
+    // Keep only last 50 entries
+    if (this.entries.length > 50) {
+      this.entries = this.entries.slice(-50)
+    }
+    return entry
   }
 
-  // ── Context Injection ──
+  /** Get all entries (for UI display) */
+  getAll(): LearningEntry[] {
+    return [...this.entries].reverse()  // newest first
+  }
 
-  /**
-   * Single context injection channel.
-   * Returns patterns at SOFT_SKILL or above, ordered by stage priority.
-   * Maximum output capped at config.maxContextTokens.
-   */
+  /** Get context injection text — only enabled entries */
   getContextInject(maxTokens?: number): string {
-    const limit = maxTokens ?? this.config.maxContextTokens
-    const relevant = [...this.patterns.values()]
-      .filter(p =>
-        p.currentStage === 'SOFT_SKILL' ||
-        p.currentStage === 'CONDITIONAL_RULE' ||
-        p.currentStage === 'HARD_CONSTRAINT' ||
-        p.currentStage === 'VERIFIED'
-      )
-      .sort((a, b) => {
-        const order: Record<LearningStage, number> = {
-          VERIFIED: 5, HARD_CONSTRAINT: 4, CONDITIONAL_RULE: 3,
-          SOFT_SKILL: 2, PATTERN: 1, OBSERVED: 0,
-        }
-        return order[b.currentStage] - order[a.currentStage]
-      })
+    const enabled = this.entries.filter(e => e.enabled)
+    if (enabled.length === 0) return ''
 
-    if (relevant.length === 0) return ''
-
-    const lines: string[] = ['## 已学习的经验']
+    const lines: string[] = ['## 已学的经验教训']
     let totalTokens = 0
+    const limit = maxTokens ?? 2000
 
-    for (const p of relevant) {
-      const line = `- [${p.currentStage}] ${p.toolName}: ${p.summary} (${p.occurrenceCount}次)`
-      const estTokens = Math.ceil(line.length / 3)
+    for (const e of enabled) {
+      const line = `- **${e.problem}** → ${e.solution}`
+      const estTokens = Math.ceil(line.length / 2)  // Chinese ~2 chars/token
       if (totalTokens + estTokens > limit) break
       totalTokens += estTokens
       lines.push(line)
@@ -119,75 +70,27 @@ export class LearningEngine {
     return lines.join('\n')
   }
 
-  /**
-   * Get patterns at or above a given stage.
-   */
-  getPatternsAboveStage(minStage: LearningStage): LearnedPattern[] {
-    const order: Record<LearningStage, number> = {
-      VERIFIED: 5, HARD_CONSTRAINT: 4, CONDITIONAL_RULE: 3,
-      SOFT_SKILL: 2, PATTERN: 1, OBSERVED: 0,
+  /** Toggle enabled state of an entry (called by UI) */
+  toggleEnabled(id: string): boolean {
+    const entry = this.entries.find(e => e.id === id)
+    if (entry) {
+      entry.enabled = !entry.enabled
+      this.persist().catch(() => {})
+      return entry.enabled
     }
-    const minLevel = order[minStage]
-    return [...this.patterns.values()]
-      .filter(p => order[p.currentStage] >= minLevel)
+    return false
   }
 
-  /**
-   * Get patterns for a specific tool with at least N occurrences.
-   * Used by AgentRuntime advisory inject for immediate feedback.
-   */
-  getPatternsForTool(toolName: string, minOccurrences: number = 1): LearnedPattern[] {
-    return [...this.patterns.values()]
-      .filter(p => p.toolName === toolName && p.occurrenceCount >= minOccurrences)
+  /** Delete an entry (called by UI) */
+  deleteEntry(id: string): void {
+    this.entries = this.entries.filter(e => e.id !== id)
+    this.persist().catch(() => {})
   }
 
-  /** Check if any patterns exist above OBSERVED */
-  hasActivePatterns(): boolean {
-    return this.patterns.size > 0 &&
-      [...this.patterns.values()].some(p => p.currentStage !== 'OBSERVED')
-  }
-
-  // ── Promotion ──
-
-  private promoteIfReady(pattern: LearnedPattern): void {
-    const thresholds = this.config.promotionThresholds
-    if (pattern.occurrenceCount >= thresholds.hardConstraint && pattern.currentStage === 'CONDITIONAL_RULE') {
-      pattern.currentStage = 'HARD_CONSTRAINT'
-    } else if (pattern.occurrenceCount >= thresholds.conditionalRule &&
-      (pattern.currentStage === 'SOFT_SKILL' || pattern.currentStage === 'PATTERN')) {
-      pattern.currentStage = 'CONDITIONAL_RULE'
-    } else if (pattern.occurrenceCount >= thresholds.softSkill &&
-      (pattern.currentStage === 'PATTERN' || pattern.currentStage === 'OBSERVED')) {
-      pattern.currentStage = 'SOFT_SKILL'
-    } else if (pattern.occurrenceCount >= thresholds.pattern && pattern.currentStage === 'OBSERVED') {
-      pattern.currentStage = 'PATTERN'
-    }
-  }
-
-  private patternKey(toolName: string, result: ToolResult): string {
-    // Group by tool name + status + first 50 chars of summary
-    const prefix = result.status === 'success' ? 'S:' : 'E:'
-    return `${prefix}${toolName}:${result.summary.slice(0, 50)}`
-  }
-
-  // ── Session Lifecycle ──
-
-  startSession(): void {
-    this.sessionStartTime = Date.now()
-  }
-
-  /** Run end-of-session promotion cycle. Returns newly promoted patterns. */
-  async endSession(): Promise<{ oldStage: LearningStage; newStage: LearningStage; pattern: LearnedPattern }[]> {
-    const promoted: { oldStage: LearningStage; newStage: LearningStage; pattern: LearnedPattern }[] = []
-    for (const pattern of this.patterns.values()) {
-      const oldStage = pattern.currentStage
-      this.promoteIfReady(pattern)
-      if (pattern.currentStage !== oldStage) {
-        promoted.push({ oldStage, newStage: pattern.currentStage, pattern })
-      }
-    }
-    await this.persist()
-    return promoted
+  /** Clear all entries */
+  clearAll(): void {
+    this.entries = []
+    this.persist().catch(() => {})
   }
 
   // ── Persistence ──
@@ -195,41 +98,29 @@ export class LearningEngine {
   async persist(): Promise<void> {
     try {
       const { fileService } = await import('@/services/fileService')
-      const data = JSON.stringify([...this.patterns.values()], null, 2)
-      await fileService.write(this.config.persistPath, data)
+      await fileService.write(PERSIST_PATH, JSON.stringify(this.entries, null, 2))
     } catch (err) {
-      console.warn('[LearningEngine] Pattern persistence failed:', err)
+      console.warn('[LearningEngine] Persist failed:', err)
     }
   }
 
   async load(): Promise<void> {
-    if (this.patternsLoaded) return
+    if (this.loaded) return
     try {
       const { fileService } = await import('@/services/fileService')
-      const raw = await fileService.read(this.config.persistPath)
+      const raw = await fileService.read(PERSIST_PATH)
       if (raw && raw.trim()) {
-        const parsed = JSON.parse(raw) as LearnedPattern[]
-        for (const p of parsed) {
-          this.patterns.set(this.patternKey(p.toolName, { status: p.status || 'error', summary: p.summary }), p)
-        }
-        this.patternsLoaded = true
+        const parsed = JSON.parse(raw) as LearningEntry[]
+        this.entries = parsed
       }
-    } catch (err) {
-      // First session — no saved patterns yet
-    }
+    } catch { /* first run */ }
+    this.loaded = true
   }
 
-  /** Get all patterns (for settings UI) */
-  getAll(): LearnedPattern[] {
-    return [...this.patterns.values()]
-  }
-
-  getAllByStage(): Record<LearningStage, LearnedPattern[]> {
-    const result: Record<string, LearnedPattern[]> = {}
-    for (const p of this.patterns.values()) {
-      if (!result[p.currentStage]) result[p.currentStage] = []
-      result[p.currentStage].push(p)
-    }
-    return result as Record<LearningStage, LearnedPattern[]>
+  /** Legacy: keep minimal compatibility with existing callers */
+  startSession(): void {}
+  async endSession(): Promise<any[]> { return [] }
+  onToolResult(_toolName: string, _result: any, _projectId?: string | null): void {
+    // no-op: V5 does not auto-track patterns
   }
 }

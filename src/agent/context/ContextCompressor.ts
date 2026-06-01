@@ -2,23 +2,43 @@
 // Claude-style progressive compression. Operates transparently during
 // the agent loop — the model continues without interruption.
 //
-// Thresholds (1M context window):
-//   Stage 1 (70% = 700K): Strip verbose tool detail → keep status+summary
-//   Stage 2 (80% = 800K): Summarize oldest user/assistant pairs
-//   Stage 3 (90% = 900K): Collapse early conversation into summary
+// Thresholds (relative to contextWindow):
+//   Stage 1 (70%): Strip verbose tool detail → keep status+summary
+//   Stage 2 (80%): Summarize oldest user/assistant pairs
+//   Stage 3 (90%): Collapse early conversation into summary
 //
 // Never compressed: system prompt, last 5 messages, pending tool calls.
+//
+// Also provides LLM-based compression for user-triggered manual compression
+// (right-click → compress in chat UI). Single entry point for all compression.
 
 import type { Message } from '../state/types'
 import { estimateTokens, estimateMessages } from '../utils/tokenEstimation'
 
 export type CompressionStage = 'none' | 'strip_detail' | 'summarize_pairs' | 'collapse_early'
 
+const LLM_COMPRESS_PROMPT = `请将以下对话历史压缩为一段简洁的上下文摘要（200-400字），保留关键信息：用户的核心需求和目标、已做出的重要决策、创建/修改了哪些文件及原因、当前任务的进展和下一步、用户的偏好和习惯。`
+
+export interface LLMCompressResult {
+  summaryContent: string
+  compressedCount: number
+  estimatedInputTokens: number
+}
+
 export class ContextCompressor {
   private contextWindow: number
 
-  constructor(contextWindow: number = 1_000_000) {
+  constructor(contextWindow: number = 128_000) {
     this.contextWindow = contextWindow
+  }
+
+  /** Update context window size at runtime (e.g. from model config) */
+  setContextWindow(tokens: number): void {
+    this.contextWindow = tokens
+  }
+
+  getContextWindow(): number {
+    return this.contextWindow
   }
 
   // Delegates to shared utility (single source of truth)
@@ -159,5 +179,57 @@ export class ContextCompressor {
     }
 
     return [...systemMsgs, collapseMsg, ...toKeep]
+  }
+
+  // ── LLM-based compression (user-triggered, shared by UI + Agent) ──
+
+  /**
+   * Build a compression prompt from messages suitable for an LLM summary call.
+   * Returns the formatted text and estimated token count.
+   * Used by both the UI compress button and potentially by the agent runtime.
+   */
+  buildCompressPrompt(
+    messages: Message[],
+    options?: { maxCharsPerMsg?: number; skipRoles?: string[] },
+  ): { prompt: string; estimatedInputTokens: number } {
+    const maxChars = options?.maxCharsPerMsg ?? 600
+    const skip = new Set(options?.skipRoles ?? ['tool'])
+    const conversationText = messages
+      .filter(m => !skip.has(m.role))
+      .map(m => {
+        const roleLabel = m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role
+        const text = (m.content || '').slice(0, maxChars).replace(/\n/g, ' ')
+        return `[${roleLabel}]: ${text}`
+      })
+      .join('\n')
+
+    const prompt = `${LLM_COMPRESS_PROMPT}\n\n对话历史：\n${conversationText}\n\n只输出摘要文本，不要加前缀或解释。`
+    return {
+      prompt,
+      estimatedInputTokens: estimateTokens(prompt),
+    }
+  }
+
+  /**
+   * Execute LLM-based compression.
+   * Takes messages, builds prompt, calls AI, returns structured result.
+   *
+   * @param messages - Messages to compress
+   * @param chatFn  - AI chat function (matches aiService.chatWithUsage signature)
+   * @param options - Optional tuning
+   */
+  async compressWithLLM(
+    messages: Message[],
+    chatFn: (msgs: Array<{ role: string; content: string }>, configId: string) => Promise<{ text: string }>,
+    configId: string,
+    options?: { maxCharsPerMsg?: number; skipRoles?: string[] },
+  ): Promise<LLMCompressResult> {
+    const { prompt, estimatedInputTokens } = this.buildCompressPrompt(messages, options)
+    const result = await chatFn([{ role: 'user', content: prompt }], configId)
+    return {
+      summaryContent: result.text || '（压缩摘要生成失败）',
+      compressedCount: messages.length,
+      estimatedInputTokens,
+    }
   }
 }

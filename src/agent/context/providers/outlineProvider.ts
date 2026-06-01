@@ -1,5 +1,5 @@
 import type { ContextProvider } from '../ContextAssembler'
-import { fileService } from '@/services/fileService'
+import { cachedRead } from '../FileCache'
 import { extractMarkdownStructure } from '../contentExtractor'
 import { estimateTokens } from '../../utils/tokenEstimation'
 
@@ -31,7 +31,7 @@ export const outlineProvider: ContextProvider = {
 
     // Read plot.md — extract structure instead of naive truncation
     try {
-      const plot = await fileService.read(`${projectId}/outline/plot.md`)
+      const plot = await cachedRead(`${projectId}/outline/plot.md`)
       if (plot && plot.trim()) {
         const extracted = extractMarkdownStructure(plot, 2000)
         parts.push('### 故事剧情', extracted, '')
@@ -41,7 +41,7 @@ export const outlineProvider: ContextProvider = {
 
     // Read worldbuilding.md — extract structure
     try {
-      const wb = await fileService.read(`${projectId}/outline/worldbuilding.md`)
+      const wb = await cachedRead(`${projectId}/outline/worldbuilding.md`)
       if (wb && wb.trim()) {
         const extracted = extractMarkdownStructure(wb, 1000)
         parts.push('### 世界观设定', extracted, '')

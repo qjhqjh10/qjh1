@@ -3,7 +3,7 @@ import { extractSummary } from '../contentExtractor'
 import { isTaskMessage } from '../../utils/taskDetection'
 import { estimateTokens } from '../../utils/tokenEstimation'
 import { buildMemoryIndex } from '../MemoryIndex'
-import { fileService } from '@/services/fileService'
+import { cachedRead } from '../FileCache'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
@@ -29,7 +29,7 @@ export const coreRulesProvider: ContextProvider = {
 
     let feedbackContent = ''
     try {
-      const raw = await fileService.read('.aiharness/feedback/auto-suggestions.md')
+      const raw = await cachedRead('.aiharness/feedback/auto-suggestions.md')
       if (raw && raw.trim()) {
         const sections = raw.split('## 自动反馈')
         const lastSection = sections[sections.length - 1]

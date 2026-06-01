@@ -6,7 +6,7 @@ import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings } from '@/types/settings'
-import type { UsageResult } from '@/types/electron'
+import type { UsageResult, SessionStatsResult, SessionStatEntry } from '@/types/electron'
 import { PROMPT_TYPES, DEFAULT_MODEL_CONFIG, DEFAULT_AI_SETTINGS, PROVIDER_PRESETS } from '@/types/settings'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
@@ -20,6 +20,9 @@ export function TokenStatsTab() {
   const currency = configs.find(c => c.id === activeConfigId)?.currency || 'USD'
   const cSym = currency === 'CNY' ? '¥' : '$'
   const [usage, setUsage] = useState<UsageResult | null>(null)
+  const [sessionStats, setSessionStats] = useState<SessionStatsResult | null>(null)
+  const [showSessionDetail, setShowSessionDetail] = useState(false)
+  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
 
   const [filterConfigId, setFilterConfigId] = useState('')
   const [filterModel, setFilterModel] = useState('')
@@ -39,6 +42,11 @@ export function TokenStatsTab() {
     if (filterDay !== undefined) opts.day = filterDay
     statsService.getUsage(opts).then(data => setUsage(data)).catch(() => {})
   }, [activeProjectId, filterConfigId, filterModel, filterYear, filterMonth, filterDay])
+
+  // Session stats — load on mount and when filters change (but independently)
+  useEffect(() => {
+    statsService.getSessionStats().then(data => setSessionStats(data)).catch(() => {})
+  }, [])
 
   const totals = usage?.totals
   const models = [...new Set(configs.map(c => c.model))]
@@ -196,6 +204,148 @@ export function TokenStatsTab() {
           暂无统计数据。每次 AI 调用都会自动记录 token 用量，开始使用 AI 功能后此处将展示用量和花费。
         </p>
       )}
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* 会话统计 */}
+      {/* ════════════════════════════════════════════════════════ */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, color: '#2d2520', margin: 0 }}>会话统计</h4>
+          <span style={{ fontSize: 11, color: '#9b8e84' }}>
+            基于审计日志，按 Agent 会话聚合
+          </span>
+        </div>
+
+        {sessionStats && sessionStats.totalSessions > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Session summary cards */}
+            <div style={{ display: 'flex', gap: 12 }}>
+              <StatCard label="会话数" value={sessionStats.totalSessions.toLocaleString()} color="#6b5e54" />
+              <StatCard label="API 调用" value={sessionStats.totals.apiCalls.toLocaleString()} color="#2563eb" />
+              <StatCard label="输入 Token" value={sessionStats.totals.promptTokens.toLocaleString()} color="#7c3aed" />
+              <StatCard label="输出 Token" value={sessionStats.totals.completionTokens.toLocaleString()} color="#16a34a" />
+              <StatCard label="工具调用" value={sessionStats.totals.toolCalls.toLocaleString()} color="#ca8a04" />
+            </div>
+
+            {/* Session list */}
+            <div style={{ marginTop: 4 }}>
+              <button
+                onClick={() => setShowSessionDetail(!showSessionDetail)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', padding: 0 }}
+              >
+                {showSessionDetail ? '收起' : '展开'}会话明细 ({sessionStats.sessions.length} 个)
+              </button>
+
+              {showSessionDetail && (
+                <div className="custom-scrollbar" style={{ maxHeight: 400, overflowY: 'auto', marginTop: 8 }}>
+                  {sessionStats.sessions.map(s => {
+                    const isExpanded = expandedSessions.has(s.sessionId)
+                    const durMin = Math.floor(s.duration / 60)
+                    const durSec = s.duration % 60
+                    return (
+                      <div key={s.sessionId} style={{
+                        marginBottom: 8, borderRadius: 10,
+                        border: '1px solid rgba(0,0,0,0.05)',
+                        background: '#faf9f8',
+                        overflow: 'hidden',
+                      }}>
+                        {/* Session header */}
+                        <div
+                          onClick={() => {
+                            setExpandedSessions(prev => {
+                              const next = new Set(prev)
+                              next.has(s.sessionId) ? next.delete(s.sessionId) : next.add(s.sessionId)
+                              return next
+                            })
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '8px 14px', cursor: 'pointer',
+                            transition: 'background 0.1s',
+                          }}
+                        >
+                          <span style={{ fontSize: 10, color: isExpanded ? '#7c3aed' : '#9b8e84', transition: 'transform 0.15s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#2d2520', minWidth: 100 }}>
+                            {s.startedAt ? new Date(s.startedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) + ' ' + new Date(s.startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : s.sessionId}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#9b8e84' }}>
+                            {durMin > 0 ? `${durMin}分${durSec}秒` : `${durSec}秒`}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#2563eb', marginLeft: 'auto' }}>
+                            {s.apiCallCount} 次API
+                          </span>
+                          <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
+                            {(s.promptTokens + s.completionTokens).toLocaleString()} tok
+                          </span>
+                          {s.errorCount > 0 && (
+                            <span style={{ fontSize: 10, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '1px 6px', borderRadius: 6 }}>
+                              {s.errorCount} 错误
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Session detail (expanded) */}
+                        {isExpanded && (
+                          <div style={{ padding: '8px 14px 12px 36px', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+                            {/* Token breakdown */}
+                            <div style={{ display: 'flex', gap: 16, marginBottom: 8, fontSize: 11 }}>
+                              <span style={{ color: '#2563eb' }}>输入: {s.promptTokens.toLocaleString()}</span>
+                              <span style={{ color: '#16a34a' }}>输出: {s.completionTokens.toLocaleString()}</span>
+                              <span style={{ color: '#9b8e84' }}>合计: {s.totalTokens.toLocaleString()}</span>
+                            </div>
+
+                            {/* Operations */}
+                            {s.operations.length > 0 && (
+                              <div style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600, marginBottom: 4 }}>操作记录</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {s.operations.map((op, i) => (
+                                    <span key={i} style={{
+                                      fontSize: 10, color: '#4a3f38',
+                                      background: 'rgba(124,58,237,0.04)',
+                                      border: '1px solid rgba(124,58,237,0.08)',
+                                      padding: '2px 8px', borderRadius: 6,
+                                    }}>
+                                      {op}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Tools used */}
+                            {s.toolCalls.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600, marginBottom: 4 }}>工具使用</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {s.toolCalls.map(tc => (
+                                    <span key={tc.toolName} style={{
+                                      fontSize: 10, color: '#ca8a04',
+                                      background: 'rgba(202,138,4,0.06)',
+                                      border: '1px solid rgba(202,138,4,0.1)',
+                                      padding: '2px 8px', borderRadius: 6,
+                                    }}>
+                                      {tc.toolName} ×{tc.count}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: '#9b8e84', lineHeight: 1.8 }}>
+            暂无会话统计。使用 AI Agent 功能后，每次会话的 API 调用和工具操作将在此展示。
+          </p>
+        )}
+      </div>
     </div>
   )
 }

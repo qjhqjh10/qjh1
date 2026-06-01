@@ -1,66 +1,31 @@
 /**
- * Learning Engine Types (V2-1)
+ * Learning Engine Types (V5)
  *
- * Unified type definitions for the LearningEngine that replaces
- * SkillLearner + LivingSkillManager with a single 6-stage lifecycle.
+ * Simple entry format: AI writes a human-readable problem+solution pair.
+ * No automatic pattern tracking, no 6-stage lifecycle.
  */
 
-export type LearningStage =
-  | 'OBSERVED'        // Single observation, low confidence
-  | 'PATTERN'         // 2-3 observations form a pattern
-  | 'SOFT_SKILL'      // Pattern confirmed, injected as suggestion
-  | 'CONDITIONAL_RULE' // High confidence, auto-injected on relevant tasks
-  | 'HARD_CONSTRAINT'  // Always enforced
-  | 'VERIFIED'         // Manually confirmed by user
-
-export interface LearnedPattern {
+export interface LearningEntry {
   id: string
-  toolName: string
-  /** C5: Persisted status so load() restores the correct S:/E: key prefix */
-  status: 'success' | 'error'
-  /** Summary of the observed behavior (error or success pattern) */
-  summary: string
-  /** Full detail of the pattern */
-  detail: string
-  /** How many times observed */
-  occurrenceCount: number
-  /** How many times the pattern was seen to hold */
-  confirmationCount: number
-  currentStage: LearningStage
-  createdAt: number
-  updatedAt: number
-  /** Last project this pattern was observed in */
-  projectId: string | null
+  problem: string       // 出错原因
+  solution: string      // 解决方法
+  category: string      // file | character | outline | chapter | style | kb | general
+  createdAt: string
+  enabled: boolean
 }
 
+// Legacy types kept for minimal backward compat
+export type LearningStage = string
+export interface LearnedPattern { [key: string]: any }
 export interface LearningConfig {
-  /** Maximum patterns to store */
   maxPatterns: number
-  /** Patterns persist across sessions */
   persistPath: string
-  /** Auto-promotion thresholds */
-  promotionThresholds: {
-    /** Occurrences needed to reach PATTERN stage */
-    pattern: number  // default 2
-    /** Occurrences needed to reach SOFT_SKILL */
-    softSkill: number  // default 5
-    /** Occurrences needed to reach CONDITIONAL_RULE */
-    conditionalRule: number  // default 10
-    /** Occurrences needed to reach HARD_CONSTRAINT */
-    hardConstraint: number  // default 20
-  }
-  /** Maximum tokens for context injection */
+  promotionThresholds: Record<string, number>
   maxContextTokens: number
 }
-
 export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
   maxPatterns: 100,
-  persistPath: '.aiharness/learned-patterns.json',
-  promotionThresholds: {
-    pattern: 2,
-    softSkill: 5,
-    conditionalRule: 10,
-    hardConstraint: 20,
-  },
+  persistPath: '.aiharness/learnings.json',
+  promotionThresholds: {},
   maxContextTokens: 2000,
 }

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ModelConfig } from '../src/types/settings'
 import type { StyleProject, SceneTemplate } from '../src/types/story'
 import type { KnowledgeFile, KnowledgeMetadata } from '../src/types/knowledge'
-import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, ModelPrice, UsageResult } from '../src/types/electron'
+import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, ModelPrice, UsageResult, SessionStatsResult } from '../src/types/electron'
 
 const api = {
   files: {
@@ -146,6 +146,7 @@ const api = {
     savePrices: (prices: ModelPrice[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
     deleteByLine: (lineNumber: number): Promise<void> => ipcRenderer.invoke('stats:deleteByLine', lineNumber),
     getMonthCost: (): Promise<number> => ipcRenderer.invoke('stats:getMonthCost'),
+    getSessionStats: (): Promise<SessionStatsResult> => ipcRenderer.invoke('stats:getSessionStats'),
   },
   styleProjects: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),

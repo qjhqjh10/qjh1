@@ -95,12 +95,38 @@ export interface UsageResult {
   byModel: { model: string; input: number; output: number; cacheHit: number; cost: number; count: number }[]
 }
 
+export interface SessionStatEntry {
+  sessionId: string
+  startedAt: string
+  duration: number
+  apiCallCount: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  toolCalls: Array<{ toolName: string; count: number; lastUsed: string }>
+  operations: string[]
+  errorCount: number
+}
+
+export interface SessionStatsResult {
+  sessions: SessionStatEntry[]
+  totalSessions: number
+  totals: {
+    apiCalls: number
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    toolCalls: number
+  }
+}
+
 export interface StatsAPI {
   getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) => Promise<UsageResult>
   getPrices: () => Promise<ModelPrice[]>
   savePrices: (prices: ModelPrice[]) => Promise<void>
   deleteByLine: (lineNumber: number) => Promise<void>
   getMonthCost: () => Promise<number>
+  getSessionStats: () => Promise<SessionStatsResult>
 }
 
 export interface StyleProjectsAPI {

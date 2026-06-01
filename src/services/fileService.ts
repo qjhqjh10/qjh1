@@ -2,7 +2,7 @@ import { logError } from '@/utils/logger'
 import type { ModelConfig } from '@/types/settings'
 import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
-import type { ModelPrice } from '@/types/electron'
+import type { ModelPrice, SessionStatsResult } from '@/types/electron'
 import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
 
 function e() {
@@ -195,6 +195,7 @@ export const statsService = {
   savePrices: (prices: ModelPrice[]) => e().stats.savePrices(prices),
   deleteByLine: (lineNumber: number) => e().stats.deleteByLine(lineNumber),
   getMonthCost: () => e().stats.getMonthCost(),
+  getSessionStats: () => e().stats.getSessionStats(),
 }
 
 export const styleProjectService = {

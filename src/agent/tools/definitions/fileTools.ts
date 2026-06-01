@@ -16,7 +16,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'list_directory',
-      description: '列出项目目录中的文件和子目录。何时使用：需要了解某个目录的整体结构时（如查看 characters/ 下有哪些角色文件）。不确定项目结构时先探索，有明确文件目标时优先用 search_files。路径相对于项目根目录。返回条目带 [DIR]/[FILE] 前缀。',
+      description: '列出目录中的文件和子目录。⚠️ 项目索引已包含所有文件路径和数量——列出内容时直接用索引回复，绝大多数情况不需要此工具。仅在极少数确实需要查看子目录结构细节时使用（如确认 uploads 目录内容）。',
       parameters: { type: 'object', properties: { dir_path: { type: 'string', description: '相对于项目根目录的路径' } }, required: ['dir_path'] },
     },
     permission: 'AUTO',
@@ -38,7 +38,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'search_files',
-      description: '按文件名关键词搜索项目文件。何时使用：知道部分文件名但不确定完整路径时（如搜索"ch03"相关的所有文件）。也可用于确认某文件是否存在。支持子串匹配（"ch01"可匹配"chapter01.txt"）。找到文件后用 read_file 读取内容。',
+      description: '按文件名关键词搜索项目文件。⚠️ 项目索引已列出所有文件，已知文件名时直接 read_file 即可。仅在不记得具体文件名、需要模糊匹配时使用。',
       parameters: {
         type: 'object',
         properties: {

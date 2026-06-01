@@ -22,12 +22,22 @@ export interface AssembledContext {
   breakdown: Array<{ domain: string; tokens: number }>
 }
 
+// ── Provider Cache ──
+
+interface CachedBlock {
+  block: ContextBlock
+  projectId: string
+}
+
 // ── Assembler ──
 
 export class ContextAssembler {
   private providers: ContextProvider[] = []
   private relevanceThreshold = 0.4  // V1-3: raised from 0.3 to filter out weakly-relevant providers
   private maxContextTokens = 500000  // V4: raised for 1M context window
+
+  // v4.1: Change-driven provider cache — invalidated by file modifications
+  private providerCache = new Map<string, CachedBlock>()
 
   register(provider: ContextProvider): void {
     // Deduplicate: replace existing provider with same domain instead of adding a duplicate
@@ -51,6 +61,38 @@ export class ContextAssembler {
     return this.providers
   }
 
+  /** Invalidate specific provider for a project (e.g. after editing a character file) */
+  invalidateProvider(projectId: string | null, domain: string): void {
+    const cacheKey = `${projectId || '__'}:${domain}`
+    this.providerCache.delete(cacheKey)
+  }
+
+  /** Clear all cached providers for a project (e.g. when switching projects) */
+  clearProject(projectId: string | null): void {
+    const prefix = `${projectId || '__'}:`
+    for (const key of this.providerCache.keys()) {
+      if (key.startsWith(prefix)) this.providerCache.delete(key)
+    }
+  }
+
+  /**
+   * Map a modified file path to the affected provider domains.
+   * Returns the list of provider domain names to invalidate.
+   */
+  static domainsForPath(filePath: string): string[] {
+    const fp = filePath.replace(/\\/g, '/')
+    const domains: string[] = []
+    if (fp.startsWith('characters/'))    domains.push('character')
+    else if (fp.startsWith('outline/'))  domains.push('outline')
+    else if (fp.startsWith('detailed_outline/')) domains.push('detailedOutline')
+    else if (fp.startsWith('chapters/')) domains.push('chapterWriting')
+    else if (fp.startsWith('summaries/')) domains.push('chapterWriting')
+    else if (fp.startsWith('notes/'))     domains.push('notes')
+    else if (fp.startsWith('knowledge_base/')) domains.push('kb')
+    // Templates and scene: triggered by dedicated tools, not file paths
+    return domains
+  }
+
   async assemble(
     userMessage: string,
     history: Array<{ role: string; content: string }>,
@@ -66,11 +108,18 @@ export class ContextAssembler {
     const aboveThreshold = scored
       .filter(s => s.score > this.relevanceThreshold)
 
-    // Build context blocks (all above threshold, regardless of token budget)
+    // Build context blocks — serve from cache when projectId matches and cache hit
     const allBlocks: ContextBlock[] = []
     for (const { provider } of aboveThreshold) {
       try {
+        const cacheKey = `${projectId || '__'}:${provider.domain}`
+        const cached = this.providerCache.get(cacheKey)
+        if (cached && cached.projectId === projectId) {
+          allBlocks.push(cached.block)
+          continue
+        }
         const block = await provider.buildContext(projectId, userMessage)
+        this.providerCache.set(cacheKey, { block, projectId: projectId || '' })
         allBlocks.push(block)
       } catch (err) {
         console.warn(`[ContextAssembler] Provider ${provider.domain} failed:`, err)

@@ -1,7 +1,29 @@
 {
-  "currentVersion": "9.3.0",
-  "currentDate": "2026-05-31",
+  "currentVersion": "9.4.0",
+  "currentDate": "2026-06-01",
   "history": [
+    {
+      "version": "9.4.0",
+      "date": "2026-06-01",
+      "features": [
+        "模型配置精简: 移除Cheap和Reasoning模型，仅保留Main+Image+Embedding三模型(删除24字段+3函数)",
+        "图片模型独立: generateImage使用imageModel/imageApiKey独立配置，不再复用Main配置",
+        "上下文窗口动态读取: contextWindow从Main模型配置读取，不再硬编码128K/1M",
+        "三阶段Prompt Caching: 核心提示词永远不变→DeepSeek前缀缓存跨迭代命中，修复迭代2+替换bug",
+        "MemoryIndex变更驱动缓存: 120s TTL→文件变更才失效，磁盘持久化+项目切换自动清理",
+        "Per-File内容缓存(FileCache): 5个Provider全部接入cachedRead，edit_file只失效单个文件",
+        "三层缓存架构: Layer1 FileCache(per-file) → Layer2 ContextAssembler(per-domain) → Layer3 MemoryIndex(per-project)",
+        "12种任务画像+渐进式工具披露: 核心工具(迭代1-2)→核心+扩展(迭代3+)，风格分析从18工具减到3核心",
+        "自我学习V5重写: 自动追踪→AI主动总结。LearningEngine改为write_learning工具驱动",
+        "自我优化引擎: 独立聊天框+完整源码访问，学习经验→选择→AI修改提示词/工具描述→根除问题",
+        "Agent设置重构: 反馈→自我优化(选择经验+执行修正+自由指令)，学习→只读展示(点击切换状态)",
+        "复杂任务执行方案: IntentClassifier输出意图+要求数，AI自主规划步骤+精准工具+每轮一步",
+        "CLI同步优化: SYSTEM_PROMPT与V4SystemPrompt同步，create_style/scene_template真实保存",
+        "AI行为规则优化: 列文件用索引不探索，文件多先问再读，list_directory/search_files收紧描述",
+        "UI改进: 输入框loading不禁用、AI回复绿底、缓存命中显示、危险确认React组件、会话统计",
+        "安全机制: 会话级上下文窗口、工具作用域精确匹配、3级上下文压缩(70/80/90%)"
+      ]
+    },
     {
       "version": "9.3.0",
       "date": "2026-05-31",

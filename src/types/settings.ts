@@ -1,94 +1,46 @@
 /**
- * 模型配置模板 — 一个模板包含四个子模型，类似 Claude Code 的 Haiku/Sonnet/Opus
- * 用户只需在侧边栏切换模板即可同时切换四个子模型
+ * 模型配置 — 一个配置包含 Main 模型 + Image 图片模型 + Embedding 嵌入模型
+ * AI写作助手使用 Main 模型进行对话和工具调用
  */
 export interface ModelConfig {
   id: string
-  name: string                    // 模板名称，如 "DeepSeek全家桶" — 侧边栏显示此名称
-  provider: string                // 默认提供商
-  apiUrl: string                  // 默认 API 地址
-  apiKey: string                  // 默认 API 密钥 (加密存储)
+  name: string
+  provider: string                // Main 默认提供商
+  apiUrl: string                  // Main 默认 API 地址
+  apiKey: string                  // Main 默认 API 密钥 (加密存储)
   encrypted?: boolean
 
-  // ── 四个子模型名称 ──
-  model: string                   // 💪 Main — 主力执行模型 (如 deepseek-chat / gpt-4o)
-  cheapModel: string              // ⚡ Cheap — 分类+意图方案 (如 deepseek-chat 同模型 / gpt-4o-mini)
-  reasoningModel: string          // 🧠 Reasoning — 深度推理 (如 deepseek-reasoner / o1, 留空=用Main)
-  imageModel: string              // 🎨 Image — 图片生成 (如 dall-e-3, 留空=禁用图片)
-
-  // ── Main 模型参数 ──
+  // ── 💪 Main 模型 ──
+  model: string                   // 主力模型名 (如 deepseek-chat / gpt-4o)
   temperature: number
   maxTokens: number               // 0=使用模型默认最大值
-  contextWindow?: number
-  reasoningEffort?: 'min' | 'low' | 'medium' | 'high' | 'max'
-  mainProvider?: string            // 覆盖模板级服务商 (可选)
-  mainApiUrl?: string              // 覆盖模板级API地址 (可选)
-  mainApiKey?: string              // 覆盖模板级API密钥 (可选)
+  contextWindow?: number          // 上下文窗口大小 (如 128000)
+  mainProvider?: string
+  mainApiUrl?: string
+  mainApiKey?: string
 
-  // ── 💪 Main 定价 ──
+  // ── Main 定价 ──
   inputPricePerM: number
   outputPricePerM: number
   cacheHitPricePerM: number
-  mainCurrency?: 'USD' | 'CNY'     // Main 货币 (默认: 模板级)
+  mainCurrency?: 'USD' | 'CNY'
 
-  // ── ⚡ Cheap 覆盖 (留空/0=继承Main值) ──
-  cheapTemperature: number        // 默认 0.3 (分类任务需低温度)
-  cheapMaxTokens: number          // 默认 2000
-  cheapProvider?: string          // 覆盖服务商 (可选)
-  cheapApiUrl?: string            // 覆盖API地址 (可选)
-  cheapApiKey?: string            // 覆盖API密钥 (可选)
-  cheapInputPricePerM: number
-  cheapOutputPricePerM: number
-  cheapCacheHitPricePerM: number
-  cheapCurrency?: 'USD' | 'CNY'
-
-  // ── 🧠 Reasoning 覆盖 (留空/0=继承Main值) ──
-  reasoningTemperature: number    // 默认 0 (推理模型不传temperature参数)
-  reasoningMaxTokens: number      // 默认 32000
-  reasoningProvider?: string
-  reasoningApiUrl?: string
-  reasoningApiKey?: string
-  reasoningInputPricePerM: number
-  reasoningOutputPricePerM: number
-  reasoningCacheHitPricePerM: number
-  reasoningCurrency?: 'USD' | 'CNY'
-
-  // ── 🎨 Image 模型 ──
-  imageProvider: string           // 图片API提供商 (默认: 同 provider)
-  imageApiUrl: string             // 图片API地址 (默认: 同 apiUrl)
-  imageApiKey: string             // 图片API密钥 (默认: 同 apiKey)
+  // ── 🎨 Image 图片模型 ──
+  imageModel: string              // 图片生成模型 (如 dall-e-3, 留空=禁用)
+  imageProvider: string
+  imageApiUrl: string
+  imageApiKey: string
   imageEncrypted?: boolean
   imageInputPricePerM: number     // DALL-E按图计费，填每张价格
   imageOutputPricePerM: number
 
-  // ── 📚 知识库 Embedding ──
+  // ── 📚 知识库 Embedding (不调用 API，本地计算) ──
   embeddingModel: string
-  embeddingApiUrl?: string        // 可选覆盖
-  embeddingApiKey?: string        // 可选覆盖
+  embeddingApiUrl?: string
+  embeddingApiKey?: string
 
   systemPrompt: string
   currency: 'USD' | 'CNY'
-}
-
-/** 获取子模型的温度 (Cheap/Reasoning可独立, 否则用Main) */
-export function getModelTemperature(c: ModelConfig, tier: 'main' | 'cheap' | 'reasoning'): number {
-  if (tier === 'cheap') return c.cheapTemperature || c.temperature
-  if (tier === 'reasoning') return c.reasoningTemperature || c.temperature
-  return c.temperature
-}
-
-/** 获取子模型的最大输出令牌 */
-export function getModelMaxTokens(c: ModelConfig, tier: 'main' | 'cheap' | 'reasoning'): number {
-  if (tier === 'cheap') return c.cheapMaxTokens || c.maxTokens
-  if (tier === 'reasoning') return c.reasoningMaxTokens || c.maxTokens
-  return c.maxTokens
-}
-
-/** 从 ModelConfig 解析有效的子模型名（留空则回退到 Main） */
-export function resolveModelName(config: ModelConfig, tier: 'cheap' | 'main' | 'reasoning'): string {
-  if (tier === 'cheap') return config.cheapModel || config.model
-  if (tier === 'reasoning') return config.reasoningModel || config.model
-  return config.model
 }
 
 export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
@@ -107,30 +59,16 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   provider: 'openai',
   apiUrl: 'https://api.openai.com/v1',
   apiKey: '',
+  // Main
   model: 'gpt-4o',
-  cheapModel: '',
-  reasoningModel: '',
-  imageModel: '',
-  // Main params
   temperature: 0.8,
   maxTokens: 0,
   contextWindow: 128000,
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,
-  // Cheap defaults
-  cheapTemperature: 0.3,
-  cheapMaxTokens: 2000,
-  cheapInputPricePerM: 0,
-  cheapOutputPricePerM: 0,
-  cheapCacheHitPricePerM: 0,
-  // Reasoning defaults
-  reasoningTemperature: 0,
-  reasoningMaxTokens: 32000,
-  reasoningInputPricePerM: 0,
-  reasoningOutputPricePerM: 0,
-  reasoningCacheHitPricePerM: 0,
   // Image
+  imageModel: '',
   imageProvider: '',
   imageApiUrl: '',
   imageApiKey: '',

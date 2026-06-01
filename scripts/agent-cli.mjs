@@ -512,9 +512,70 @@ class NodeToolExecutor {
         return { status: 'error', summary: 'CLI 模式不支持图片操作' }
       }
 
-      case 'create_style_template':
+      case 'create_style_template': {
+        try {
+          const tmplDir = path.join(this.projectsDir, '..', 'style_templates')
+          await fsp.mkdir(tmplDir, { recursive: true })
+          const tmpl = {
+            id: `st_${Date.now().toString(36)}`,
+            name: String(args.name || '未命名模板'),
+            type: String(args.type || '普通小说'),
+            worldType: String(args.worldType || ''),
+            description: String(args.description || ''),
+            fullDescription: String(args.fullDescription || args.description || ''),
+            dimensions: (() => {
+              const d = args.dimensions
+              if (!d || typeof d !== 'object' || Array.isArray(d)) return {}
+              return d
+            })(),
+            vocabularyList: Array.isArray(args.vocabularyList) ? args.vocabularyList.map(v => String(v)) : [],
+            writingRules: (Array.isArray(args.writingRules) ? args.writingRules : []).map(r => String(r)),
+            tone: (() => {
+              const t = args.tone
+              if (!t || typeof t !== 'object') return { word: '', description: '', attitude: '' }
+              return { word: String(t.word || ''), description: String(t.description || ''), attitude: String(t.attitude || '') }
+            })(),
+            source: 'cli-generated',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+          const fileName = `st_${Date.now().toString(36)}.json`
+          await fsp.writeFile(path.join(tmplDir, fileName), JSON.stringify(tmpl, null, 2), 'utf-8')
+          return { status: 'success', summary: `已创建风格模板: ${tmpl.name}`, detail: `保存在 style_templates/${fileName}` }
+        } catch (e) { return { status: 'error', summary: `创建风格模板失败: ${e.message}` } }
+      }
+
       case 'create_scene_template': {
-        return { status: 'success', summary: 'CLI 模式: 模板已创建', detail: '模板内容需在 GUI 中查看' }
+        try {
+          const tmplDir = path.join(this.projectsDir, '..', 'scene_templates')
+          await fsp.mkdir(tmplDir, { recursive: true })
+          const config = {
+            sceneType: String(args.sceneType || '日常'),
+            conflictType: String(args.conflictType || '无冲突'),
+            characters: String(args.characters || ''),
+            location: String(args.location || ''),
+            time: String(args.time || '不限'),
+            weather: String(args.weather || '不限'),
+            atmosphere: String(args.atmosphere || '不限'),
+            wordTarget: Number(args.wordTarget || 3000),
+            narrativePOV: String(args.narrativePOV || '第三人称'),
+            pacing: String(args.pacing || '渐进'),
+            detail: String(args.detail || ''),
+            autoFields: Array.isArray(args.autoFields) ? args.autoFields : [],
+          }
+          const tmpl = {
+            id: `sc_${Date.now().toString(36)}`,
+            name: String(args.name || '未命名场景模板'),
+            type: String(args.type || '普通小说'),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            config,
+            source: 'cli-generated',
+          }
+          const fileName = `sc_${Date.now().toString(36)}.json`
+          await fsp.writeFile(path.join(tmplDir, fileName), JSON.stringify(tmpl, null, 2), 'utf-8')
+          return { status: 'success', summary: `已创建场景模板: ${tmpl.name}`, detail: `保存在 scene_templates/${fileName}` }
+        } catch (e) { return { status: 'error', summary: `创建场景模板失败: ${e.message}` } }
       }
 
       case 'toggle_prompt':
@@ -523,35 +584,42 @@ class NodeToolExecutor {
       }
 
       case 'list_rules': {
-        const rulesDir = path.join(this.projectsDir, '..', '.aiharness', 'rules', 'auto-learned')
+        const learnPath = path.join(this.projectsDir, '..', '.aiharness', 'learnings.json')
         try {
-          const files = await fsp.readdir(rulesDir)
-          const rules = []
-          for (const f of files) {
-            if (f.endsWith('.json')) {
-              try {
-                const raw = await fsp.readFile(path.join(rulesDir, f), 'utf-8')
-                const rule = JSON.parse(raw)
-                rules.push(`[${rule.status || 'auto'}] ${rule.title || f}: ${(rule.problem || '').slice(0, 80)}`)
-              } catch { rules.push(f) }
-            }
+          const raw = await fsp.readFile(learnPath, 'utf-8')
+          const entries = JSON.parse(raw)
+          if (!Array.isArray(entries) || entries.length === 0) {
+            return { status: 'success', summary: '0 条学习经验', detail: '(暂无)' }
           }
-          return { status: 'success', summary: `${rules.length} 条已学习规则`, detail: rules.join('\n') || '(暂无)' }
-        } catch { return { status: 'success', summary: '0 条规则', detail: '(暂无已学习规则)' } }
+          const lines = entries.map((e, i) =>
+            `[${e.applied ? '已应用' : '待处理'}] ${e.problem} → ${e.solution}`
+          )
+          return { status: 'success', summary: `${entries.length} 条学习经验`, detail: lines.join('\n') }
+        } catch { return { status: 'success', summary: '0 条学习经验', detail: '(暂无)' } }
       }
 
-      case 'learn_rule': {
-        const rulesDir2 = path.join(this.projectsDir, '..', '.aiharness', 'rules', 'auto-learned')
-        await fsp.mkdir(rulesDir2, { recursive: true })
-        const rule = {
-          title: `[自动学习] ${args.trigger || ''}`,
-          trigger: String(args.trigger || ''), problem: String(args.problem || ''),
-          solution: String(args.solution || ''), category: String(args.category || 'general'),
-          createdAt: new Date().toISOString(), status: 'auto-draft',
+      case 'learn_rule':
+      case 'write_learning': {
+        const learnPath = path.join(this.projectsDir, '..', '.aiharness', 'learnings.json')
+        await fsp.mkdir(path.dirname(learnPath), { recursive: true })
+        let entries = []
+        try {
+          const raw = await fsp.readFile(learnPath, 'utf-8')
+          entries = JSON.parse(raw)
+          if (!Array.isArray(entries)) entries = []
+        } catch { entries = [] }
+        const entry = {
+          id: `learn_${Date.now().toString(36)}`,
+          problem: String(args.problem || '').slice(0, 200),
+          solution: String(args.solution || '').slice(0, 500),
+          category: String(args.category || 'general').slice(0, 30),
+          createdAt: new Date().toISOString(),
+          applied: false,
         }
-        const id = `rule_${Date.now().toString(36)}`
-        await fsp.writeFile(path.join(rulesDir2, `${id}.json`), JSON.stringify(rule, null, 2), 'utf-8')
-        return { status: 'success', summary: `已记录规则: ${id}`, detail: '规则已保存到 .aiharness/rules/auto-learned/，下次会话自动生效' }
+        entries.push(entry)
+        if (entries.length > 50) entries = entries.slice(-50)
+        await fsp.writeFile(learnPath, JSON.stringify(entries, null, 2), 'utf-8')
+        return { status: 'success', summary: `已记录学习经验: ${entry.problem.slice(0, 40)}`, detail: '保存在 .aiharness/learnings.json' }
       }
 
       case 'http_get': {
@@ -688,15 +756,15 @@ function generateFallbackSchemas() {
     { name: 'delete_note', desc: '删除草稿笔记。', params: { note_name: { type: 'string' } }, req: ['note_name'] },
     { name: 'search_images', desc: '搜索网络图片（Unsplash）。', params: { query: { type: 'string' }, count: { type: 'number' } }, req: ['query'] },
     { name: 'generate_image', desc: '使用AI生成图片。', params: { prompt: { type: 'string' }, size: { type: 'string', enum: ['1024x1024', '1792x1024', '1024x1792'] } }, req: ['prompt'] },
-    { name: 'create_style_template', desc: '创建风格模板。', params: { name: { type: 'string' }, dimensions: { type: 'object' } }, req: ['name'] },
-    { name: 'create_scene_template', desc: '创建场景模板。', params: { name: { type: 'string' }, scene_type: { type: 'string' }, config: { type: 'object' } }, req: ['name'] },
+    { name: 'create_style_template', desc: '创建风格模板并保存到模板库。禁止手动 create_file 写JSON。必填: name, type, dimensions。dimensions是各维度的分析结果对象，有信号详填无信号跳过。', params: { name: { type: 'string', description: '模板名称' }, type: { type: 'string', description: '小说类型' }, worldType: { type: 'string', description: '世界观类型' }, description: { type: 'string', description: '简短描述' }, fullDescription: { type: 'string', description: '完整风格综述' }, dimensions: { type: 'object', description: '各维度分析结果' }, vocabularyList: { type: 'array', items: { type: 'string' }, description: '词汇清单' }, writingRules: { type: 'array', items: { type: 'string' }, description: '写作规则' }, tone: { type: 'object', description: '叙事基调(word/description/attitude)' } }, req: ['name', 'type', 'dimensions'] },
+    { name: 'create_scene_template', desc: '创建场景模板并保存到场景工坊。禁止手动 create_file 写JSON。必填: name, type。能推断的字段直接填值，无法确定的列入autoFields。', params: { name: { type: 'string', description: '模板名称' }, type: { type: 'string', description: '小说类型' }, plotOverview: { type: 'string', description: '剧情概述150-300字' }, sceneType: { type: 'string', description: '场景类型: 日常|战斗|对话|内心独白|过渡|高潮|情色' }, conflictType: { type: 'string', description: '冲突类型' }, scenePurpose: { type: 'array', items: { type: 'string' }, description: '场景目的' }, characters: { type: 'string', description: '出场角色及情绪状态' }, location: { type: 'string', description: '场景地点' }, time: { type: 'string', description: '时间' }, weather: { type: 'string', description: '天气' }, atmosphere: { type: 'string', description: '氛围' }, wordTarget: { type: 'number', description: '目标字数' }, narrativePOV: { type: 'string', description: '叙事视角' }, pacing: { type: 'string', description: '节奏' }, detail: { type: 'string', description: '详细场景配置(Markdown)' }, autoFields: { type: 'array', items: { type: 'string' }, description: 'AI自动字段名列表' } }, req: ['name', 'type'] },
     { name: 'create_project', desc: '创建新的写作项目。', params: { name: { type: 'string' }, novel_category: { type: 'string' } }, req: ['name'] },
     { name: 'delete_project', desc: '删除项目。需要用户确认。', params: { project_name: { type: 'string' } }, req: ['project_name'] },
     { name: 'list_prompts', desc: '列出提示词库中的提示词。', params: {}, req: [] },
     { name: 'toggle_prompt', desc: '启用或禁用提示词。', params: { prompt_name: { type: 'string' }, enabled: { type: 'boolean' } }, req: ['prompt_name'] },
     { name: 'update_prompt', desc: '修改提示词内容。', params: { prompt_name: { type: 'string' }, new_content: { type: 'string' } }, req: ['prompt_name'] },
     { name: 'list_rules', desc: '列出已学习规则。', params: {}, req: [] },
-    { name: 'learn_rule', desc: '记录规则防再犯。', params: { trigger: { type: 'string' }, problem: { type: 'string' }, solution: { type: 'string' }, category: { type: 'string' } }, req: ['trigger', 'problem', 'solution'] },
+    { name: 'write_learning', desc: '记录一条学习经验。仅在工具调用出错并最终解决后调用。写清楚问题原因和解决方法。', params: { problem: { type: 'string', description: '出错原因' }, solution: { type: 'string', description: '解决方法' }, category: { type: 'string', description: '分类: file|character|outline|chapter|style|kb|general' } }, req: ['problem', 'solution'] },
     { name: 'update_config', desc: '更新 .aiharness 配置。', params: { section: { type: 'string' }, changes: { type: 'string' } }, req: ['section', 'changes'] },
     { name: 'list_audit', desc: '查询 Agent 自身的操作审计日志。', params: { limit: { type: 'number' } }, req: [] },
     { name: 'http_get', desc: 'HTTP GET 请求获取网页或 API 数据。', params: { url: { type: 'string' } }, req: ['url'] },
@@ -742,22 +810,73 @@ async function listProjectFiles(projectPath) {
   } catch { return '' }
 }
 
-const SYSTEM_PROMPT = `你是一个 AI 小说写作助手 Agent，在命令行模式下运行。
-你可以通过工具调用来操作项目文件。每个工具调用必须实际执行，口头说"已完成"没有意义。
+const SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。直接操作项目文件。
 
-项目结构:
-- outline/plot.md — 故事剧情 (Markdown)
-- outline/worldbuilding.md — 世界观 (Markdown)
-- characters/{拼音id}.json — 角色文件 (JSON)
-- detailed_outline/{id}.json — 细纲 (JSON)
-- chapters/{id}.txt — 章节正文
-- summaries/{id}.md — 章节摘要
+## 工作模式
+🗣闲聊→0工具 📋简单→1轮完成 ❓模糊→先追问 🏗复杂→1-2轮完成
 
-规则:
-1. 创建/修改文件前，先 read_file 查看现有内容
-2. 编辑时用 edit_file 精确替换
-3. 匹配失败时用 old_string="__FULL_REPLACE__" 全量替换
-4. 简洁高效，用最少的工具完成用户的任务`
+## 核心规则
+1. 项目索引已告诉你所有文件路径。列出内容时直接用索引回复，不要 list_directory/search_files 探索。read_file 仅用于读取具体内容。
+2. 上下文已有=不重读。创建成功=不验证。
+3. 文件多时先问再读。超过5个同类型文件时，先列出概要让用户选择。用户明确指定时直接读。
+4. 简洁报告，10句话以内。
+5. 模糊意图先追问。同一工具连败2次→报告停止。
+6. 列出角色/章节时用项目索引直接回复，不要逐个 read_file。
+
+## 角色操作
+每个角色是 characters/{拼音id}.json，16字段:
+必填: id(拼音), name(中文名), role(男主|女主|男配|女配|反派|其他), gender(男|女), age, occupation
+重要: background, appearance, personality, abilities, weaknesses
+关系: relationships(描述), relationshipTags(标签数组)
+成长: arc(角色弧线), importance(1-100), image(可选)
+不确定格式时先 read_file 参考已有角色JSON
+
+## 大纲操作
+outline/plot.md (故事剧情) 和 worldbuilding.md (世界观设定) 是Markdown
+plot.md格式: # 标题 → ## 一句话梗概 → ### 第X章·标题(状态) → 段落
+worldbuilding.md格式: # 标题 → ## 核心设定 → ### 各子系统
+追加: read_file读末尾→取最后一段做old_string→追加新内容
+修改: read_file确认原文→用整段做old_string→替换
+old_string必须逐字精确匹配
+
+## 细纲格式
+detailed_outline/{章节id}.json，每章一个JSON:
+必填: id(如chapter1), title, order, status(incomplete|in_progress|complete), plotOverview(剧情概述), characters(出场角色+情绪线), location(地点), keyEvents(关键事件列表)
+可选: eroticContent(情色内容), customContent(场景分幕), emotionCurve(情绪曲线), writingNotes(写作要点)
+先read_file参考已有细纲格式再创建
+
+## 章节创作
+创作前必读: 大纲→本章出场角色卡→本章细纲→前章摘要(summaries/)
+章节正文: chapters/{id}.txt，Markdown格式，# 标题 → ## 分节
+用summaries/读摘要(几百字)，不要读chapters/全文(几千字)
+用户指定字数时必须达标
+
+## 风格模板
+用 create_style_template 保存，禁止手动 create_file 写JSON
+必填: name, type, dimensions(分析结果对象)
+dimensions每维度格式: { "维度": "名称", "值": "特征值", "说明": "原文依据" }
+26维度: 叙事视角/语调/时间/空间/感官/比喻/对话/心理/节奏/反差/氛围/语言/重复/留白/身体等
+可选: worldType, description, fullDescription, vocabularyList, writingRules, tone({word,description,attitude})
+有信号详填，无信号跳过。先read_file参考已有模板
+
+## 场景模板
+用 create_scene_template 保存，禁止手动 create_file 写JSON
+必填: name, type
+场景配置: sceneType(日常|战斗|对话|独白|过渡|高潮|情色), conflictType, characters, location, time, weather, atmosphere, wordTarget(数字), narrativePOV, pacing, detail(Markdown)
+无法确定的字段列入 autoFields(≤10个)
+不要在无参考材料时编造场景
+
+## 知识库
+- 保存前先 kb_list，让用户选追加还是新建
+- 整理后提醒用户 kb_index_file 建立索引
+- 有价值的信息主动问是否保存
+
+## 自我优化
+工具调用出错并成功解决后，调用 write_learning 记录经验。写清楚问题原因和解决方法。
+不记录: 网络超时重试成功、API临时不可用、用户取消操作、正确完成的任务。
+
+## 停止条件
+任务完成立即输出回复。不需要更多工具时立即输出回复。`
 
 const SELF_OPTIMIZE_PROMPT = `你是一个代码自优化 Agent，运行在命令行模式下。
 你可以读取、搜索、编辑项目源代码文件（src/、electron/、scripts/）。
