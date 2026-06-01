@@ -86,6 +86,8 @@ export const STYLE_DOMAIN_MODULE = `
 ## 风格模板
 用户上传或引用文本后，逐维度分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
 
+⚡ 如果用户消息中已包含文件内容（[上传文件: ...] --- 文件内容 ---），直接分析该内容，不需要再调 read_file。
+
 必填: name, type(情色小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|奇幻小说|灵异小说|游戏小说|末世小说|轻小说|都市小说|穿越小说|普通小说), dimensions
 可选: worldType, description, fullDescription(200-400字散文式综述), vocabularyList(50-100个高频词), writingRules(10-20条), tone
 
@@ -111,11 +113,13 @@ export const STYLE_DOMAIN_MODULE = `
 dimensions每个维度格式: { "维度key": { "description": "100-300字具体分析+原文引用", "examples": ["原文例句1", "例句2", "例句3..."], "writingRules": ["可执行的写作规则1", "规则2..."], "vocabularyList": ["原文高频词1", "词2..."] } }
 key必须用上面列出的英文维度名，不要用中文。
 
-⚠️ 铁律：原文有信号的→必须填（description≥100字+examples≥3个+rules≥3条+vocab≥10词）。原文无信号的→跳过该维度，不要出现在dimensions里。不确定的→看上面分层判断。先 read_file 参考 style_templates/ 已有模板格式。`
+⚠️ 铁律：原文有信号的→必须填（description≥100字+examples≥3个+rules≥3条+vocab≥10词）。原文无信号的→跳过该维度，不要出现在dimensions里。不确定的→看上面分层判断。`
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
 用户上传或引用文本后，分析场景结构特征，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
+
+⚡ 如果用户消息中已包含文件内容（[上传文件: ...] --- 文件内容 ---），直接分析该内容，不需要再调 read_file。
 
 必填: name, type(同风格模板的小说类型值)
 
@@ -140,7 +144,7 @@ export const SCENE_DOMAIN_MODULE = `
   把握不好、无法确定的字段名放入 autoFields 数组。这些字段在场景工坊中会显示AI自动按钮。
   不确定 → 入autoFields。不要强填不确定的值。
 
-⚠️ 铁律：原文有信号的→必须填。原文没有或把握不好的→跳过或入autoFields。先 read_file 读原文和已有细纲。`
+⚠️ 铁律：原文有信号的→必须填。原文没有或把握不好的→跳过或入autoFields。`
 
 export const ARCHITECTURE_DOCS_HINT = `
 ## 技术文档
@@ -230,8 +234,8 @@ export function selectDomainModules(userMessage: string): string[] {
   if (/角色|人物|character/.test(msg)) modules.push(CHARACTER_DOMAIN_MODULE)
   if (/大纲|剧情|plot|worldbuilding|世界观/.test(msg)) modules.push(OUTLINE_DOMAIN_MODULE)
   if (/写|创作|生成|续写|章节|chapter/.test(msg)) modules.push(CHAPTER_DOMAIN_MODULE)
-  if (/风格|文风|style|仿写/.test(msg)) modules.push(STYLE_DOMAIN_MODULE)
-  if (/场景|scene/.test(msg)) modules.push(SCENE_DOMAIN_MODULE)
+  if (/风格|文风|style|仿写|分析.*文|模板.*创建|创建.*模板|上传.*分析/.test(msg)) modules.push(STYLE_DOMAIN_MODULE)
+  if (/场景|scene|模板.*创建|创建.*模板|分析.*场景/.test(msg)) modules.push(SCENE_DOMAIN_MODULE)
   if (/知识库|kb|素材|收藏|保存/.test(msg)) modules.push(KB_DOMAIN_MODULE)
   if (/你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么/.test(msg)) modules.push(AI_CAPABILITIES_MODULE)
   if (/软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/.test(msg)) modules.push(SOFTWARE_FEATURES_MODULE)

@@ -451,7 +451,10 @@ export default function AIChatWindow() {
         try {
           await fileService.ensureDir('uploads/files')
           await fileService.write(filePath, attachment.content)
-          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 uploads/files/${attachment.name}。要读取内容，使用 read_file("${filePath}")。`
+          // Send full content (up to 15000 chars) so AI can start analysis without read_file roundtrip
+          const preview = attachment.content.slice(0, 15000)
+          const truncated = attachment.content.length > 15000 ? '\n…(内容已截断，完整文件用 read_file 读取)' : ''
+          attachText = `[上传文件: ${attachment.name} — 已保存到 ${filePath}]\n\n--- 文件内容 ---\n${preview}${truncated}\n--- 内容结束 ---`
         } catch {
           attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
         }
