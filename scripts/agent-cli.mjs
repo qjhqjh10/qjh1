@@ -556,6 +556,7 @@ class NodeToolExecutor {
             if (typeof v === 'object') return JSON.stringify(v)
             return String(v)
           }
+          const arr = (v) => Array.isArray(v) ? v.map(x => String(x)) : []
           const config = {
             sceneType: safeStr(args.sceneType, '日常'),
             conflictType: safeStr(args.conflictType, '无冲突'),
@@ -564,11 +565,27 @@ class NodeToolExecutor {
             time: safeStr(args.time, '不限'),
             weather: safeStr(args.weather, '不限'),
             atmosphere: safeStr(args.atmosphere, '不限'),
-            wordTarget: Number(args.wordTarget || 3000),
+            wordTarget: Number(args.wordTarget) || 3000,
             narrativePOV: safeStr(args.narrativePOV, '第三人称'),
             pacing: safeStr(args.pacing, '渐进'),
+            bodyLanguage: safeStr(args.bodyLanguage, ''),
             detail: safeStr(args.detail, ''),
-            autoFields: Array.isArray(args.autoFields) ? args.autoFields : [],
+            extraNote: safeStr(args.extraNote, ''),
+            autoFields: arr(args.autoFields),
+            intensity: Number(args.intensity || args.eroticIntensity || 0),
+            selectedKinks: arr(args.selectedKinks),
+            opening: arr(args.opening),
+            climax: arr(args.climax),
+            aftermath: arr(args.aftermath),
+            soundDensity: safeStr(args.soundDensity, ''),
+            moanStyle: safeStr(args.moanStyle, ''),
+            degradeLangs: arr(args.degradeLangs),
+            bodyFluidFocus: arr(args.bodyFluidFocus),
+            bodyPartFocus: arr(args.bodyPartFocus),
+            tactileFocus: arr(args.tactileFocus),
+            sensoryAnchors: safeStr(args.sensoryAnchors, ''),
+            dominantEmotion: safeStr(args.dominantEmotion, ''),
+            emotionCurveInput: safeStr(args.emotionCurveInput, ''),
           }
           const tmpl = {
             id: `sc_${Date.now().toString(36)}`,
@@ -869,9 +886,9 @@ dimensions格式: { "维度名": { "description": "特征描述", "examples": ["
 ## 场景模板
 用 create_scene_template 保存，禁止手动 create_file 写JSON
 必填: name, type
-场景配置: sceneType(日常|战斗|对话|独白|过渡|高潮|情色), conflictType, characters, location, time, weather, atmosphere, wordTarget(数字), narrativePOV, pacing, detail(Markdown)
-无法确定的字段列入 autoFields(≤10个)
-不要在无参考材料时编造场景
+通用字段: sceneType, conflictType, characters, location, time, weather, atmosphere, wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
+情色额外字段: intensity(1-5), selectedKinks[], opening[], climax[], aftermath[], soundDensity, moanStyle, degradeLangs[], bodyFluidFocus[], bodyPartFocus[], tactileFocus[], sensoryAnchors, dominantEmotion, emotionCurveInput
+有信号的填，无信号的列入autoFields。先read_file参考已有模板
 
 ## 知识库
 - 保存前先 kb_list，让用户选追加还是新建

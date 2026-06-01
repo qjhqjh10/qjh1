@@ -82,18 +82,17 @@ dimensions每个维度格式: { "维度名": { "description": "特征描述", "e
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
-用户上传或引用文本后，分析场景要素，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
-必填: name(模板名), type(小说类型)
-场景配置字段(能推断的填，不能的列入autoFields):
-  sceneType: 日常|战斗|对话|内心独白|过渡|高潮|情色
-  conflictType: 冲突类型
-  characters: 出场角色及情绪状态
-  location: 场景地点, time: 时间, weather: 天气, atmosphere: 氛围
-  wordTarget: 目标字数(数字), narrativePOV: 叙事视角, pacing: 节奏
-  detail: 详细场景配置(Markdown格式)
-  autoFields: 无法确定的字段名数组(≤10个)
-情色场景额外字段: eroticIntensity(1-5), selectedKinks(玩法标签数组)
-不要在无参考材料时编造场景。先read_file参考已有模板。`
+用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
+必填: name, type
+通用字段(有则填，无则列入autoFields):
+  sceneType, conflictType, scenePurpose[], characters, location, time, weather, atmosphere
+  wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
+情色类型额外字段:
+  intensity(1-5), selectedKinks[], opening[], climax[], aftermath[]
+  soundDensity(低|中|高|极高), moanStyle, degradeLangs[]
+  bodyFluidFocus[], bodyPartFocus[], tactileFocus[]
+  sensoryAnchors, dominantEmotion, emotionCurveInput
+不要在无参考材料时编造场景。先read_file参考已有模板格式。`
 
 export const KB_DOMAIN_MODULE = `
 ## 知识库
