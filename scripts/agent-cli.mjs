@@ -881,14 +881,14 @@ detailed_outline/{章节id}.json，每章一个JSON:
 dimensions格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填
 26维度: 叙事视角/语调/时间/空间/感官/比喻/对话/心理/节奏/反差/氛围/语言/重复/留白/身体等
 可选: worldType, description, fullDescription, vocabularyList, writingRules, tone({word,description,attitude})
-有信号详填，无信号跳过。先read_file参考已有模板
+⚠️ 铁律: 原文有的信号必须分析填写, 没有的不要强行编造——跳过不填。先read_file参考已有模板
 
 ## 场景模板
 用 create_scene_template 保存，禁止手动 create_file 写JSON
 必填: name, type
 通用字段: sceneType, conflictType, characters, location, time, weather, atmosphere, wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
 情色额外字段: intensity(1-5), selectedKinks[], opening[], climax[], aftermath[], soundDensity, moanStyle, degradeLangs[], bodyFluidFocus[], bodyPartFocus[], tactileFocus[], sensoryAnchors, dominantEmotion, emotionCurveInput
-有信号的填，无信号的列入autoFields。先read_file参考已有模板
+⚠️ 铁律: 输入里有信号的必须填, 没有的不要强行编造——跳过或列autoFields。
 
 ## 知识库
 - 保存前先 kb_list，让用户选追加还是新建

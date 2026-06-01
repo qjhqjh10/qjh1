@@ -78,7 +78,7 @@ dimensions每个维度格式: { "维度名": { "description": "特征描述", "e
 可选: vocabularyList(词汇清单数组), writingRules(写作规则数组)
 可选: tone({ word: "基调词", description: "基调描述", attitude: "态度" })
 26个维度包括: 叙事视角/叙事语调/时间处理/空间构建/感官密度/比喻风格/对话比例/心理深度/节奏控制/反差美学/环境氛围/语言风格/重复手法/留白处理/身体描写等
-有信号的维度详填，无信号的跳过不填。先read_file参考已有模板格式。`
+⚠️ 铁律：原文有的信号必须分析填写。原文没有的维度不要强行编造——直接跳过不填。宁可少而精，不多而滥。先read_file参考已有模板格式。`
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
@@ -92,7 +92,7 @@ export const SCENE_DOMAIN_MODULE = `
   soundDensity(低|中|高|极高), moanStyle, degradeLangs[]
   bodyFluidFocus[], bodyPartFocus[], tactileFocus[]
   sensoryAnchors, dominantEmotion, emotionCurveInput
-不要在无参考材料时编造场景。先read_file参考已有模板格式。`
+⚠️ 铁律：输入内容里有信号的必须填，没有的不要强行编造——跳过或列入autoFields。宁可少而精。先read_file参考已有模板格式。`
 
 export const KB_DOMAIN_MODULE = `
 ## 知识库
