@@ -1,6 +1,10 @@
-// ── Chat Storage Service ──
-// IndexedDB-based conversation persistence with localStorage migration and file fallback.
-// Replaces the localStorage-only approach in AIChatWindow.
+// ── Chat Storage Service (V9.5.2 hardened) ──
+// IndexedDB primary + file mirror + file backup + localStorage fallback.
+//
+// 三层防护：
+// 1. 写前备份 — save 前先把旧数据存为 .bak
+// 2. 空数据拒绝 — 如果新数据只有 1 个默认对话且备份有更多数据，拒绝覆盖
+// 3. 恢复链 — IndexedDB → file → file.bak → localStorage migration
 
 import type { Conversation } from '@/components/ai/chat/types'
 
@@ -32,8 +36,78 @@ function getDb(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-/** Save conversations to IndexedDB + always mirror to file for inspection */
+// ── File path helpers (use Electron userData, not projectsBasePath) ──
+
+async function getStorageDir(): Promise<string | null> {
+  // Try Electron userData first (always available in production)
+  try {
+    const { appService } = await import('@/services/fileService')
+    const base = await appService?.getStoryWorkspacePath?.()
+    if (base) return base.replace(/[/\\]?$/, '') + '/.appdata'
+  } catch {}
+
+  // Fallback: projectsBasePath (may not be set on fresh start)
+  try {
+    const { useStore } = await import('@/store')
+    const base = useStore.getState().projectsBasePath
+    if (base) {
+      const appDir = base.replace(/[/\\]projects[/\\]?$/, '')
+      if (appDir && appDir !== base) return appDir + '/.appdata'
+    }
+  } catch {}
+
+  return null
+}
+
+async function writeFile(filePath: string, content: string): Promise<void> {
+  try {
+    const { fileService } = await import('@/services/fileService')
+    const dir = filePath.substring(0, filePath.lastIndexOf('/'))
+    await fileService.ensureDir(dir)
+    await fileService.write(filePath, content)
+  } catch {}
+}
+
+async function readFile(filePath: string): Promise<string | null> {
+  try {
+    const { fileService } = await import('@/services/fileService')
+    return await fileService.read(filePath)
+  } catch {
+    return null
+  }
+}
+
+// ── Primary Save/Load ──
+
+/** Save conversations with write-ahead backup */
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
+  const dir = await getStorageDir()
+  const filePath = dir ? dir + '/chat-conversations.json' : null
+
+  // ── 防护 1: 写前备份 — 先把现有数据复制到 .bak ──
+  if (filePath) {
+    const existing = await readFile(filePath)
+    if (existing && existing.length > 500) {
+      // Only back up if existing data is substantial (>500 bytes, i.e. more than just default)
+      await writeFile(filePath + '.bak', existing)
+    }
+  }
+
+  // ── 防护 2: 空数据拒绝 — 如果新数据太小而备份很大，拒绝覆盖 ──
+  const newDataSize = JSON.stringify(conversations).length
+  const hasOnlyDefault = conversations.length === 1
+    && conversations[0].messages.length <= 1
+    && conversations[0].id === 'default'
+
+  if (hasOnlyDefault && filePath) {
+    const bakContent = await readFile(filePath + '.bak')
+    if (bakContent && bakContent.length > newDataSize * 2) {
+      console.warn('[ChatStorage] 拒绝覆盖：新数据仅有默认对话，备份有', bakContent.length, '字节')
+      return // Do NOT overwrite real data with empty default
+    }
+  }
+
+  // Save to IndexedDB
   try {
     const db = await getDb()
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -45,13 +119,16 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   } catch (e) {
     console.warn('[ChatStorage] IndexedDB save failed:', e)
   }
-  // Always mirror to file — enables terminal inspection via `cat .appdata/chat-conversations.json`
-  saveToFile(conversations).catch(() => {})
+
+  // Mirror to file
+  if (filePath) {
+    await writeFile(filePath, JSON.stringify(conversations))
+  }
 }
 
-/** Load conversations: IndexedDB → file fallback → localStorage migration */
+/** Load conversations: IndexedDB → file → file.bak → localStorage */
 export async function loadConversations(): Promise<Conversation[]> {
-  // 1. Try IndexedDB
+  // 1. IndexedDB
   try {
     const db = await getDb()
     const result = await new Promise<Conversation[] | undefined>((resolve, reject) => {
@@ -60,23 +137,44 @@ export async function loadConversations(): Promise<Conversation[]> {
       req.onerror = () => reject(req.error)
     })
     if (result && result.length > 0) return result
-  } catch { /* fall through to next strategy */ }
+  } catch { /* fall through */ }
 
-  // 2. Try file fallback
-  try {
-    const fileData = await loadFromFile()
-    if (fileData && fileData.length > 0) {
-      // Restore to IndexedDB
-      saveConversations(fileData).catch(() => {})
-      return fileData
+  // 2. File mirror
+  const dir = await getStorageDir()
+  if (dir) {
+    const content = await readFile(dir + '/chat-conversations.json')
+    if (content) {
+      try {
+        const parsed = JSON.parse(content) as Conversation[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          saveConversations(parsed).catch(() => {}) // restore to IndexedDB
+          return parsed
+        }
+      } catch {}
     }
-  } catch { /* fall through to migration */ }
+  }
 
-  // 3. Migrate from localStorage (one-time)
+  // ── 恢复链: 3. .bak 备份 ──
+  if (dir) {
+    const bakContent = await readFile(dir + '/chat-conversations.json.bak')
+    if (bakContent) {
+      try {
+        const parsed = JSON.parse(bakContent) as Conversation[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.warn('[ChatStorage] 从 .bak 备份恢复对话，原数据可能已损坏')
+          saveConversations(parsed).catch(() => {})
+          return parsed
+        }
+      } catch {}
+    }
+  }
+
+  // 4. localStorage migration (one-time)
   return migrateFromLocalStorage()
 }
 
-/** Save last active conversation ID */
+// ── Last Active ID ──
+
 export async function saveLastActiveId(id: string): Promise<void> {
   try {
     const db = await getDb()
@@ -89,7 +187,6 @@ export async function saveLastActiveId(id: string): Promise<void> {
   } catch { /* non-critical */ }
 }
 
-/** Load last active conversation ID */
 export async function loadLastActiveId(): Promise<string | null> {
   try {
     const db = await getDb()
@@ -111,19 +208,15 @@ async function migrateFromLocalStorage(): Promise<Conversation[]> {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed) || parsed.length === 0) return []
 
-    // Save to IndexedDB
     await saveConversations(parsed)
-    // Save last active
     const lastActive = localStorage.getItem(LS_LAST_ACTIVE)
     if (lastActive) await saveLastActiveId(lastActive)
 
-    // Mark migration complete, then clear localStorage (delayed)
     localStorage.setItem(MIGRATED_KEY, '1')
     return parsed
   } catch { return [] }
 }
 
-/** Check if migration has been done and clear old localStorage data */
 export function finalizeMigration(): void {
   if (localStorage.getItem(MIGRATED_KEY) === '1') {
     localStorage.removeItem(LS_STORAGE_KEY)
@@ -131,41 +224,8 @@ export function finalizeMigration(): void {
   }
 }
 
-// ── File Fallback ──
-
-async function getAppDataPath(): Promise<string | null> {
-  try {
-    const { useStore } = await import('@/store')
-    const base = useStore.getState().projectsBasePath || ''
-    if (!base) return null // No project loaded yet — skip file save
-    const appDir = base.replace(/[/\\]projects[/\\]?$/, '')
-    if (!appDir || appDir === base) return null // Can't resolve parent dir
-    return `${appDir}/.appdata`
-  } catch { return null }
-}
-
-/** Get the file path where conversations are mirrored — useful for terminal inspection */
+/** Get the file path where conversations are mirrored */
 export async function getConversationFilePath(): Promise<string> {
-  const dir = await getAppDataPath()
-  return dir ? `${dir}/chat-conversations.json` : ''
-}
-
-async function saveToFile(conversations: Conversation[]): Promise<void> {
-  try {
-    const dir = await getAppDataPath()
-    if (!dir) return
-    const { fileService } = await import('@/services/fileService')
-    await fileService.ensureDir(dir)
-    await fileService.write(`${dir}/chat-conversations.json`, JSON.stringify(conversations))
-  } catch (e) { /* non-critical — IndexedDB is primary store */ }
-}
-
-async function loadFromFile(): Promise<Conversation[] | null> {
-  try {
-    const { fileService } = await import('@/services/fileService')
-    const dir = await getAppDataPath()
-    const raw = await fileService.read(`${dir}/chat-conversations.json`)
-    if (raw) return JSON.parse(raw) as Conversation[]
-  } catch { /* not found */ }
-  return null
+  const dir = await getStorageDir()
+  return dir ? dir + '/chat-conversations.json' : ''
 }

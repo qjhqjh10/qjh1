@@ -207,9 +207,11 @@ export default function AIChatWindow() {
     } catch (e) { logError('保存对话历史失败', e) }
   }, [activeConversationId])
 
+  // V9.5.2: 加载完成前禁止保存，防止默认对话覆盖 IndexedDB 中的真实数据
   useEffect(() => {
+    if (!convsLoaded) return
     persistConversations(conversations)
-  }, [conversations, persistConversations])
+  }, [conversations, persistConversations, convsLoaded])
   useEffect(() => {
     import('@/services/chatStorageService').then(m => m.saveLastActiveId(activeConversationId)).catch(() => {})
   }, [activeConversationId])
