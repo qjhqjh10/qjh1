@@ -111,43 +111,57 @@ export const templateTools: ToolDefinition[] = [
         const type = String(args.type || '普通小说')
         const arr = (v: unknown): string[] => Array.isArray(v) ? v.map(x => String(x)) : []
         const str = (v: unknown, d = ''): string => typeof v === 'string' ? v : (v ? String(v) : d)
+        // Full config with ALL fields the GUI expects (matches EroticSceneConfig)
         const config: Record<string, unknown> = {
           sceneType: str(args.sceneType, '日常'),
+          scenePurpose: arr(args.scenePurpose),
           conflictType: str(args.conflictType, '无冲突'),
+          povCharacterId: '', povCharacterName: '',
           characters: str(args.characters),
           location: str(args.location),
           time: str(args.time, '不限'),
           weather: str(args.weather, '不限'),
           atmosphere: str(args.atmosphere, '不限'),
+          publicity: '私密',
           wordTarget: Number(args.wordTarget) || 3000,
           narrativePOV: str(args.narrativePOV, '第三人称'),
           pacing: str(args.pacing, '渐进'),
           bodyLanguage: str(args.bodyLanguage),
           detail: str(args.detail),
           extraNote: str(args.extraNote),
-          autoFields: (() => {
-            // Convert ["time","weather"] → { time: true, weather: true }
-            const fields = arr(args.autoFields)
-            if (fields.length === 0) return {}
-            const obj: Record<string, boolean> = {}
-            for (const f of fields) obj[f] = true
-            return obj
-          })(),
-          // Erotic-specific
+          autoFields: (() => { const f = arr(args.autoFields); if (f.length === 0) return {}; const o: Record<string,boolean> = {}; for (const x of f) o[x] = true; return o })(),
           intensity: Number(args.intensity || args.eroticIntensity || 0),
           selectedKinks: arr(args.selectedKinks),
+          kinkNote: '',
           opening: arr(args.opening),
+          mainPose: '', mainRhythm: '', poseChanges: '',
           climax: arr(args.climax),
           aftermath: arr(args.aftermath),
           soundDensity: str(args.soundDensity),
           moanStyle: str(args.moanStyle),
           degradeLangs: arr(args.degradeLangs),
+          streamMode: true, replaceMode: true, useStyleProfile: true, useChapterOutline: true,
+          kinkIntensities: {}, customKink: '', customCharacters: [],
+          customLocation: '', customTime: '', customAtmosphere: '', customPublicity: '',
+          extraPhases: [], customInsults: '', bannedWords: '',
+          customPoses: [], customRhythms: [], customPOVs: '',
+          customOpening: [], customClimax: [], customAftermath: [], customDegradeLangs: [],
           bodyFluidFocus: arr(args.bodyFluidFocus),
           bodyPartFocus: arr(args.bodyPartFocus),
           tactileFocus: arr(args.tactileFocus),
+          narrativeStyle: '', timeCompression: '', introspection: '',
           sensoryAnchors: str(args.sensoryAnchors),
           dominantEmotion: str(args.dominantEmotion),
           emotionCurveInput: str(args.emotionCurveInput),
+          triggerWords: '', worldRules: '', propList: '', costumeList: '',
+          customExtraNotes: '', customEmotions: '', customCurves: '', customTriggers: '',
+          customWorldRules: '', customPropLists: '', customCostumeLists: '',
+          customPoseChanges: '', customSoundDensity: '', customMoanStyle: '',
+          consentDynamic: '', aftercareDetail: '',
+          senses: arr(args.senses || ['视觉','听觉','触觉']),
+          dialogueRatio: '', subtextLevel: '', sentenceStyle: '', paragraphDensity: '',
+          emotionStart: '', emotionEnd: '', props: '', appearance: '',
+          foreshadowUse: '', sceneTurningPoint: '', plotOverview: str(args.plotOverview),
         }
         const tmpl = {
           id: `sc_${Date.now().toString(36)}`,
