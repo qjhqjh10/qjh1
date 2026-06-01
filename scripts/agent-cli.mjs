@@ -549,18 +549,25 @@ class NodeToolExecutor {
         try {
           const tmplDir = path.join(this.projectsDir, '..', 'scene_templates')
           await fsp.mkdir(tmplDir, { recursive: true })
+          const safeStr = (v, def) => {
+            if (v == null) return def
+            if (typeof v === 'string') return v
+            if (Array.isArray(v)) return v.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(', ')
+            if (typeof v === 'object') return JSON.stringify(v)
+            return String(v)
+          }
           const config = {
-            sceneType: String(args.sceneType || '日常'),
-            conflictType: String(args.conflictType || '无冲突'),
-            characters: String(args.characters || ''),
-            location: String(args.location || ''),
-            time: String(args.time || '不限'),
-            weather: String(args.weather || '不限'),
-            atmosphere: String(args.atmosphere || '不限'),
+            sceneType: safeStr(args.sceneType, '日常'),
+            conflictType: safeStr(args.conflictType, '无冲突'),
+            characters: safeStr(args.characters, ''),
+            location: safeStr(args.location, ''),
+            time: safeStr(args.time, '不限'),
+            weather: safeStr(args.weather, '不限'),
+            atmosphere: safeStr(args.atmosphere, '不限'),
             wordTarget: Number(args.wordTarget || 3000),
-            narrativePOV: String(args.narrativePOV || '第三人称'),
-            pacing: String(args.pacing || '渐进'),
-            detail: String(args.detail || ''),
+            narrativePOV: safeStr(args.narrativePOV, '第三人称'),
+            pacing: safeStr(args.pacing, '渐进'),
+            detail: safeStr(args.detail, ''),
             autoFields: Array.isArray(args.autoFields) ? args.autoFields : [],
           }
           const tmpl = {
