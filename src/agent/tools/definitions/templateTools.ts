@@ -11,14 +11,11 @@ export const templateTools: ToolDefinition[] = [
         type: 'object',
         properties: {
           name: { type: 'string', description: '模板名称' },
-          type: { type: 'string', description: '小说类型。有效值: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说|穿越小说|末世小说|游戏小说' },
-          worldType: { type: 'string', description: '世界观类型' },
-          description: { type: 'string', description: '简短描述' },
-          fullDescription: { type: 'string', description: '完整风格综述（可选）' },
-          dimensions: { type: 'object', description: '各维度分析结果' },
-          vocabularyList: { type: 'array', items: { type: 'string' }, description: '词汇清单' },
-          writingRules: { type: 'array', items: { type: 'string' }, description: '写作规则' },
-          tone: { type: 'object', description: '叙事基调' },
+          type: { type: 'string', description: '小说类型(17种之一)' },
+          worldType: { type: 'string', description: '世界观类型(可选)' },
+          description: { type: 'string', description: '简短描述(可选)' },
+          fullDescription: { type: 'string', description: '完整风格综述(可选)' },
+          dimensions: { type: 'object', description: '各维度分析。格式: {"维度key":{"description":"100-300字分析","examples":["原文例句"...],"writingRules":["规则"...],"vocabularyList":["词"...]}}。vocabularyList和writingRules必须在每个维度内部，不要放在顶层！' },
         },
         required: ['name', 'type', 'dimensions'],
       },
@@ -32,11 +29,22 @@ export const templateTools: ToolDefinition[] = [
         let dims = args.dimensions || {}
         if (typeof dims === 'string') { try { dims = JSON.parse(dims) } catch { return { status: 'error', summary: 'dimensions JSON 格式错误' } } }
         if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
-          return { status: 'error', summary: 'dimensions 必须是一个对象' }
+          return { status: 'error', summary: 'dimensions 必须是一个对象。格式: {"维度key":{"description":"...","examples":[...],"writingRules":[...],"vocabularyList":[...]}}' }
         }
-        let tone = args.tone || {}
-        if (typeof tone === 'string') { try { tone = JSON.parse(tone) } catch { return { status: 'error', summary: 'tone JSON 格式错误' } } }
-        const rules = (Array.isArray(args.writingRules) ? args.writingRules : []).flat().map((r: unknown) => String(r))
+        // Validate each dimension has the required sub-fields
+        for (const [key, val] of Object.entries(dims as Record<string,any>)) {
+          if (!val || typeof val !== 'object') {
+            return { status: 'error', summary: `维度 ${key} 的值必须是对象{description,examples,writingRules,vocabularyList}` }
+          }
+        }
+
+        // Collect vocabulary and rules from ALL dimensions (for template-level aggregation)
+        const allVocab: string[] = []
+        const allRules: string[] = []
+        for (const val of Object.values(dims as Record<string,any>)) {
+          if (Array.isArray(val.vocabularyList)) allVocab.push(...val.vocabularyList.map(String))
+          if (Array.isArray(val.writingRules)) allRules.push(...val.writingRules.map(String))
+        }
 
         const tmpl: StyleTemplate = {
           name: String(args.name || '未命名模板'),
@@ -45,9 +53,9 @@ export const templateTools: ToolDefinition[] = [
           description: String(args.description || ''),
           fullDescription: String(args.fullDescription || args.description || ''),
           dimensions: dims as Record<string, DimAnalysis>,
-          vocabularyList: (Array.isArray(args.vocabularyList) ? args.vocabularyList.map((v: unknown) => String(v)) : []) as string[],
-          writingRules: rules,
-          tone: tone as { word: string; description: string; attitude: string },
+          vocabularyList: allVocab,
+          writingRules: allRules,
+          tone: {} as any,
           source: 'ai-generated',
           createdAt: '', updatedAt: '',
           id: `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
