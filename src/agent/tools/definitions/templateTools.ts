@@ -78,7 +78,7 @@ export const templateTools: ToolDefinition[] = [
           sceneType: { type: 'string', description: '日常|战斗|对话|内心独白|过渡|高潮|情色' },
           conflictType: { type: 'string', description: '冲突类型' },
           scenePurpose: { type: 'array', items: { type: 'string' }, description: '场景目的' },
-          characters: { type: 'string', description: '出场角色及情绪状态' },
+          characters: { type: 'array', items: { type: 'object', properties: { characterId: {type:'string'}, characterName: {type:'string'}, emotion: {type:'string'} } }, description: '出场角色及情绪。每项: {characterId,characterName,emotion}' },
           location: { type: 'string', description: '场景地点+描述' },
           time: { type: 'string', description: '时间' },
           weather: { type: 'string', description: '天气' },
@@ -130,7 +130,16 @@ export const templateTools: ToolDefinition[] = [
           scenePurpose: arr(args.scenePurpose),
           conflictType: str(args.conflictType, '无冲突'),
           povCharacterId: '', povCharacterName: '',
-          characters: str(args.characters),
+          // characters: array of {characterId,characterName,emotion} or convert from string
+          characters: (() => {
+            const c = args.characters
+            if (Array.isArray(c)) return c.map((x: any) => typeof x === 'object' ? x : { characterId: '', characterName: String(x), emotion: '' })
+            if (typeof c === 'string' && c.trim()) return c.split(/[；;]/).map(s => s.trim()).filter(Boolean).map(s => {
+              const m = s.match(/^(.+?)[:：](.+)$/)
+              return m ? { characterId: '', characterName: m[1], emotion: m[2] } : { characterId: '', characterName: s, emotion: '' }
+            })
+            return []
+          })(),
           location: str(args.location),
           time: str(args.time, '不限'),
           weather: str(args.weather, '不限'),
