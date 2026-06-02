@@ -53,7 +53,7 @@ export const characterProvider: ContextProvider = {
 
         for (const f of targetFiles) {
           try {
-            const content = await cachedRead(`${projectId}/characters/${f}`)
+            const content = await cachedRead(`${projectId}/characters/${f}`, projectId)
             const obj = JSON.parse(content)
             lines.push(`### ${obj.name || f} (${obj.role || '未知'})`)
             lines.push(`- 性别: ${obj.gender || '-'}  年龄: ${obj.age || '-'}  职业: ${obj.occupation || '-'}`)
@@ -74,7 +74,7 @@ export const characterProvider: ContextProvider = {
       const maxShow = mentionedNames.length > 0 ? 30 : 15
       for (const f of jsonFiles.slice(0, maxShow)) {
         try {
-          const content = await cachedRead(`${projectId}/characters/${f}`)
+          const content = await cachedRead(`${projectId}/characters/${f}`, projectId)
           const obj = JSON.parse(content)
           const rel = obj.relationships && Array.isArray(obj.relationships)
             ? ` | 关系: ${obj.relationships.map((r: any) => r.name || r.character || String(r)).join(', ').slice(0, 50)}`

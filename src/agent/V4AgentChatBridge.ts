@@ -103,11 +103,11 @@ export class V4AgentChatBridge {
   }
 
   updateProject(projectId: string | null): void {
-    // Clear ALL old project caches to prevent token bloat from stale data
+    // Invalidate project-scoped caches only; preserve global files (style_templates, etc.)
     if (this.projectId && this.projectId !== projectId) {
       contextAssembler.clearProject(this.projectId)
       import('./context/MemoryIndex').then(m => m.invalidateMemoryIndexCache())
-      import('./context/FileCache').then(m => m.clearFileCache())
+      import('./context/FileCache').then(m => m.invalidateProjectFilesReexport(this.projectId!))
     }
     this.projectId = projectId
     this.securityFence = new V4SecurityFence(projectId)

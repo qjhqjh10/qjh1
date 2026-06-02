@@ -40,9 +40,9 @@ export const browserTools: ToolDefinition[] = [
         required: ['query'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'DANGEROUS_ASK',
     category: 'browser',
-    availableInPlanMode: true,
+    availableInPlanMode: false,
     executor: async (args) => {
       try {
         const { bridge } = await import('@/services/electronBridge')

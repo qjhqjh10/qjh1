@@ -14,9 +14,9 @@ export const imageTools: ToolDefinition[] = [
         required: ['query'],
       },
     },
-    permission: 'AUTO',
+    permission: 'DANGEROUS_ASK',
     category: 'image',
-    availableInPlanMode: true,
+    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -44,9 +44,9 @@ export const imageTools: ToolDefinition[] = [
         required: ['prompt'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'DANGEROUS_ASK',
     category: 'image',
-    availableInPlanMode: true,
+    availableInPlanMode: false,
     executor: async (args, ctx) => {
       const prompt = String(args.prompt ?? '').trim().slice(0, 1000)
       if (!prompt) return { status: 'error', summary: '图片描述不能为空' }

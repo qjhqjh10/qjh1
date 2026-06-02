@@ -308,28 +308,47 @@ export async function executeFileTool(
       }
 
       case 'search_files': {
-        const dir = args.dir_path ? (resolvePath('dir_path') || projectPath) : projectPath
-        if (!isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
+        // DANGEROUS_ASK: user approved → search anywhere on disk
+        const parentDir = path.dirname(projectPath)
         const keyword = (args.keyword as string || '').toLowerCase()
         if (!keyword) return deny(callId, toolName, '缺少搜索关键词')
         const results: string[] = []
-        await safeWalk(dir, projectPath, async (fullPath, entry) => {
-          if (!entry.isDirectory() && entry.name.toLowerCase().includes(keyword)) {
-            results.push(path.relative(projectPath, fullPath).replace(/\\/g, '/'))
-            if (results.length >= MAX_SEARCH_RESULTS) return true
+
+        // Resolve search root
+        let searchRoots: { label: string; dir: string }[] = []
+        if (args.dir_path) {
+          const raw = String(args.dir_path)
+          const cleaned = raw.replace(/\\/g, '/')
+          // If user provided an absolute path, use it directly
+          if (/^[A-Z]:[\\/]/i.test(cleaned) || cleaned.startsWith('/')) {
+            searchRoots.push({ label: cleaned, dir: cleaned })
+          } else {
+            // Relative path → resolve against project + app root
+            const p = resolvePath('dir_path')
+            if (p) searchRoots.push({ label: '项目', dir: p })
           }
-        })
-        // Also search global uploads
-        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
-        try {
-          const uploadFiles = await fsp.readdir(globalUploads)
-          for (const uf of uploadFiles) {
-            if (uf.toLowerCase().includes(keyword)) {
-              results.push(`[UPLOAD] ${uf}`)
-              if (results.length >= MAX_SEARCH_RESULTS) break
-            }
-          }
-        } catch { /* no uploads dir */ }
+        }
+        // Default: search project + all global dirs
+        if (searchRoots.length === 0) {
+          searchRoots.push({ label: '项目', dir: projectPath })
+          searchRoots.push({ label: 'STYLE_TPL', dir: path.join(parentDir, 'style_templates') })
+          searchRoots.push({ label: 'SCENE_TPL', dir: path.join(parentDir, 'scene_templates') })
+          searchRoots.push({ label: 'KNOWLEDGE', dir: path.join(parentDir, 'knowledge_base', 'files') })
+          searchRoots.push({ label: 'UPLOAD', dir: path.join(parentDir, 'uploads', 'files') })
+          searchRoots.push({ label: 'NOTE', dir: path.join(parentDir, 'notes') })
+        }
+
+        for (const root of searchRoots) {
+          if (results.length >= MAX_SEARCH_RESULTS) break
+          try {
+            await safeWalk(root.dir, root.dir, async (fullPath, entry) => {
+              if (!entry.isDirectory() && entry.name.toLowerCase().includes(keyword)) {
+                results.push(`[${root.label}] ${path.relative(root.dir, fullPath).replace(/\\/g, '/')}`)
+                if (results.length >= MAX_SEARCH_RESULTS) return true
+              }
+            })
+          } catch { /* skip inaccessible dirs */ }
+        }
         const detail = results.length > 0 ? results.join('\n') : '未找到匹配文件'
         return { callId, toolName, status: 'success', summary: `${results.length} 个匹配文件`, detail }
       }

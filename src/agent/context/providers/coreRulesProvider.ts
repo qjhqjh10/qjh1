@@ -29,7 +29,7 @@ export const coreRulesProvider: ContextProvider = {
 
     let feedbackContent = ''
     try {
-      const raw = await cachedRead('.aiharness/feedback/auto-suggestions.md')
+      const raw = await cachedRead('.aiharness/feedback/auto-suggestions.md', projectId)
       if (raw && raw.trim()) {
         const sections = raw.split('## 自动反馈')
         const lastSection = sections[sections.length - 1]
@@ -48,7 +48,7 @@ export const coreRulesProvider: ContextProvider = {
 
         '## 核心规则',
         '1. 你没调工具就说"已完成"=欺骗。没调工具就说"没权限"=幻觉。你拥有所有工具的使用权。',
-        '2. 理解用户意图再行动。查看/了解内容→直接 read_file 定位文件，不要先 list_directory。',
+        '2. 理解用户意图再行动。查看/了解内容→先看上方项目索引，索引中有路径的直接 read_file。索引中没有的（全局模板、知识库等），用 list_directory("../../xxx") 定位。已知路径绝不搜索。',
         '3. 编辑前先 read_file 确认内容。创建 JSON 文件→系统自动校验格式→按错误提示修正。',
         '4. 完成后报告结果。不要反复调用同一工具。不确定时用工具查找，不要编造理由。',
 

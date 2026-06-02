@@ -82,13 +82,20 @@ describe('V4 Security Fence', () => {
   })
 
   it('blocks system paths', () => {
-    const result = fence.check('read_file', { file_path: 'C:/Windows/system32/test.txt' })
-    expect(result.allowed).toBe(false)
+    // System paths still hard-blocked
+    expect(fence.check('read_file', { file_path: 'C:/Windows/system32/test.txt' }).allowed).toBe(false)
+    expect(fence.check('read_file', { file_path: '/etc/passwd' }).allowed).toBe(false)
   })
 
-  it('blocks path traversal', () => {
-    const result = fence.check('read_file', { file_path: '../../../etc/passwd' })
-    expect(result.allowed).toBe(false)
+  it('external paths require approval', () => {
+    // Deep traversal → needs approval (fence warns before IPC resolution)
+    const r1 = fence.check('read_file', { file_path: '../../../etc/passwd' })
+    expect(r1.allowed).toBe(true)
+    expect(r1.needsApproval).toBe(true)
+    // Absolute non-system path → needs approval
+    const r2 = fence.check('read_file', { file_path: 'C:/Users/test/data.txt' })
+    expect(r2.allowed).toBe(true)
+    expect(r2.needsApproval).toBe(true)
   })
 
   it('requires approval for dangerous tools', () => {

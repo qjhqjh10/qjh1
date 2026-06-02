@@ -1,7 +1,22 @@
 {
-  "currentVersion": "9.6.0",
+  "currentVersion": "9.6.1",
   "currentDate": "2026-06-02",
   "history": [
+    {
+      "version": "9.6.1",
+      "date": "2026-06-02",
+      "features": [
+        "安全模型重构: 三层权限架构 — Layer1系统目录硬拦截/Layer2外部路径审批/Layer3危险工具确认",
+        "路径白名单扩展: list_directory/read_file/search_files全盘访问，写操作系统目录+node_modules/.git/dist/release写保护",
+        "CLI同步适配: 全局路径解析(../../前缀)+resolveWritePath+提示词全局资源路径",
+        "工具权限修正: http_get/browser_search/search_images/generate_image升级为DANGEROUS_ASK",
+        "缓存系统V2: 真正LRU逐出+路径规范化(反斜杠/../折叠)+诊断接口(hitRate/evictions)",
+        "缓存系统V1: 项目级精准失效(invalidateProjectFiles)+500条目上限+projectId标签",
+        "MemoryIndex扩展: 纳入全局资源路径(scene_templates/knowledge_base)+项目内文件列表",
+        "search_files权限升级: AUTO→DANGEROUS_ASK，全盘搜索需用户审批",
+        "Agent路径发现规则修正: 索引优先→索引中没有才list_directory，消除矛盾指令"
+      ]
+    },
     {
       "version": "9.6.0",
       "date": "2026-06-02",

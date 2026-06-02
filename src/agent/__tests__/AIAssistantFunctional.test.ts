@@ -216,14 +216,31 @@ describe('AI 写作助手 — 全面功能测试', () => {
       expect(fence.check('create_file', { file_path: 'chapters/ch001.txt' }).allowed).toBe(true)
     })
 
-    it('绝对路径 → 拒绝', () => {
+    it('系统路径 → 硬拦截', () => {
       expect(fence.check('read_file', { file_path: 'C:/Windows/test.txt' }).allowed).toBe(false)
       expect(fence.check('read_file', { file_path: '/etc/passwd' }).allowed).toBe(false)
     })
 
-    it('路径穿越 → 拒绝', () => {
-      expect(fence.check('read_file', { file_path: '../../../etc/passwd' }).allowed).toBe(false)
-      expect(fence.check('read_file', { file_path: '..\\..\\secret.txt' }).allowed).toBe(false)
+    it('外部路径 → 需审批', () => {
+      // Deep traversal → external → needs approval
+      const r1 = fence.check('read_file', { file_path: '../../../etc/passwd' })
+      expect(r1.allowed).toBe(true)
+      expect(r1.needsApproval).toBe(true)
+      // Absolute user path → external → needs approval
+      const r2 = fence.check('read_file', { file_path: 'C:/Users/test/file.txt' })
+      expect(r2.allowed).toBe(true)
+      expect(r2.needsApproval).toBe(true)
+    })
+
+    it('内部路径 → 无需审批', () => {
+      // Shallow ../ → app-internal (style_templates etc.)
+      const r1 = fence.check('read_file', { file_path: '../../style_templates/x.json' })
+      expect(r1.allowed).toBe(true)
+      expect(r1.needsApproval).toBe(false)
+      // Regular project path
+      const r2 = fence.check('read_file', { file_path: 'chapters/ch1.txt' })
+      expect(r2.allowed).toBe(true)
+      expect(r2.needsApproval).toBe(false)
     })
 
     it('危险工具 → DANGEROUS_ASK 权限', () => {
@@ -238,8 +255,9 @@ describe('AI 写作助手 — 全面功能测试', () => {
       const readTool = toolRegistry.get('read_file')
       expect(readTool?.permission).toBe('AUTO')
 
+      // search_files 升级为 DANGEROUS_ASK — 最后手段，需要用户审批
       const searchTool = toolRegistry.get('search_files')
-      expect(searchTool?.permission).toBe('AUTO')
+      expect(searchTool?.permission).toBe('DANGEROUS_ASK')
     })
   })
 

@@ -272,29 +272,68 @@ class NodeToolExecutor {
   resolvePath(filePath, projectPath) {
     if (!projectPath) return null
     let clean = filePath.replace(/\\/g, '/')
-    // If it's already an absolute path within projectPath, return as-is
     if (path.isAbsolute(clean) && clean.toLowerCase().startsWith(projectPath.toLowerCase())) {
       return clean.replace(/\//g, path.sep)
     }
     clean = clean.replace(/^\/+/, '')
-    // For absolute paths outside project, just use basename
     if (path.isAbsolute(clean)) {
-      clean = path.basename(clean)
+      // Allow any absolute path except system dirs
+      const lowered = clean.toLowerCase()
+      if (lowered.startsWith('c:\\windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
+      return clean
     }
-    // Strip ../ for safety
+    // ../ prefix → resolve against app root
+    if (clean.startsWith('../')) {
+      const appRoot = path.dirname(this.projectsDir)
+      while (clean.startsWith('../')) clean = clean.slice(3)
+      return path.join(appRoot, clean)
+    }
     while (clean.includes('../')) clean = clean.replace(/\.\.\//g, '')
     return path.join(projectPath, clean)
+  }
+
+  /** Like resolvePath but blocks writes to node_modules/.git/dist/release */
+  resolveWritePath(filePath, projectPath) {
+    const resolved = this.resolvePath(filePath, projectPath)
+    if (!resolved) return null
+    const appRoot = path.dirname(this.projectsDir)
+    const rel = path.relative(appRoot, resolved).replace(/\\/g, '/')
+    if (rel.startsWith('node_modules') || rel.startsWith('.git') || rel.startsWith('dist') || rel.startsWith('release') ||
+        rel.includes('/node_modules/') || rel.includes('/.git/') || rel.includes('/dist/') || rel.includes('/release/')) return null
+    return resolved
+  }
+
+  /** Search global resource directories */
+  getGlobalDirs() {
+    const appRoot = path.dirname(this.projectsDir)
+    return [
+      { key: 'STYLE_TPL', dir: path.join(appRoot, 'style_templates') },
+      { key: 'SCENE_TPL', dir: path.join(appRoot, 'scene_templates') },
+      { key: 'KNOWLEDGE', dir: path.join(appRoot, 'knowledge_base', 'files') },
+      { key: 'UPLOAD', dir: path.join(appRoot, 'uploads', 'files') },
+      { key: 'NOTE', dir: path.join(appRoot, 'notes') },
+    ].filter(g => { try { fs.statSync(g.dir); return true } catch { return false } })
   }
 
   async execute(toolName, args, projectPath) {
     switch (toolName) {
       case 'list_directory': {
-        const dir = args.dir_path ? this.resolvePath(String(args.dir_path), projectPath) : projectPath
+        const rawPath = String(args.dir_path || '')
+        const isGlobal = rawPath.includes('..') || /^(style_templates|scene_templates|knowledge_base)/i.test(rawPath)
+        const dir = args.dir_path ? this.resolvePath(rawPath, projectPath) : projectPath
         if (!dir) return { status: 'error', summary: '请先选择项目' }
         try {
           const entries = await fsp.readdir(dir, { withFileTypes: true })
           const items = entries.map(e => `${e.isDirectory() ? '[DIR]' : '[FILE]'} ${e.name}`).join('\n')
-          return { status: 'success', summary: `${entries.length} 个项目`, detail: items || '(空目录)' }
+          // Also show global dirs summary when listing project root (no args.dir_path)
+          let extra = ''
+          if (!args.dir_path && !isGlobal) {
+            const globals = this.getGlobalDirs()
+            if (globals.length > 0) {
+              extra = '\n\n[全局资源目录]\n' + globals.map(g => `[DIR] ../../${path.relative(path.dirname(this.projectsDir), g.dir).replace(/\\/g, '/')} (${g.key})`).join('\n')
+            }
+          }
+          return { status: 'success', summary: `${entries.length} 个项目`, detail: (items || '(空目录)') + extra }
         } catch { return { status: 'error', summary: `目录不存在: ${args.dir_path}` } }
       }
 
@@ -311,22 +350,39 @@ class NodeToolExecutor {
       case 'search_files': {
         const keyword = String(args.keyword || '').toLowerCase()
         if (!keyword) return { status: 'error', summary: '缺少搜索关键词' }
-        const dir = args.dir_path ? this.resolvePath(String(args.dir_path), projectPath) : projectPath
+        const rawPath = String(args.dir_path || '')
+        const isGlobal = rawPath.includes('..')
+        const dir = args.dir_path ? this.resolvePath(rawPath, projectPath) : projectPath
         if (!dir) return { status: 'error', summary: '请先选择项目' }
         const results = []
-        try {
-          const walk = async (d) => {
-            const entries = await fsp.readdir(d, { withFileTypes: true })
-            for (const e of entries) {
-              if (e.name.startsWith('.')) continue
-              const full = path.join(d, e.name)
-              if (e.name.toLowerCase().includes(keyword)) results.push(path.relative(projectPath, full).replace(/\\/g, '/'))
-              if (e.isDirectory()) await walk(full)
+        // Search project directory
+        if (!isGlobal) {
+          try {
+            const walk = async (d) => {
+              const entries = await fsp.readdir(d, { withFileTypes: true })
+              for (const e of entries) {
+                if (e.name.startsWith('.')) continue
+                const full = path.join(d, e.name)
+                if (e.name.toLowerCase().includes(keyword)) results.push(path.relative(projectPath, full).replace(/\\/g, '/'))
+                if (e.isDirectory()) await walk(full)
+              }
             }
-          }
-          await walk(dir)
-          return { status: 'success', summary: `${results.length} 个匹配文件`, detail: results.join('\n') || '未找到' }
-        } catch { return { status: 'error', summary: '搜索失败' } }
+            await walk(dir)
+          } catch { /* search failed */ }
+        }
+        // Also search global resource directories
+        for (const gd of this.getGlobalDirs()) {
+          try {
+            const files = await fsp.readdir(gd.dir)
+            for (const f of files) {
+              if (f.toLowerCase().includes(keyword)) {
+                results.push(`[${gd.key}] ${f}`)
+                if (results.length >= 50) break
+              }
+            }
+          } catch { /* dir may not exist */ }
+        }
+        return { status: 'success', summary: `${results.length} 个匹配文件`, detail: results.join('\n') || '未找到' }
       }
 
       case 'search_content': {
@@ -360,7 +416,7 @@ class NodeToolExecutor {
       }
 
       case 'create_file': {
-        const fp = this.resolvePath(String(args.file_path || ''), projectPath)
+        const fp = this.resolveWritePath(String(args.file_path || ''), projectPath)
         if (!fp) return { status: 'error', summary: '请先选择项目' }
         try { await fsp.access(fp); return { status: 'error', summary: `文件已存在: ${args.file_path}` } } catch { /* ok */ }
         await fsp.mkdir(path.dirname(fp), { recursive: true })
@@ -369,7 +425,7 @@ class NodeToolExecutor {
       }
 
       case 'edit_file': {
-        const fp = this.resolvePath(String(args.file_path || ''), projectPath)
+        const fp = this.resolveWritePath(String(args.file_path || ''), projectPath)
         if (!fp) return { status: 'error', summary: '请先选择项目' }
         try {
           const content = await fsp.readFile(fp, 'utf-8')
@@ -402,13 +458,13 @@ class NodeToolExecutor {
       }
 
       case 'delete_file': {
-        const fp = this.resolvePath(String(args.file_path || ''), projectPath)
+        const fp = this.resolveWritePath(String(args.file_path || ''), projectPath)
         if (!fp) return { status: 'error', summary: '请先选择项目' }
         try { await fsp.unlink(fp); return { status: 'success', summary: '已删除' } } catch { return { status: 'error', summary: `文件不存在: ${args.file_path}` } }
       }
 
       case 'batch_replace': {
-        const fp = this.resolvePath(String(args.file_path || ''), projectPath)
+        const fp = this.resolveWritePath(String(args.file_path || ''), projectPath)
         if (!fp) return { status: 'error', summary: '请先选择项目' }
         const pairs = args.replacements
         if (!Array.isArray(pairs) || pairs.length === 0) return { status: 'error', summary: '请提供 replacements 数组 [{old, new}, ...]' }
@@ -426,8 +482,8 @@ class NodeToolExecutor {
       }
 
       case 'rename_file': {
-        const fp = this.resolvePath(String(args.file_path || ''), projectPath)
-        const np = this.resolvePath(String(args.new_path || ''), projectPath)
+        const fp = this.resolveWritePath(String(args.file_path || ''), projectPath)
+        const np = this.resolveWritePath(String(args.new_path || ''), projectPath)
         if (!fp || !np) return { status: 'error', summary: '请先选择项目' }
         await fsp.mkdir(path.dirname(np), { recursive: true })
         await fsp.rename(fp, np)
@@ -905,20 +961,13 @@ detailed_outline/{章节id}.json，每章一个JSON:
 用summaries/读摘要(几百字)，不要读chapters/全文(几千字)
 用户指定字数时必须达标
 
-## 风格模板
-用 create_style_template 保存，禁止手动 create_file 写JSON
-必填: name, type(小说类型: 情色小说|奇幻|都市小说|修仙小说|恋爱小说|古风小说|轻小说|普通小说等), dimensions(分析结果对象)
-dimensions格式: { "维度名": { "description": "特征描述", "examples": ["原文例句"], "writingRules": ["写作规则"], "vocabularyList": ["特征词汇"] } }。description必填
-26维度: 叙事视角/语调/时间/空间/感官/比喻/对话/心理/节奏/反差/氛围/语言/重复/留白/身体等
-可选: worldType, description, fullDescription, vocabularyList, writingRules, tone({word,description,attitude})
-⚠️ 铁律: 原文有的信号必须分析填写, 没有的不要强行编造——跳过不填。先read_file参考已有模板
-
-## 场景模板
-用 create_scene_template 保存，禁止手动 create_file 写JSON
-必填: name, type
-通用字段: sceneType, conflictType, characters, location, time, weather, atmosphere, wordTarget, narrativePOV, pacing, bodyLanguage, detail(Markdown), extraNote, autoFields[]
-情色额外字段: intensity(1-5), selectedKinks[], opening[], climax[], aftermath[], soundDensity, moanStyle, degradeLangs[], bodyFluidFocus[], bodyPartFocus[], tactileFocus[], sensoryAnchors, dominantEmotion, emotionCurveInput
-⚠️ 铁律: 输入里有信号的必须填, 没有的或把握不好的列入autoFields——让用户一键自动填充。
+## 风格/场景模板（全局共享）
+模板存储在项目目录外的全局位置：
+- 风格模板: ../../style_templates/ — list_directory("../../style_templates") 可查看
+- 场景模板: ../../scene_templates/ — list_directory("../../scene_templates") 可查看
+- 知识库: ../../knowledge_base/files/ — list_directory("../../knowledge_base/files") 可查看
+用户提到"查看模板""查看已有模板"时，直接 list_directory 这些全局目录（用 ../../ 前缀），不要只搜项目内。
+用 create_style_template / create_scene_template 保存。已保存模板用 read_file 读取使用。
 
 ## 知识库
 - 保存前先 kb_list，让用户选追加还是新建

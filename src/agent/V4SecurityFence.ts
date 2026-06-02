@@ -1,11 +1,11 @@
 // ── V4 Security Fence ──
-// Reduced from V3's 12-layer defense to 3 essential checks.
-// The model handles everything else through its own reasoning.
 //
-// Layer 1: Path Isolation — prevent access outside project directory
-// Layer 2: JSON Validation — catch malformed JSON before file write
-// Layer 3: Dangerous Tool Gate — user confirmation for dangerous/project-scoped tools
-//         Uses toolRegistry as the single source of truth for permission levels.
+// Three-layer security:
+//   Layer 1: Hard blocks — system dirs, network paths, env variables (NEVER allowed)
+//   Layer 2: External path approval — paths outside app root require user confirmation
+//   Layer 3: Dangerous tool gate — DANGEROUS_ASK / PROJECT_ASK tools require confirmation
+//
+// Key insight: don't hard-block .. or absolute paths — escalate to approval instead.
 
 import { toolRegistry } from './tools/ToolRegistry'
 
@@ -23,17 +23,19 @@ export class V4SecurityFence {
   }
 
   check(toolName: string, args: Record<string, unknown>): SecurityCheckResult {
-    // ── Layer 1: Path Isolation ──
-    const pathResult = this.checkPathIsolation(args)
-    if (!pathResult.allowed) return pathResult
+    // ── Layer 1: Hard blocks (never allowed) ──
+    const hardBlock = this.checkHardBlocks(args)
+    if (!hardBlock.allowed) return hardBlock
 
     // ── Layer 2: JSON Validation ──
     const jsonResult = this.checkJsonValidation(toolName, args)
     if (!jsonResult.allowed) return jsonResult
 
-    // ── Layer 3: Dangerous Tool Gate ──
-    // Uses toolRegistry.getPermissionLevel() as the single source of truth.
-    // Triggers approval for DANGEROUS_ASK and PROJECT_ASK permissions.
+    // ── Layer 3: External path → approval ──
+    const extCheck = this.checkExternalPath(toolName, args)
+    if (extCheck.needsApproval) return extCheck
+
+    // ── Layer 5: Dangerous tool → approval ──
     if (toolRegistry.needsApproval(toolName)) {
       const perm = toolRegistry.getPermissionLevel(toolName)
       const label = perm === 'PROJECT_ASK' ? '项目操作' : '危险操作'
@@ -47,21 +49,13 @@ export class V4SecurityFence {
     return { allowed: true, needsApproval: false }
   }
 
-  // ── Layer 1 ──
+  // ── Layer 1: Hard blocks ──
 
-  private checkPathIsolation(args: Record<string, unknown>): SecurityCheckResult {
-    const fp = String(args.file_path || args.path || args.filePath || '')
+  private checkHardBlocks(args: Record<string, unknown>): SecurityCheckResult {
+    const fp = this.extractPath(args)
     if (!fp) return { allowed: true, needsApproval: false }
 
-    // Absolute system paths
-    if (/^[A-Z]:[\\/]/i.test(fp) || fp.startsWith('/etc') || fp.startsWith('/usr') || fp.startsWith('/bin') || fp.startsWith('/dev')) {
-      return {
-        allowed: false, needsApproval: false,
-        reason: `[安全] 路径 "${fp}" 指向系统目录，操作被拦截。请使用项目内相对路径。`,
-      }
-    }
-
-    // UNC network paths
+    // UNC network paths → hard block
     if (/^\\\\/.test(fp)) {
       return {
         allowed: false, needsApproval: false,
@@ -69,7 +63,7 @@ export class V4SecurityFence {
       }
     }
 
-    // Environment variable expansion
+    // Environment variable expansion → hard block
     if (/%[A-Z_]+%/.test(fp) || /\$[A-Z_]+/i.test(fp) || fp.includes('${')) {
       return {
         allowed: false, needsApproval: false,
@@ -77,30 +71,31 @@ export class V4SecurityFence {
       }
     }
 
-    // Directory traversal
-    if (fp.includes('..')) {
+    // System-critical directories → hard block
+    const lowered = fp.toLowerCase().replace(/\\/g, '/')
+    if (lowered.startsWith('c:/windows') || lowered.startsWith('c:/system32') ||
+        lowered.startsWith('/dev/') || lowered.startsWith('/etc/') ||
+        lowered.startsWith('/usr/') || lowered.startsWith('/bin/') ||
+        lowered.startsWith('/sys/') || lowered.startsWith('/proc/')) {
       return {
         allowed: false, needsApproval: false,
-        reason: `[安全] 路径含 ".." 目录遍历，操作被拦截。请使用项目内相对路径。`,
+        reason: `[安全] 路径 "${fp}" 指向系统目录，操作被拦截。`,
       }
     }
 
     return { allowed: true, needsApproval: false }
   }
 
-  // ── Layer 2 ──
+  // ── Layer 2: JSON Validation ──
 
   private checkJsonValidation(toolName: string, args: Record<string, unknown>): SecurityCheckResult {
     if (toolName !== 'create_file' && toolName !== 'edit_file') {
       return { allowed: true, needsApproval: false }
     }
-
     const fp = String(args.file_path || args.path || '')
     if (!fp.endsWith('.json')) return { allowed: true, needsApproval: false }
-
     const content = String(args.content || '')
     if (!content) return { allowed: true, needsApproval: false }
-
     try {
       JSON.parse(content)
       return { allowed: true, needsApproval: false }
@@ -110,5 +105,51 @@ export class V4SecurityFence {
         reason: `[格式] JSON 解析失败: ${(e as Error).message}。请检查：所有键用双引号、无尾随逗号、字符串用双引号。可参考项目中已有的同名 JSON 文件格式。`,
       }
     }
+  }
+
+  // ── Layer 3: External path approval ──
+
+  private checkExternalPath(toolName: string, args: Record<string, unknown>): SecurityCheckResult {
+    const fp = this.extractPath(args)
+    if (!fp) return { allowed: true, needsApproval: false }
+
+    // App-internal relative paths (no ../ prefix, not absolute) → no approval needed
+    if (!fp.includes('..') && !/^[A-Z]:[\\/]/i.test(fp) && !fp.startsWith('/')) {
+      return { allowed: true, needsApproval: false }
+    }
+
+    // ../ prefix → count depth; shallow traversal stays in-app, deep traversal needs approval
+    if (fp.startsWith('../') || fp.startsWith('..\\')) {
+      let cleaned = fp.replace(/\\/g, '/')
+      let depth = 0
+      while (cleaned.startsWith('../')) { cleaned = cleaned.slice(3); depth++ }
+      // Shallow traversal (≤2 levels) stays within app root → no approval
+      // Deep traversal (≥3 levels) may escape → need approval
+      if (depth <= 2) {
+        return { allowed: true, needsApproval: false }
+      }
+      return {
+        allowed: true,
+        needsApproval: true,
+        reason: `路径 "${fp}" 深度遍历，可能指向软件目录外部。确认要访问此路径吗？`,
+      }
+    }
+
+    // Absolute paths → external to app → require approval
+    if (/^[A-Z]:[\\/]/i.test(fp) || fp.startsWith('/')) {
+      return {
+        allowed: true,
+        needsApproval: true,
+        reason: `路径 "${fp}" 指向软件目录外部。确认要访问此路径吗？`,
+      }
+    }
+
+    return { allowed: true, needsApproval: false }
+  }
+
+  // ── Helpers ──
+
+  private extractPath(args: Record<string, unknown>): string {
+    return String(args.file_path || args.path || args.filePath || args.dir_path || '')
   }
 }

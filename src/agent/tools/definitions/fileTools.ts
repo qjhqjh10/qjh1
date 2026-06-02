@@ -36,8 +36,8 @@ export const fileTools: ToolDefinition[] = [
     availableInPlanMode: true,
     executor: async (args, ctx) => {
       const filePath = args.file_path as string
-      if (filePath && ctx.projectId) {
-        // Check FileCache first (avoids redundant IPC disk reads)
+      if (filePath) {
+        // Check FileCache first — works even when no project selected
         const cached = getCachedFile(filePath)
         if (cached !== undefined) {
           return { status: 'success', summary: `已读取: ${filePath} (缓存)`, detail: cached }
@@ -45,7 +45,7 @@ export const fileTools: ToolDefinition[] = [
         // Cache miss — read via IPC, then populate cache
         const result = await ipcExecute('read_file', args, ctx.projectId)
         if (result.status === 'success' && result.detail) {
-          setCachedFile(filePath, result.detail)
+          setCachedFile(filePath, result.detail, ctx.projectId)
         }
         return result
       }
@@ -55,17 +55,17 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'search_files',
-      description: '按文件名关键词搜索项目文件。⚠️ 项目索引已列出所有文件，已知文件名时直接 read_file 即可。仅在不记得具体文件名、需要模糊匹配时使用。',
+      description: '🛑 最后手段 — 扫描整个硬盘搜索文件（包括项目目录和全局资源目录）。仅在 list_directory 无法定位目标文件时才使用此工具。已知路径时直接 read_file，不确定路径时先 list_directory，两者都找不到再 search_files。⚠️ 每次调用需要用户批准。',
       parameters: {
         type: 'object',
         properties: {
           keyword: { type: 'string', description: '文件名关键词' },
-          dir_path: { type: 'string', description: '起始目录' },
+          dir_path: { type: 'string', description: '搜索起始目录。留空则搜索项目目录 + 全局资源目录' },
         },
         required: ['keyword'],
       },
     },
-    permission: 'AUTO',
+    permission: 'DANGEROUS_ASK',
     category: 'file',
     availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('search_files', args, ctx.projectId),

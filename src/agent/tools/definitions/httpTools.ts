@@ -17,9 +17,9 @@ export const httpTools: ToolDefinition[] = [
         required: ['url'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'DANGEROUS_ASK',
     category: 'http',
-    availableInPlanMode: true,
+    availableInPlanMode: false,
     executor: async (args) => {
       try {
         const check = validateUrl(args.url)

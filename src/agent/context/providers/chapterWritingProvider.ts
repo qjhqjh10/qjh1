@@ -68,13 +68,13 @@ export const chapterWritingProvider: ContextProvider = {
           const parts: string[] = [`## ${label}`, '']
 
           try {
-            const content = await cachedRead(`${projectId}/chapters/${prevFile}`)
+            const content = await cachedRead(`${projectId}/chapters/${prevFile}`, projectId)
             const tail = extractChapterTail(content, 50)  // C6: 50 trailing lines, not 2500 (was line count, not char count)
             parts.push('### 上一章末尾', tail, '')
           } catch { /* file read error */ }
 
           try {
-            const summary = await cachedRead(`${projectId}/summaries/${chId}.md`)
+            const summary = await cachedRead(`${projectId}/summaries/${chId}.md`, projectId)
             if (summary && summary.trim()) {
               parts.push('### 上一章摘要', extractSummary(summary, 600), '')
             }

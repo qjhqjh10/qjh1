@@ -73,11 +73,13 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 4. 安全围栏 ──
-  it('安全围栏: 正常✅ 系统❌ 遍历❌ 确认✅ JSON✅', () => {
+  it('安全围栏: 正常✅ 系统❌ 外部🔔 JSON✅', () => {
     const fence = new V4SecurityFence('1')
     expect(fence.check('read_file', { file_path: 'outline/plot.md' }).allowed).toBe(true)
     expect(fence.check('read_file', { file_path: 'C:/Windows/test.txt' }).allowed).toBe(false)
-    expect(fence.check('read_file', { file_path: '../../../etc/passwd' }).allowed).toBe(false)
+    const ext = fence.check('read_file', { file_path: 'C:/Users/file.txt' })
+    expect(ext.allowed).toBe(true)
+    expect(ext.needsApproval).toBe(true)
     expect(fence.check('delete_file', { file_path: 'chapters/ch3.txt' }).needsApproval).toBe(true)
     expect(fence.check('create_file', { file_path: 'characters/test.json', content: '{invalid}' }).allowed).toBe(false)
     expect(fence.check('create_file', { file_path: 'characters/test.json', content: '{"name":"test"}' }).allowed).toBe(true)

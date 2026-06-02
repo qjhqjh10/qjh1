@@ -65,7 +65,7 @@ export const detailedOutlineProvider: ContextProvider = {
       const candidates = [`ch${padded}.json`, `${padded}.json`, `chapter${padded}.json`]
       for (const filename of candidates) {
         try {
-          const content = await cachedRead(`${projectId}/detailed_outline/${filename}`)
+          const content = await cachedRead(`${projectId}/detailed_outline/${filename}`, projectId)
           return buildOutlineBlock(chapterNum, filename, content)
         } catch { /* try next pattern */ }
       }
@@ -81,7 +81,7 @@ export const detailedOutlineProvider: ContextProvider = {
         })
         if (matched) {
           try {
-            const content = await cachedRead(`${projectId}/detailed_outline/${matched}`)
+            const content = await cachedRead(`${projectId}/detailed_outline/${matched}`, projectId)
             return buildOutlineBlock(chapterNum, matched, content)
           } catch { /* file read error */ }
         }
@@ -98,7 +98,7 @@ export const detailedOutlineProvider: ContextProvider = {
       const summaries: string[] = ['## 细纲概览', '']
       for (const f of jsonFiles.slice(0, 20)) {
         try {
-          const content = await cachedRead(`${projectId}/detailed_outline/${f}`)
+          const content = await cachedRead(`${projectId}/detailed_outline/${f}`, projectId)
           const obj = JSON.parse(content)
           const status = obj.status === 'complete' ? '✓' : obj.status === 'in_progress' ? '◐' : '○'
           summaries.push(`${status} ${obj.title || f.replace('.json', '')}`)

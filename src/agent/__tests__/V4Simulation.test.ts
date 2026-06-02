@@ -369,9 +369,11 @@ describe('Agent 功能全景验证', () => {
     expect(fence.check('read_file', { file_path: 'C:/Windows/test.txt' }).allowed).toBe(false)
   })
 
-  it('功能04: SecurityFence — 拦截路径穿越', () => {
+  it('功能04: SecurityFence — 外部路径需确认', () => {
     const fence = new V4SecurityFence('test')
-    expect(fence.check('read_file', { file_path: '../../../etc/passwd' }).allowed).toBe(false)
+    const r = fence.check('read_file', { file_path: '../../../etc/passwd' })
+    expect(r.allowed).toBe(true)
+    expect(r.needsApproval).toBe(true)
   })
 
   it('功能05: SecurityFence — 危险工具需确认', () => {

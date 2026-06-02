@@ -101,12 +101,17 @@ export async function buildMemoryIndex(projectId: string): Promise<string> {
       lines.push('')
     }
 
-    // Style templates
+    // Global resources: style templates, scene templates, knowledge base
     const tmpls = templates.status === 'fulfilled' ? (templates.value || []) : []
     if (tmpls.length > 0) {
-      const names = (tmpls as any[]).map((t: any) => t.name).slice(0, 3)
-      lines.push(`风格模板: ${names.join(', ')}`)
+      const names = (tmpls as any[]).map((t: any) => `"${t.name}"`).slice(0, 5)
+      lines.push('')
+      lines.push('### 全局资源（项目外，使用 ../../ 前缀访问）')
+      lines.push(`  [STYLE] ../../style_templates/  — ${tmpls.length} 个风格模板: ${names.join(', ')}${tmpls.length > 5 ? ' 等' : ''}`)
     }
+    // Scene templates & knowledge base (no need to list files, just make Agent aware)
+    lines.push(`  [SCENE] ../../scene_templates/  — 场景模板库`)
+    lines.push(`  [KB]    ../../knowledge_base/files/ — 知识库文件`)
 
     const result = lines.join('\n')
     _cachedIndex = { projectId, index: result, tokenCount: estimateTokens(result) }
