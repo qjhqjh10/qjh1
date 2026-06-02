@@ -190,7 +190,7 @@ export class V4AgentChatBridge {
         character: { core: new Set([...READ, 'create_file']),   extended: new Set([...WRITE, 'search_files', 'search_content']) },
         style:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([...READ, 'search_content']) },
         scene:     { core: new Set(['read_file', 'create_scene_template']), extended: new Set([...READ, 'create_style_template']) },
-        template:  { core: new Set(['read_file', ...TMPL]),     extended: new Set([...READ, 'search_content']) },
+        template:  { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
         kb:        { core: KB,                                  extended: new Set([...READ, ...WRITE]) },
         note:      { core: NOTE,                                extended: new Set([...READ, 'delete_note']) },
         image:     { core: IMG,                                 extended: READ },
