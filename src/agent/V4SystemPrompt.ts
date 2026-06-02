@@ -30,7 +30,7 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。直�
 图片:search_images/generate_image
 编辑/创建/删除文件需用户确认。shell/项目级操作需额外确认。
 
-⚠️ 调用工具必须通过 Function Calling 机制。不要在回复文本中描述工具调用过程。不要模仿工具调用的XML格式。
+⚠️ 生成模板/文件必须通过 Function Calling 调用工具。禁止在回复中输出模板JSON。读完文件后立即调工具，不要只分析不创建。
 
 ## 项目
 __PROJECT_STRUCTURE__
@@ -94,8 +94,8 @@ export const STYLE_DOMAIN_MODULE = `
    悬疑小说 | 历史小说 | 科幻小说 | 玄幻小说 | 灵异小说 | 轻小说
    普通小说 | 穿越小说 | 末世小说 | 游戏小说
    → 用户确认后再继续，不要自己猜测
-1. 真正调用 read_file 工具读取原文（不要写 <read_file> 伪标签）
-2. 调用 create_style_template 工具保存模板（不要只说要创建，真正调工具！）
+1. 调用 read_file 工具读取原文
+2. 立即调用 create_style_template 工具保存。禁止在文字中输出模板JSON，必须用Function Calling！
 
 必填: name, type(上述17种之一), dimensions
 可选: worldType, description, fullDescription(200-400字散文式综述), vocabularyList(50-100个高频词), writingRules(10-20条), tone
@@ -131,8 +131,8 @@ export const SCENE_DOMAIN_MODULE = `
 工作流程：
 0. ⚡ 先确认类型：询问用户这是什么类型的小说（17种同风格模板）。
    → 用户确认后再继续，不要自己猜测
-1. 真正调用 read_file 工具读取原文（不要写 <read_file> 伪标签）
-2. 调用 create_scene_template 工具保存模板（真正调工具！）
+1. 调用 read_file 工具读取原文
+2. 立即调用 create_scene_template 工具保存。禁止在文字中输出模板JSON，必须用Function Calling！
 
 必填: name, type(17种类型之一，同风格模板)
 

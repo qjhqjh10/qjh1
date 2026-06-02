@@ -194,11 +194,11 @@ export class V4AgentChatBridge {
         kb:        { core: KB,                                  extended: new Set([...READ, ...WRITE]) },
         note:      { core: NOTE,                                extended: new Set([...READ, 'delete_note']) },
         image:     { core: IMG,                                 extended: READ },
-        edit:      { core: new Set([...READ, ...WRITE]),        extended: new Set([...DANGER, 'search_content']) },
+        edit:      { core: new Set([...READ, ...WRITE, ...TMPL]), extended: new Set([...DANGER, 'search_content']) },
         delete:    { core: new Set(['read_file', ...DANGER]),   extended: new Set([...READ, ...WRITE]) },
         web:       { core: WEB,                                 extended: READ },
         shell:     { core: SHELL,                               extended: READ },
-        default:   { core: new Set([...READ, ...WRITE]),        extended: new Set([...DANGER,...NOTE,...KB,...TMPL,...IMG]) },
+        default:   { core: new Set([...READ, ...WRITE, ...TMPL]), extended: new Set([...DANGER,...NOTE,...KB,...IMG]) },
       }
 
       const profile = PROFILES[taskKey]

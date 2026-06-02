@@ -417,8 +417,7 @@ export default function AIChatWindow() {
     return () => { bridgeRef.current?.destroy(); bridgeRef.current = null }
   }, [])
 
-  // V9.5.2: 软件功能/能力自述消息不入上下文 — 仅显示，不发送给 API
-  const pendingDisplayOnlyRef = useRef(false)
+  // V9.5.2 P0-5: 软件功能/能力自述 — 本地回复，零API调用
   // Patterns matching "软件功能" or "AI 能力" queries (same as selectDomainModules in V4SystemPrompt)
   const DISPLAY_ONLY_PATTERN = /你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么|软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/
   const isDisplayOnlyQuery = (msg: string) => DISPLAY_ONLY_PATTERN.test(msg)
@@ -486,10 +485,25 @@ export default function AIChatWindow() {
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
-    pendingDisplayOnlyRef.current = isDisplayOnly
+
+    // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
+    if (isDisplayOnly) {
+      const localText = input.trim().includes('软件')
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 39 个工具，悬浮聊天窗，Plan/Action 双模式\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 16 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理\n📖 仿写 — 17 种类型 → 26 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板(10/26区块)\n🗺️ 故事脉络 — 14 个分析 Tab + 8 类冲突检测\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 导入内容 → 分析 → 改写（红蓝标注）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 10+ AI 服务商 + 多模型管理 + Token 统计 + 7 套主题\n\n需要了解哪个功能的详细信息？'
+        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 16 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 分析原文 → 改写内容\n🎨 风格模板 — 分析 26 个文风维度\n🎬 场景模板 — 创建可复用的场景模板\n📚 知识库 — 管理参考文档，语义搜索\n🖼️ 图片 — 搜索在线图片作为参考\n\n需要我帮你做什么？'
+      const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+      setMessages(prev => [...prev,
+        { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), displayOnly: true },
+        { id: `${msgId}_r`, role: 'assistant', content: localText, timestamp: Date.now(), displayOnly: true },
+      ])
+      setInput('')
+      setAttachment(null)
+      sendLockRef.current = false
+      return
+    }
 
     const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-    const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), ...(isDisplayOnly ? { displayOnly: true } : {}) }
+    const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setAttachment(null)
@@ -538,10 +552,6 @@ export default function AIChatWindow() {
 
           const outputBreakdown: { label: string; tokens: number }[] = []
           outputBreakdown.push({ label: 'AI 输出', tokens: runResult.completionTokens || 0 })
-          // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
-          const markDisplayOnly = pendingDisplayOnlyRef.current
-          pendingDisplayOnlyRef.current = false
-
           setMessages(prev => [...prev, {
             id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
@@ -550,7 +560,6 @@ export default function AIChatWindow() {
             iterationCount: runResult.iterationCount || 1,
             usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
             totalIterations: runResult.iterationCount || 1,
-            ...(markDisplayOnly ? { displayOnly: true } : {}),
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -568,9 +577,7 @@ export default function AIChatWindow() {
       })
       useAgentStore.getState().addTokens(result.totalTokens)
     } catch (err) {
-      const errDisplayOnly = pendingDisplayOnlyRef.current
-      pendingDisplayOnlyRef.current = false
-      setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now(), ...(errDisplayOnly ? { displayOnly: true } : {}) }])
+      setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
     } finally {
       setLoading(false)
       sendLockRef.current = false
