@@ -438,24 +438,24 @@ export default function AIChatWindow() {
     setFileEditNotify(null)
     let attachText = ''
     if (attachment) {
+      // 统一使用根目录 uploads/（与 handleDrop 图片路径一致，不在项目目录内）
+      const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
       if (attachment.type === 'file') {
-        // 文件保存到 uploads/files/，AI 通过 read_file 工具读取后分析
-        const filePath = `uploads/files/${attachment.name}`
+        const filePath = `${base}/uploads/files/${attachment.name}`
         try {
-          await fileService.ensureDir('uploads/files')
+          await fileService.ensureDir(`${base}/uploads/files`)
           await fileService.write(filePath, attachment.content)
-          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 ${filePath}。请用 read_file 读取内容后分析。`
+          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 uploads/files/${attachment.name}。请用 read_file 读取内容后分析。`
         } catch {
           attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
         }
       } else {
-        // Save uploaded image to disk: uploads/images/
-        const imgPath = `uploads/images/${attachment.name}`
+        const imgPath = `${base}/uploads/images/${attachment.name}`
         try {
-          await fileService.ensureDir('uploads/images')
-          const base64 = (attachment.previewUrl || '').split(',')[1]
-          if (base64) {
-            await fileService.writeBinary(imgPath, base64)
+          await fileService.ensureDir(`${base}/uploads/images`)
+          const imgData = (attachment.previewUrl || '').split(',')[1]
+          if (imgData) {
+            await fileService.writeBinary(imgPath, imgData)
             attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
           } else {
             attachText = attachment.content
@@ -473,8 +473,9 @@ export default function AIChatWindow() {
     if (!attachment && input.trim().length > 200) {
       try {
         const ts = Date.now().toString(36)
-        pasteClipPath = `uploads/clips/clip_${ts}.txt`
-        await fileService.ensureDir('uploads/clips')
+        const b2 = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
+        pasteClipPath = `${b2}/uploads/clips/clip_${ts}.txt`
+        await fileService.ensureDir(`${b2}/uploads/clips`)
         await fileService.write(pasteClipPath, input.trim())
       } catch { pasteClipPath = '' }
     }
@@ -803,7 +804,7 @@ export default function AIChatWindow() {
               onClick={() => { setToolInvokeEnabled(!toolInvokeEnabled); if (!toolInvokeEnabled) setShowToolHint(false) }}
             />
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { await fileService.ensureDir('uploads/files'); await fileService.write(`uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
             {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {/* Model switcher */}
