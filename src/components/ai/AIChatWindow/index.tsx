@@ -8,7 +8,7 @@ import {
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
-  TrashIcon, Square2StackIcon,
+  TrashIcon, Square2StackIcon, WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
@@ -26,6 +26,7 @@ import { ContextCompressor } from '@/agent/context/ContextCompressor'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStatusBar } from './components/AgentStatusBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
+import { ToolDetailPanel } from './components/ToolDetailPanel'
 import { DangerousToolModal, type DangerousTool } from './components/DangerousToolModal'
 import { StreamingMessage } from './components/StreamingMessage'
 import { VirtualMessageList } from './components/VirtualMessageList'
@@ -236,6 +237,7 @@ export default function AIChatWindow() {
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
+  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
   const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
@@ -1469,7 +1471,27 @@ export default function AIChatWindow() {
           }
           return null
         })()}
+        {(() => {
+          const msg = messages.find(m => m.id === contextMenu.msgId)
+          if (msg?.toolsUsed && msg.toolsUsed.length > 0) {
+            return <button onClick={() => { setToolDetailPanel({ toolsUsed: msg.toolsUsed!, breakdown: (msg as any).breakdown, outputBreakdown: (msg as any).outputBreakdown, iterationCount: (msg as any).iterationCount, totalIterations: (msg as any).totalIterations, usage: msg.usage }); setContextMenu(null) }} style={ctxMenuBtn}>
+              <WrenchScrewdriverIcon style={{ width: 13, height: 13 }} /> 查看工具详情
+            </button>
+          }
+          return null
+        })()}
       </div>
+    )}
+    {toolDetailPanel && (
+      <ToolDetailPanel
+        toolsUsed={toolDetailPanel.toolsUsed}
+        breakdown={toolDetailPanel.breakdown}
+        outputBreakdown={toolDetailPanel.outputBreakdown}
+        iterationCount={toolDetailPanel.iterationCount}
+        totalIterations={toolDetailPanel.totalIterations}
+        usage={toolDetailPanel.usage}
+        onClose={() => setToolDetailPanel(null)}
+      />
     )}
     {/* Dangerous tool approval modal — replaces window.confirm() */}
     {pendingApproval && (
