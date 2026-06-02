@@ -1,7 +1,25 @@
 {
-  "currentVersion": "9.5.2",
+  "currentVersion": "9.6.0",
   "currentDate": "2026-06-02",
   "history": [
+    {
+      "version": "9.6.0",
+      "date": "2026-06-02",
+      "features": [
+        "模板生成全链路修复: dimensions嵌套格式/characters数组类型/scene schema补全/画像extended清空",
+        "七层缓存全面修复: planInstruction移出CORE恢复前缀缓存/domain模块按需加载/工具缓存优化",
+        "对话持久化三层防护: 写前备份+空数据拒绝+恢复链(IndexedDB→file→.bak→localStorage)",
+        "会话统计修复: AuditTrail.persist()落盘+路径匹配+abort/destroy持久化",
+        "上传文件路径统一到根目录uploads/+read_file fallback扩展子目录",
+        "displayOnly本地回复: 软件功能/AI能力查询零API调用",
+        "模板生成工作流优化: 先确认类型(17种)+≤3轮限制+禁止文字输出JSON",
+        "右键消息查看工具详情面板: 双Tab(工具列表/Token分解)+39工具中文标签",
+        "CORE提示词全面加强: 权限描述修正/工具调用强化/禁止伪标签",
+        "上传去重+ChatToolbar废弃+Welcome ID过滤修复",
+        "安全: aiHandlers debug路径改用userData+环境变量守卫",
+        "测试: 442→476用例(新增会话持久化/七层缓存/模板生成/打包安全测试)"
+      ]
+    },
     {
       "version": "9.5.2",
       "date": "2026-06-02",
