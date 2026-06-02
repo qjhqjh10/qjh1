@@ -398,16 +398,11 @@ export default function AIChatWindow() {
       }
       r.readAsDataURL(file)
     } else {
-      // Text file — save to uploads/files/ so AI can search and read_file
-      // No truncation: full content preserved. fileService.write auto-caches via fileReadCache.
+      // Text file — store in attachment only, write once in handleSend
       const r = new FileReader()
-      r.onload = async () => {
+      r.onload = () => {
         const text = r.result as string
         if (!text.trim()) return
-        try {
-          await fileService.ensureDir('uploads/files')
-          await fileService.write(`uploads/files/${file.name}`, text)
-        } catch (e) { console.error('上传文件失败', e) }
         setAttachment({ type: 'file', name: file.name, content: text })
       }
       r.readAsText(file, 'UTF-8')

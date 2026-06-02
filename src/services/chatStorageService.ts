@@ -38,15 +38,37 @@ function getDb(): Promise<IDBDatabase> {
 
 // ── File path helpers (use Electron userData, not projectsBasePath) ──
 
+// Cache storage dir after first successful lookup
+let _cachedStorageDir: string | null | undefined
+
 async function getStorageDir(): Promise<string | null> {
-  // Use projectsBasePath → strip /projects → append /.appdata
+  // Return cached value if already resolved
+  if (_cachedStorageDir !== undefined) return _cachedStorageDir
+
+  // Path 1: projectsBasePath → strip /projects → append /.appdata
   // This path must match globalAppDataPath in fileHandlers.ts resolvePath whitelist
   try {
     const { useStore } = await import('@/store')
     const base = useStore.getState().projectsBasePath
     if (base) {
       const appDir = base.replace(/[/\\]projects[/\\]?$/, '')
-      if (appDir && appDir !== base) return appDir + '/.appdata'
+      if (appDir && appDir !== base) {
+        _cachedStorageDir = appDir + '/.appdata'
+        return _cachedStorageDir
+      }
+    }
+  } catch {}
+
+  // Path 2: fallback via Electron IPC (works when store not yet initialized)
+  try {
+    const { appService } = await import('@/services/fileService')
+    const base = await appService?.getProjectsBasePath?.()
+    if (base) {
+      const appDir = base.replace(/[/\\]projects[/\\]?$/, '')
+      if (appDir && appDir !== base) {
+        _cachedStorageDir = appDir + '/.appdata'
+        return _cachedStorageDir
+      }
     }
   } catch {}
 
