@@ -282,15 +282,24 @@ export async function executeFileTool(
 
       case 'read_file': {
         const fp = await safeResolve('file_path', args, projectPath)
-        // Global uploads fallback: always try basename in global uploads/
+        // Global uploads fallback: try basename in uploads/ + uploads/files/ + uploads/images/ + uploads/clips/
         const globalUploads = path.join(path.dirname(projectPath), 'uploads')
-        const uploadsFp = path.join(globalUploads, path.basename(String(args.file_path || '')))
-        // Try: project path → global uploads
-        let content: string
-        try { content = await readFileWithEncoding(fp || uploadsFp) } catch {
-          try { content = await readFileWithEncoding(uploadsFp) } catch {
-            return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
-          }
+        const basename = path.basename(String(args.file_path || ''))
+        const fallbackPaths = [
+          fp,
+          path.join(globalUploads, basename),
+          path.join(globalUploads, 'files', basename),
+          path.join(globalUploads, 'images', basename),
+          path.join(globalUploads, 'clips', basename),
+        ].filter(Boolean) as string[]
+        // Try each fallback path in order
+        let content: string = ''
+        let found = false
+        for (const p of fallbackPaths) {
+          try { content = await readFileWithEncoding(p); found = true; break } catch {}
+        }
+        if (!found) {
+          return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         }
         const truncated = content.length > MAX_READ_CHARS
           ? content.slice(0, MAX_READ_CHARS) + `\n\n... (内容过长，已截断至 ${MAX_READ_CHARS} 字符)`
