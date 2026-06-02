@@ -106,8 +106,8 @@ export const STYLE_DOMAIN_MODULE = `
 🔍 有证据才分析（原文找到≥2处证据→详析；无证据→跳过不填）：
   tensionStyle(心理张力) compoundWordPattern(自造复合词) onomatopoeiaSystem(拟声词系统)
 
-🔞 情色专属（仅type=情色小说时分析）：
-  corruptionArc(堕落弧线) degradationRitual(调教场景机制) narrativeVoice(叙事声音反差)
+🔞 情色专属（type=情色小说时必填！）：
+  corruptionArc(堕落弧线-核心) degradationRitual(调教场景机制) narrativeVoice(叙事声音反差)
   shameVoyeurLoop(羞耻-窥视循环) sensoryPackFormula(感官打包句型) bodyMindBetrayal(身心背离)
   humiliationTemplate(羞辱场景模板)
 
@@ -118,7 +118,7 @@ export const STYLE_DOMAIN_MODULE = `
 dimensions每个维度格式: { "维度key": { "description": "100-300字具体分析+原文引用", "examples": ["原文例句1", "例句2", "例句3..."], "writingRules": ["可执行的写作规则1", "规则2..."], "vocabularyList": ["原文高频词1", "词2..."] } }
 key必须用上面列出的英文维度名，不要用中文。
 
-⚠️ 铁律：原文有信号的→必须填（description≥100字+examples≥3个+rules≥3条+vocab≥10词）。原文无信号的→跳过该维度，不要出现在dimensions里。不确定的→看上面分层判断。`
+⚠️ 铁律：原文有信号的→必须填。情色类型→7个情色维度全部必填。有证据维度(corruptionArc/onomatopoeiaSystem/compoundWordPattern/tensionStyle)→≥2处证据即填。不确定的→填，不要跳过。`
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
