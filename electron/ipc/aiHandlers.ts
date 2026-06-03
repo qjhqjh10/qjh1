@@ -253,7 +253,12 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
 
-    const apiUrl = config.apiUrl
+    // Anthropic 协议的地址含 /anthropic，/models 端点不存在于此路径
+    // 自动回退到供应商的 OpenAI 兼容基础地址
+    const protocol = (config as any).protocol
+    const apiUrl = (protocol === 'anthropic')
+      ? (config.apiUrl || '').replace(/\/anthropic(\/.*)?$/, '').replace(/\/+$/, '')
+      : config.apiUrl
 
     if (!apiKey) {
       throw new Error(`API 密钥未设置。请在模型设置中填写 API 密钥后重试。\n当前地址: ${apiUrl}`)

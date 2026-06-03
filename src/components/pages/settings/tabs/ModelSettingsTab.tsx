@@ -137,7 +137,7 @@ function ModelCard({
             <input type="text" value={apiUrl || ''} onChange={e => onApiUrl?.(e.target.value)}
               className="focus-ring" style={{ ...inputBase, fontSize: 12 }} />
             <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>
-              {protocol === 'anthropic' ? 'DeepSeek: https://api.deepseek.com/anthropic/v1/messages' : 'DeepSeek: https://api.deepseek.com'}
+              {protocol === 'anthropic' ? 'DeepSeek Anthropic: https://api.deepseek.com/anthropic' : 'DeepSeek: https://api.deepseek.com'}
             </div>
           </div>
           {onApiKey && apiKey !== undefined && (
