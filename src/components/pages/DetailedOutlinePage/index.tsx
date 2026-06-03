@@ -108,7 +108,7 @@ export default function DetailedOutlinePage() {
   }
 
   const handleDeleteChapter = async (ch: DetailedChapter) => {
-    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.json`)
+    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.yaml`)
     await fileService.deleteFile(`${projectPath}/summaries/${ch.id}.md`).catch(() => {})
     removeDetailedChapter(ch.id)
     if (editingChapter?.id === ch.id) {
@@ -258,7 +258,7 @@ export default function DetailedOutlinePage() {
       </div>
 
       {/* Right: Chapter card grid */}
-      <div style={{ flex: '70%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: '70%', display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -286,7 +286,7 @@ export default function DetailedOutlinePage() {
             minWidth: 0,
           }}>
             {detailedChapters.map((ch, idx) => (
-              <div key={ch.id} className="stagger-item">
+              <div key={ch.id} className="stagger-item" style={{ minWidth: 0, overflow: 'hidden' }}>
                 <ChapterCard
                   chapter={ch}
                   index={idx}

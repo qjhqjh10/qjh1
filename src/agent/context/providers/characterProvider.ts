@@ -5,8 +5,8 @@ import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 
 // Static schema documentation (fallback when no project)
 const SCHEMA_DOC = [
-  '## 角色 JSON Schema',
-  '角色文件存储在 characters/{中文名}.json，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
+  '## 角色 YAML Schema',
+  '角色文件存储在 characters/{中文名}.yaml，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
   '',
   '必填字段 (15个): id, name, role(男主|女主|男配|女配|反派|其他), gender, age, occupation, background, appearance, personality, abilities, weaknesses, relationships, relationshipTags(数组), arc, importance(0-100)',
   '可选字段: image',
@@ -38,9 +38,10 @@ export const characterProvider: ContextProvider = {
     const mentionedNames = extractMentionedNames(msg)
 
     try {
+      const { stripExtension } = await import('@/utils/filePaths')
       const files = await fileService.listDir(`projects/${projectId}/characters`)
-      const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
-      if (jsonFiles.length === 0) {
+      const dataFiles = files.filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'))
+      if (dataFiles.length === 0) {
         return { domain: 'characters', priority: 80, estimatedTokens: 200, content: '## 角色\n当前项目暂无角色文件。\n\n' + SCHEMA_DOC }
       }
 
@@ -48,23 +49,24 @@ export const characterProvider: ContextProvider = {
       if (isConsistencyCheck) {
         const lines: string[] = ['## 角色一致性检查 — 角色关键信息', '']
         const targetFiles = mentionedNames.length > 0
-          ? filterByName(jsonFiles, mentionedNames)
-          : jsonFiles.slice(0, 20)
+          ? filterByName(dataFiles, mentionedNames)
+          : dataFiles.slice(0, 20)
 
         for (const f of targetFiles) {
           try {
             const content = await cachedRead(`projects/${projectId}/characters/${f}`, projectId)
-            const obj = JSON.parse(content)
+            const parsed = (await import('@/utils/yamlUtils')).tryParseJsonOrYaml(content)
+            const obj = (parsed?.obj || {}) as Record<string, unknown>
             lines.push(`### ${obj.name || f} (${obj.role || '未知'})`)
             lines.push(`- 性别: ${obj.gender || '-'}  年龄: ${obj.age || '-'}  职业: ${obj.occupation || '-'}`)
-            lines.push(`- 性格: ${(obj.personality || '-').slice(0, 100)}`)
-            lines.push(`- 关系: ${(obj.relationships || '-').slice(0, 100)}`)
-            lines.push(`- 弧光: ${(obj.arc || '-').slice(0, 80)}`)
+            lines.push(`- 性格: ${String(obj.personality || '-').slice(0, 100)}`)
+            lines.push(`- 关系: ${String(obj.relationships || '-').slice(0, 100)}`)
+            lines.push(`- 弧光: ${String(obj.arc || '-').slice(0, 80)}`)
             lines.push('')
           } catch { /* skip broken file */ }
         }
-        if (mentionedNames.length > 0 && targetFiles.length < jsonFiles.length) {
-          lines.push(`共 ${jsonFiles.length} 个角色，已读取与"${mentionedNames.join('、')}"相关的 ${targetFiles.length} 个。如需查看更多角色，请指定角色名。`)
+        if (mentionedNames.length > 0 && targetFiles.length < dataFiles.length) {
+          lines.push(`共 ${dataFiles.length} 个角色，已读取与"${mentionedNames.join('、')}"相关的 ${targetFiles.length} 个。如需查看更多角色，请指定角色名。`)
         }
         return { domain: 'characters', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(lines), 4000), content: lines.join('\n') }
       }
@@ -72,21 +74,22 @@ export const characterProvider: ContextProvider = {
       // Create character or general reference: inject summary
       const summaries: string[] = ['## 已有角色概览', '']
       const maxShow = mentionedNames.length > 0 ? 30 : 15
-      for (const f of jsonFiles.slice(0, maxShow)) {
+      for (const f of dataFiles.slice(0, maxShow)) {
         try {
           const content = await cachedRead(`projects/${projectId}/characters/${f}`, projectId)
-          const obj = JSON.parse(content)
-          const rel = obj.relationships && Array.isArray(obj.relationships)
+          const parsed = (await import('@/utils/yamlUtils')).tryParseJsonOrYaml(content)
+          const obj = (parsed?.obj || {}) as Record<string, unknown>
+          const rel = (obj.relationships && Array.isArray(obj.relationships))
             ? ` | 关系: ${obj.relationships.map((r: any) => r.name || r.character || String(r)).join(', ').slice(0, 50)}`
             : obj.relationships ? ` | 关系: ${String(obj.relationships).slice(0, 50)}` : ''
-          summaries.push(`- ${obj.name || f} (${obj.role || '-'}): ${(obj.personality || '-').slice(0, 40)}${rel}`)
-        } catch { summaries.push(`- ${f.replace('.json', '')}`) }
+          summaries.push(`- ${obj.name || f} (${obj.role || '-'}): ${String(obj.personality || '-').slice(0, 40)}${rel}`)
+        } catch { summaries.push(`- ${(await import('@/utils/filePaths')).stripExtension(f)}`) }
       }
-      if (jsonFiles.length > maxShow) summaries.push(`... 共 ${jsonFiles.length} 个角色`)
+      if (dataFiles.length > maxShow) summaries.push(`... 共 ${dataFiles.length} 个角色`)
 
       const extra = isCreateCharacter
         ? '\n\n创建新角色时，请确保 name 不与已有角色重复，relationships 字段要引用已有角色名。\n\n' + SCHEMA_DOC
-        : '\n\n如需查看某个角色的完整设定，使用 read_file("characters/{id}.json")。'
+        : '\n\n如需查看某个角色的完整设定，使用 read_file("characters/{id}.yaml")。'
 
       return { domain: 'characters', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(summaries), 2000), content: summaries.join('\n') + extra }
     } catch {
@@ -110,7 +113,7 @@ function extractMentionedNames(msg: string): string[] {
 
 function filterByName(files: string[], names: string[]): string[] {
   return files.filter(f => {
-    const base = f.replace('.json', '')
+    const base = f.replace(/\.(json|ya?ml)$/, '')
     return names.some(n => base.includes(n) || n.includes(base))
   })
 }

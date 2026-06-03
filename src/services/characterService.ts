@@ -1,6 +1,5 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
-import { repairJson } from '@/services/chapterService'
 import type { Character, CharacterRole } from '@/types/character'
 
 /**
@@ -133,13 +132,17 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
   { key: 'image', label: '形象图' },
 ]
 
-function jsonPath(projectPath: string, id: string) {
-  return `${projectPath}/characters/${id}.json`
+import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
+import { stripExtension, isStructuredDataFile, readAndMigrate } from '@/utils/filePaths'
+
+function charPath(projectPath: string, id: string) {
+  return `${projectPath}/characters/${id}.yaml`
 }
 
 export async function saveCharacter(projectPath: string, character: Character) {
   try {
-    await fileService.write(jsonPath(projectPath, character.id), JSON.stringify(character, null, 2))
+    const yaml = yamlStringify(character)
+    await fileService.write(charPath(projectPath, character.id), yaml)
   } catch (e) {
     logError(`保存角色失败: ${character.name}`, e)
     throw e
@@ -151,21 +154,30 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
     const files = await fileService.listDir(`${projectPath}/characters`)
     const chars: Character[] = []
 
-    // Prefer .json files
-    const jsonFiles = files.filter(f => f.endsWith('.json'))
+    // Read .yaml files; auto-migrate old .json files
+    const dataFiles = files.filter(f => isStructuredDataFile(f))
     const seenIds = new Set<string>()
 
-    for (const file of jsonFiles) {
+    for (const file of dataFiles) {
       try {
-        const raw = await fileService.read(`${projectPath}/characters/${file}`)
-        const repaired = repairJson(raw)
-        if (!repaired) throw new Error('JSON 无法修复')
-        const parsed = JSON.parse(repaired)
-        const char = normalizeCharacter(parsed)
-        // Normalize role — AI may write free-form values like "重要女配"
+        const baseName = stripExtension(file)
+        if (seenIds.has(baseName)) continue
+
+        const migrated = await readAndMigrate(
+          p => fileService.read(p).catch(() => null),
+          (p, c) => fileService.write(p, c),
+          `${projectPath}/characters`,
+          baseName,
+        )
+        if (!migrated) continue
+
+        const parsed = tryParseJsonOrYaml(migrated.content)
+        if (!parsed) throw new Error('解析失败')
+
+        const char = normalizeCharacter(parsed.obj as Record<string, unknown>)
         char.role = normalizeRole(char.role as string)
         chars.push(char)
-        seenIds.add(file.replace('.json', ''))
+        seenIds.add(baseName)
       } catch (err) { logError(`跳过无效角色文件: ${file}`, err) }
     }
 

@@ -95,7 +95,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   }
 
   const handleDelete = async (char: Character) => {
-    await fileService.deleteFile(`${projectPath}/characters/${char.id}.json`)
+    await fileService.deleteFile(`${projectPath}/characters/${char.id}.yaml`)
     removeCharacter(char.id)
   }
 

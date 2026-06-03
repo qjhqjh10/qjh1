@@ -21,19 +21,20 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / OpenAI
 | 项目结构 & 数据格式 | `.aiharness/rules/project-structure.md` |
 | 金规则（编码约束） | `.aiharness/rules/golden-rules.md` |
 | Harness 配置 | `.aiharness/aiharness.json` |
-| Agent 工具列表 | `src/agent/tools/toolSchemas.ts` |
+| Agent 工具列表 | `src/agent/skills/tools/index.ts` (38 工具, 12 类别) |
 | 版本历史 | `src/data/version_history.json` |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 已学习规则 | `.aiharness/rules/auto-learned/`（用 list_rules 查看） |
-| 测试 | `npx vitest run` |
+| 测试 | `npx vitest run`（详见 `docs/TESTING.md`） |
+| Agent 集成测试 | `src/agent/__tests__/V4AgentRuntime.integration.test.ts` + `V4AnthropicRuntime.integration.test.ts`（43 用例，mock API，真实 Runtime+ToolRegistry+SecurityFence） |
 
 ## 架构
 
 ```
 electron/ipc/      — IPC handler 层
-src/agent/         — V4 Agent 运行时（Runtime/Tools/Context/Learning/Diagnostics）
-  tools/           — 37 工具（file/kb/note/image/template/project/prompt/harness/http/browser/shell/lsp）
-  context/         — 10 上下文 Provider + Compressor + Assembler + MemoryIndex
+src/agent/         — V4 Agent 运行时（Runtime/Tools/Context/Learning/Diagnostics/Audit/Store/Thinking）
+  tools/           — 38 工具（file/kb/note/image/template/project/prompt/harness/http/browser/shell/lsp）
+  context/         — 10 上下文 Provider + Compressor + ContractExecutor + MemoryIndex
   utils/           — tokenEstimation, taskDetection
 src/services/      — 服务层（file/character/chapter/scene/extraction/chatStorage）
 src/utils/         — 共享工具（security, logger, textUtils）
@@ -59,7 +60,7 @@ src/types/         — 类型定义
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 运行全部测试（477 用例） |
+| `npx vitest run` | 运行全部测试（520 用例） |
 | `node scripts/test-v5-anth.mjs` | Anthropic协议CLI仿真测试 |
 | `node scripts/openai-sim-test.mjs` | OpenAI协议CLI仿真测试 |
 

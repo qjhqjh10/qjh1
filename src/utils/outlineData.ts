@@ -1,23 +1,35 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
+import { tryParseJsonOrYaml, yamlStringify } from '@/utils/yamlUtils'
+import { readAndMigrate } from '@/utils/filePaths'
 import type { OutlineTabToggles } from '@/types/settings'
 import type { OutlineItem, OutlineLocation, OutlineFaction, PowerSystem, EmotionData } from '@/types/outline'
 import type { ForeshadowItem, PlotThread } from '@/types/story'
 
-export async function loadOutlineData<T>(projectPath: string, filename: string, defaultValue: T): Promise<T> {
+const OUTLINE_DIR = (pp: string) => `${pp}/outline`
+
+export async function loadOutlineData<T>(projectPath: string, baseName: string, defaultValue: T): Promise<T> {
   try {
-    const raw = await fileService.read(`${projectPath}/outline/${filename}`)
-    if (raw) return JSON.parse(raw) as T
-  } catch (err) { logError(`Failed to load outline data: ${filename}`, err) }
+    const migrated = await readAndMigrate(
+      p => fileService.read(p).catch(() => null),
+      (p, c) => fileService.write(p, c),
+      OUTLINE_DIR(projectPath),
+      baseName,
+    )
+    if (migrated) {
+      const parsed = tryParseJsonOrYaml(migrated.content)
+      if (parsed) return parsed.obj as T
+    }
+  } catch (err) { logError(`Failed to load outline data: ${baseName}`, err) }
   return defaultValue
 }
 
-export async function saveOutlineData<T>(projectPath: string, filename: string, data: T): Promise<void> {
+export async function saveOutlineData<T>(projectPath: string, baseName: string, data: T): Promise<void> {
   try {
-    await fileService.ensureDir(`${projectPath}/outline`)
-    await fileService.write(`${projectPath}/outline/${filename}`, JSON.stringify(data, null, 2))
+    await fileService.ensureDir(OUTLINE_DIR(projectPath))
+    await fileService.write(`${OUTLINE_DIR(projectPath)}/${baseName}.yaml`, yamlStringify(data))
   } catch (err) {
-    logError(`Failed to save outline data: ${filename}`, err)
+    logError(`Failed to save outline data: ${baseName}`, err)
   }
 }
 
@@ -25,7 +37,7 @@ export async function saveOutlineData<T>(projectPath: string, filename: string, 
 
 async function loadItemsPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<{ items: OutlineItem[] }>(projectPath, 'items.json', { items: [] })
+    const data = await loadOutlineData<{ items: OutlineItem[] }>(projectPath, 'items', { items: [] })
     if (!data.items?.length) return ''
     const lines = data.items.map(item => {
       const fields = [item.name, item.type, item.grade, item.ability, item.owner].filter(Boolean)
@@ -37,7 +49,7 @@ async function loadItemsPrompt(projectPath: string): Promise<string> {
 
 async function loadLocationsPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<{ locations: OutlineLocation[] }>(projectPath, 'locations.json', { locations: [] })
+    const data = await loadOutlineData<{ locations: OutlineLocation[] }>(projectPath, 'locations', { locations: [] })
     if (!data.locations?.length) return ''
     const lines = data.locations.map(loc => {
       const fields = [loc.name, loc.type, loc.description].filter(Boolean)
@@ -49,7 +61,7 @@ async function loadLocationsPrompt(projectPath: string): Promise<string> {
 
 async function loadFactionsPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<{ factions: OutlineFaction[] }>(projectPath, 'factions.json', { factions: [] })
+    const data = await loadOutlineData<{ factions: OutlineFaction[] }>(projectPath, 'factions', { factions: [] })
     if (!data.factions?.length) return ''
     const lines = data.factions.map(f => {
       const fields = [f.name, f.type, f.description].filter(Boolean)
@@ -61,7 +73,7 @@ async function loadFactionsPrompt(projectPath: string): Promise<string> {
 
 async function loadPowerSystemPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<PowerSystem>(projectPath, 'power_system.json', { name: '', levels: [], description: '' })
+    const data = await loadOutlineData<PowerSystem>(projectPath, 'power_system', { name: '', levels: [], description: '' })
     if (!data.levels?.length) return ''
     const lines = data.levels.map(l => `- ${l.name}: ${l.description || ''}`)
     return `【等级体系：${data.name}】\n${lines.join('\n')}`
@@ -70,7 +82,7 @@ async function loadPowerSystemPrompt(projectPath: string): Promise<string> {
 
 async function loadEmotionPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<EmotionData>(projectPath, 'emotion.json', { segments: [] })
+    const data = await loadOutlineData<EmotionData>(projectPath, 'emotion', { segments: [] })
     if (!data.segments?.length) return ''
     const lines = data.segments.map(s => `- 第${s.chapterStart}-${s.chapterEnd}章: ${s.dominantEmotion}${s.description ? ' — ' + s.description : ''}`)
     return `【情绪曲线】\n${lines.join('\n')}`
@@ -79,7 +91,7 @@ async function loadEmotionPrompt(projectPath: string): Promise<string> {
 
 async function loadForeshadowingPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<{ foreshadowing: ForeshadowItem[] }>(projectPath, 'outline_meta.json', { foreshadowing: [] })
+    const data = await loadOutlineData<{ foreshadowing: ForeshadowItem[] }>(projectPath, 'outline_meta', { foreshadowing: [] })
     if (!data.foreshadowing?.length) return ''
     const lines = data.foreshadowing.map(f => {
       const fields = [
@@ -96,7 +108,7 @@ async function loadForeshadowingPrompt(projectPath: string): Promise<string> {
 
 async function loadPlotThreadsPrompt(projectPath: string): Promise<string> {
   try {
-    const data = await loadOutlineData<{ plotThreads: PlotThread[] }>(projectPath, 'outline_meta.json', { plotThreads: [] })
+    const data = await loadOutlineData<{ plotThreads: PlotThread[] }>(projectPath, 'outline_meta', { plotThreads: [] })
     if (!data.plotThreads?.length) return ''
     const lines = data.plotThreads.map(t => {
       const fields = [t.name, t.type].filter(Boolean)

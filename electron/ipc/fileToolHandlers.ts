@@ -607,7 +607,7 @@ export async function executeFileTool(
 
         // Validate structured JSON files before writing (characters, detailed_outline, etc.)
         const relPath = path.relative(projectPath, fp).replace(/\\/g, '/')
-        if (relPath.endsWith('.json')) {
+        if (relPath.endsWith('.json') || relPath.endsWith('.yaml') || relPath.endsWith('.yml')) {
           const validation = validateFileContent(relPath, content)
           if (!validation.valid) {
             const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')

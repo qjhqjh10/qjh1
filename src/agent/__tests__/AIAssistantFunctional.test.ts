@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { selectDomainModules, AI_CAPABILITIES_MODULE, SOFTWARE_FEATURES_MODULE } from '../V4SystemPrompt'
 import { toolRegistry } from '../tools/ToolRegistry'
-import { ALL_TOOLS } from '../tools/definitions'
+import { ALL_TOOLS } from '../skills/tools'
 
 beforeAll(() => {
   toolRegistry.registerAll(ALL_TOOLS)

@@ -8,6 +8,7 @@
 // Key insight: don't hard-block .. or absolute paths — escalate to approval instead.
 
 import { toolRegistry } from './tools/ToolRegistry'
+import { tryParseJsonOrYaml } from '../utils/yamlUtils'
 
 export interface SecurityCheckResult {
   allowed: boolean
@@ -86,24 +87,36 @@ export class V4SecurityFence {
     return { allowed: true, needsApproval: false }
   }
 
-  // ── Layer 2: JSON Validation ──
+  // ── Layer 2: Format Validation (JSON + YAML) ──
 
   private checkJsonValidation(toolName: string, args: Record<string, unknown>): SecurityCheckResult {
     if (toolName !== 'create_file' && toolName !== 'edit_file') {
       return { allowed: true, needsApproval: false }
     }
     const fp = String(args.file_path || args.path || '')
-    if (!fp.endsWith('.json')) return { allowed: true, needsApproval: false }
+    // 只检查结构化数据文件（.json 或 .yaml/.yml）
+    const isYaml = fp.endsWith('.yaml') || fp.endsWith('.yml')
+    const isJson = fp.endsWith('.json')
+    if (!isYaml && !isJson) return { allowed: true, needsApproval: false }
+
     const content = String(args.content || '')
     if (!content) return { allowed: true, needsApproval: false }
-    try {
-      JSON.parse(content)
+
+    // 按文件扩展名选择对应的解析器（.json 只接受 JSON，.yaml 只接受 YAML）
+    const preferFormat = isYaml ? 'yaml' : 'json'
+    const parsed = tryParseJsonOrYaml(content, preferFormat)
+    if (parsed) {
       return { allowed: true, needsApproval: false }
-    } catch (e) {
-      return {
-        allowed: false, needsApproval: false,
-        reason: `[格式] JSON 解析失败: ${(e as Error).message}。请检查：所有键用双引号、无尾随逗号、字符串用双引号。可参考项目中已有的同名 JSON 文件格式。`,
-      }
+    }
+
+    // 格式错误 — 提供有针对性的修复建议
+    const fmtLabel = isYaml ? 'YAML' : 'JSON'
+    const suggestions = isYaml
+      ? '检查 YAML 缩进是否正确（必须用 2 空格，禁止 Tab）、多行文本是否正确使用 | 或 >-、列表项是否以 -  开头'
+      : '检查所有键用双引号、无尾随逗号、字符串用双引号。可参考项目中已有的同名文件格式'
+    return {
+      allowed: false, needsApproval: false,
+      reason: `[格式] ${fmtLabel} 解析失败。${suggestions}。`,
     }
   }
 

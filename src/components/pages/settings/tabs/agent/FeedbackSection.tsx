@@ -44,7 +44,7 @@ const OPTIMIZE_SYSTEM_PROMPT = `你是青剑的自我优化引擎。你可以全
 
 ## 修改范围
 - src/agent/V4SystemPrompt.ts — 核心规则
-- src/agent/tools/definitions/*.ts — 工具描述
+- src/agent/skills/tools/*.ts — 工具描述
 - src/types/settings.ts — 配置
 - electron/ipc/*.ts — IPC 处理
 - 以及任何需要修改的源码文件

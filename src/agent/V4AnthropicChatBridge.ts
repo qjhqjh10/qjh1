@@ -22,7 +22,7 @@ import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler, ContextAssembler } from './context/ContextAssembler'
-import { ALL_TOOLS } from './tools/definitions'
+import { ALL_TOOLS } from './skills/tools'
 import { ALL_PROVIDERS } from './context/providers'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
@@ -41,7 +41,7 @@ let providersRegistered = false
 
 function ensureInitialized() {
   if (!toolsRegistered) {
-    toolRegistry.registerAll(ALL_TOOLS)
+    toolRegistry.registerAll(ALL_TOOLS as any)
     toolsRegistered = true
   }
   if (!providersRegistered) {

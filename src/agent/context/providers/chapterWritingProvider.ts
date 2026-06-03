@@ -9,7 +9,7 @@ const STATIC_DOC = [
   '',
   '章节正文: chapters/{id}.txt  摘要: summaries/{id}.md',
   '写作流程: 1.读细纲 2.读角色 3.读大纲 4.撰写 5.生成摘要',
-  '注意: 章节是 .txt，细纲是 .json，大纲是 .md，格式不同。',
+  '注意: 章节是 .txt，细纲是 .yaml，大纲是 .md，格式不同。',
 ].join('\n')
 
 export const chapterWritingProvider: ContextProvider = {

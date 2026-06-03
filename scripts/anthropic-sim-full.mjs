@@ -491,9 +491,9 @@ const SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 | 创建模板 | create_style_template / create_scene_template | —
 
 # 文件路径速查
-- 角色: {项目}/characters/{中文名}.json      例: 1/characters/林语晴.json
+- 角色: {项目}/characters/{中文名}.yaml      例: 1/characters/林语晴.yaml
 - 章节: {项目}/chapters/chapter{N}.txt       例: 1/chapters/chapter3.txt
-- 细纲: {项目}/detailed_outline/chapter{N}.json
+- 细纲: {项目}/detailed_outline/chapter{N}.yaml
 - 大纲: {项目}/outline/plot.md
 - 摘要: {项目}/summaries/chapter{N}.md
 - 风格模板: ../../style_templates/
@@ -648,8 +648,8 @@ async function main() {
   // 场景 1：列出+读取
   await testScenario('列出+读取 (Glob + 缓存)', [
     { label: 'S1-1 列出所有角色', prompt: '列出项目1的characters目录下所有.json文件', check: r => r.toolCalls >= 1 && r.steps.some(s => s.tool === 'list_directory') },
-    { label: 'S1-2 读取林语晴', prompt: '读取项目1的角色林语晴，路径 1/characters/林语晴.json', check: r => r.toolCalls >= 1 && r.steps.some(s => s.tool === 'read_file') },
-    { label: 'S1-3 再次读取林语晴(缓存)', prompt: '再次读取 1/characters/林语晴.json', check: r => r.steps.some(s => s.tool === 'read_file') },
+    { label: 'S1-2 读取林语晴', prompt: '读取项目1的角色林语晴，路径 1/characters/林语晴.yaml', check: r => r.toolCalls >= 1 && r.steps.some(s => s.tool === 'read_file') },
+    { label: 'S1-3 再次读取林语晴(缓存)', prompt: '再次读取 1/characters/林语晴.yaml', check: r => r.steps.some(s => s.tool === 'read_file') },
     { label: 'S1-4 列出所有章节txt', prompt: '列出项目1的chapters目录下所有txt文件', check: r => r.toolCalls >= 1 },
   ])
 
@@ -661,13 +661,13 @@ async function main() {
 
   // 场景 3：精准编辑
   await testScenario('精准编辑 (edit_file)', [
-    { label: 'S3-1 读取测试角色', prompt: '读取项目1的角色测试角色: 1/characters/测试角色.json', check: r => r.toolCalls >= 1 },
-    { label: 'S3-2 修改测试角色描述', prompt: '把项目1的角色测试角色(1/characters/测试角色.json)的background字段改成"这是一个测试角色的背景故事，用于验证编辑功能。"', check: r => r.toolCalls >= 2 },
+    { label: 'S3-1 读取测试角色', prompt: '读取项目1的角色测试角色: 1/characters/测试角色.yaml', check: r => r.toolCalls >= 1 },
+    { label: 'S3-2 修改测试角色描述', prompt: '把项目1的角色测试角色(1/characters/测试角色.yaml)的background字段改成"这是一个测试角色的背景故事，用于验证编辑功能。"', check: r => r.toolCalls >= 2 },
   ])
 
   // 场景 4：文件创建
   await testScenario('文件创建 (create_file + JSON校验)', [
-    { label: 'S4-1 创建角色赵云', prompt: '参考项目1已有的角色格式(read_file 1/characters/林语晴.json)，创建一个新角色赵云。角色信息：id=zhaoyun, name=赵云, role=男配, gender=男, age=28, occupation=将军, background=常山赵子龙, appearance=身高八尺面貌英俊, personality=忠勇双全, abilities=枪法如神, weaknesses=过于刚直, relationships=与张明是好友, relationshipTags=["好友"], arc=从默默无闻到名震天下, importance=85。写入 1/characters/赵云.json', check: r => r.toolCalls >= 2 },
+    { label: 'S4-1 创建角色赵云', prompt: '参考项目1已有的角色格式(read_file 1/characters/林语晴.yaml)，创建一个新角色赵云。角色信息：id=zhaoyun, name=赵云, role=男配, gender=男, age=28, occupation=将军, background=常山赵子龙, appearance=身高八尺面貌英俊, personality=忠勇双全, abilities=枪法如神, weaknesses=过于刚直, relationships=与张明是好友, relationshipTags=["好友"], arc=从默默无闻到名震天下, importance=85。写入 1/characters/赵云.yaml', check: r => r.toolCalls >= 2 },
   ])
 
   // 场景 5：知识库
@@ -701,7 +701,7 @@ async function main() {
   // 场景 9：读写混合
   await testScenario('读写混合 (复杂编排)', [
     { label: 'S9-1 读+写摘要', prompt: '读取项目1的第3章(1/chapters/chapter3.txt)，然后写一个200字摘要保存到 1/summaries/chapter3.md', check: r => r.toolCalls >= 2 },
-    { label: 'S9-2 读细纲+改状态', prompt: '读取项目1第3章的细纲(1/detailed_outline/chapter3.json)，把status改成completed', check: r => r.toolCalls >= 2 },
+    { label: 'S9-2 读细纲+改状态', prompt: '读取项目1第3章的细纲(1/detailed_outline/chapter3.yaml)，把status改成completed', check: r => r.toolCalls >= 2 },
   ])
 
   // 场景 10：Harness 工具

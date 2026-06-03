@@ -20,10 +20,10 @@
 │  electronBridge.ts — 类型安全聚合 (21 服务)  │
 ├─────────────────────────────────────────────┤
 │  Agent 引擎 (src/agent/)                     │
-│  运行时/FSM/工具/上下文/思考 (63 文件)        │
+│  V4 Runtime — 双协议 (OpenAI + Anthropic)    │
 ├─────────────────────────────────────────────┤
 │  IPC 层 (electron/ipc/)                      │
-│  19 handler 模块, 103 通道                    │
+│  19 handler 模块                                │
 │  SSRF 防护: ssrfGuard.ts (共享模块)          │
 ├─────────────────────────────────────────────┤
 │  Electron Main Process (electron/main.ts)    │
@@ -33,33 +33,36 @@
 
 ## Agent 引擎
 
-### 运行时 (`src/agent/runtime/`)
-- `AgentRuntime.ts` — 核心编排器
-- `AgentEventEmitter.ts` — 事件总线
-- `intentAnalyzer.ts` — 意图分析（纯函数，零依赖）
-- `HallucinationDetector.ts` — 幻觉检测
-- `ToolResultPersister.ts` — 工具结果持久化
+### V4 运行时 (`src/agent/`)
+V4 用**单一 while 循环**替代了 V3 的 13 态 FSM 及 8 个子系统（TaskPipeline/PlanEnforcer/ReflectionEngine/HallucinationDetector/BudgetManager/CheckpointManager/CircuitBreaker 等全部删除）。
 
-### 状态机 (`src/agent/state/`)
-- 11 个阶段，44 条转换规则
-- 守卫函数保护关键转换
+- `V4AgentRuntime.ts` — OpenAI 协议核心编排器（request/response while 循环）
+- `V4AnthropicRuntime.ts` — Anthropic 协议编排器（流式 content blocks 循环）
+- `V4AgentChatBridge.ts` — OpenAI Bridge（整合 Runtime + SecurityFence + AuditTrail + LearningEngine）
+- `V4AnthropicChatBridge.ts` — Anthropic Bridge（独立实现，共享依赖）
+- `ChatBridgeInterface.ts` — 共享接口 + 协议工厂（根据配置自动选择）
+- `V4SystemPrompt.ts` — 系统提示词 + 10 领域模块 + 动态选择
+- `V4SecurityFence.ts` — 三层安全围栏（硬拦截 → JSON 校验 → 路径审批）
+- `IntentClassifier.ts` — 意图分类器（chat/simple/complex + 要求数统计）
 
 ### 工具系统 (`src/agent/tools/`)
-- `ToolRegistry.ts` — 工具注册表（26 工具）
-- `definitions/` — 14 个工具定义文件
+- `ToolRegistry.ts` — 工具注册表（38 工具，12 类别）
+- `definitions/` — 12 个工具定义文件（file/kb/note/image/template/project/prompt/harness/http/browser/shell/lsp）
 - 权限：AUTO / READ_ASK / PROJECT_ASK / DANGEROUS_ASK
 
 ### 上下文 (`src/agent/context/`)
-- `ContextAssembler.ts` — 提供者架构（11 内容提供者）
-- `FileRouter.ts` — 文件路由
-- `ProgressiveCompressor.ts` — 消息压缩
+- `ContextAssembler.ts` — 提供者架构（10 内容提供者，相关性评分，500K token 上限）
+- `ContextCompressor.ts` — Claude 风格透明压缩
+- `ContractExecutor.ts` — 工具结果过滤 + 渐进裁剪
+- `FileCache.ts` — 共享文件读缓存
+- `MemoryIndex.ts` — 全局项目文件索引
 
-### 安全子系统
-- `CircuitBreaker.ts` — 3 态熔断器
-- `PolicyEngine.ts` — 否认优先策略引擎
-- `CredentialBroker.ts` — API 密钥能力句柄
-- `GatekeeperRunner.ts` — 硬验证门控
-- `PlanEnforcer.ts` — 计划强制执行
+### 其他子系统
+- `audit/AuditTrail.ts` — 飞行记录器（JSONL 事件日志）
+- `learning/LearningEngine.ts` — AI 驱动学习（Agent 保存经验 → 注入提示词）
+- `thinking/ThinkingEngine.ts` — 结构化思考协议
+- `diagnostics/DiagnosticLogger.ts` — 诊断日志
+- `store/AgentStore.ts` — Zustand Agent 运行时状态
 
 ## 数据目录
 

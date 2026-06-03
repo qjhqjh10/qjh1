@@ -32,7 +32,7 @@ export const SOFTWARE_GUIDE: GuideSection[] = [
     items: [
       'Plan（只读）/ Action（全权限）双模式，Plan 模式下所有写操作需确认',
       '可直接操作项目文件：读取、创建、编辑、删除',
-      '支持 39 个工具：文件操作、知识库、模板创建、图片搜索/生成等',
+      '支持 38 个工具：文件操作、知识库、模板创建、图片搜索/生成等',
       '自动备份：每次 edit_file/create_file 前自动保存原文件到 .ai_backups/',
       '内嵌命令：分析风格、创建模板、检查一致性、统计字数、备份项目',
       '支持知识库语义搜索、网页搜索、图片搜索',
@@ -194,7 +194,7 @@ export const AI_CAPABILITIES_SUMMARY = `你可以帮用户完成以下操作：
 export const SOFTWARE_FEATURES_SUMMARY = `青剑 v9.5.1 主要功能：
 
 📁 项目管理 — 支持普通写作/仿写/续写三种模式
-💬 AI 写作助手 — 39 个工具，可操作项目文件，支持 Plan/Action 双模式
+💬 AI 写作助手 — 38 个工具，可操作项目文件，支持 Plan/Action 双模式
 📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）
 👤 角色 — 16 字段卡片 + AI 生成 + 关系图
 ✍️ 章节写作 — TipTap 编辑器 + AI 生成/润色/审稿 + 版本管理

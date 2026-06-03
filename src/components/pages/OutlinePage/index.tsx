@@ -132,7 +132,7 @@ export default function OutlinePage() {
       fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => setRawOutline('')),
       fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => setRawWorldbuilding('')),
       loadCharacters(pp).then(chars => { useStore.getState().setCharacters(chars) }),
-      fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
+      fileService.read(`${pp}/outline/outline_meta.yaml`).then(c => {
         try { setMeta(JSON.parse(c) as OutlineMeta) } catch { setMeta(DEFAULT_OUTLINE_META) }
       }).catch(() => { setMeta(DEFAULT_OUTLINE_META) }),
       sceneService.listSceneConfigs(pp).then(configs => {
@@ -141,17 +141,17 @@ export default function OutlinePage() {
         setSceneConfigs(map)
       }),
       // Load structured dimension data
-      loadOutlineData<OutlineItemsData>(pp, 'items.json', { items: [] }).then(d => setItems(d.items)),
-      loadOutlineData<OutlineLocationsData>(pp, 'locations.json', { locations: [] }).then(d => setLocations(d.locations)),
-      loadOutlineData<OutlineFactionsData>(pp, 'factions.json', { factions: [] }).then(d => setFactions(d.factions)),
-      loadOutlineData<PowerSystem>(pp, 'power_system.json', { name: '', levels: [], description: '' }).then(d => {
+      loadOutlineData(pp, 'items', { items: [] }).then(d => setItems(d.items)),
+      loadOutlineData(pp, 'locations', { locations: [] }).then(d => setLocations(d.locations)),
+      loadOutlineData(pp, 'factions', { factions: [] }).then(d => setFactions(d.factions)),
+      loadOutlineData(pp, 'power_system', { name: '', levels: [], description: '' }).then(d => {
         const normalized: PowerSystem = {
           ...d,
           levels: (d.levels || []).map(l => typeof l === 'string' ? { name: l as unknown as string, description: '' } : l)
         }
         setPowerSystem(normalized)
       }),
-      loadOutlineData<EmotionData>(pp, 'emotion.json', { segments: [] }).then(setEmotionData),
+      loadOutlineData(pp, 'emotion', { segments: [] }).then(setEmotionData),
     ]).finally(() => setLoading(false))
   }, [activeProjectId, projectsBasePath])
 
@@ -165,12 +165,12 @@ export default function OutlinePage() {
     const outlineLegacyPath = `${pp}/outline/outline.json` // backward compat
     const wbPath = `${pp}/outline/worldbuilding.md`
     const wbJsonPath = `${pp}/outline/worldbuilding.json` // backward compat
-    const metaPath = `${pp}/outline/outline_meta.json`
-    const itemsPath = `${pp}/outline/items.json`
-    const locationsPath = `${pp}/outline/locations.json`
-    const factionsPath = `${pp}/outline/factions.json`
-    const powerPath = `${pp}/outline/power_system.json`
-    const emotionPath = `${pp}/outline/emotion.json`
+    const metaPath = `${pp}/outline/outline_meta.yaml`
+    const itemsPath = `${pp}/outline/items.yaml`
+    const locationsPath = `${pp}/outline/locations.yaml`
+    const factionsPath = `${pp}/outline/factions.yaml`
+    const powerPath = `${pp}/outline/power_system.yaml`
+    const emotionPath = `${pp}/outline/emotion.yaml`
 
     let handled = false
     if (normalized === outlinePath || normalized === outlineJsonPath || normalized === outlineLegacyPath) {
@@ -192,7 +192,7 @@ export default function OutlinePage() {
     } else if (normalized === metaPath) {
       handled = true
       if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(`${pp}/outline/outline_meta.json`).then(c => {
+        fileService.read(`${pp}/outline/outline_meta.yaml`).then(c => {
           try { setMeta(JSON.parse(c) as OutlineMeta) } catch {}
         }).catch(() => {})
       } else {
@@ -200,21 +200,21 @@ export default function OutlinePage() {
       }
     } else if (normalized === itemsPath) {
       handled = true
-      loadOutlineData<OutlineItemsData>(projectPath, 'items.json', { items: [] }).then(d => setItems(d.items))
+      loadOutlineData(pp, 'items', { items: [] }).then(d => setItems(d.items))
     } else if (normalized === locationsPath) {
       handled = true
-      loadOutlineData<OutlineLocationsData>(projectPath, 'locations.json', { locations: [] }).then(d => setLocations(d.locations))
+      loadOutlineData(pp, 'locations', { locations: [] }).then(d => setLocations(d.locations))
     } else if (normalized === factionsPath) {
       handled = true
-      loadOutlineData<OutlineFactionsData>(projectPath, 'factions.json', { factions: [] }).then(d => setFactions(d.factions))
+      loadOutlineData(pp, 'factions', { factions: [] }).then(d => setFactions(d.factions))
     } else if (normalized === powerPath) {
       handled = true
-      loadOutlineData<PowerSystem>(projectPath, 'power_system.json', { name: '', levels: [], description: '' }).then(d => {
+      loadOutlineData(pp, 'power_system', { name: '', levels: [], description: '' }).then(d => {
         setPowerSystem({ ...d, levels: (d.levels || []).map(l => typeof l === 'string' ? { name: l as unknown as string, description: '' } : l) })
       })
     } else if (normalized === emotionPath) {
       handled = true
-      loadOutlineData<EmotionData>(projectPath, 'emotion.json', { segments: [] }).then(setEmotionData)
+      loadOutlineData(pp, 'emotion', { segments: [] }).then(setEmotionData)
     }
     if (handled) setFileEditNotify(null)
   }, [fileEditNotify, projectPath])
@@ -226,7 +226,7 @@ export default function OutlinePage() {
 
   const saveMeta = async (newMeta: OutlineMeta) => {
     setMeta(newMeta)
-    await fileService.write(`${projectPath}/outline/outline_meta.json`, JSON.stringify({ ...newMeta, updatedAt: new Date().toISOString() }, null, 2))
+    await fileService.write(`${projectPath}/outline/outline_meta.yaml`, JSON.stringify({ ...newMeta, updatedAt: new Date().toISOString() }, null, 2))
   }
 
   // ---- Threads ----
@@ -260,11 +260,11 @@ export default function OutlinePage() {
   }
 
   // ---- Structured data CRUD helpers ----
-  const saveItems = async (next: OutlineItem[]) => { setItems(next); await saveOutlineData(projectPath, 'items.json', { items: next }) }
-  const saveLocations = async (next: OutlineLocation[]) => { setLocations(next); await saveOutlineData(projectPath, 'locations.json', { locations: next }) }
-  const saveFactions = async (next: OutlineFaction[]) => { setFactions(next); await saveOutlineData(projectPath, 'factions.json', { factions: next }) }
-  const savePowerSystem = async (next: PowerSystem) => { setPowerSystem(next); await saveOutlineData(projectPath, 'power_system.json', next) }
-  const saveEmotion = async (next: EmotionData) => { setEmotionData(next); await saveOutlineData(projectPath, 'emotion.json', next) }
+  const saveItems = async (next: OutlineItem[]) => { setItems(next); await saveOutlineData(projectPath, 'items', { items: next }) }
+  const saveLocations = async (next: OutlineLocation[]) => { setLocations(next); await saveOutlineData(projectPath, 'locations', { locations: next }) }
+  const saveFactions = async (next: OutlineFaction[]) => { setFactions(next); await saveOutlineData(projectPath, 'factions', { factions: next }) }
+  const savePowerSystem = async (next: PowerSystem) => { setPowerSystem(next); await saveOutlineData(projectPath, 'power_system', next) }
+  const saveEmotion = async (next: EmotionData) => { setEmotionData(next); await saveOutlineData(projectPath, 'emotion', next) }
 
   // ---- Render structured CRUD list ----
   const renderStructuredList = <T extends { id: string; name: string }>(

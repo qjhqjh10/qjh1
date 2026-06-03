@@ -1,7 +1,24 @@
 {
-  "currentVersion": "9.6.2",
+  "currentVersion": "9.7.0",
   "currentDate": "2026-06-03",
   "history": [
+    {
+      "version": "9.7.0",
+      "date": "2026-06-03",
+      "features": [
+        "JSON→YAML全面迁移: 角色/细纲/大纲Tab(6文件)/场景配置全部切换为YAML格式(js-yaml+tryParseJsonOrYaml+yamlStringify)",
+        "旧文件自动迁移: readAndMigrate()首次读取自动将.json转为.yaml,零用户感知",
+        "格式约束重写: V4SystemPrompt完整YAML规范+内联示例(角色16字段/细纲/大纲Tab),去掉所有JSON转义规则",
+        "路径集中化: filePaths.ts统一管理扩展名常量+路径构造+双格式判断,消除100+处硬编码路径",
+        "技能系统: 32文件(SkillRegistry+ToolRegistry+11内置技能+FileSkillLoader+PluginSkillLoader+RemotePlugin)",
+        "双协议集成测试: V4AgentRuntime.integration(25用例)+V4AnthropicRuntime.integration(18用例),mock API零费用",
+        "仿真测试体系: 29个脚本140+场景(all-38-tools/多意图/极限压测/闲聊/批量/双协议对比)",
+        "工具计数修正: 37/39→38(noteTools 5→6,harnessTools 4→5),修正14处文档+代码",
+        "代码审计优化: 删除2空目录+21废弃脚本+14文件修正,CLAUDE.md死路径修复,4文档重写",
+        "细纲卡片溢出修复: minWidth:0+maxHeight:260+内容区内部滚动",
+        "后端门禁: V4SecurityFence双格式+FileCache保护+ToolRegistry权限精确化"
+      ]
+    },
     {
       "version": "9.6.2",
       "date": "2026-06-03",

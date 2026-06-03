@@ -36,9 +36,9 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - 闲聊/讨论 → 不调工具，直接回复
 
 # 文件路径速查 — 所有创建/删除/读取操作的路径格式
-- 角色: {项目}/characters/{中文名}.json              例: 1/characters/林语晴.json
+- 角色: {项目}/characters/{中文名}.yaml             例: 1/characters/林语晴.yaml
 - 章节: {项目}/chapters/chapter{N}.txt               例: 1/chapters/chapter3.txt
-- 细纲: {项目}/detailed_outline/chapter{N}.json     例: 1/detailed_outline/chapter3.json
+- 细纲: {项目}/detailed_outline/chapter{N}.yaml     例: 1/detailed_outline/chapter3.yaml
 - 大纲: {项目}/outline/plot.md, worldbuilding.md     例: 1/outline/plot.md
 - 摘要: {项目}/summaries/chapter{N}.md              例: 1/summaries/chapter3.md
 - 风格模板: ../../style_templates/{中文名}.json      例: ../../style_templates/古风言情.json
@@ -46,34 +46,71 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - KB文件: ../../knowledge_base/files/{中文名}.md     例: ../../knowledge_base/files/角色要点.md
 - 笔记: 文件名.md（自动保存到全局 notes/ 目录）      例: 第3章改写思路.md
 
-# 格式约束 — 创建/编辑时必须遵守，格式错误会被系统拒绝
+# 格式约束 — YAML 结构化文件（创建/编辑时必须遵守，格式错误会被系统拒绝）
 
-## 角色 JSON (characters/{中文名}.json)
-15平铺字段: id, name, role(男主|女主|男配|女配|反派|其他), gender, age, occupation, background, appearance, personality, abilities(纯文本字符串，不可为对象!), weaknesses, relationships, relationshipTags(数组), arc, importance(数字) + 可选image
-⚠️ 禁止嵌套(如{"basicInfo":{...}})。abilities必须是字符串。常漏字段: gender/occupation/arc/relationships
+## 通用规则
+- 角色、细纲、大纲Tab 使用 **YAML 格式**（.yaml 后缀），不再使用 JSON
+- 缩进: 2 个空格，禁止 Tab
+- 键名直接写，无需引号（如 'name: 张明'，不要写 "name": "张明"）
+- 多行文本: 用 | (保留换行) 或 >- (折叠换行)，不需要转义
+- 列表: 用 - 前缀，每项一行
+- 枚举值: 直接写值，不要加额外描述（如 role: 男主，不要写成 role: 男主/血煞教内应）
 
-## 细纲 JSON (detailed_outline/chapter{N}.json)
-必填: id, title, order(从0开始数字), status(incomplete|completed), plotOverview(150-300字), characters(每行一个), location, keyEvents(每行一个，\\n分隔，禁止JSON内直接换行!)
-可选: eroticContent, customContent(自由格式，可写情绪基调/视角/感官/节奏/伏笔等), emotionCurve, writingNotes
-⚠️ 多行文本必须用 \\n 转义！content参数直接传纯JSON，不要用代码块包裹！
+## 角色 YAML (characters/{中文名}.yaml) — 完整示例:
+  id: zhangming
+  name: 张明
+  role: 男主           # 男主|女主|男配|女配|反派|其他
+  gender: 男
+  age: "22"
+  occupation: 大学生
+  background: >
+    普通大学生，某天在图书馆发现一本古籍后获得了看见灵气的能力。
+  appearance: 短发戴眼镜，常穿深色卫衣，看起来普通但眼睛很亮。
+  personality: 善良但优柔寡断，容易被他人左右，对朋友极度忠诚。
+  abilities: 能看见并操控灵气，能隔空移物，但目前只能移动小件物品。
+  weaknesses: 体能差，过度使用能力会昏迷，对批评极度敏感。
+  relationships: 与女主林雨晴青梅竹马，暗恋多年不敢表白。
+  relationshipTags:
+    - 青梅竹马
+    - 暗恋
+  arc: 从懦弱少年成长为敢于直面命运的强者。
+  importance: 85
 
-## 章节摘要 (summaries/chapter{N}.md)
-格式: # 第N章: 标题 — 摘要 → ## 剧情概述(200-400字) → ## 关键事件(列表) → ## 出场角色(列表) → ## 情色内容(仅情色类型) → ## 元信息(生成时间/字数)
-⚠️ 摘要用 create_file 写入 summaries/，绝对不要写入 detailed_outline/
+⚠️ 铁律: role不可加额外描述(如"反派/血煞教内应"→"反派")。abilities必为纯文本。禁止嵌套对象。16字段缺一不可。
 
-## 大纲 Markdown (outline/plot.md, worldbuilding.md)
-Markdown格式。# 标题 → ## 章节 → 段落正文
-追加: read_file读末尾 → 取最后一段做old_string → new_string=原文+新内容
-修改: read_file确认原文 → 用整段做old_string → 替换
+## 细纲 YAML (detailed_outline/chapter{N}.yaml) — 完整示例:
+  id: chapter5
+  title: 雨夜对峙
+  order: 4
+  status: incomplete    # incomplete|completed
+  plotOverview: 主角在废弃仓库中与反派对峙，突发爆炸，主角救人，反派逃脱。(150-300字)
+  characters: 主角(紧张但坚定), 反派(狂妄自大), 路人(恐慌逃跑)
+  location: 城西废弃仓库
+  keyEvents: |
+    主角潜入仓库发现反派交易
+    身份暴露，双方对峙
+    反派引爆预先埋设的炸药
+    主角救出被困人质
+    反派趁乱逃脱
+  customContent: >
+    情绪基调: 紧张→爆发→温情。视角: 主角第一人称。
+    感官侧重: 听觉(雨声、爆炸)、触觉(雨水)。节奏: 慢→快→慢。
 
-## 大纲 Tab JSON (outline/)
-- items.json: {"items":[{"id","name","type":"武器|法宝|丹药|功法|道具|其他","grade","ability","owner","description"}]}
-- locations.json: {"locations":[{"id","name","description","type":"门派|城池|秘境|自然|其他"}]}
-- factions.json: {"factions":[{"id","name","description","type":"正道|邪道|中立|皇朝|其他"}]}
-- power_system.json: {"name","levels":[{"name","description"}],"description"}
-- outline_meta.json: {"foreshadowing":[{"id","description","plantChapterId","payoffChapterId","status":"planted|resolved"}],"plotThreads":[{"id","name","type":"main|sub|hidden","color","chapterIds":[]}]}
-- emotion.json: {"segments":[{"chapterStart","chapterEnd","dominantEmotion"}]}
-追加到列表JSON: read_file → edit_file(old_string=最后一个]前的内容, new_string=原文+新条目)
+## 大纲 Tab YAML (outline/{tab}.yaml) — 完整示例:
+  # items.yaml
+  items:
+    - id: sword_01
+      name: 青冥剑
+      type: 武器
+      grade: 上品灵器
+      ability: 锋锐无比，可斩断灵力护盾
+      owner: 主角
+      description: 剑身通体青色，剑柄刻有云纹。
+
+追加条目: read_file → edit_file(定位最后一个条目前的内容, 追加新条目)
+
+## 章节摘要 (summaries/chapter{N}.md) — Markdown，不变
+## 大纲 (outline/plot.md, worldbuilding.md) — Markdown，不变
 
 ## 风格模板 (create_style_template — 专用工具，禁止用 create_file)
 必填: name, type。dimensions每个维度: {description, examples(≥3条原文), writingRules(≥3条), vocabularyList(≥10词)}
@@ -86,14 +123,14 @@ Markdown格式。# 标题 → ## 章节 → 段落正文
 ## 笔记 (write_note)
 文件名自动加 .md。不要用 edit_file 编辑笔记（路径不兼容）
 
-# JSON 创建前必检 — 格式写错会被系统拒绝
-- 创建任何 JSON 前先 read_file 查看已有同类文件格式，不猜
-- 所有字段平铺，禁止嵌套对象（如{"basicInfo":{...}}）
-- role必须是: 男主|女主|男配|女配|反派|其他（不能写"男主角""女主角"）
-- abilities必须是纯文本字符串，不能是对象
+# YAML 创建前必检 — 格式写错会被系统拒绝
+- 创建任何 YAML 前先 read_file 查看已有同类文件格式，不猜
+- 所有字段平铺，禁止嵌套对象
+- role必须是: 男主|女主|男配|女配|反派|其他（不能加额外描述如"反派/内应"）
+- abilities必须是纯文本字符串，不能是对象或列表
 - gender/occupation/arc/relationships 最常遗漏，逐项确认
-- 多行文本必须用 \n 转义，禁止JSON内直接换行
-- content参数直接传纯JSON字符串，不要用代码块包裹
+- 多行文本用 | 或 >- 块标量，不需要 \n 转义
+- content参数直接传纯YAML字符串，不要用代码块包裹
 - 被拒绝后仔细阅读返回的error detail，按提示修正后重试
 
 # 输出控制
@@ -128,8 +165,8 @@ Markdown格式。# 标题 → ## 章节 → 段落正文
 
 # 文件命名规则
 - 模板/草稿/知识库/上传 → 中文命名（如"古风言情.json"、"第3章改写思路.md"）
-- 大纲/细纲/章节 → 保持原格式（plot.md, chapter1.json, chapter1.txt）
-- 角色文件 → 中文名（如 林语晴.json），id 字段用拼音
+- 大纲/细纲/章节 → 保持原格式（plot.md, chapter1.yaml, chapter1.txt）
+- 角色文件 → 中文名（如 林语晴.yaml），id 字段用拼音
 
 # 风格模板详细规范 (create_style_template)
 必填: name, type(17种之一), dimensions, worldType, tone
@@ -162,13 +199,13 @@ __PROJECT_CONTEXT__`
 
 export const CHARACTER_DOMAIN_MODULE = `
 ## 角色操作
-每个角色是 characters/{中文名}.json，16字段:
-文件名用角色中文名(如 林语晴.json)，id字段用拼音(如 linyuqing)保证唯一性。role(男主|女主|男配|女配|反派|其他), gender(男|女), age, occupation
+每个角色是 characters/{中文名}.yaml，16字段:
+文件名用角色中文名(如 林语晴.yaml)，id字段用拼音(如 linyuqing)保证唯一性。role(男主|女主|男配|女配|反派|其他), gender(男|女), age, occupation
 重要: background(背景故事), appearance(外貌), personality(性格), abilities(能力), weaknesses(弱点)
 关系: relationships(关系描述), relationshipTags(标签数组)
 成长: arc(角色弧线), importance(1-100)
 扩展: image(头像, 可选)
-不确定格式时先 read_file 参考已有角色 JSON`
+不确定格式时先 read_file 参考已有角色 YAML`
 
 export const OUTLINE_DOMAIN_MODULE = `
 ## 大纲操作
@@ -182,7 +219,7 @@ old_string必须逐字精确匹配（含换行和空格）
 
 export const CHAPTER_DOMAIN_MODULE = `
 ## 细纲格式
-detailed_outline/{章节id}.json，每章一个JSON文件。先read_file参考已有细纲格式再创建。
+detailed_outline/{章节id}.yaml，每章一个JSON文件。先read_file参考已有细纲格式再创建。
 必填: id(如chapter1), title, order(数字,从0开始), status(incomplete|completed), plotOverview(150-300字剧情概述), characters(出场角色+每个角色的情绪线), location(场景地点), keyEvents(关键事件，用\\n分隔的多行文本，每行一个事件)
 可选: eroticContent(情色内容，有则详写含具体描写，无情色则填"本章无情色内容"并简述原因), customContent(场景分幕详细描述，有详细分幕设计时填写，过渡/悬疑章可省略), emotionCurve(情绪曲线), writingNotes(写作要点，含视角/节奏/感官侧重/伏笔), summary(摘要)
 
@@ -295,7 +332,7 @@ export const SCENE_DOMAIN_MODULE = `
 export const ARCHITECTURE_DOCS_HINT = `
 ## 技术文档
 项目 docs/ 目录下有两份技术文档：
-- docs/软件架构.md — 四层Harness架构、37工具分类、数据流、核心功能流程 (136行)
+- docs/软件架构.md — 四层Harness架构、38工具分类、数据流、核心功能流程
 - docs/文件作用速查.md — 按目录分层的全量文件清单 (194行)
 
 用户问架构/文件结构/技术实现时，先判断用户意图。如果是浅层了解，用自己的知识简要回复，不要读文件。如果用户明确表示要深入了解，用 read_file 读取这两份文档后为用户讲解。
@@ -347,7 +384,7 @@ export const SOFTWARE_FEATURES_MODULE = `
 青剑是 AI 辅助小说创作桌面软件。主要功能模块：
 
 📁 项目管理 — 支持普通写作/仿写/续写三种项目类型，项目卡片 + ZIP 导出导入
-💬 AI 写作助手 — 39 个工具，悬浮聊天窗，Plan/Action 双模式，可操作项目文件
+💬 AI 写作助手 — 38 个工具，悬浮聊天窗，Plan/Action 双模式，可操作项目文件
 📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）
 👤 角色 — 16 字段卡片 + AI 一键生成 + G6 关系图 + 图片头像
 ✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 风格/场景模板注入 + 版本管理 + 批量生成
@@ -368,12 +405,35 @@ export function buildSystemPrompt(
   domainModules: string[],
   projectStructure: string,
   projectContext: string,
+  skillInjection?: string,
 ): string {
   const noIndexFallback = '如需操作文件，请确保已选择项目。目录结构和项目状态见下方系统消息。'
   const core = CORE_SYSTEM_PROMPT
     .replace('__PROJECT_STRUCTURE__', projectStructure || noIndexFallback)
     .replace('__PROJECT_CONTEXT__', projectContext || '项目信息见下方目录地图。')
-  return [core, ...domainModules].join('\n\n')
+  const parts = [core, ...domainModules]
+  if (skillInjection) parts.push(skillInjection)
+  return parts.join('\n\n')
+}
+
+/**
+ * 增强版 buildSystemPrompt，自动注入技能匹配指引。
+ * 如果技能系统不可用，回退到原始行为。
+ */
+export async function buildSystemPromptWithSkills(
+  domainModules: string[],
+  projectStructure: string,
+  projectContext: string,
+  userMessage: string,
+): Promise<string> {
+  let skillInjection: string | undefined
+  try {
+    const { buildSkillInjection } = await import('./skills/integration')
+    skillInjection = buildSkillInjection(userMessage) || undefined
+  } catch {
+    // 技能系统不可用时静默回退
+  }
+  return buildSystemPrompt(domainModules, projectStructure, projectContext, skillInjection)
 }
 
 export function selectDomainModules(userMessage: string): string[] {

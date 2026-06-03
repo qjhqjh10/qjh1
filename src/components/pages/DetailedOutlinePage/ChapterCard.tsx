@@ -20,10 +20,10 @@ export function ChapterCard({ chapter, index, allChapters, previewText, charPrev
   const chars = charPreview(chapter)
 
   return (
-    <GlassCard key={chapter.id} hover style={{ cursor: 'pointer', minHeight: 200, minWidth: 0 }}
+    <GlassCard key={chapter.id} hover style={{ cursor: 'pointer', minHeight: 180, maxHeight: 260, minWidth: 0, overflow: 'hidden' }}
       onClick={() => onOpen(chapter)}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
         draggable
         onDragStart={e => { e.dataTransfer.setData('text/plain', String(index)); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation() }}
         onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -86,11 +86,11 @@ export function ChapterCard({ chapter, index, allChapters, previewText, charPrev
 
         {/* Content preview */}
         {preview ? (
-          <div style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.6, flex: 1, overflow: 'hidden' }}>
+          <div style={{ fontSize: 11, color: '#4a3f38', lineHeight: 1.6, flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {preview}
           </div>
         ) : (
-          <div style={{ fontSize: 11, color: '#c4bdb6', flex: 1, fontStyle: 'italic' }}>
+          <div style={{ fontSize: 11, color: '#c4bdb6', flex: 1, fontStyle: 'italic', minHeight: 0 }}>
             点击编辑细纲内容
           </div>
         )}

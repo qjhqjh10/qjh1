@@ -4,11 +4,11 @@ import { cachedRead } from '../FileCache'
 import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 
 const STATIC_DOC = [
-  '## 细纲 JSON Schema',
-  '细纲存储在 detailed_outline/{章节id}.json，每章一个文件。',
+  '## 细纲 YAML Schema',
+  '细纲存储在 detailed_outline/{章节id}.yaml，每章一个文件。',
   '必填字段: id, title, order, status(incomplete|in_progress|complete), plotOverview, characters, location, keyEvents',
   '可选字段: emotionalTone, eroticContent, customContent, emotionCurve, writingNotes, summary',
-  '注意: 细纲是 JSON 不是 .md，禁止创建 detailed_outline/*.md。',
+  '注意: 细纲是 YAML 不是 .md，禁止创建 detailed_outline/*.md。',
 ].join('\n')
 
 const CN_DIGIT: Record<string, number> = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9 }
@@ -71,7 +71,7 @@ export const detailedOutlineProvider: ContextProvider = {
 
     if (chapterNum !== null) {
       const padded = String(chapterNum).padStart(3, '0')
-      const candidates = [`ch${padded}.json`, `${padded}.json`, `chapter${padded}.json`]
+      const candidates = [`ch${padded}.yaml`, `${padded}.yaml`, `chapter${padded}.yaml`]
       for (const filename of candidates) {
         try {
           const content = await cachedRead(`projects/${projectId}/detailed_outline/${filename}`, projectId)
@@ -82,10 +82,10 @@ export const detailedOutlineProvider: ContextProvider = {
       // Strategy 2: List directory and find by number
       try {
         const files = await fileService.listDir(`projects/${projectId}/detailed_outline`)
-        const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
+        const dataFiles = files.filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'))
         const paddedAlt = String(chapterNum)
-        const matched = jsonFiles.find((f: string) => {
-          const base = f.replace('.json', '')
+        const matched = dataFiles.find((f: string) => {
+          const base = f.replace(/.(json|ya?ml)$/, '')
           return base === padded || base === paddedAlt || base.endsWith(padded) || base.endsWith(paddedAlt)
         })
         if (matched) {
@@ -100,18 +100,19 @@ export const detailedOutlineProvider: ContextProvider = {
     // General: list all outlines with status
     try {
       const files = await fileService.listDir(`projects/${projectId}/detailed_outline`)
-      const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
-      if (jsonFiles.length === 0) {
+      const dataFiles = files.filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'))
+      if (dataFiles.length === 0) {
         return { domain: 'detailed-outline', priority: 80, estimatedTokens: 200, content: '## 细纲\n当前项目暂无细纲。\n\n' + STATIC_DOC }
       }
       const summaries: string[] = ['## 细纲概览', '']
-      for (const f of jsonFiles.slice(0, 20)) {
+      for (const f of dataFiles.slice(0, 20)) {
         try {
           const content = await cachedRead(`projects/${projectId}/detailed_outline/${f}`, projectId)
-          const obj = JSON.parse(content)
+          const parsed = (await import('@/utils/yamlUtils')).tryParseJsonOrYaml(content)
+          const obj = (parsed?.obj || {}) as Record<string, unknown>
           const status = obj.status === 'complete' ? '✓' : obj.status === 'in_progress' ? '◐' : '○'
-          summaries.push(`${status} ${obj.title || f.replace('.json', '')}`)
-        } catch { summaries.push(`○ ${f.replace('.json', '')}`) }
+          summaries.push(`${status} ${obj.title || f.replace(/.(json|ya?ml)$/, '')}`)
+        } catch { summaries.push(`○ ${f.replace(/.(json|ya?ml)$/, '')}`) }
       }
       return { domain: 'detailed-outline', priority: 80, estimatedTokens: Math.min(estimateTokensFromLines(summaries), 800), content: summaries.join('\n') }
     } catch {
@@ -120,8 +121,9 @@ export const detailedOutlineProvider: ContextProvider = {
   },
 }
 
-function buildOutlineBlock(chapterNum: number, filename: string, content: string) {
-  const obj = JSON.parse(content)
+async function buildOutlineBlock(chapterNum: number, filename: string, content: string) {
+  const parsed = (await import('@/utils/yamlUtils')).tryParseJsonOrYaml(content)
+  const obj = (parsed?.obj || {}) as Record<string, unknown>
   const lines = [
     `## 第${chapterNum}章细纲 — ${obj.title || filename}`,
     `- 状态: ${obj.status || '未知'}`,

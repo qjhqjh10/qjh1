@@ -6,12 +6,12 @@
 
 import { V4AgentRuntime } from './V4AgentRuntime'
 import { V4SecurityFence } from './V4SecurityFence'
-import { buildSystemPrompt, selectDomainModules, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
+import { buildSystemPrompt, buildSystemPromptWithSkills, selectDomainModules, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './tools/ToolRegistry'
 import { contextAssembler, ContextAssembler } from './context/ContextAssembler'
-import { ALL_TOOLS } from './tools/definitions'
+import { ALL_TOOLS } from './skills/tools'
 import { ALL_PROVIDERS } from './context/providers'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
@@ -26,7 +26,7 @@ let providersRegistered = false
 
 function ensureInitialized() {
   if (!toolsRegistered) {
-    toolRegistry.registerAll(ALL_TOOLS)
+    toolRegistry.registerAll(ALL_TOOLS as any)
     toolsRegistered = true
   }
   if (!providersRegistered) {
@@ -271,7 +271,7 @@ export class V4AgentChatBridge {
       // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
       // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
       // V9.5.2: planInstruction moved to dynamicContent to keep CORE_PROMPT stable for cache
-      const CORE_PROMPT = buildSystemPrompt(coreDomainModules, '', '')
+      const CORE_PROMPT = await buildSystemPromptWithSkills(coreDomainModules, '', '', userMessage)
       const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
       const coreTokens = estimateTokens(CORE_PROMPT)
 

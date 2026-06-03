@@ -1,6 +1,6 @@
 {
   "name": "ai-writing-qingjian",
-  "version": "9.6.2",
+  "version": "9.7.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -37,6 +37,7 @@
     "framer-motion": "^11.18.2",
     "iconv-lite": "^0.7.2",
     "immer": "^10.2.0",
+    "js-yaml": "^4.2.0",
     "jschardet": "^3.1.4",
     "mammoth": "^1.12.0",
     "nanoid": "^5.1.11",
@@ -52,6 +53,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/archiver": "^7.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",

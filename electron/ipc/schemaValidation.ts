@@ -261,20 +261,36 @@ function validateEmotion(obj: Record<string, unknown>): ValidationResult {
  * Returns structured errors so the AI can retry with corrections.
  */
 export function validateFileContent(filePath: string, content: string): ValidationResult {
-  // Parse JSON
+  const isYaml = filePath.endsWith('.yaml') || filePath.endsWith('.yml')
+  const isJson = filePath.endsWith('.json')
+
+  // Parse content (JSON or YAML)
   let obj: unknown
-  try {
-    obj = JSON.parse(content)
-  } catch (e: any) {
-    // Try repair before giving up
-    const repaired = tryRepairJson(content)
-    if (repaired) {
-      try { obj = JSON.parse(repaired) } catch { /* still broken */ }
-    }
-    if (!obj) {
+  if (isYaml) {
+    // YAML parsing
+    try {
+      const yaml = require('js-yaml')
+      obj = yaml.load(content, { schema: yaml.JSON_SCHEMA, json: false })
+    } catch (e: any) {
       return {
         valid: false,
-        errors: [{ field: '(整个文件)', message: `JSON 格式错误: ${e.message}` }],
+        errors: [{ field: '(整个文件)', message: `YAML 格式错误: ${e.message}。请检查缩进（2空格）、多行文本用 | 或 >-、列表用 - 前缀。` }],
+      }
+    }
+  } else {
+    // JSON parsing with repair fallback
+    try {
+      obj = JSON.parse(content)
+    } catch (e: any) {
+      const repaired = tryRepairJson(content)
+      if (repaired) {
+        try { obj = JSON.parse(repaired) } catch { /* still broken */ }
+      }
+      if (!obj) {
+        return {
+          valid: false,
+          errors: [{ field: '(整个文件)', message: `JSON 格式错误: ${e.message}。请检查：所有键用双引号、无尾随逗号。建议使用 YAML 格式（.yaml）替代 JSON。` }],
+        }
       }
     }
   }

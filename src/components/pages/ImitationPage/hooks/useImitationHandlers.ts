@@ -689,7 +689,7 @@ ${summaryParts.join('\n')}
       imported.push('大纲')
     }
 
-    // 4. Detailed outlines → detailed_outline/*.json
+    // 4. Detailed outlines → detailed_outline/*.yaml
     if (detailsResults) {
       try {
         const details = JSON.parse(detailsResults)
@@ -718,7 +718,7 @@ ${summaryParts.join('\n')}
     // 5. Foreshadowing → outline_meta.json
     const fs = or.foreshadowing
     if (fs || (ag?.foreshadowing.length ?? 0) > 0) {
-      const metaPath = `${pp}/outline/outline_meta.json`
+      const metaPath = `${pp}/outline/outline_meta.yaml`
       let existingMeta: { foreshadowing: { id: string; description: string; plantChapterId: string; payoffChapterId: string; status: string }[]; plotThreads: unknown[]; updatedAt: string } = { foreshadowing: [], plotThreads: [], updatedAt: '' }
       try { const raw = await fileService.read(metaPath); if (raw) existingMeta = JSON.parse(raw) } catch { /* */ }
       if (fs) {

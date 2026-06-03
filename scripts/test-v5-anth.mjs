@@ -85,8 +85,8 @@ const SYS=`你是"青剑"，AI小说创作助手。
 - 规则→list_rules/learn_rule/list_audit/write_learning
 
 # 文件路径
-角色:1/characters/中文名.json 章节:1/chapters/chapterN.txt
-细纲:1/detailed_outline/chapterN.json 大纲:1/outline/plot.md`;
+角色:1/characters/中文名.yaml 章节:1/chapters/chapterN.txt
+细纲:1/detailed_outline/chapterN.yaml 大纲:1/outline/plot.md`;
 
 async function callAnthropic(sys,msgs,tds){
   const body={model:'deepseek-chat',system:[{type:'text',text:sys}],messages:msgs,max_tokens:2048,stream:true};
@@ -105,10 +105,10 @@ console.log('══════════════════════�
 
 // ═══ 文件操作 ═══
 console.log('┌─ 文件操作 ──────────────────────────────┐');
-const f1=await run('读 1/characters/林语晴.json'); t('S1-1 读角色',f1.toolCalls>=1,f1.iterations+'轮');
+const f1=await run('读 1/characters/林语晴.yaml'); t('S1-1 读角色',f1.toolCalls>=1,f1.iterations+'轮');
 const f2=await run('列出项目1的characters目录'); t('S1-2 列目录',f2.toolCalls>=1,f2.iterations+'轮');
 const f3=await run('搜索项目1中"静止"的出现'); t('S1-3 搜索',f3.toolCalls>=1,f3.iterations+'轮');
-const f4=await run('读 1/characters/测试角色.json，把description改成"Anthropic全面测试"（用edit_file, old_string=__FULL_REPLACE__）'); t('S1-4 读→改',f4.toolCalls>=2,f4.iterations+'轮 '+f4.toolCalls+'工具');
+const f4=await run('读 1/characters/测试角色.yaml，把description改成"Anthropic全面测试"（用edit_file, old_string=__FULL_REPLACE__）'); t('S1-4 读→改',f4.toolCalls>=2,f4.iterations+'轮 '+f4.toolCalls+'工具');
 const f5=await run('创建文件 1/test-anth-probe.txt，内容"Anthropic测试探针"。用read_file验证内容。用delete_file删除它。'); t('S1-5 创→读→删',f5.toolCalls>=3,f5.iterations+'轮 '+f5.toolCalls+'工具');
 console.log('└─────────────────────────────────────────┘');
 
@@ -148,20 +148,20 @@ console.log('└─────────────────────�
 // ═══ 复杂编排 ═══
 console.log('\n┌─ 复杂编排 ──────────────────────────────┐');
 const cx1=await run('先列项目1的characters目录，然后读第一个角色，最后写分析笔记"Anthropic编排测试"'); t('S6-1 列→读→写',cx1.toolCalls>=3,cx1.iterations+'轮 '+cx1.toolCalls+'工具');
-const cx2=await run('读 1/characters/林语晴.json 参考格式，创建角色"Anthropic测试角色"：id=anth_test, name=Anthropic测试角色, role=男配, gender=男, age=25, occupation=测试, background=这是Anthropic协议综合测试角色, appearance=测试, personality=测试, abilities=测试, weaknesses=测试, relationships=无, relationshipTags=["测试"], arc=测试, importance=50。保存到 1/characters/Anthropic测试角色.json'); t('S6-2 读→创角色',cx2.toolCalls>=2,cx2.iterations+'轮 '+cx2.toolCalls+'工具');
+const cx2=await run('读 1/characters/林语晴.yaml 参考格式，创建角色"Anthropic测试角色"：id=anth_test, name=Anthropic测试角色, role=男配, gender=男, age=25, occupation=测试, background=这是Anthropic协议综合测试角色, appearance=测试, personality=测试, abilities=测试, weaknesses=测试, relationships=无, relationshipTags=["测试"], arc=测试, importance=50。保存到 1/characters/Anthropic测试角色.yaml'); t('S6-2 读→创角色',cx2.toolCalls>=2,cx2.iterations+'轮 '+cx2.toolCalls+'工具');
 const cx3=await run('读 1/outline/plot.md 了解剧情→搜索"静止"→写分析笔记"Anthropic剧情分析"'); t('S6-3 读→搜→写',cx3.toolCalls>=3,cx3.iterations+'轮 '+cx3.toolCalls+'工具');
 console.log('└─────────────────────────────────────────┘');
 
 // ═══ 错误恢复 ═══
 console.log('\n┌─ 错误恢复 ──────────────────────────────┐');
-const er1=await run('读 1/characters/不存在角色.json，如果不存在就读 1/characters/林语晴.json'); t('S7-1 读失败→替代',er1.toolCalls>=2,er1.iterations+'轮 '+er1.toolCalls+'工具');
-const er2=await run('创建 1/characters/无效测试.json，content=这不是合法JSON{broken'); t('S7-2 JSON校验失败',er2.toolCalls>=1,er2.iterations+'轮 '+er2.toolCalls+'工具');
+const er1=await run('读 1/characters/不存在角色.yaml，如果不存在就读 1/characters/林语晴.yaml'); t('S7-1 读失败→替代',er1.toolCalls>=2,er1.iterations+'轮 '+er1.toolCalls+'工具');
+const er2=await run('创建 1/characters/无效测试.yaml，content=这不是合法JSON{broken'); t('S7-2 JSON校验失败',er2.toolCalls>=1,er2.iterations+'轮 '+er2.toolCalls+'工具');
 console.log('└─────────────────────────────────────────┘');
 
 // ═══ 边界 ═══
 console.log('\n┌─ 边界情况 ──────────────────────────────┐');
 const b1=await run('看林语晴角色'); t('S8-1 看→读',b1.toolCalls>=1,b1.iterations+'轮 '+b1.toolCalls+'工具');
-const b2=await run('不用列目录直接读 1/characters/林语晴.json'); t('S8-2 否定语义',b2.toolCalls>=1,b2.iterations+'轮 '+b2.toolCalls+'工具');
+const b2=await run('不用列目录直接读 1/characters/林语晴.yaml'); t('S8-2 否定语义',b2.toolCalls>=1,b2.iterations+'轮 '+b2.toolCalls+'工具');
 const b3=await run('林语晴角色信息是什么'); t('S8-3 间接→读',b3.toolCalls>=1,b3.iterations+'轮 '+b3.toolCalls+'工具');
 const b4=await run('项目里有几个角色'); t('S8-4 间接→列',b4.toolCalls>=1,b4.iterations+'轮 '+b4.toolCalls+'工具');
 console.log('└─────────────────────────────────────────┘');
@@ -173,6 +173,6 @@ console.log('══════════════════════�
 console.log('  ✅ '+pass+'  ❌ '+fail+'  通过率: '+((pass/tt)*100).toFixed(1)+'%');
 
 // 清理
-try{fs.unlinkSync(P('1/characters/Anthropic测试角色.json'))}catch{}
+try{fs.unlinkSync(P('1/characters/Anthropic测试角色.yaml'))}catch{}
 try{fs.unlinkSync(N('Anthropic编排测试.md'))}catch{}
 try{fs.unlinkSync(N('Anthropic剧情分析.md'))}catch{}

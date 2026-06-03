@@ -3,9 +3,11 @@ import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { logError } from '@/utils/logger'
 import { loadSummary } from '@/services/summaryService'
 import { safeJsonParse } from '@/utils/safeJsonParse'
+import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
+import { isStructuredDataFile, stripExtension, readAndMigrate } from '@/utils/filePaths'
 
-function jsonPath(projectPath: string, id: string) {
-  return `${projectPath}/detailed_outline/${id}.json`
+function chapPath(projectPath: string, id: string) {
+  return `${projectPath}/detailed_outline/${id}.yaml`
 }
 
 /** Fix unescaped newlines inside JSON string values. */
@@ -74,7 +76,7 @@ export function repairJson(raw: string): string | null {
 
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
   try {
-    await fileService.write(jsonPath(projectPath, chapter.id), JSON.stringify(chapter, null, 2))
+    await fileService.write(chapPath(projectPath, chapter.id), yamlStringify(chapter))
   } catch (e) {
     logError(`保存细纲失败: ${chapter.title || chapter.id}`, e)
     throw e
@@ -86,37 +88,36 @@ export async function loadDetailedChapters(projectPath: string): Promise<Detaile
     const files = await fileService.listDir(`${projectPath}/detailed_outline`)
     const seenIds = new Set<string>()
 
-    // Prefer .json files — load in parallel (M14)
-    const jsonFiles = files.filter(f => f.endsWith('.json'))
-    const jsonResults = await Promise.allSettled(jsonFiles.map(async (file) => {
-      // Strip non-JSON wrapper text and attempt repair
-      let content = await fileService.read(`${projectPath}/detailed_outline/${file}`)
-      // Handle AI wrapping JSON in markdown code fences
-      const fenceMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/)
-      if (fenceMatch) content = fenceMatch[1].trim()
-      // Strip any leading/trailing non-JSON text
-      const jsonStart = content.indexOf('{')
-      const jsonEnd = content.lastIndexOf('}')
-      if (jsonStart >= 0 && jsonEnd > jsonStart) {
-        content = content.slice(jsonStart, jsonEnd + 1)
-      } else if (jsonStart >= 0) {
-        content = content.slice(jsonStart)
-      }
+    // Read .yaml files; auto-migrate old .json files (parallel M14)
+    const dataFiles = files.filter(f => isStructuredDataFile(f))
+    const seenBaseNames = new Set<string>()
+    const results = await Promise.allSettled(dataFiles.map(async (file) => {
+      const baseName = stripExtension(file)
+      if (seenBaseNames.has(baseName)) return null
+      seenBaseNames.add(baseName)
 
-      const repaired = repairJson(content)
-      if (!repaired) throw new Error('JSON 无法修复')
-      const ch = JSON.parse(repaired) as DetailedChapter
-      if (!ch.id) ch.id = file.replace('.json', '')
-      if (!ch.title) ch.title = file.replace('.json', '')
-      // Merge summary from standalone file (priority), fallback to JSON field
+      const migrated = await readAndMigrate(
+        p => fileService.read(p).catch(() => null),
+        (p, c) => fileService.write(p, c),
+        `${projectPath}/detailed_outline`,
+        baseName,
+      )
+      if (!migrated) throw new Error('文件读取失败')
+
+      const parsed = tryParseJsonOrYaml(migrated.content)
+      if (!parsed) throw new Error('格式解析失败')
+
+      const ch = parsed.obj as DetailedChapter
+      if (!ch.id) ch.id = baseName
+      if (!ch.title) ch.title = baseName
       const fileSummary = await loadSummary(projectPath, ch.id).catch(() => '')
       if (fileSummary) ch.summary = fileSummary
       return ch
     }))
 
     const chapters: DetailedChapter[] = []
-    for (const r of jsonResults) {
-      if (r.status === 'fulfilled') {
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) {
         chapters.push(r.value)
         seenIds.add(r.value.id || '')
       }

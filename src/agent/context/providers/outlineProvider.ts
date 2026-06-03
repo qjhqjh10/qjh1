@@ -8,7 +8,7 @@ const STATIC_DOC = [
   '',
   '文件位置: outline/plot.md (剧情), outline/worldbuilding.md (世界观)',
   '编辑前先 read_file 确认当前内容。修改用 edit_file，追加用末尾原文做 old_string。',
-  '大纲是 .md，细纲是 .json，两者文件夹不同。',
+  '大纲是 .md，细纲是 .yaml，两者文件夹不同。',
 ].join('\n')
 
 export const outlineProvider: ContextProvider = {

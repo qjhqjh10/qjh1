@@ -931,7 +931,7 @@ const SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。直接操作项�
 3. 失败最多重试1次。
 
 ## 角色操作
-每个角色是 characters/{拼音id}.json，16字段:
+每个角色是 characters/{拼音id}.yaml，16字段:
 必填: id(拼音), name(中文名), role(男主|女主|男配|女配|反派|其他), gender(男|女), age, occupation
 重要: background, appearance, personality, abilities, weaknesses
 关系: relationships(描述), relationshipTags(标签数组)
@@ -947,7 +947,7 @@ worldbuilding.md格式: # 标题 → ## 核心设定 → ### 各子系统
 old_string必须逐字精确匹配
 
 ## 细纲格式
-detailed_outline/{章节id}.json，每章一个JSON:
+detailed_outline/{章节id}.yaml，每章一个JSON:
 必填: id(如chapter1), title, order, status(incomplete|in_progress|complete), plotOverview(剧情概述), characters(出场角色+情绪线), location(地点), keyEvents(关键事件列表)
 可选: eroticContent(情色内容), customContent(场景分幕), emotionCurve(情绪曲线), writingNotes(写作要点)
 先read_file参考已有细纲格式再创建

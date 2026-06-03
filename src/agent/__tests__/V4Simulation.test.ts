@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { V4AgentRuntime } from '../V4AgentRuntime'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { toolRegistry } from '../tools/ToolRegistry'
-import { ALL_TOOLS } from '../tools/definitions'
+import { ALL_TOOLS } from '../skills/tools'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 
 // ── Setup ──
@@ -390,7 +390,7 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具注册 ──
-  it('功能08: ToolRegistry — 37个工具全部可用', () => {
+  it('功能08: ToolRegistry — 38个工具全部可用', () => {
     const names = toolRegistry.getNames()
     expect(names.length).toBeGreaterThanOrEqual(30)
     expect(names).toContain('read_file')

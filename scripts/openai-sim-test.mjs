@@ -73,8 +73,8 @@ const SYS = [
   '- 多个独立操作可在同一轮并行完成。有依赖的操作分轮执行。',
   '',
   '# 路径',
-  '角色: 1/characters/中文名.json  章节: 1/chapters/chapterN.txt',
-  '细纲: 1/detailed_outline/chapterN.json  大纲: 1/outline/plot.md',
+  '角色: 1/characters/中文名.yaml  章节: 1/chapters/chapterN.txt',
+  '细纲: 1/detailed_outline/chapterN.yaml  大纲: 1/outline/plot.md',
 ].join('\n')
 
 async function callOpenAI(messages) {
@@ -142,7 +142,7 @@ async function main() {
 
   // S2: 读文件
   console.log('\n▶ S2 读取文件')
-  const r2 = await agentRun('读取 1/characters/林语晴.json')
+  const r2 = await agentRun('读取 1/characters/林语晴.yaml')
   t('S2 读角色文件', r2.toolCalls>=1, r2.iterations+'轮 '+r2.toolCalls+'工具')
 
   // S3: 列目录
@@ -157,7 +157,7 @@ async function main() {
 
   // S5: 复杂编排(读→创建)
   console.log('\n▶ S5 读→创建')
-  const r5 = await agentRun('读 1/characters/林语晴.json 了解格式，然后创建新角色"测试-OpenAI-probe": id=test_probe, name=测试-OpenAI-probe, role=男配, gender=男, age=25, occupation=测试员, background=这是OpenAI协议测试角色, appearance=测试外观, personality=测试性格, abilities=测试能力, weaknesses=测试弱点, relationships=无, relationshipTags=["测试"], arc=测试弧线, importance=10。保存到 1/characters/测试-OpenAI-probe.json')
+  const r5 = await agentRun('读 1/characters/林语晴.yaml 了解格式，然后创建新角色"测试-OpenAI-probe": id=test_probe, name=测试-OpenAI-probe, role=男配, gender=男, age=25, occupation=测试员, background=这是OpenAI协议测试角色, appearance=测试外观, personality=测试性格, abilities=测试能力, weaknesses=测试弱点, relationships=无, relationshipTags=["测试"], arc=测试弧线, importance=10。保存到 1/characters/测试-OpenAI-probe.yaml')
   t('S5 读→创建角色', r5.toolCalls>=2&&r5.iterations<=6, r5.iterations+'轮 '+r5.toolCalls+'工具')
 
   // S6: KB操作
@@ -190,7 +190,7 @@ async function main() {
 
   // S11: 错误恢复
   console.log('\n▶ S11 错误恢复')
-  const r11 = await agentRun('读取 1/characters/不存在角色.json，如果不存在就读取 1/characters/林语晴.json')
+  const r11 = await agentRun('读取 1/characters/不存在角色.yaml，如果不存在就读取 1/characters/林语晴.yaml')
   t('S11 读失败→读替代', r11.toolCalls>=2, r11.iterations+'轮 '+r11.toolCalls+'工具')
 
   // S12: 对话类不应调工具

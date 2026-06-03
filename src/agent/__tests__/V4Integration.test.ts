@@ -6,7 +6,7 @@ import { V4AgentRuntime } from '../V4AgentRuntime'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { buildSystemPrompt, selectDomainModules, CORE_SYSTEM_PROMPT, CHARACTER_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE } from '../V4SystemPrompt'
 import { toolRegistry } from '../tools/ToolRegistry'
-import { ALL_TOOLS } from '../tools/definitions'
+import { ALL_TOOLS } from '../skills/tools'
 import type { Message, ToolCallRequest } from '../state/types'
 
 // ── Test setup ──

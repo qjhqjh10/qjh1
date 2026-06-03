@@ -48,7 +48,7 @@ export function ChapterListPanel({
   }
 
   const handleDelete = async (ch: DetailedChapter) => {
-    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.json`)
+    await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.yaml`)
     await fileService.deleteFile(`${projectPath}/chapters/${ch.id}.txt`).catch(() => {})
     await fileService.deleteFile(`${projectPath}/summaries/${ch.id}.md`).catch(() => {})
     setChapters(prev => prev.filter(c => c.id !== ch.id))

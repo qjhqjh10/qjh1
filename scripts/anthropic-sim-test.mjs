@@ -98,7 +98,7 @@ const SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。你可以使用�
 - 调用工具是唯一完成任务的方式
 
 # 文件路径
-- 角色: {项目}/characters/{中文名}.json   例: 1/characters/林雨晴.json
+- 角色: {项目}/characters/{中文名}.yaml   例: 1/characters/林雨晴.yaml
 - 章节: {项目}/chapters/chapter{N}.txt    例: 1/chapters/chapter3.txt
 - 大纲: {项目}/outline/plot.md            例: 1/outline/plot.md
 - KB文件: ../../knowledge_base/files/{文件名}.md
@@ -280,7 +280,7 @@ async function runTests() {
   // ── 测试 2: 文件读取 ──
   console.log('\n📋 测试 S1-1: 读取文件（已知路径）')
   try {
-    const r = await runAgent('读取项目1的角色林雨晴，路径是 1/characters/林雨晴.json', SYSTEM_PROMPT)
+    const r = await runAgent('读取项目1的角色林雨晴，路径是 1/characters/林雨晴.yaml', SYSTEM_PROMPT)
     record('读取角色文件', r.toolCalls >= 1 && r.toolSteps.some(s => s.tool === 'read_file'),
       `${r.iterations}轮 ${r.toolCalls}工具 ${r.toolSteps.map(s => s.tool + (s.status !== 'success' ? '❌' : '')).join(', ')}`)
   } catch (e) {

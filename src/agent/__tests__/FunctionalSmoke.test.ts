@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { buildSystemPrompt, CORE_SYSTEM_PROMPT, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE } from '../V4SystemPrompt'
 import { toolRegistry } from '../tools/ToolRegistry'
-import { ALL_TOOLS } from '../tools/definitions'
+import { ALL_TOOLS } from '../skills/tools'
 import { contextAssembler, ContextAssembler } from '../context/ContextAssembler'
 import { LearningEngine } from '../learning/LearningEngine'
 
