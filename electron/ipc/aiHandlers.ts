@@ -253,8 +253,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
 
-    // Anthropic 协议的 URL 含 /anthropic，不能用于 /models 端点，去掉即可
-    const apiUrl = (config.apiUrl || '').replace(/\/anthropic(\/.*)?$/, '').replace(/\/+$/, '')
+    const apiUrl = config.apiUrl
 
     if (!apiKey) {
       throw new Error(`API 密钥未设置。请在模型设置中填写 API 密钥后重试。\n当前地址: ${apiUrl}`)
