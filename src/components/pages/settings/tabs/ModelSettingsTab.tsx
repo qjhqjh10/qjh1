@@ -426,11 +426,6 @@ export function ModelSettingsTab() {
       <div style={{ flex: 1, overflow: 'auto' }} className="custom-scrollbar">
         <ScrollArea maxHeight="100%" style={{ paddingRight: 20 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
-            {savedAt > 0 && (
-              <div style={{ padding: '8px 16px', borderRadius: 10, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', color: '#16a34a', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-                ✓ 已保存
-              </div>
-            )}
 
             {/* ── 模板名称 ── */}
             <div style={{ padding: '18px 22px', borderRadius: 16, background: 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.05))', border: '1px solid rgba(124,58,237,0.15)' }}>
