@@ -253,10 +253,12 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
 
+    // Anthropic 协议的 URL 含 /anthropic/v1/messages，不能用于 /models 端点，需转换为基础地址
+    const apiUrl = (config.apiUrl || '').replace(/\/anthropic\/.*$/, '').replace(/\/+$/, '') + '/v1'
+
     try {
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: config.apiUrl, timeout: 8000 })
-      // Try /models endpoint first (OpenAI-compatible providers)
+      const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
       const response = await client.models.list()
       return response.data.map(m => m.id)
     } catch {
@@ -264,15 +266,16 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       // Use a minimal chat completion to verify connectivity instead.
       try {
         const OpenAI = await getOpenAI()
-        const client = new OpenAI({ apiKey, baseURL: config.apiUrl, timeout: 8000 })
+        const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
         await client.chat.completions.create({
           model: config.model || 'deepseek-chat',
           messages: [{ role: 'user', content: 'ping' }],
           max_tokens: 1,
         })
         return [config.model || 'deepseek-chat']
-      } catch {
-        return []
+      } catch (err2) {
+        const msg = err2 instanceof Error ? err2.message : String(err2)
+        throw new Error(`无法连接 API: ${msg}`)
       }
     }
   })

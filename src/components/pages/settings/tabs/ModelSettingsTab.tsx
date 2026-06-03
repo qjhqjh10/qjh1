@@ -318,18 +318,22 @@ export function ModelSettingsTab() {
 
   // Fetch model list from API — per-card (main / image)
   const handleRefreshModels = async (card: 'main' | 'image') => {
-    if (!activeConfigId) return
+    const currentConfigId = useSettingsStore.getState().activeConfigId
+    if (!currentConfigId) return
     if (card === 'main') setLoadingMainModels(true)
     else setLoadingImageModels(true)
     try {
       // 强制立即保存配置，确保 API 密钥已同步到主进程
       await settingsService.saveConfigs(useSettingsStore.getState().configs)
-      const raw = await aiService.listModels(activeConfigId)
+      const raw = await aiService.listModels(currentConfigId)
       const list: string[] = Array.isArray(raw) ? raw
         : typeof raw === 'string' ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : (p.data || []) } catch { return [] } })()
         : []
-      if (card === 'main') { setMainModelList(list); setActiveDropdown('main') }
-      else { setImageModelList(list); setActiveDropdown('image') }
+      if (list.length === 0) {
+        alert('未获取到模型列表。\n\n可能原因：\n1. API 地址不正确（检查地址格式）\n2. API 密钥无效或未填写\n3. 网络连接问题\n4. 该服务商不支持 /models 端点\n\n请检查设置后重试。')
+      }
+      if (card === 'main') { setMainModelList(list); if (list.length > 0) setActiveDropdown('main') }
+      else { setImageModelList(list); if (list.length > 0) setActiveDropdown('image') }
     } catch (err) { alert(`获取模型列表失败: ${err instanceof Error ? err.message : '请检查网络或API配置'}`) }
     if (card === 'main') setLoadingMainModels(false)
     else setLoadingImageModels(false)
