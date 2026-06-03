@@ -1,32 +1,17 @@
 import type { ContextProvider } from '../ContextAssembler'
 import { extractSummary } from '../contentExtractor'
-import { isTaskMessage } from '../../utils/taskDetection'
 import { estimateTokens } from '../../utils/tokenEstimation'
-import { buildMemoryIndex } from '../MemoryIndex'
 import { cachedRead } from '../FileCache'
 
 export const coreRulesProvider: ContextProvider = {
   domain: 'core-rules',
   relevance: (userMessage) => {
-    // V1-3: Dynamic relevance gating — avoid injecting ~800 tokens of core rules
-    // into simple greetings or casual chat that doesn't need tools
     if (!userMessage || userMessage.trim().length < 5) return 0.1
-    if (isTaskMessage(userMessage)) return 0.8  // task messages need rules
     if (/^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye)[!！。.]?$/i.test(userMessage.trim())) return 0.0
-    return 0.4  // non-task messages: below default 0.4 threshold → only included if explicitly relevant
+    return 0.8
   },
 
-  buildContext: async (projectId, userMessage) => {
-    const isTask = userMessage && isTaskMessage(userMessage)
-
-    // V2-2: Use MemoryIndex (compact pointer list) instead of verbose projectSummary
-    let projectIndex = ''
-    if (projectId && isTask) {
-      try {
-        projectIndex = await buildMemoryIndex(projectId)
-      } catch { /* best effort */ }
-    }
-
+  buildContext: async (projectId, _userMessage) => {
     let feedbackContent = ''
     try {
       const raw = await cachedRead('.aiharness/feedback/auto-suggestions.md', projectId)
@@ -42,25 +27,14 @@ export const coreRulesProvider: ContextProvider = {
     return {
       domain: 'core-rules',
       priority: 100,
-      estimatedTokens: 250 + estimateTokens(projectIndex) + estimateTokens(feedbackContent),
+      estimatedTokens: 250 + estimateTokens(feedbackContent),
       content: [
         '你是一位专业的小说写作助手，通过工具直接操作项目文件。',
-
+        '',
         '## 核心规则',
-        '1. 你没调工具就说"已完成"=欺骗。没调工具就说"没权限"=幻觉。你拥有所有工具的使用权。',
-        '2. 理解用户意图再行动。查看/了解内容→先看上方项目索引，索引中有路径的直接 read_file。索引中没有的（全局模板、知识库等），用 list_directory("../../xxx") 定位。已知路径绝不搜索。',
-        '3. 编辑前先 read_file 确认内容。创建 JSON 文件→系统自动校验格式→按错误提示修正。',
-        '4. 完成后报告结果。不要反复调用同一工具。不确定时用工具查找，不要编造理由。',
-
-        projectIndex ? `\n${projectIndex}` : '',
-
-        '\n## 项目导航',
-        '需要了解项目结构或规则详情时，用 read_file 读取：',
-        '- 项目结构: .aiharness/rules/project-structure.md',
-        '- 编码约束: .aiharness/rules/golden-rules.md',
-        '- 小说约束: .aiharness/rules/novel-constraints.md',
-        '- 配置: .aiharness/aiharness.json',
-
+        '1. 不调工具说"已完成"=欺骗。不调工具说"没权限"=幻觉。',
+        '2. 找文件用 list_directory，读内容用 read_file，搜文本用 search_content。每个工具各司其职。',
+        '3. 编辑前read_file确认。失败最多重试1次。',
         feedbackContent,
       ].filter(Boolean).join('\n'),
     }

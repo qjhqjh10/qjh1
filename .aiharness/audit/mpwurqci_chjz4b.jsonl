@@ -1,0 +1,2 @@
+{"timestamp":1780417768482,"sessionId":"mpwurqci_chjz4b","event":"session:start","data":{}}
+{"timestamp":1780417771850,"sessionId":"mpwurqci_chjz4b","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"353 字符"}}

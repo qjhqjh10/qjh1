@@ -349,7 +349,7 @@ class NodeToolExecutor {
 
       case 'search_files': {
         const keyword = String(args.keyword || '').toLowerCase()
-        if (!keyword) return { status: 'error', summary: '缺少搜索关键词' }
+        if (!keyword) return { status: 'error', summary: '缺少搜索关键词 — 请从文件名中提取关键词。如果不知道该搜什么，先用 list_directory 查看目录' }
         const rawPath = String(args.dir_path || '')
         const isGlobal = rawPath.includes('..')
         const dir = args.dir_path ? this.resolvePath(rawPath, projectPath) : projectPath
@@ -926,12 +926,9 @@ const SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。直接操作项�
 🗣闲聊→0工具 📋简单→1轮完成 ❓模糊→先追问 🏗复杂→1-2轮完成
 
 ## 核心规则
-1. 项目索引已告诉你所有文件路径。列出内容时直接用索引回复，不要 list_directory/search_files 探索。read_file 仅用于读取具体内容。
-2. 上下文已有=不重读。创建成功=不验证。
-3. 文件多时先问再读。超过5个同类型文件时，先列出概要让用户选择。用户明确指定时直接读。
-4. 简洁报告，10句话以内。
-5. 模糊意图先追问。同一工具连败2次→报告停止。
-6. 列出角色/章节时用项目索引直接回复，不要逐个 read_file。
+1. 索引有路径→直接read_file。列出角色/章节/模板→0工具从索引回复。
+2. 索引没有→1次list_directory。search_files仅最后手段。
+3. 失败最多重试1次。
 
 ## 角色操作
 每个角色是 characters/{拼音id}.json，16字段:

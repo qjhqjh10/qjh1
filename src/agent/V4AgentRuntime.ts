@@ -45,6 +45,7 @@ export interface V4AgentRunResult {
   completionTokens: number
   phase: AgentPhase
   toolsUsed: string[]
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
   iterationCount: number
 }
@@ -94,8 +95,10 @@ export class V4AgentRuntime {
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private toolsUsed: string[] = []
+  private toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }> = []
   private compressor: ContextCompressor  // set in constructor from config.contextWindow
   private compressedAt = 0
+  private lastCompressLength = 0  // v4.2: protect recent tool results from being compressed away
 
   constructor(config: V4AgentConfig) {
     this.config = config
@@ -128,7 +131,7 @@ export class V4AgentRuntime {
     const RUN_TIMEOUT = 300_000 // 5 minutes wall-clock
 
     if (!this.aiService || !this.toolExecutor) {
-      return { success: false, text: 'AI 服务未配置', toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, phase: 'ERROR' as AgentPhase, toolsUsed: [], iterationCount: 0 }
+      return { success: false, text: 'AI 服务未配置', toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, phase: 'ERROR' as AgentPhase, toolsUsed: [], toolCallSteps: [], iterationCount: 0 }
     }
 
     store.startRun(runId)
@@ -140,6 +143,7 @@ export class V4AgentRuntime {
     let toolCallsCount = 0
     let collectedText = ''
     this.toolsUsed = []
+    this.toolCallSteps = []
 
     store.setPhase('RUNNING' as AgentPhase)
     diagnosticLogger.recordPhaseChange('IDLE' as AgentPhase, 'RUNNING' as AgentPhase)
@@ -190,21 +194,21 @@ export class V4AgentRuntime {
       // across all iterations while still nudging the model to stop when appropriate.
       if (iteration >= 3) {
         const hintIdx = fullSystemMessages.length  // after system messages, before history
+        // Remove ALL previous hint messages before inserting the new one
+        for (let i = this.messagesForApi.length - 1; i >= hintIdx; i--) {
+          const m = this.messagesForApi[i]
+          if (m.role === 'system' && typeof m.content === 'string' &&
+              (m.content.startsWith('[提示]') || m.content.startsWith('[最后轮次]'))) {
+            this.messagesForApi.splice(i, 1)
+          }
+        }
+        // Insert the new hint
         this.messagesForApi.splice(hintIdx, 0, {
           role: 'system',
           content: iteration >= this.config.maxIterations - 1
             ? '[最后轮次] 已达到最大操作轮次。请基于已完成的工具结果生成最终文本回复。'
             : `[提示] 当前第${iteration}轮。如果已有足够信息回复用户，请直接输出文本回复，不要继续工具调用。`,
         })
-        // Remove previous hint if any (to avoid accumulation)
-        if (iteration > 3) {
-          const prevHintIdx = this.messagesForApi.findIndex(m =>
-            m.role === 'system' && typeof m.content === 'string' && m.content.startsWith('[提示]') || m.content.startsWith('[最后轮次]')
-          )
-          if (prevHintIdx >= 0 && prevHintIdx < hintIdx) {
-            this.messagesForApi.splice(prevHintIdx, 1)
-          }
-        }
       }
       this.emitter.emit('thinking:start', { intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now() })
 
@@ -212,9 +216,16 @@ export class V4AgentRuntime {
       const estimatedTokens = this.compressor.estimateMessages(this.messagesForApi)
       if (this.compressor.needsCompression(estimatedTokens)) {
         const stage = this.compressor.getStage(estimatedTokens)
+        // H10: Protect messages added since last compression (tool results + assistant)
+        // from being truncated — they contain fresh context the model just requested.
+        const newSinceCompress = this.lastCompressLength > 0
+          ? this.messagesForApi.length - this.lastCompressLength
+          : 0
+        const protectRecent = Math.max(5, newSinceCompress)
         const before = this.messagesForApi.length
-        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens)
-        diagnosticLogger.recordInfo(`上下文压缩: ${stage} | ${before}→${this.messagesForApi.length}条 | ~${Math.round(estimatedTokens/1000)}K tokens`)
+        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens, protectRecent)
+        this.lastCompressLength = this.messagesForApi.length
+        diagnosticLogger.recordInfo(`上下文压缩: ${stage} | ${before}→${this.messagesForApi.length}条(保护${protectRecent}) | ~${Math.round(estimatedTokens/1000)}K tokens`)
         this.compressedAt = iteration
       }
 
@@ -286,6 +297,15 @@ export class V4AgentRuntime {
       // ── No tool calls → model is done ──
       if (!response.toolCalls || response.toolCalls.length === 0) {
         collectedText = response.text || ''
+        // H5: If model returns neither tool calls nor text, give it one more
+        // chance to produce a text reply (may be a premature stop with empty content).
+        if (!collectedText.trim() && !isLastIteration) {
+          this.messagesForApi.push({
+            role: 'user',
+            content: '请用中文直接生成文本回复。不要调用工具，直接输出回复内容。',
+          })
+          continue  // retry the loop — model gets another shot
+        }
         this.emitter.emit('response:streaming', { text: response.text, accumulated: response.text, timestamp: Date.now() })
         shouldContinue = false
         break
@@ -377,6 +397,7 @@ export class V4AgentRuntime {
       completionTokens: totalCompletionTokens,
       phase: this.config.abortSignal.aborted ? 'ABORTED' as AgentPhase : 'DONE' as AgentPhase,
       toolsUsed: this.toolsUsed,
+      toolCallSteps: this.toolCallSteps,
       contextBreakdown: contextResult.breakdown,
       iterationCount: iteration,
     }
@@ -412,6 +433,7 @@ export class V4AgentRuntime {
     }
 
     // Execute (with 60s timeout)
+    const t0 = Date.now()
     let result: ToolResult
     if (this.toolExecutor) {
       const TOOL_TIMEOUT = 60_000
@@ -429,6 +451,8 @@ export class V4AgentRuntime {
     } else {
       result = { status: 'error', summary: '工具执行器未配置' }
     }
+    const durationMs = Date.now() - t0
+    this.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration })
 
     // Emit result
     diagnosticLogger.recordToolEnd(tc.id, tc.name, result.status)

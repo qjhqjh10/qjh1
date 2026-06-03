@@ -19,9 +19,11 @@ import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/compone
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 
-import { makeConversation } from "./utils";
+import { makeConversation, parsePopupCommand } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import { V4AgentChatBridge } from '@/agent/V4AgentChatBridge'
+import type { IChatBridge } from '@/agent/ChatBridgeInterface'
+import { createChatBridge } from '@/agent/ChatBridgeInterface'
 import { ContextCompressor } from '@/agent/context/ContextCompressor'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStatusBar } from './components/AgentStatusBar'
@@ -237,7 +239,7 @@ export default function AIChatWindow() {
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
-  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
+  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
   const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
@@ -336,9 +338,9 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { abortRef.current = true; bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false } }
-  const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false }
-  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
+  const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
+  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
   // Dismiss context menu on click outside
@@ -412,7 +414,7 @@ export default function AIChatWindow() {
   }
 
   // ── Agent mode refs ──
-  const bridgeRef = useRef<V4AgentChatBridge | null>(null)
+  const bridgeRef = useRef<IChatBridge | null>(null)
 
   // Cleanup bridge on component unmount
   useEffect(() => {
@@ -429,13 +431,17 @@ export default function AIChatWindow() {
 
   const handleSend = async () => {
     const isRetry = !!pendingCorrection.current
+    // H10: prevent cascading auto-retry loops
+    if (isRetry && autoRetryRef.current) return
+    autoRetryRef.current = isRetry
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
-    if (sendLockRef.current) return  // H8: prevent double-send during async gap
+    if (sendLockRef.current || loading) return  // H8: prevent double-send during async gap
     sendLockRef.current = true
+    setLoading(true)  // H8: sync UI guard with lock — eliminates gap where button appears clickable
 
     // Pre-flight: verify API connectivity
     const connected = await checkApiConnection()
-    if (!connected) { sendLockRef.current = false; return }
+    if (!connected) { setLoading(false); sendLockRef.current = false; return }
 
     setFileEditNotify(null)
     let attachText = ''
@@ -501,6 +507,7 @@ export default function AIChatWindow() {
       ])
       setInput('')
       setAttachment(null)
+      setLoading(false)
       sendLockRef.current = false
       return
     }
@@ -510,7 +517,7 @@ export default function AIChatWindow() {
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setAttachment(null)
-    setLoading(true)
+    // setLoading(true) already called at entry — loading indicator is already active
 
     try {
       // H2: Read latest state from stores, not render closure
@@ -520,9 +527,9 @@ export default function AIChatWindow() {
       const latestWebSearch = webSearchEnabled
       const latestFileIds = latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []) : []
 
-      // ── Agent Runtime (replaces old while-loop + tool dispatch) ──
+      // ── Agent Runtime (工厂创建：OpenAI 旧方案 or Anthropic 新方案) ──
       if (!bridgeRef.current) {
-        bridgeRef.current = new V4AgentChatBridge(latestProjectId)
+        bridgeRef.current = await createChatBridge(latestProjectId)
         bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: buildHistoryMessages(messages), contextWindow: activeConfig?.contextWindow ?? 128000 })
       } else {
         bridgeRef.current.updateProject(latestProjectId)
@@ -533,6 +540,19 @@ export default function AIChatWindow() {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
+          // Parse popup commands from AI response (【打开草稿】, 【生成本章】, etc.)
+          const popupResult = parsePopupCommand(collectedText)
+          if (popupResult?.genTrigger) {
+            const chapId = popupResult.genTrigger === '__current__' ? null : popupResult.genTrigger
+            useStore.getState().setChapterGenTrigger(chapId)
+            collectedText = popupResult.text || collectedText
+          }
+          if (popupResult?.popup) {
+            const p = popupResult.popup
+            useStore.getState().openPopup({ id: `${p.type}_${Date.now()}`, type: p.type, title: p.title, documentKey: p.documentKey })
+            collectedText = popupResult.text || collectedText
+          }
+
           const fallbackText = runResult.toolsUsed.length > 0
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
             : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
@@ -558,6 +578,7 @@ export default function AIChatWindow() {
           setMessages(prev => [...prev, {
             id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
+            toolCallSteps: (runResult as any).toolCallSteps || [],
             breakdown: inputBreakdown,
             outputBreakdown,
             iterationCount: runResult.iterationCount || 1,
@@ -772,11 +793,16 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
-            {/* Plan/Action toggle */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-                <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'plan' })} style={{ padding: '4px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
-                <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit' }}>Action</button>
+            {/* Plan/Action toggle — Anthropic 协议下禁用 */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              title={(activeConfig as any)?.protocol === 'anthropic' ? 'Anthropic 协议下 Plan/Action 不可用' : ''}>
+              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden', opacity: (activeConfig as any)?.protocol === 'anthropic' ? 0.4 : 1 }}>
+                <button onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') useSettingsStore.getState().setAISettings({ workMode: 'plan' }) }}
+                  disabled={(activeConfig as any)?.protocol === 'anthropic'}
+                  style={{ padding: '4px 10px', border: 'none', cursor: (activeConfig as any)?.protocol === 'anthropic' ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
+                <button onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') useSettingsStore.getState().setAISettings({ workMode: 'action' }) }}
+                  disabled={(activeConfig as any)?.protocol === 'anthropic'}
+                  style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: (activeConfig as any)?.protocol === 'anthropic' ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit' }}>Action</button>
               </div>
             </div>
             {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
@@ -802,8 +828,8 @@ export default function AIChatWindow() {
             <ToggleButton
               icon={<span style={{ fontSize: 12 }}>🔧</span>}
               label={`调用工具${conversationToolNames.current.size > 0 ? ` · ${conversationToolNames.current.size}` : ''}`}
-              active={toolInvokeEnabled}
-              onClick={() => { setToolInvokeEnabled(!toolInvokeEnabled); if (!toolInvokeEnabled) setShowToolHint(false) }}
+              active={toolInvokeEnabled && (activeConfig as any)?.protocol !== 'anthropic'}
+              onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') { setToolInvokeEnabled(!toolInvokeEnabled); if (!toolInvokeEnabled) setShowToolHint(false) } }}
             />
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
@@ -1474,7 +1500,7 @@ export default function AIChatWindow() {
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.toolsUsed && msg.toolsUsed.length > 0) {
-            return <button onClick={() => { setToolDetailPanel({ toolsUsed: msg.toolsUsed!, breakdown: (msg as any).breakdown, outputBreakdown: (msg as any).outputBreakdown, iterationCount: (msg as any).iterationCount, totalIterations: (msg as any).totalIterations, usage: msg.usage }); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setToolDetailPanel({ toolsUsed: msg.toolsUsed!, toolCallSteps: (msg as any).toolCallSteps, breakdown: (msg as any).breakdown, outputBreakdown: (msg as any).outputBreakdown, iterationCount: (msg as any).iterationCount, totalIterations: (msg as any).totalIterations, usage: msg.usage }); setContextMenu(null) }} style={ctxMenuBtn}>
               <WrenchScrewdriverIcon style={{ width: 13, height: 13 }} /> 查看工具详情
             </button>
           }
@@ -1485,6 +1511,7 @@ export default function AIChatWindow() {
     {toolDetailPanel && (
       <ToolDetailPanel
         toolsUsed={toolDetailPanel.toolsUsed}
+        toolCallSteps={toolDetailPanel.toolCallSteps}
         breakdown={toolDetailPanel.breakdown}
         outputBreakdown={toolDetailPanel.outputBreakdown}
         iterationCount={toolDetailPanel.iterationCount}

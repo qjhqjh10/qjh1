@@ -1,0 +1,14 @@
+{"timestamp":1780389355275,"sessionId":"mpwduqkr_lqih7g","event":"session:start","data":{}}
+{"timestamp":1780389362634,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780389364046,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389366003,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389366003,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389367590,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389368878,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389369869,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389371109,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389372893,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
+{"timestamp":1780389376074,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780389379008,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780389380751,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: ./.aiharness/aiharness.json"}}
+{"timestamp":1780389382269,"sessionId":"mpwduqkr_lqih7g","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5569 字符"}}

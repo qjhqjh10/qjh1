@@ -1,0 +1,5 @@
+{"timestamp":1780412674472,"sessionId":"mpwrqjs8_4rmwui","event":"session:start","data":{}}
+{"timestamp":1780412677451,"sessionId":"mpwrqjs8_4rmwui","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个匹配"}}
+{"timestamp":1780412679320,"sessionId":"mpwrqjs8_4rmwui","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/林语晴.json (缓存)"}}
+{"timestamp":1780412681266,"sessionId":"mpwrqjs8_4rmwui","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/林语晴.json (缓存)"}}
+{"timestamp":1780412683004,"sessionId":"mpwrqjs8_4rmwui","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"19 处匹配"}}

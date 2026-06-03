@@ -38,14 +38,13 @@ describe('PREVIEW_TOOLS', () => {
 })
 
 describe('READ_ONLY_TOOLS', () => {
-  it('contains 20 tools', () => {
-    expect(READ_ONLY_TOOLS.size).toBe(20)
+  it('contains 19 tools', () => {
+    expect(READ_ONLY_TOOLS.size).toBe(19)
   })
 
   it('contains read-only file tools', () => {
     expect(READ_ONLY_TOOLS.has('list_directory')).toBe(true)
     expect(READ_ONLY_TOOLS.has('read_file')).toBe(true)
-    expect(READ_ONLY_TOOLS.has('search_files')).toBe(true)
     expect(READ_ONLY_TOOLS.has('search_content')).toBe(true)
   })
 
@@ -118,10 +117,6 @@ describe('summarizeFileOp', () => {
     expect(summarizeFileOp('read_file', { file_path: 'outline/plot.md' })).toBe('读取: outline/plot.md')
   })
 
-  it('summarizes search_files', () => {
-    expect(summarizeFileOp('search_files', { keyword: '章节' })).toBe('搜索文件: "章节"')
-  })
-
   it('summarizes search_content (truncates long patterns)', () => {
     const longPattern = 'a'.repeat(100)
     const result = summarizeFileOp('search_content', { pattern: longPattern })
@@ -192,7 +187,7 @@ describe('summarizeFileOp', () => {
   it('covers all FILE_TOOLS names (no missing summaries)', () => {
     // Dynamic import to avoid circular dep; fallback to inline list
     const allNames = [
-      'list_directory', 'read_file', 'search_files', 'search_content',
+      'list_directory', 'read_file', 'search_content',
       'edit_file', 'create_file', 'delete_file', 'rename_file',
       'create_project', 'delete_project',
       'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file',

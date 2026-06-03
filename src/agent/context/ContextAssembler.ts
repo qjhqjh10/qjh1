@@ -63,13 +63,15 @@ export class ContextAssembler {
 
   /** Invalidate specific provider for a project (e.g. after editing a character file) */
   invalidateProvider(projectId: string | null, domain: string): void {
-    const cacheKey = `${projectId || '__'}:${domain}`
+    const cacheKey = projectId !== null
+      ? `p:${projectId}:${domain}`
+      : `n:${domain}`
     this.providerCache.delete(cacheKey)
   }
 
   /** Clear all cached providers for a project (e.g. when switching projects) */
   clearProject(projectId: string | null): void {
-    const prefix = `${projectId || '__'}:`
+    const prefix = projectId !== null ? `p:${projectId}:` : 'n:'
     for (const key of this.providerCache.keys()) {
       if (key.startsWith(prefix)) this.providerCache.delete(key)
     }
@@ -82,13 +84,13 @@ export class ContextAssembler {
   static domainsForPath(filePath: string): string[] {
     const fp = filePath.replace(/\\/g, '/')
     const domains: string[] = []
-    if (fp.startsWith('characters/'))    domains.push('character')
+    if (fp.startsWith('characters/'))    domains.push('characters')
     else if (fp.startsWith('outline/'))  domains.push('outline')
-    else if (fp.startsWith('detailed_outline/')) domains.push('detailedOutline')
-    else if (fp.startsWith('chapters/')) domains.push('chapterWriting')
-    else if (fp.startsWith('summaries/')) domains.push('chapterWriting')
+    else if (fp.startsWith('detailed_outline/')) domains.push('detailed-outline')
+    else if (fp.startsWith('chapters/')) domains.push('chapter-writing')
+    else if (fp.startsWith('summaries/')) domains.push('chapter-writing')
     else if (fp.startsWith('notes/'))     domains.push('notes')
-    else if (fp.startsWith('knowledge_base/')) domains.push('kb')
+    else if (fp.startsWith('knowledge_base/')) domains.push('knowledge-base')
     // Templates and scene: triggered by dedicated tools, not file paths
     return domains
   }
@@ -112,14 +114,17 @@ export class ContextAssembler {
     const allBlocks: ContextBlock[] = []
     for (const { provider } of aboveThreshold) {
       try {
-        const cacheKey = `${projectId || '__'}:${provider.domain}`
+        // H11: Prefix-based key avoids collision between null project and project named '__'
+        const cacheKey = projectId !== null
+          ? `p:${projectId}:${provider.domain}`
+          : `n:${provider.domain}`
         const cached = this.providerCache.get(cacheKey)
-        if (cached && cached.projectId === projectId) {
+        if (cached && (cached.projectId || null) === (projectId || null)) {
           allBlocks.push(cached.block)
           continue
         }
         const block = await provider.buildContext(projectId, userMessage)
-        this.providerCache.set(cacheKey, { block, projectId: projectId || '' })
+        this.providerCache.set(cacheKey, { block, projectId: projectId ?? '' })
         allBlocks.push(block)
       } catch (err) {
         console.warn(`[ContextAssembler] Provider ${provider.domain} failed:`, err)

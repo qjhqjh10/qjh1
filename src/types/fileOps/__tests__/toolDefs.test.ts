@@ -4,8 +4,8 @@ import { FILE_TOOLS, FileOpCard, ToolCallResult } from '../toolDefs'
 // ── Tool Definitions Structure ──
 
 describe('FILE_TOOLS', () => {
-  it('has all 26 tools defined', () => {
-    expect(FILE_TOOLS).toHaveLength(26)
+  it('has all 25 tools defined', () => {
+    expect(FILE_TOOLS).toHaveLength(25)
   })
 
   it('all tools have type "function"', () => {
@@ -52,7 +52,6 @@ describe('tool name categories', () => {
   it('includes 4 read-only file tools', () => {
     expect(names).toContain('list_directory')
     expect(names).toContain('read_file')
-    expect(names).toContain('search_files')
     expect(names).toContain('search_content')
   })
 

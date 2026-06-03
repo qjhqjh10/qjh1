@@ -85,8 +85,10 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name).value
+        let noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        // Auto-append .md extension so note is visible in list_notes
+        if (!noteName.endsWith('.md')) noteName += '.md'
         const dir = await getNotesDir()
         const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
         const content = String(args.content || '')
@@ -114,8 +116,9 @@ export const noteTools: ToolDefinition[] = [
     executor: async (args) => {
       try {
         const { fileService } = await import('@/services/fileService')
-        const noteName = sanitizeFileName(args.note_name).value
+        let noteName = sanitizeFileName(args.note_name).value
         if (!noteName) return { status: 'error', summary: '草稿名称无效' }
+        if (!noteName.endsWith('.md')) noteName += '.md'
         const dir = await getNotesDir()
         const filePath = `${dir}/${noteName}`.replace(/\\/g, '/')
         const newContent = String(args.content || '')

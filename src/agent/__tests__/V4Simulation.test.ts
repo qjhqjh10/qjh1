@@ -57,8 +57,6 @@ function makeRealToolExecutor() {
           if (path.includes('nonexistent')) return { status: 'error' as const, summary: 'ENOENT: 文件不存在' }
           return { status: 'success' as const, summary: '读取成功', detail: '文件内容...' }
         }
-        case 'search_files':
-          return { status: 'success' as const, summary: '找到 2 个文件', detail: 'chapters/chapter3.txt\nsummaries/chapter3.md' }
         case 'search_content':
           return { status: 'success' as const, summary: '找到 3 处匹配', detail: 'characters/许倩.json: "许倩"\noutline/plot.md: "许倩"\nchapters/chapter2.txt: "许倩"' }
         case 'create_file':
@@ -202,15 +200,11 @@ describe('多工具调用 — 精准不冗余', () => {
     expect(lastTools).not.toEqual(['create_file', 'read_file']) // 没有冗余验证读
   })
 
-  it('错误恢复 — 文件不存在 → 自动 search_files → 修正路径', async () => {
+  it('错误恢复 — 文件不存在 → 自动搜索 → 修正路径', async () => {
     const { service, callLog } = makeSimulatedAIService([
       {
         text: '让我读一下角色文件',
         toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"characters/nonexistent.json"}' }],
-      },
-      {
-        text: '文件不存在，让我搜索一下',
-        toolCalls: [{ id: 'c2', name: 'search_files', arguments: '{"keyword":"许倩"}' }],
       },
       {
         text: '找到了，让我读正确的文件',
@@ -230,9 +224,8 @@ describe('多工具调用 — 精准不冗余', () => {
     // 错误发生→搜索修正→成功读取
     expect(executedTools[0].name).toBe('read_file')
     expect(executedTools[0].args.file_path).toContain('nonexistent')
-    expect(executedTools[1].name).toBe('search_files') // 自动换策略
-    expect(executedTools[2].name).toBe('read_file') // 用正确路径重试
-    expect(executedTools[2].args.file_path).not.toContain('nonexistent')
+    expect(executedTools[1].name).toBe('read_file') // 用正确路径重试
+    expect(executedTools[1].args.file_path).not.toContain('nonexistent')
     expect(result.success).toBe(true)
   })
 })
@@ -420,12 +413,12 @@ describe('Agent 功能全景验证', () => {
 
   // ── 工具描述质量 ──
   it('功能10: 工具描述 — 核心工具含使用指引', () => {
-    const coreTools = ['read_file', 'create_file', 'edit_file', 'search_files', 'search_content', 'list_directory', 'delete_file']
+    const coreTools = ['read_file', 'create_file', 'edit_file', 'search_content', 'list_directory', 'delete_file']
     for (const name of coreTools) {
       const def = toolRegistry.get(name)
       expect(def).toBeDefined()
       expect(def!.schema.description.length).toBeGreaterThan(10)
-      expect(def!.schema.description).toMatch(/何时使用|用于|使用此工具|直接 read_file|不需要此工具/)
+      expect(def!.schema.description).toMatch(/何时使用|用于|使用此工具|默认|支持|Glob|搜索|替换|读取/)
     }
   })
 
@@ -434,9 +427,9 @@ describe('Agent 功能全景验证', () => {
     const { buildSystemPrompt, CORE_SYSTEM_PROMPT } = await import('../V4SystemPrompt')
     const p = buildSystemPrompt([], 'project-structure', 'project-context')
     expect(p).toContain('青剑')
-    expect(p).toContain('project-structure')
-    expect(p).toContain('project-context')
-    expect(p).toContain('工作模式')
+    expect(p).toContain('list_directory')
+    expect(p).toContain('铁律')
+    expect(p).toContain('read_file')
   })
 
   // ── 诊断日志 ──

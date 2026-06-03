@@ -13,10 +13,10 @@ import {
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
-import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS, buildToolInvokePrompt } from '@/types/fileOps'
+import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS } from '@/types/fileOps'
 import { debugApiSend, debugApiResponse, debugApiError, debugBatchCheck, debugBatchShow, debugBatchApprove, debugBatchDeny, debugBatchTimeout, debugToolCall, debugToolResult, debugSysError, debugSysWarn } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
-import { WELCOME_MSG, FILE_OP_SYSTEM_PROMPT, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 
@@ -90,7 +90,7 @@ export function detectHallucination(text: string, toolsCalled: Set<string>): str
     { pattern: /(?:已经|已).{0,10}(读取|查看|读过|看过|查阅)/, tools: ['read_file', 'list_directory'], label: '读取/查看' },
     { pattern: /(?:已经|已).{0,10}(删除|移除|去掉)/, tools: ['delete_file'], label: '删除' },
     { pattern: /(?:已经|已).{0,10}(保存|存储)/, tools: ['create_file', 'edit_file', 'kb_create_file', 'kb_append_file'], label: '保存/写入' },
-    { pattern: /(?:已经|已).{0,10}(搜索|检索|查找|找到)/, tools: ['search_files', 'search_content'], label: '搜索' },
+    { pattern: /(?:已经|已).{0,10}(搜索|检索|查找|找到)/, tools: ['search_content', 'list_directory'], label: '搜索' },
     { pattern: /(?:已经|已).{0,10}(追加|写入)/, tools: ['edit_file', 'create_file', 'kb_append_file'], label: '追加/写入' },
   ]
 

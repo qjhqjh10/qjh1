@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as path from 'node:path'
 import * as fs from 'node:fs'
-const K='sk-c9c30831df7243209435c60e811c879d',P=path.join(path.resolve('.'),'projects','1')
+const K=process.env.AI_API_KEY||'sk-your-key-here',P=path.join(path.resolve('.'),'projects','1')
 function exec(n,a){try{switch(n){case'read_file':{const f=path.join(P,a.file_path||'');if(!fs.existsSync(f))return{status:'error',summary:'ENOENT'};return{status:'success',summary:'ok',detail:fs.readFileSync(f,'utf-8').slice(0,3000)}}case'list_directory':{return{status:'success',summary:'ok',detail:fs.readdirSync(path.join(P,a.dir_path||'.')).join('\n')}}default:return{status:'error'}}}catch(e){return{status:'error',summary:e.message}}}
 const T=[{type:'function',function:{name:'read_file',description:'读取文件'}},{type:'function',function:{name:'list_directory',description:'列出目录'}}]
 const chars=fs.readdirSync(path.join(P,'characters')).filter(f=>f.endsWith('.json')).map(f=>f.replace('.json',''))

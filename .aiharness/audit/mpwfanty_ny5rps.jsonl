@@ -1,0 +1,11 @@
+{"timestamp":1780391777830,"sessionId":"mpwfanty_ny5rps","event":"session:start","data":{}}
+{"timestamp":1780391781729,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391783253,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391783253,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391784650,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391787113,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780391793344,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780391795815,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780391797102,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391798567,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391798567,"sessionId":"mpwfanty_ny5rps","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}

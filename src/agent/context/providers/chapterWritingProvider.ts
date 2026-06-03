@@ -40,7 +40,7 @@ export const chapterWritingProvider: ContextProvider = {
 
     if (needsPreviousChapter) {
       try {
-        const files = await fileService.listDir(`${projectId}/chapters`)
+        const files = await fileService.listDir(`projects/${projectId}/chapters`)
         const txtFiles = files.filter((f: string) => f.endsWith('.txt')).sort((a, b) => {
           const numA = parseInt(a.replace(/\D/g, '')) || 0
           const numB = parseInt(b.replace(/\D/g, '')) || 0
@@ -68,13 +68,13 @@ export const chapterWritingProvider: ContextProvider = {
           const parts: string[] = [`## ${label}`, '']
 
           try {
-            const content = await cachedRead(`${projectId}/chapters/${prevFile}`, projectId)
-            const tail = extractChapterTail(content, 50)  // C6: 50 trailing lines, not 2500 (was line count, not char count)
+            const content = await cachedRead(`projects/${projectId}/chapters/${prevFile}`, projectId)
+            const tail = extractChapterTail(content, 3000)  // C6: last ~3000 chars of previous chapter
             parts.push('### 上一章末尾', tail, '')
           } catch { /* file read error */ }
 
           try {
-            const summary = await cachedRead(`${projectId}/summaries/${chId}.md`, projectId)
+            const summary = await cachedRead(`projects/${projectId}/summaries/${chId}.md`, projectId)
             if (summary && summary.trim()) {
               parts.push('### 上一章摘要', extractSummary(summary, 600), '')
             }

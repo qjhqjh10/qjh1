@@ -59,16 +59,16 @@ export class ContextCompressor {
 
   /**
    * Apply progressive compression to messages.
-   * Preserves: system prompt (first message), last 5 messages, pending tool context.
+   * Preserves: system prompt (first message), last N messages (protectRecent, default 5), pending tool context.
    */
-  compress(messages: Message[], usedTokens: number): Message[] {
+  compress(messages: Message[], usedTokens: number, protectRecent = 5): Message[] {
     const stage = this.getStage(usedTokens)
     if (stage === 'none') return messages
 
     switch (stage) {
       case 'strip_detail': return this.stripDetail(messages)
-      case 'summarize_pairs': return this.summarizePairs(messages)
-      case 'collapse_early': return this.collapseEarly(messages)
+      case 'summarize_pairs': return this.summarizePairs(messages, protectRecent)
+      case 'collapse_early': return this.collapseEarly(messages, protectRecent)
       default: return messages
     }
   }
@@ -80,19 +80,20 @@ export class ContextCompressor {
       if (m.role !== 'tool' || !m.content) return m
       try {
         const parsed = JSON.parse(m.content)
-        // Keep only status + summary + note, strip detail
         const compressed: Record<string, unknown> = {}
         if (parsed.status) compressed.status = parsed.status
         if (parsed.summary) compressed.summary = parsed.summary
-        if (parsed.note) compressed.note = parsed.note
-        // Truncate long summaries
-        if (typeof compressed.summary === 'string' && compressed.summary.length > 200) {
-          compressed.summary = compressed.summary.slice(0, 200) + '…'
+        // Preserve detail for read tools (ContractExecutor already strips detail for write tools
+        // before they enter context). Truncate if excessively long to stay within budget.
+        if (parsed.detail && typeof parsed.detail === 'string') {
+          compressed.detail = parsed.detail.length > 2000
+            ? parsed.detail.slice(0, 2000) + '\n…(压缩截断)'
+            : parsed.detail
         }
+        if (parsed.note) compressed.note = parsed.note
         return { ...m, content: JSON.stringify(compressed) }
       } catch {
-        // Non-JSON content — truncate to 200 chars
-        return { ...m, content: m.content.slice(0, 200) + '…' }
+        return { ...m, content: m.content.slice(0, 500) + '…' }
       }
     })
   }
@@ -102,7 +103,7 @@ export class ContextCompressor {
   // keeping recent ones for context continuity.
   // Preserves: system messages, last 5 messages (via keeping second half of pairs).
 
-  private summarizePairs(messages: Message[]): Message[] {
+  private summarizePairs(messages: Message[], protectRecent = 5): Message[] {
     // Build list of (userIdx, assistantIdx) pair indices
     const pairs: Array<{ userIdx: number; asstIdx: number }> = []
     let i = 0
@@ -117,7 +118,8 @@ export class ContextCompressor {
 
     if (pairs.length <= 1) return messages // Nothing worth compressing
 
-    // Compress the first half, keep the second half intact
+    // Compress the first half of pairs, keep the second half intact
+    // (paired structure naturally protects recent conversation context)
     const compressCount = Math.ceil(pairs.length / 2)
     const toCompress = pairs.slice(0, compressCount)
 
@@ -157,9 +159,9 @@ export class ContextCompressor {
 
   // ── Stage 3: Collapse early conversation ──
 
-  private collapseEarly(messages: Message[]): Message[] {
-    // Keep: system + last 5 messages. Collapse everything in between.
-    const keepLast = 5
+  private collapseEarly(messages: Message[], protectRecent = 5): Message[] {
+    // Keep: system + last N messages (protectRecent). Collapse everything in between.
+    const keepLast = protectRecent
     if (messages.length <= keepLast + 2) return messages
 
     const systemMsgs = messages.filter(m => m.role === 'system')

@@ -37,38 +37,27 @@ function makeCall(toolName: string, args: Record<string, unknown>, callId = 'tes
 // ── Read-only Tools ──
 
 describe('list_directory', () => {
-  it('lists project root contents', async () => {
-    const result = await executeFileTool(makeCall('list_directory', { dir_path: '' }), projectPath)
+  it('scans entire software folder and finds project files', async () => {
+    const result = await executeFileTool(makeCall('list_directory', {}), projectPath)
     expect(result.status).toBe('success')
-    expect(result.detail).toContain('characters')
-    expect(result.detail).toContain('outline')
-    expect(result.detail).toContain('chapters')
+    expect(parseInt(result.summary)).toBeGreaterThan(0)
   })
 
-  it('lists subdirectory contents', async () => {
-    const result = await executeFileTool(makeCall('list_directory', { dir_path: 'characters' }), projectPath)
+  it('filters by glob pattern *.json', async () => {
+    const result = await executeFileTool(makeCall('list_directory', { pattern: '*.json' }), projectPath)
     expect(result.status).toBe('success')
     expect(result.detail).toContain('zhangsan.json')
   })
 
-  it('shows empty directory message', async () => {
-    await fsp.mkdir(path.join(projectPath, 'empty_dir'), { recursive: true })
-    const result = await executeFileTool(makeCall('list_directory', { dir_path: 'empty_dir' }), projectPath)
+  it('filters by glob pattern *.md', async () => {
+    const result = await executeFileTool(makeCall('list_directory', { pattern: '*.md' }), projectPath)
     expect(result.status).toBe('success')
-    expect(result.detail).toContain('空')
   })
 
-  it('safely falls back to project root for invalid paths', async () => {
-    // When given an invalid/absolute path, list_directory falls back to project root
-    // This is safe because the fallback is always within the project boundary
-    const result = await executeFileTool(makeCall('list_directory', { dir_path: 'C:\\Windows\\System32' }), projectPath)
-    expect(result.status).toBe('success') // safe fallback to project root
-  })
-
-  it('rejects empty dir_path (defaults to project root, which is safe)', async () => {
-    // empty dir_path defaults to project root — should succeed
-    const result = await executeFileTool(makeCall('list_directory', { dir_path: '' }), projectPath)
+  it('shows no match for non-matching pattern', async () => {
+    const result = await executeFileTool(makeCall('list_directory', { pattern: '*.xyz' }), projectPath)
     expect(result.status).toBe('success')
+    expect(result.detail).toContain('未找到匹配')
   })
 })
 
@@ -104,26 +93,6 @@ describe('read_file', () => {
   })
 })
 
-describe('search_files', () => {
-  it('finds files by keyword', async () => {
-    const result = await executeFileTool(makeCall('search_files', { keyword: 'zhang' }), projectPath)
-    expect(result.status).toBe('success')
-    expect(result.detail).toContain('zhangsan')
-  })
-
-  it('returns no matches for unknown keyword', async () => {
-    const result = await executeFileTool(makeCall('search_files', { keyword: 'nonexistent' }), projectPath)
-    expect(result.status).toBe('success')
-    expect(result.detail).toContain('未找到')
-  })
-
-  it('rejects empty keyword', async () => {
-    const result = await executeFileTool(makeCall('search_files', { keyword: '' }), projectPath)
-    expect(result.status).toBe('error')
-    expect(result.summary).toContain('缺少搜索关键词')
-  })
-})
-
 describe('search_content', () => {
   it('finds content in files', async () => {
     const result = await executeFileTool(makeCall('search_content', { pattern: '测试内容' }), projectPath)
@@ -140,6 +109,33 @@ describe('search_content', () => {
   it('rejects empty pattern', async () => {
     const result = await executeFileTool(makeCall('search_content', { pattern: '' }), projectPath)
     expect(result.status).toBe('error')
+  })
+
+  // ── New features (v9.5.3+) ──
+  it('filters by file_pattern with glob', async () => {
+    const result = await executeFileTool(makeCall('search_content', { pattern: '张三', file_pattern: '*.json' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('张三')
+  })
+
+  it('searches with regex=true', async () => {
+    const result = await executeFileTool(makeCall('search_content', { pattern: '男[主配]', regex: true, file_pattern: '*.json' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('男主')
+  })
+
+  it('searches with context_around', async () => {
+    // Add a test file with known content
+    await fsp.writeFile(path.join(projectPath, 'test_context.txt'), 'line1\nline2\nTARGET\nline4\nline5', 'utf-8')
+    const result = await executeFileTool(makeCall('search_content', { pattern: 'TARGET', context_around: 1 }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('line2')
+    expect(result.detail).toContain('line4')
+  })
+
+  it('falls back to substring when regex parse fails', async () => {
+    const result = await executeFileTool(makeCall('search_content', { pattern: '(unclosed', regex: true }), projectPath)
+    expect(result.status).toBe('success') // should succeed via fallback, not crash
   })
 })
 

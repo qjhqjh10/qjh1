@@ -1,175 +1,173 @@
 /**
- * Memory Index (V4.1 — Change-driven cache)
+ * Global Directory Index (V9.5.4 — recursive full scan)
  *
- * Outputs direct read_file instructions instead of passive file listings.
- * Cache stays valid until a structural change occurs (file created/deleted/renamed,
- * template created/deleted). Content-only edits (edit_file) do NOT invalidate —
- * file paths and counts remain the same.
- *
- * Persisted to disk: survives app restart, loaded on first access.
+ * Recursively scans the entire software root directory, listing ALL files and folders.
+ * No hardcoded directory names — any directory or file is discovered automatically.
+ * Dynamically rebuilt on each message (with memory cache, invalidated on structural changes).
  */
 
 import { estimateTokens } from '../utils/tokenEstimation'
 
-// Module-level cache — survives across messages and sessions
-let _cachedIndex: { projectId: string; index: string; tokenCount: number } | null = null
-let _dirty = false
+let _globalIndexCache: { index: string; tokenCount: number } | null = null
 
-const PERSIST_PATH = '.aiharness/memory-index.json'
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', '.ai_backups', 'out'])
+const SKIP_PREFIXES = ['.']
+const MAX_DEPTH = 5
+const MAX_FILES_PER_DIR = 30
 
-/**
- * Build a compact project file index suitable for LLM context.
- * Returns cached result if available. Rebuilds only when invalidated.
- */
-export async function buildMemoryIndex(projectId: string): Promise<string> {
-  if (!projectId) return ''
-
-  // Return cached if still valid (no invalidation occurred)
-  if (_cachedIndex && _cachedIndex.projectId === projectId) {
-    return _cachedIndex.index
-  }
-
-  // Try loading persisted index from disk (survives app restart)
-  if (!_cachedIndex || _cachedIndex.projectId !== projectId) {
-    const persisted = await loadPersisted(projectId)
-    if (persisted) return persisted
-  }
+export async function buildGlobalIndex(projectId?: string | null): Promise<string> {
+  if (_globalIndexCache) return _globalIndexCache.index
 
   try {
     const { fileService, styleTemplateService } = await import('@/services/fileService')
+    const lines: string[] = []
 
-    // Run all scans in parallel — single IPC round trip instead of 6 sequential
-    const [chapterFiles, charFiles, outlinePlot, outlineWorld, detailFiles, templates] =
-      await Promise.allSettled([
-        fileService.listDir(`${projectId}/chapters`).catch(() => []),
-        fileService.listDir(`${projectId}/characters`).catch(() => []),
-        fileService.read(`${projectId}/outline/plot.md`).catch(() => null),
-        fileService.read(`${projectId}/outline/worldbuilding.md`).catch(() => null),
-        fileService.listDir(`${projectId}/detailed_outline`).catch(() => []),
-        styleTemplateService.list().catch(() => []),
-      ])
+    lines.push('## 📁 软件文件索引')
+    lines.push('> 以下是软件内全部文件和目录。已知路径的文件直接 read_file 读取。')
+    lines.push('> 路径: ../../ = 软件根目录。项目路径: 项目名/子路径（如 1/outline/plot.md）。')
+    lines.push('')
 
-    const lines: string[] = ['## 项目文件索引 — 直接 read_file 即可，无需探索']
-    lines.push('> 同类型文件超过5个时，先列出概要让用户选择，不要全读。用户指定了具体文件名则直接读。\n')
-    const prefix = projectId
+    // ═══════════════════════════════════════════
+    // Recursively scan the entire software root
+    // ═══════════════════════════════════════════
+    await walkDir(lines, '', 0, fileService, styleTemplateService)
 
-    // Chapters
-    const chFiles = chapterFiles.status === 'fulfilled' ? (chapterFiles.value || []) : []
-    const txtFiles = chFiles.filter((f: string) => f.endsWith('.txt')).sort((a: string, b: string) => {
-      const numA = parseInt(a.replace(/\D/g, '')) || 0
-      const numB = parseInt(b.replace(/\D/g, '')) || 0
-      return numA - numB || a.localeCompare(b)
-    })
-    if (txtFiles.length > 0) {
-      const newest = txtFiles.slice(-3)
-      lines.push(`已有 ${txtFiles.length} 章正文: ${newest.join(', ')}${txtFiles.length > 3 ? ' 等' : ''}`)
-      if (txtFiles.length > 0) lines.push(`  读最新章节: read_file("${prefix}/chapters/${txtFiles[txtFiles.length - 1]}")`)
+    // ═══════════════════════════════════════════
+    // Project details (if a project is selected)
+    // ═══════════════════════════════════════════
+    if (projectId) {
+      lines.push('### 📌 当前项目')
+      lines.push(`> 项目: ${projectId}/`)
       lines.push('')
+      // Don't re-walk — the global walk already covered it under projects/
     }
-
-    // Characters — show names from filenames as hints
-    const cFiles = charFiles.status === 'fulfilled' ? (charFiles.value || []) : []
-    const jsonFiles = cFiles.filter((f: string) => f.endsWith('.json')).sort()
-    if (jsonFiles.length > 0) {
-      lines.push(`### 角色 (${jsonFiles.length}个)`)
-      for (const f of jsonFiles.slice(0, 6)) {
-        const name = f.replace('.json', '').replace(/_/g, ' ')
-        lines.push(`  read_file("${prefix}/characters/${f}")`)
-      }
-      if (jsonFiles.length > 6) lines.push(`  还有 ${jsonFiles.length - 6} 个角色，read_file("${prefix}/characters/角色拼音.json")`)
-      lines.push('')
-    }
-
-    // Outline — direct paths with purpose
-    if (outlinePlot.status === 'fulfilled' && outlinePlot.value) {
-      lines.push(`read_file("${prefix}/outline/plot.md") — 故事剧情`)
-    }
-    if (outlineWorld.status === 'fulfilled' && outlineWorld.value) {
-      lines.push(`read_file("${prefix}/outline/worldbuilding.md") — 世界观设定`)
-    }
-    if ((outlinePlot.status === 'fulfilled' && outlinePlot.value) || (outlineWorld.status === 'fulfilled' && outlineWorld.value)) lines.push('')
-
-    // Detailed outline
-    const dFiles = detailFiles.status === 'fulfilled' ? (detailFiles.value || []) : []
-    const dJson = dFiles.filter((f: string) => f.endsWith('.json')).sort()
-    if (dJson.length > 0) {
-      lines.push(`### 细纲 (${dJson.length} 章)`)
-      for (const f of dJson.slice(0, 5)) {
-        lines.push(`  read_file("${prefix}/detailed_outline/${f}")`)
-      }
-      if (dJson.length > 5) lines.push(`  还有 ${dJson.length - 5} 章细纲`)
-      lines.push('')
-    }
-
-    // Global resources: style templates, scene templates, knowledge base
-    const tmpls = templates.status === 'fulfilled' ? (templates.value || []) : []
-    if (tmpls.length > 0) {
-      const names = (tmpls as any[]).map((t: any) => `"${t.name}"`).slice(0, 5)
-      lines.push('')
-      lines.push('### 全局资源（项目外，使用 ../../ 前缀访问）')
-      lines.push(`  [STYLE] ../../style_templates/  — ${tmpls.length} 个风格模板: ${names.join(', ')}${tmpls.length > 5 ? ' 等' : ''}`)
-    }
-    // Scene templates & knowledge base (no need to list files, just make Agent aware)
-    lines.push(`  [SCENE] ../../scene_templates/  — 场景模板库`)
-    lines.push(`  [KB]    ../../knowledge_base/files/ — 知识库文件`)
 
     const result = lines.join('\n')
-    _cachedIndex = { projectId, index: result, tokenCount: estimateTokens(result) }
-    _dirty = true
-    // Fire-and-forget persist
-    persistToDisk(projectId, _cachedIndex).catch(() => {})
+    _globalIndexCache = { index: result, tokenCount: estimateTokens(result) }
     return result
   } catch {
     return ''
   }
 }
 
-/**
- * Invalidate the cache. Call after any structural file change:
- * - create_file, delete_file, rename_file
- * - create_style_template, create_scene_template
- * - kb_create_file, kb_delete
- *
- * Content-only edits (edit_file) do NOT need invalidation —
- * file paths and counts remain unchanged.
- */
+async function walkDir(
+  lines: string[],
+  relPath: string,
+  depth: number,
+  fileService: any,
+  styleTemplateService?: any,
+): Promise<void> {
+  if (depth > MAX_DEPTH) return
+
+  let entries: string[]
+  try {
+    const listPath = relPath || '.'
+    entries = await fileService.listDir(listPath).catch(() => [] as string[])
+  } catch { return }
+
+  const dirs: string[] = []
+  const files: string[] = []
+
+  for (const e of entries) {
+    const fullName = e as string
+    // Skip hidden, system, and build artifacts
+    if (SKIP_DIRS.has(fullName)) continue
+    if (SKIP_PREFIXES.some(p => fullName.startsWith(p))) continue
+
+    // Heuristic: files have extensions, directories don't
+    if (fullName.includes('.')) {
+      files.push(fullName)
+    } else {
+      dirs.push(fullName)
+    }
+  }
+
+  // ── Output this directory ──
+  if (depth === 0) {
+    // Root level: just list top-level dirs, not individual root files
+    lines.push('### 📁 软件根目录')
+    lines.push('')
+  } else {
+    const indent = '  '.repeat(Math.min(depth, 3))
+    const dirName = relPath.split('/').pop() || relPath
+    const desc = getDirDescription(relPath)
+    const prefix = relPath ? `${relPath}/` : ''
+
+    // For global dirs, use ../../ prefix in paths
+    const pathPrefix = relPath.startsWith('projects/') ? relPath.replace('projects/', '') + '/' : `../../${relPath}/`
+
+    // List files in this directory
+    if (files.length > 0) {
+      const sortedFiles = files.sort()
+      lines.push(`${indent}**${dirName}/** — ${files.length} 个文件${desc}`)
+      for (const f of sortedFiles.slice(0, MAX_FILES_PER_DIR)) {
+        lines.push(`${indent}  read_file("${pathPrefix}${f}") → ${f}`)
+      }
+      if (files.length > MAX_FILES_PER_DIR) {
+        lines.push(`${indent}  ... 还有 ${files.length - MAX_FILES_PER_DIR} 个文件`)
+      }
+      lines.push('')
+    } else if (dirs.length > 0) {
+      // Directory with only subdirs, no files
+      lines.push(`${indent}**${dirName}/**${desc}`)
+      lines.push('')
+    }
+  }
+
+  // ── Recurse into subdirectories ──
+  for (const d of dirs.sort()) {
+    const subPath = relPath ? `${relPath}/${d}` : d
+    await walkDir(lines, subPath, depth + 1, fileService, styleTemplateService)
+  }
+}
+
+function getDirDescription(relPath: string): string {
+  const map: Record<string, string> = {
+    'style_templates': ' — 写作风格模板 (JSON)',
+    'scene_templates': ' — 场景模板 (JSON)',
+    'knowledge_base/files': ' — 知识库参考资料',
+    'knowledge_base': ' — 知识库',
+    'uploads/files': ' — 上传的文本文件',
+    'uploads/images': ' — 上传的图片',
+    'uploads/clips': ' — 上传的剪藏',
+    'uploads': ' — 用户上传文件',
+    'notes': ' — 笔记草稿 (.md)',
+    'projects': ' — 用户项目',
+    'projects/*/characters': ' — 角色档案 (.json)',
+    'projects/*/chapters': ' — 章节正文 (.txt)',
+    'projects/*/outline': ' — 大纲',
+    'projects/*/detailed_outline': ' — 细纲 (.json)',
+    'projects/*/summaries': ' — 章节摘要 (.md)',
+    'agent-sessions': ' — AI 对话会话记录',
+    '.aiharness': ' — Agent 配置和规则',
+    '.aiharness/rules': ' — 规则文件',
+    'src': ' — 源代码',
+    'electron': ' — Electron 主进程',
+    'docs': ' — 技术文档',
+    'tests': ' — 测试代码',
+    'scripts': ' — 开发脚本',
+    'projects/*/covers': ' — 封面图片',
+    'projects/*/images': ' — 图片资源',
+    'projects/*/notes': ' — 项目笔记',
+    'projects/*/uploads': ' — 项目上传文件',
+    'projects/*/characters_test': ' — 角色测试数据',
+  }
+  // Check exact match first, then wildcard patterns
+  if (map[relPath]) return map[relPath]
+  // Match projects/{name}/{subdir} patterns
+  const parts = relPath.split('/')
+  if (parts.length === 3 && parts[0] === 'projects') {
+    const subdir = parts[2]
+    const wildKey = `projects/*/${subdir}`
+    if (map[wildKey]) return map[wildKey]
+  }
+  return ''
+}
+
 export function invalidateMemoryIndexCache(): void {
-  _cachedIndex = null
-  // Remove stale persisted file so it doesn't conflict on next load
-  import('@/services/fileService').then(m =>
-    m.fileService.deleteFile(PERSIST_PATH).catch(() => {})
-  ).catch(() => {})
+  _globalIndexCache = null
 }
 
-/** Get the token count of the cached index (0 if not built yet) */
 export function getMemoryIndexTokens(): number {
-  return _cachedIndex?.tokenCount ?? 0
-}
-
-// ── Disk persistence (survives app restart) ──
-
-async function persistToDisk(projectId: string, cache: { projectId: string; index: string; tokenCount: number }): Promise<void> {
-  try {
-    const { fileService } = await import('@/services/fileService')
-    await fileService.ensureDir('.aiharness')
-    await fileService.write(PERSIST_PATH, JSON.stringify({
-      projectId: cache.projectId,
-      index: cache.index,
-      savedAt: Date.now(),
-    }))
-  } catch { /* best-effort */ }
-}
-
-async function loadPersisted(projectId: string): Promise<string | null> {
-  try {
-    const { fileService } = await import('@/services/fileService')
-    const raw = await fileService.read(PERSIST_PATH)
-    if (!raw?.trim()) return null
-    const data = JSON.parse(raw)
-    if (data.projectId !== projectId) return null
-    // Check if persisted index is stale — if any structural change happened
-    // since it was saved, it would have been invalidated (file deleted on disk too)
-    _cachedIndex = { projectId: data.projectId, index: data.index, tokenCount: estimateTokens(data.index) }
-    return data.index
-  } catch { return null }
+  return _globalIndexCache?.tokenCount ?? 0
 }

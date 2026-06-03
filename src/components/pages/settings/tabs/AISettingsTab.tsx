@@ -40,7 +40,7 @@ export function AISettingsTab() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>13 个文件操作工具</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {[
-                { n: 'list_directory', t: '只读' }, { n: 'read_file', t: '只读' }, { n: 'search_files', t: '只读' },
+                { n: 'list_directory', t: '只读' }, { n: 'read_file', t: '只读' },
                 { n: 'search_content', t: '只读' },
                 { n: 'edit_file', t: '预览确认' },
                 { n: 'create_file', t: '需确认' }, { n: 'delete_file', t: '需确认' },

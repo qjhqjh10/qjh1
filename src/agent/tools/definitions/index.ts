@@ -13,7 +13,7 @@ import { lspTools } from './lspTools'
 import type { ToolDefinition } from '../ToolRegistry'
 
 export const ALL_TOOLS: ToolDefinition[] = [
-  ...fileTools,      // 8 tools
+  ...fileTools,      // 7 tools
   ...kbTools,        // 4 tools
   ...noteTools,      // 5 tools
   ...imageTools,     // 2 tools

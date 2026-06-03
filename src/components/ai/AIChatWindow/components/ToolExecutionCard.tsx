@@ -4,7 +4,7 @@ import { useAgentStore, type ToolExecutionState } from '@/agent/store/AgentStore
 function ToolIcon({ toolName }: { toolName: string }) {
   const icons: Record<string, string> = {
     read_file: '\u{1F4D6}', list_directory: '\u{1F4C2}',
-    search_files: '\u{1F50D}', search_content: '\u{1F50E}',
+    search_content: '\u{1F50E}',
     edit_file: '\u{270F}\u{FE0F}', create_file: '\u{1F4DD}',
     delete_file: '\u{1F5D1}', rename_file: '\u{1F4DD}',
     create_project: '\u{1F3D7}', delete_project: '\u{1F5D1}',

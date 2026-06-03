@@ -1,0 +1,8 @@
+{"timestamp":1780402146819,"sessionId":"mpwlgwlf_8omyf8","event":"session:start","data":{}}
+{"timestamp":1780402149408,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: linyuqing.json"}}
+{"timestamp":1780402150779,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: characters/linyuqing.json"}}
+{"timestamp":1780402154002,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}
+{"timestamp":1780402155284,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"12 个项目"}}
+{"timestamp":1780402156379,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个项目"}}
+{"timestamp":1780402157710,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"1068 字符"}}
+{"timestamp":1780402159399,"sessionId":"mpwlgwlf_8omyf8","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}

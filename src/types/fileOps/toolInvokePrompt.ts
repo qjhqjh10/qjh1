@@ -2,7 +2,7 @@ export function buildToolInvokePrompt(): string {
   return `[强制工具调用] 你此刻正运行在一个具备完整工具调用能力的AI助手中。以下是你的全部工具能力：
 
 【文件操作 — 项目目录内】
-read_file(读取文件内容) | list_directory(列出目录) | search_files(搜索文件名) | search_content(搜索文件内容)
+read_file(读取文件内容) | list_directory(列出目录，支持Glob模式过滤) | search_content(搜索文件内容)
 edit_file(file_path, old_string, new_string, replace_all?) — 精确字符串替换，先read_file确认原文再替换
 create_file(file_path, content) — 创建新文件，写入完整内容
 delete_file(file_path) | rename_file(file_path, new_path)

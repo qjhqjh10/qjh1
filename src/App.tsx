@@ -1,7 +1,7 @@
 import { useEffect, useCallback, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { appService, projectService, settingsService, aiService, continuationService } from '@/services/fileService'
+import { appService, projectService, settingsService, aiService, continuationService, fileService } from '@/services/fileService'
 import { useStore, useSettingsStore } from '@/store'
 import type { Project } from '@/types/project'
 import type { ModelConfig } from '@/types/settings'
@@ -102,6 +102,17 @@ export default function App() {
 
   // Inject design tokens as CSS custom properties (one-time)
   useEffect(() => { injectThemeVars() }, [])
+
+  // Global: file watcher → invalidate index on external changes
+  useEffect(() => {
+    let unsub: (() => void) | undefined
+    try {
+      unsub = fileService.onExternalChange(() => {
+        import('@/agent/context/MemoryIndex').then(m => m.invalidateMemoryIndexCache()).catch(() => {})
+      })
+    } catch { /* not in Electron */ }
+    return () => { if (unsub) unsub() }
+  }, [])
 
   useEffect(() => {
     appService.getProjectsBasePath().then(setProjectsBasePath)

@@ -1,0 +1,10 @@
+{"timestamp":1780391569270,"sessionId":"mpwf66wm_w6dhox","event":"session:start","data":{}}
+{"timestamp":1780391572930,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: .aiharness/aiharness.json"}}
+{"timestamp":1780391576345,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780391577604,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391578870,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391580165,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391581535,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391583991,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780391586551,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780391588119,"sessionId":"mpwf66wm_w6dhox","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5569 字符"}}

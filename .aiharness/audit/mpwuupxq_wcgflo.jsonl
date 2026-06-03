@@ -1,0 +1,3 @@
+{"timestamp":1780417907918,"sessionId":"mpwuupxq_wcgflo","event":"session:start","data":{}}
+{"timestamp":1780417911881,"sessionId":"mpwuupxq_wcgflo","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780417913187,"sessionId":"mpwuupxq_wcgflo","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}

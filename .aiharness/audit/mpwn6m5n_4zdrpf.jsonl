@@ -1,0 +1,4 @@
+{"timestamp":1780405025963,"sessionId":"mpwn6m5n_4zdrpf","event":"session:start","data":{}}
+{"timestamp":1780405028661,"sessionId":"mpwn6m5n_4zdrpf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"12 个项目"}}
+{"timestamp":1780405030076,"sessionId":"mpwn6m5n_4zdrpf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"9 个项目"}}
+{"timestamp":1780405031790,"sessionId":"mpwn6m5n_4zdrpf","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"9131 字符"}}

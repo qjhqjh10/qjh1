@@ -5,7 +5,6 @@ import type { ThinkingPlan, ThinkingStep } from '@/agent/state/types'
 const toolIcons: Record<string, React.ReactNode> = {
   read_file:       <DocumentTextIcon style={{ width: 14, height: 14 }} />,
   list_directory:  <FolderOpenIcon style={{ width: 14, height: 14 }} />,
-  search_files:    <FolderOpenIcon style={{ width: 14, height: 14 }} />,
   search_content:  <DocumentTextIcon style={{ width: 14, height: 14 }} />,
   edit_file:       <PencilSquareIcon style={{ width: 14, height: 14 }} />,
   create_file:     <PlusCircleIcon style={{ width: 14, height: 14 }} />,
@@ -21,7 +20,7 @@ const riskColors: Record<string, { border: string; bg: string }> = {
 }
 
 function stepRisk(tool: string): 'safe' | 'moderate' | 'dangerous' {
-  if (/^(read_file|list_directory|search_files|search_content|list_notes|read_note)$/.test(tool)) return 'safe'
+  if (/^(read_file|list_directory|search_content|list_notes|read_note)$/.test(tool)) return 'safe'
   if (/^(create_file|edit_file|rename_file|write_note)$/.test(tool)) return 'moderate'
   return 'dangerous'
 }

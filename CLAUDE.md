@@ -59,7 +59,9 @@ src/types/         — 类型定义
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 运行全部测试（380 用例） |
+| `npx vitest run` | 运行全部测试（477 用例） |
+| `node scripts/test-v5-anth.mjs` | Anthropic协议CLI仿真测试 |
+| `node scripts/openai-sim-test.mjs` | OpenAI协议CLI仿真测试 |
 
 ## 操作原则
 

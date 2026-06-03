@@ -6,7 +6,7 @@ import { estimateTokensFromLines } from '../../utils/tokenEstimation'
 // Static schema documentation (fallback when no project)
 const SCHEMA_DOC = [
   '## 角色 JSON Schema',
-  '角色文件存储在 characters/{拼音id}.json，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
+  '角色文件存储在 characters/{中文名}.json，每个角色一个文件，必须是 16 个平铺字段（禁止嵌套对象）：',
   '',
   '必填字段 (15个): id, name, role(男主|女主|男配|女配|反派|其他), gender, age, occupation, background, appearance, personality, abilities, weaknesses, relationships, relationshipTags(数组), arc, importance(0-100)',
   '可选字段: image',
@@ -38,7 +38,7 @@ export const characterProvider: ContextProvider = {
     const mentionedNames = extractMentionedNames(msg)
 
     try {
-      const files = await fileService.listDir(`${projectId}/characters`)
+      const files = await fileService.listDir(`projects/${projectId}/characters`)
       const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
       if (jsonFiles.length === 0) {
         return { domain: 'characters', priority: 80, estimatedTokens: 200, content: '## 角色\n当前项目暂无角色文件。\n\n' + SCHEMA_DOC }
@@ -53,7 +53,7 @@ export const characterProvider: ContextProvider = {
 
         for (const f of targetFiles) {
           try {
-            const content = await cachedRead(`${projectId}/characters/${f}`, projectId)
+            const content = await cachedRead(`projects/${projectId}/characters/${f}`, projectId)
             const obj = JSON.parse(content)
             lines.push(`### ${obj.name || f} (${obj.role || '未知'})`)
             lines.push(`- 性别: ${obj.gender || '-'}  年龄: ${obj.age || '-'}  职业: ${obj.occupation || '-'}`)
@@ -74,7 +74,7 @@ export const characterProvider: ContextProvider = {
       const maxShow = mentionedNames.length > 0 ? 30 : 15
       for (const f of jsonFiles.slice(0, maxShow)) {
         try {
-          const content = await cachedRead(`${projectId}/characters/${f}`, projectId)
+          const content = await cachedRead(`projects/${projectId}/characters/${f}`, projectId)
           const obj = JSON.parse(content)
           const rel = obj.relationships && Array.isArray(obj.relationships)
             ? ` | 关系: ${obj.relationships.map((r: any) => r.name || r.character || String(r)).join(', ').slice(0, 50)}`

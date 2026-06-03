@@ -1,0 +1,13 @@
+{"timestamp":1780390587618,"sessionId":"mpwel5gi_0618jg","event":"session:start","data":{}}
+{"timestamp":1780390591155,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390592624,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390592624,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390594156,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: ./files"}}
+{"timestamp":1780390596371,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390598739,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390600029,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390601290,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390602559,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390605268,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390607179,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390608583,"sessionId":"mpwel5gi_0618jg","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5569 字符"}}

@@ -1,0 +1,4 @@
+{"timestamp":1780405013011,"sessionId":"mpwn6c5v_e0op0r","event":"session:start","data":{}}
+{"timestamp":1780405016782,"sessionId":"mpwn6c5v_e0op0r","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}
+{"timestamp":1780405018869,"sessionId":"mpwn6c5v_e0op0r","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"12 个项目"}}
+{"timestamp":1780405021262,"sessionId":"mpwn6c5v_e0op0r","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个项目"}}

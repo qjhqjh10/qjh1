@@ -34,6 +34,12 @@ function ActiveConfigName() {
       }}>
         🔧 {active.name}
       </span>
+      <span style={{
+        padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+        background: (active as any).protocol === 'anthropic' ? 'rgba(22,163,74,0.1)' : 'rgba(59,130,246,0.08)',
+        color: (active as any).protocol === 'anthropic' ? '#16a34a' : '#3b82f6',
+        border: (active as any).protocol === 'anthropic' ? '1px solid rgba(22,163,74,0.2)' : '1px solid rgba(59,130,246,0.15)',
+      }}>{(active as any).protocol === 'anthropic' ? 'ANT' : 'OAI'}</span>
     </div>
   )
 }

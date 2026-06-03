@@ -66,6 +66,8 @@ export interface BridgeSendResult {
   toolCalls: number
   totalTokens: number
   phase: string
+  toolsUsed: string[]
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
 }
 
@@ -80,7 +82,7 @@ export class V4AgentChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 30
+  private maxIterations = 8  // default, overridden by init()
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -103,10 +105,8 @@ export class V4AgentChatBridge {
   }
 
   updateProject(projectId: string | null): void {
-    // Invalidate project-scoped caches only; preserve global files (style_templates, etc.)
     if (this.projectId && this.projectId !== projectId) {
       contextAssembler.clearProject(this.projectId)
-      import('./context/MemoryIndex').then(m => m.invalidateMemoryIndexCache())
       import('./context/FileCache').then(m => m.invalidateProjectFilesReexport(this.projectId!))
     }
     this.projectId = projectId
@@ -153,7 +153,7 @@ export class V4AgentChatBridge {
       const msg = userMessage
 
       // ── Task Profiles: core (一定给) + extended (迭代3+追加) ──
-      const READ   = new Set(['read_file','list_directory','search_files','search_content'])
+      const READ   = new Set(['read_file','list_directory','search_content'])
       const WRITE  = new Set(['create_file','edit_file'])
       const DANGER = new Set(['delete_file','rename_file'])
       const NOTE   = new Set(['list_notes','read_note','write_note','append_note'])
@@ -187,7 +187,7 @@ export class V4AgentChatBridge {
         chat:      { core: new Set([]),                         extended: new Set([]) },
         read:      { core: READ,                                extended: new Set([...NOTE, ...KB, ...IMG]) },
         chapter:   { core: new Set([...READ, ...WRITE]),        extended: new Set([...DANGER, ...NOTE, 'search_content']) },
-        character: { core: new Set([...READ, 'create_file']),   extended: new Set([...WRITE, 'search_files', 'search_content']) },
+        character: { core: new Set([...READ, 'create_file']),   extended: new Set([...WRITE, 'search_content']) },
         style:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
         scene:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
         template:  { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
@@ -219,7 +219,10 @@ export class V4AgentChatBridge {
 
       diagnosticLogger.recordInfo(`Agent2: task=${taskKey} core=${scopedCore.length} ext=${scopedExtended.length}`)
 
-      const planInstruction = intent === 'complex'
+      // planInstruction and planPrompt are mutually exclusive:
+      // planInstruction → "immediately execute" (complex task, non-plan mode)
+      // planPrompt → "wait for user approval" (plan mode, injected later in context assembler)
+      const planInstruction = (intent === 'complex' && !options.planMode)
         ? `\n## 执行方案\n用户提出了${reqCount}个要求。第一轮列出步骤清单（如"①read_file读大纲 ②edit_file改世界观 ③create_file写角色"），然后立即执行第一步。每轮只做一步，用最精准的工具。全部完成后一句话汇报，不要展开。`
         : ''
 
@@ -255,7 +258,7 @@ export class V4AgentChatBridge {
       // ── 3. Wire Context Assembler ──
       // v4: Split System Prompt — core (locked, cached) + dynamic (index + providers)
       // Core never changes → DeepSeek prefix caching → 10% billing
-      // Dynamic rebuilt per message → fresh project index + relevant providers
+      // Dynamic rebuilt per message → fresh global index + relevant providers
       //
       // V9.5.2: Use selectDomainModules to only include relevant modules.
       // Previously all 6 were hardcoded, bloating prompt with irrelevant instructions.
@@ -264,7 +267,7 @@ export class V4AgentChatBridge {
       // Fallback: always include CHARACTER + OUTLINE for simple/chat intents.
       const coreDomainModules = selectedModules.length > 0
         ? selectedModules
-        : [CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE]
+        : []  // v9.5.3: 聊天类消息不注入领域模块，避免误导模型调工具
       // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
       // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
       // V9.5.2: planInstruction moved to dynamicContent to keep CORE_PROMPT stable for cache
@@ -273,14 +276,12 @@ export class V4AgentChatBridge {
       const coreTokens = estimateTokens(CORE_PROMPT)
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        // Dynamic: project index + provider content (fresh per message)
-        let projectIndex = ''
-        if (pid) {
-          try {
-            const { buildMemoryIndex } = await import('./context/MemoryIndex')
-            projectIndex = await buildMemoryIndex(pid)
-          } catch {}
-        }
+        // Dynamic: global index + provider content (fresh per message)
+        let globalIndex = ''
+        try {
+          const { buildGlobalIndex } = await import('./context/MemoryIndex')
+          globalIndex = await buildGlobalIndex(pid)
+        } catch {}
         // KB search
         let searchContext = ''
         if (options.kbEnabled && this.projectId) {
@@ -316,35 +317,44 @@ export class V4AgentChatBridge {
         // Token accounting: core (cached) + dynamic (per-message)
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const planTokens = planPrompt ? estimateTokens(planPrompt) : 0
-        const projectIndexTokens = estimateTokens(projectIndex || '')
+        const globalIndexTokens = estimateTokens(globalIndex || '')
         const historyTokens = hist.reduce((s, m) => s + estimateTokens(m.content || '') + 4, 0)
         const userMsgTokens = estimateTokens(msg)
 
-        const fullTotal = coreTokens + base.totalTokens + searchTokens + planTokens + projectIndexTokens + historyTokens + userMsgTokens
+        const fullTotal = coreTokens + base.totalTokens + searchTokens + planTokens + globalIndexTokens + historyTokens + userMsgTokens
 
         const fullBreakdown: Array<{ domain: string; tokens: number }> = [
           { domain: '核心法则(缓存)', tokens: coreTokens },
-          { domain: '项目索引+Provider', tokens: projectIndexTokens + (base.totalTokens || 0) },
+          { domain: '全局索引+Provider', tokens: globalIndexTokens + (base.totalTokens || 0) },
           ...(searchContext ? [{ domain: '知识库', tokens: searchTokens }] : []),
           ...(planPrompt ? [{ domain: '执行规划', tokens: planTokens }] : []),
           { domain: '对话历史', tokens: historyTokens },
           { domain: '当前消息', tokens: userMsgTokens },
         ].filter(b => b.tokens > 0)
 
-        // v4: Split architecture — [0] core (cached) + [1] dynamic (per-message)
-        // [0]: Core rules + domain modules + learned patterns → cached
-        // [1]: Project index (PROJECT.md + file tree) + providers + KB/web search → fresh each time
+        // v4: Split architecture — [0] core (cached) + [1] index (compact, always first) + [2] dynamic
+        // [0]: Core rules + domain modules → cached, never changes
+        // [1]: Project index — ALWAYS first thing model sees, mandatory to read
+        // [2]: Providers + KB/web search → fresh each time
+        const indexDirective = globalIndex
+          ? `⬇️ 以下是软件完整文件索引。索引中列出了所有目录和文件的路径——已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
+          : ''
+        // Force tool invocation prompt — tells model to use actual function calls, not text simulation
+        const { buildToolInvokePrompt } = await import('@/types/fileOps')
+        const toolInvokePrompt = buildToolInvokePrompt()
+
         const dynamicContent = [
-          projectIndex,                                            // 项目索引: PROJECT.md + 文件列表
           ...base.systemMessages.map(m => m.content),              // Context Providers
           searchContext,                                           // 知识库/网络搜索
-          planInstruction,                                         // 复杂任务执行方案(移自CORE保持缓存)
+          toolInvokePrompt,                                        // 强制工具调用协议 — 铁律最高优先级
+          planInstruction,                                         // 复杂任务执行方案
           planPrompt,                                              // Plan模式提示
         ].filter(Boolean).join('\n\n')
 
         const systemMessages = [
           coreSystemMsg,                                          // [0] 核心提示词 — 永远不变, DeepSeek缓存
-          { role: 'system' as const, content: dynamicContent },   // [1] 索引+Provider — 每次动态构建
+          ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引 — 强制先看
+          { role: 'system' as const, content: dynamicContent },   // [2] Provider+动态 — 每次变化
         ]
 
         return {
@@ -386,17 +396,14 @@ export class V4AgentChatBridge {
         // v4.1 Change-driven caching: per-file precision invalidation
         if (result.status === 'success') {
           const fp = String(args.file_path || args.path || '')
-          const { contextAssembler, invalidateMemoryIndexCache } = await (async () => {
-            const [mi, ca] = await Promise.all([
-              import('./context/MemoryIndex'),
-              import('./context/ContextAssembler')
-            ])
-            return { invalidateMemoryIndexCache: mi.invalidateMemoryIndexCache, contextAssembler: ca.contextAssembler }
+          const contextAssembler = (await import('./context/ContextAssembler')).contextAssembler
+          const { invalidateFile, invalidateMemoryIndexCache } = await (async () => {
+            const [mi, fc] = await Promise.all([import('./context/MemoryIndex'), import('./context/FileCache')])
+            return { invalidateMemoryIndexCache: mi.invalidateMemoryIndexCache, invalidateFile: fc.invalidateFile }
           })()
-          const { invalidateFile } = await import('./context/FileCache')
 
           if (/^(create_style_template|create_scene_template)$/.test(ctx.toolName)) {
-            // Template created → structural change
+            // Template created → invalidate index + provider domain
             invalidateMemoryIndexCache()
             const domain = ctx.toolName === 'create_style_template' ? 'style' : 'scene'
             contextAssembler.invalidateProvider(this.projectId, domain)
@@ -406,16 +413,16 @@ export class V4AgentChatBridge {
             const domains = ContextAssembler.domainsForPath(fp)
             for (const d of domains) contextAssembler.invalidateProvider(this.projectId, d)
           } else if (ctx.toolName === 'create_file' || ctx.toolName === 'delete_file') {
-            // Structural change → invalidate the whole directory + MemoryIndex
+            // Structural change → invalidate index + directory cache + provider domain
             invalidateMemoryIndexCache()
             invalidateFile(fp)
-            const dir = fp.replace(/\/[^/]+$/, '')  // e.g. "characters" from "characters/张明.json"
+            const dir = fp.replace(/\/[^/]+$/, '')
             const { invalidateDir } = await import('./context/FileCache')
             invalidateDir(dir)
             const domains = ContextAssembler.domainsForPath(fp)
             for (const d of domains) contextAssembler.invalidateProvider(this.projectId, d)
           } else if (ctx.toolName === 'rename_file') {
-            // Both old and new paths affected
+            // Both old and new paths affected → invalidate index
             invalidateMemoryIndexCache()
             const newPath = String(args.new_path || '')
             invalidateFile(fp)
@@ -425,6 +432,9 @@ export class V4AgentChatBridge {
               ...ContextAssembler.domainsForPath(newPath),
             ])
             for (const d of domains) contextAssembler.invalidateProvider(this.projectId, d)
+          } else if (/^(write_note|delete_note|kb_create_file|kb_append_file|create_project|delete_project)$/.test(ctx.toolName)) {
+            // Global/structural changes → invalidate index
+            invalidateMemoryIndexCache()
           }
         }
 
@@ -493,6 +503,8 @@ export class V4AgentChatBridge {
         toolCalls: result.toolCalls,
         totalTokens: result.totalTokens,
         phase: result.phase,
+        toolsUsed: result.toolsUsed,
+        toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
       }
 
@@ -501,7 +513,7 @@ export class V4AgentChatBridge {
       store.setLastError(errMsg)
       store.endRun()
       this.auditTrail.persist().catch(() => {})
-      return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, phase: 'ERROR' }
+      return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, phase: 'ERROR', toolsUsed: [], toolCallSteps: [] }
     } finally {
       // Clean up all emitter listeners to prevent leaks on re-send
       for (const unsub of unsubscribes) {

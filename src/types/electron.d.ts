@@ -59,6 +59,29 @@ export interface AIAPI {
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number }>
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
+  // ── Anthropic 协议 ──
+  chatAnthropicStream: (params: {
+    system: string[]
+    messages: Array<{
+      role: string
+      content: Array<{
+        type: string
+        text?: string
+        tool_use_id?: string
+        id?: string
+        name?: string
+        input?: Record<string, unknown>
+        content?: string
+      }>
+    }>
+    configId: string
+    projectId?: string
+    tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>
+  }) => Promise<string>
+  abortAnthropicStream: () => void
+  onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void
+  onAnthropicDone: (callback: (data: { text: string; usage?: StreamUsage & { cacheHitTokens?: number } }) => void) => () => void
+  onAnthropicError: (callback: (data: { message: string }) => void) => () => void
 }
 
 export interface DialogAPI {

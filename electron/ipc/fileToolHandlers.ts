@@ -1,6 +1,8 @@
 import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import * as path from 'path'
+import * as os from 'os'
+import minimatch from 'minimatch'
 import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
 
@@ -52,7 +54,26 @@ async function safeResolve(
   if (/^[A-Za-z]:[/\\]/.test(clean) || path.isAbsolute(clean)) return null
   // Decode percent-encoded path traversal attempts (%2e%2e%2f = ../)
   clean = clean.replace(/%2e%2e%2f/gi, '').replace(/%2e%2e/gi, '')
-  // Loop until no more ../ patterns remain (Issue #1: multi-pass defense against ....// bypass)
+
+  // ── Handle ../ prefix: resolve against appRoot (parent of projects/) instead of projectPath ──
+  if (clean.startsWith('../')) {
+    const appRoot = path.dirname(projectPath)
+    while (clean.startsWith('../')) clean = clean.slice(3)
+    const resolved = path.join(appRoot, clean)
+    // Block system directories only
+    const lowered = resolved.toLowerCase()
+    if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
+    // Verify with realpath if file exists
+    try {
+      const real = await fsp.realpath(resolved)
+      if (!isSafePath(real, appRoot)) return null
+      return real
+    } catch {
+      return resolved // File doesn't exist yet
+    }
+  }
+
+  // Project-relative path: strip ../ for safety and join with projectPath
   let prev = ''
   while (prev !== clean) {
     prev = clean
@@ -85,6 +106,17 @@ function resolveArgNoRealpath(
   const raw = args[key]
   if (typeof raw !== 'string' || raw.length === 0) return null
   let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
+  // If path starts with ../ → resolve against app root (global dirs)
+  if (clean.startsWith('../')) {
+    const appRoot = path.dirname(projectPath)
+    while (clean.startsWith('../')) clean = clean.slice(3)
+    const resolved = path.join(appRoot, clean)
+    // Block system dirs only
+    const lowered = resolved.toLowerCase()
+    if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
+    return resolved
+  }
+  // For project-relative paths, strip any remaining ../ for safety
   let prev = ''
   while (prev !== clean) {
     prev = clean
@@ -257,48 +289,113 @@ export async function executeFileTool(
       // ── Read-only ──
 
       case 'list_directory': {
-        const dir = resolvePath('dir_path') || projectPath
-        if (!isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-        let entries: fs.Dirent[]
-        try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch {
-          return { callId, toolName, status: 'success', summary: '0 个项目', detail: '(目录不存在或为空)' }
+        const rawPath = String(args.dir_path || '')
+        const pattern = args.pattern as string | undefined
+        const broad = args.broad === true
+        const isGlobal = rawPath.startsWith('..') || rawPath.includes('/../')
+
+        const MAX_RESULTS = 500
+        const appRoot = path.dirname(projectPath)
+
+        // ── Scan one directory ──
+        const scanDir = async (scanPath: string, label: string): Promise<string[]> => {
+          let e: fs.Dirent[]
+          try { e = await fsp.readdir(scanPath, { withFileTypes: true }) } catch { return [] }
+          const result: string[] = []
+          for (const entry of e) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+            if (entry.isSymbolicLink()) continue
+            const pfx = entry.isDirectory() ? '[DIR] ' : '[FILE]'
+            if (!pattern) {
+              result.push(`[${label}] ${pfx} ${entry.name}${entry.isDirectory() ? '/' : ''}`)
+            } else if (entry.isFile() && minimatch(entry.name, pattern)) {
+              result.push(`[${label}] [FILE] ${entry.name}`)
+            } else if (entry.isDirectory() && pattern.includes('**')) {
+              try {
+                const subs = await fsp.readdir(path.join(scanPath, entry.name), { withFileTypes: true })
+                for (const se of subs) {
+                  if (se.isFile() && minimatch(`${entry.name}/${se.name}`, pattern)) {
+                    result.push(`[${label}] [FILE] ${entry.name}/${se.name}`)
+                    if (result.length >= MAX_RESULTS) break
+                  }
+                }
+              } catch {}
+            }
+            if (result.length >= MAX_RESULTS) break
+          }
+          return result
         }
-        // Also include global uploads when listing project root
-        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
-        let uploadEntries: string[] = []
-        if (dir === projectPath) {
-          try { uploadEntries = await fsp.readdir(globalUploads) } catch { /* no uploads dir */ }
+
+        // ── Build scan targets: always scan the entire software folder in parallel ──
+        const targets: Array<{ path: string; label: string }> = []
+
+        // All global resource dirs
+        const globalDirs = ['style_templates', 'scene_templates', 'knowledge_base/files', 'uploads/files', 'uploads/images', 'notes']
+        for (const d of globalDirs) {
+          const p = path.join(appRoot, d)
+          try { await fsp.access(p); targets.push({ path: p, label: d.replace('knowledge_base/', 'KB:').replace('uploads/', '上传:') }) } catch {}
         }
-        const items = entries.map(e => {
-          const prefix = e.isSymbolicLink() ? '[LINK]' : e.isDirectory() ? '[DIR] ' : '[FILE]'
-          return `${prefix} ${e.name}${e.isDirectory() && !e.isSymbolicLink() ? '/' : ''}`
-        })
-        for (const ue of uploadEntries) {
-          items.push(`[UPLOAD] ${ue}`)
+
+        // Project directories — handles both test env and production env
+        try {
+          const projRootEntries = await fsp.readdir(projectPath, { withFileTypes: true })
+          // If projectPath's subdirs contain known project subdirs, it IS a project dir (test env)
+          const isProjectItself = projRootEntries.some(e => ['characters', 'chapters', 'outline'].includes(e.name))
+          if (isProjectItself) {
+            for (const sd of ['characters', 'chapters', 'detailed_outline', 'outline', 'summaries']) {
+              const p = path.join(projectPath, sd)
+              try { await fsp.access(p); targets.push({ path: p, label: sd }) } catch {}
+            }
+          } else {
+            // Prod: projectPath = projects/ → scan each project subdir
+            for (const pe of projRootEntries) {
+              if (pe.isDirectory() && !pe.name.startsWith('.')) {
+                for (const sd of ['characters', 'chapters', 'detailed_outline', 'outline', 'summaries']) {
+                  const p = path.join(projectPath, pe.name, sd)
+                  try { await fsp.access(p); targets.push({ path: p, label: `${pe.name}/${sd}` }) } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+
+        // If broad scan: add desktop/documents/downloads
+        if (broad) {
+          for (const d of ['Desktop', 'Documents', 'Downloads']) {
+            const p = path.join(os.homedir(), d)
+            try { await fsp.access(p); targets.push({ path: p, label: d }) } catch {}
+          }
         }
-        const detail = items.length > 0 ? items.join('\n') : '(空目录)'
-        return { callId, toolName, status: 'success', summary: `${items.length} 个项目`, detail }
+
+        // ── Scan all targets in parallel ──
+        const allResults = await Promise.all(targets.map(t =>
+          scanDir(t.path, t.label).then(items => ({ label: t.label, items }))
+        ))
+
+        // ── Aggregate ──
+        const allItems: string[] = []
+        let total = 0
+        for (const r of allResults) {
+          if (total >= MAX_RESULTS) break
+          for (const item of r.items) {
+            if (total >= MAX_RESULTS) break
+            allItems.push(item)
+            total++
+          }
+        }
+        if (total >= MAX_RESULTS) allItems.push(`... (已截断，仅显示前 ${MAX_RESULTS} 条)`)
+
+        const detail = allItems.length > 0 ? allItems.join('\n') : `(未找到匹配${pattern ? ` "${pattern}"` : ''}的文件。设置 broad=true 可搜索电脑桌面/文档/下载)`
+        return { callId, toolName, status: 'success', summary: `${total} 个匹配`, detail }
       }
 
       case 'read_file': {
         const fp = await safeResolve('file_path', args, projectPath)
-        // Global uploads fallback: try basename in uploads/ + uploads/files/ + uploads/images/ + uploads/clips/
-        const globalUploads = path.join(path.dirname(projectPath), 'uploads')
-        const basename = path.basename(String(args.file_path || ''))
-        const fallbackPaths = [
-          fp,
-          path.join(globalUploads, basename),
-          path.join(globalUploads, 'files', basename),
-          path.join(globalUploads, 'images', basename),
-          path.join(globalUploads, 'clips', basename),
-        ].filter(Boolean) as string[]
-        // Try each fallback path in order
-        let content: string = ''
-        let found = false
-        for (const p of fallbackPaths) {
-          try { content = await readFileWithEncoding(p); found = true; break } catch {}
+        if (!fp) {
+          return { callId, toolName, status: 'error', summary: `路径解析失败: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         }
-        if (!found) {
+        let content: string
+        try { content = await readFileWithEncoding(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         }
         const truncated = content.length > MAX_READ_CHARS
@@ -307,79 +404,138 @@ export async function executeFileTool(
         return { callId, toolName, status: 'success', summary: `${content.length} 字符`, detail: truncated }
       }
 
-      case 'search_files': {
-        // DANGEROUS_ASK: user approved → search anywhere on disk
-        const parentDir = path.dirname(projectPath)
-        const keyword = (args.keyword as string || '').toLowerCase()
-        if (!keyword) return deny(callId, toolName, '缺少搜索关键词')
-        const results: string[] = []
-
-        // Resolve search root
-        let searchRoots: { label: string; dir: string }[] = []
-        if (args.dir_path) {
-          const raw = String(args.dir_path)
-          const cleaned = raw.replace(/\\/g, '/')
-          // If user provided an absolute path, use it directly
-          if (/^[A-Z]:[\\/]/i.test(cleaned) || cleaned.startsWith('/')) {
-            searchRoots.push({ label: cleaned, dir: cleaned })
-          } else {
-            // Relative path → resolve against project + app root
-            const p = resolvePath('dir_path')
-            if (p) searchRoots.push({ label: '项目', dir: p })
-          }
-        }
-        // Default: search project + all global dirs
-        if (searchRoots.length === 0) {
-          searchRoots.push({ label: '项目', dir: projectPath })
-          searchRoots.push({ label: 'STYLE_TPL', dir: path.join(parentDir, 'style_templates') })
-          searchRoots.push({ label: 'SCENE_TPL', dir: path.join(parentDir, 'scene_templates') })
-          searchRoots.push({ label: 'KNOWLEDGE', dir: path.join(parentDir, 'knowledge_base', 'files') })
-          searchRoots.push({ label: 'UPLOAD', dir: path.join(parentDir, 'uploads', 'files') })
-          searchRoots.push({ label: 'NOTE', dir: path.join(parentDir, 'notes') })
-        }
-
-        for (const root of searchRoots) {
-          if (results.length >= MAX_SEARCH_RESULTS) break
-          try {
-            await safeWalk(root.dir, root.dir, async (fullPath, entry) => {
-              if (!entry.isDirectory() && entry.name.toLowerCase().includes(keyword)) {
-                results.push(`[${root.label}] ${path.relative(root.dir, fullPath).replace(/\\/g, '/')}`)
-                if (results.length >= MAX_SEARCH_RESULTS) return true
-              }
-            })
-          } catch { /* skip inaccessible dirs */ }
-        }
-        const detail = results.length > 0 ? results.join('\n') : '未找到匹配文件'
-        return { callId, toolName, status: 'success', summary: `${results.length} 个匹配文件`, detail }
-      }
-
       case 'search_content': {
-        // Issue #13: Use dir_path parameter (align with search_files)
+        const rawPath = String(args.dir_path || '')
         const dir = args.dir_path ? (resolvePath('dir_path') || projectPath) : projectPath
-        if (!isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
+        const isGlobal = rawPath.startsWith('..') || rawPath.includes('/../')
+        if (!isGlobal && !isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
         const pattern = args.pattern as string
         if (!pattern) return deny(callId, toolName, '缺少搜索内容')
-        const filePattern = (args.file_pattern as string) || '*'
-        const ext = filePattern.replace('*', '')
-        const results: string[] = []
+
+        // ── Build match function (compiled once, reused across all files) ──
+        const useRegex = args.regex === true
+        const caseSensitive = args.case_sensitive === true
+        let matchFn: (line: string) => boolean
+        let matchStrategy = '子串'
+        if (useRegex) {
+          try {
+            const re = new RegExp(pattern, caseSensitive ? 'g' : 'gi')
+            matchFn = (line) => { re.lastIndex = 0; return re.test(line) }
+            matchStrategy = '正则'
+          } catch {
+            const search = caseSensitive ? pattern : pattern.toLowerCase()
+            matchFn = caseSensitive
+              ? (line) => line.includes(search)
+              : (line) => line.toLowerCase().includes(search)
+            matchStrategy = '子串(正则降级)'
+          }
+        } else {
+          const search = caseSensitive ? pattern : pattern.toLowerCase()
+          matchFn = caseSensitive
+            ? (line) => line.includes(search)
+            : (line) => line.toLowerCase().includes(search)
+        }
+
+        // ── Parameters ──
+        const ctxBefore = (typeof args.context_before === 'number' ? args.context_before : 0)
+                       || (typeof args.context_around === 'number' ? args.context_around : 0)
+        const ctxAfter  = (typeof args.context_after === 'number' ? args.context_after : 0)
+                       || (typeof args.context_around === 'number' ? args.context_around : 0)
+        const filePattern = (args.file_pattern as string) || '**'
+        const maxColumns = (typeof args.max_columns === 'number' ? args.max_columns : 200)
+        const maxResults = Math.min(args.max_results as number || MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS)
+        const multiline = args.multiline === true && pattern.includes('\n')
+
+        // ── Phase 1: Collect matching file paths (fast, no reading yet) ──
+        const matchedFiles: { fullPath: string; relPath: string }[] = []
         await safeWalk(dir, projectPath, async (fullPath, entry) => {
           if (entry.isDirectory()) return
-          if (!ext || entry.name.endsWith(ext)) {
+          const rel = path.relative(dir, fullPath).replace(/\\/g, '/')
+          if (filePattern !== '**' && !minimatch(rel, filePattern, { matchBase: true })) return
+          matchedFiles.push({ fullPath, relPath: rel })
+        })
+
+        // ── Phase 2: Read and search all files in parallel (like ripgrep) ──
+        const BINARY_EXTENSIONS = new Set(['.png','.jpg','.jpeg','.gif','.bmp','.ico','.webp','.pdf','.exe','.dll','.zip','.gz','.tar'])
+        const isTextFile = (fp: string) => {
+          const ext = path.extname(fp).toLowerCase()
+          return !BINARY_EXTENSIONS.has(ext)
+        }
+
+        interface FileResult { absRel: string; matches: string[] }
+        const fileResults: FileResult[] = []
+
+        // Process files in batches of 20 for parallelism
+        const BATCH_SIZE = 20
+        for (let batchStart = 0; batchStart < matchedFiles.length && fileResults.reduce((s, r) => s + r.matches.length, 0) < maxResults; batchStart += BATCH_SIZE) {
+          const batch = matchedFiles.slice(batchStart, batchStart + BATCH_SIZE)
+          const batchResults = await Promise.all(batch.map(async ({ fullPath, relPath }) => {
+            const absRel = path.relative(projectPath, fullPath).replace(/\\/g, '/')
+            if (!isTextFile(fullPath)) return { absRel, matches: [] as string[] }
             try {
-              const content = await readFileWithEncoding(fullPath)
-              const lines = content.split('\n')
-              for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(pattern)) {
-                  const rel = path.relative(projectPath, fullPath).replace(/\\/g, '/')
-                  results.push(`${rel}:${i + 1}: ${lines[i].trim().slice(0, 200)}`)
-                  if (results.length >= MAX_SEARCH_RESULTS) return true // stop
+              const buf = await fsp.readFile(fullPath)
+              // Try UTF-8 first, fallback to latin1
+              let content: string
+              try { content = buf.toString('utf-8') } catch { content = buf.toString('latin1') }
+              const matches: string[] = []
+
+              if (multiline) {
+                let searchIdx = 0
+                while (searchIdx < content.length) {
+                  const foundIdx = content.indexOf(pattern, searchIdx)
+                  if (foundIdx === -1) break
+                  const lineNum = content.slice(0, foundIdx).split('\n').length
+                  const matchText = content.slice(
+                    Math.max(0, foundIdx - 20),
+                    Math.min(content.length, foundIdx + pattern.length + 20)
+                  ).replace(/\n/g, '\\n').slice(0, maxColumns)
+                  matches.push(`${absRel}:${lineNum}: ${matchText}`)
+                  searchIdx = foundIdx + 1
+                }
+              } else {
+                const lines = buf.toString('utf-8').split('\n')
+                for (let i = 0; i < lines.length; i++) {
+                  if (matchFn(lines[i])) {
+                    const startCtx = Math.max(0, i - ctxBefore)
+                    const endCtx = Math.min(lines.length - 1, i + ctxAfter)
+                    const ctxLines = endCtx - startCtx + 1
+                    const colLimit = ctxLines <= 3 ? Math.min(maxColumns * 2, 800) : maxColumns
+                    if (matches.length > 0 && !matches[matches.length - 1].startsWith('---')) {
+                      matches.push('---')
+                    }
+                    for (let ctx = startCtx; ctx <= endCtx; ctx++) {
+                      const marker = ctx === i ? '>>>' : '   '
+                      matches.push(`${marker} ${absRel}:${ctx + 1}: ${(lines[ctx] || '').trim().slice(0, colLimit)}`)
+                    }
+                  }
                 }
               }
-            } catch { /* skip binary */ }
+              return { absRel, matches }
+            } catch { return { absRel, matches: [] as string[] } }
+          }))
+          for (const r of batchResults) {
+            fileResults.push(r)
+            if (fileResults.reduce((s, r2) => s + r2.matches.length, 0) >= maxResults) break
           }
-        })
-        const detail = results.length > 0 ? results.join('\n') : '未找到匹配内容'
-        return { callId, toolName, status: 'success', summary: `${results.length} 处匹配`, detail }
+        }
+
+        // ── Phase 3: Aggregate results ──
+        let totalMatches = 0
+        const allResults: string[] = []
+        for (const fr of fileResults) {
+          if (totalMatches >= maxResults) break
+          for (const m of fr.matches) {
+            if (totalMatches >= maxResults) break
+            allResults.push(m)
+            totalMatches++
+          }
+        }
+        if (totalMatches >= maxResults) {
+          allResults.push(`... (结果已截断，仅显示前 ${maxResults} 条)`)
+        }
+        const detail = allResults.length > 0 ? allResults.join('\n') : '未找到匹配内容'
+        const summary = `${totalMatches} 处匹配` + (matchStrategy !== '子串' ? ` (${matchStrategy})` : '')
+        return { callId, toolName, status: 'success', summary, detail }
       }
 
       // ── Backup listing ──
@@ -555,27 +711,22 @@ export async function executeFileTool(
           }
         }
 
-        // ── Strategy 4: line-by-line fuzzy matching ──
+        // ── Strategy 4: line-by-line fuzzy matching (works for 1+ lines) ──
         if (!matched) {
           const oldLines = oldStr.split('\n').map(l => l.trim())
           const contentLines = content.split('\n')
-          if (oldLines.length >= 2) {
-            // Find the first non-empty line of oldStr in content
-            let startLine = -1
-            for (let i = 0; i < contentLines.length - oldLines.length + 1; i++) {
-              let allMatch = true
-              for (let j = 0; j < oldLines.length; j++) {
-                if (contentLines[i + j].trim() !== oldLines[j]) { allMatch = false; break }
-              }
-              if (allMatch) { startLine = i; break }
+          let startLine = -1
+          for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
+            let allMatch = true
+            for (let j = 0; j < oldLines.length; j++) {
+              if (contentLines[i + j].trim() !== oldLines[j]) { allMatch = false; break }
             }
-            if (startLine >= 0) {
-              // Reconstruct oldStr from actual content lines to preserve exact formatting
-              const endLine = startLine + oldLines.length
-              oldStr = contentLines.slice(startLine, endLine).join('\n')
-              // Verify the extracted text exists in content
-              if (content.includes(oldStr)) matched = true
-            }
+            if (allMatch) { startLine = i; break }
+          }
+          if (startLine >= 0) {
+            const endLine = startLine + oldLines.length
+            oldStr = contentLines.slice(startLine, endLine).join('\n')
+            if (content.includes(oldStr)) matched = true
           }
         }
 
@@ -590,6 +741,56 @@ export async function executeFileTool(
           }
         }
 
+        // ── Strategy 6: Fullwidth→Halfwidth normalization (AI often outputs fullwidth ASCII) ──
+        if (!matched) {
+          const buildWidthMap = () => {
+            const m: Record<number, number> = {}
+            for (let i = 0; i < 26; i++) { m[0xFF21 + i] = 0x41 + i; m[0xFF41 + i] = 0x61 + i } // Ａ-Ｚ, ａ-ｚ
+            for (let i = 0; i < 10; i++) m[0xFF10 + i] = 0x30 + i                          // ０-９
+            m[0x3000] = 0x20  // Fullwidth space → halfwidth
+            return m
+          }
+          const widthMap = buildWidthMap()
+          const normalizeWidth = (s: string): string => {
+            const out: string[] = []
+            for (const ch of s) {
+              const cp = ch.codePointAt(0)!
+              out.push(cp in widthMap ? String.fromCodePoint(widthMap[cp]) : ch)
+            }
+            return out.join('')
+          }
+          const normContent = normalizeWidth(content)
+          const normOld = normalizeWidth(oldStr)
+          if (normContent.includes(normOld)) {
+            const idx = normContent.indexOf(normOld)
+            oldStr = content.slice(idx, idx + normOld.length) // 1:1 length, offset preserved
+            matched = true
+          }
+        }
+
+        // ── Strategy 7: Chinese/English punctuation normalization ──
+        if (!matched) {
+          const punctMap: Record<string, string> = {
+            '，': ',',  // ，→,
+            '、': ',',  // 、→,
+            '：': ':',  // ：→:
+            '；': ';',  // ；→;
+            '？': '?',  // ？→?
+            '！': '!',  // ！→!
+            '（': '(',  // （→(
+            '）': ')',  // ）→)
+          }
+          const punctRegex = /[，、：；？！（）]/g
+          const normalizePunct = (s: string) => s.replace(punctRegex, m => punctMap[m] || m)
+          const normContent = normalizePunct(content)
+          const normOld = normalizePunct(oldStr)
+          if (normContent.includes(normOld)) {
+            const idx = normContent.indexOf(normOld)
+            oldStr = content.slice(idx, idx + normOld.length) // 1:1 length
+            matched = true
+          }
+        }
+
         // ── All strategies exhausted → return full file for AI to do full replace ──
         if (!matched) {
           const tail = content.length > 2000
@@ -598,7 +799,7 @@ export async function executeFileTool(
           return {
             callId, toolName, status: 'error',
             summary: '未找到要替换的文本 — 请用 __FULL_REPLACE__ 进行全量替换',
-            detail: `old_string 在文件中未匹配（已尝试精确/trim/行尾归一化/逐行模糊/实体归一化5种策略）。\n\n完整文件内容:\n${tail}\n\n下一步: 基于上述完整内容构造修改后的全量版本，调用 edit_file(old_string="__FULL_REPLACE__", new_string="完整的新文件内容")。`,
+            detail: `old_string 在文件中未匹配（已尝试精确/trim/行尾归一化/逐行模糊/实体归一化/全角半角/中标点共7种策略）。\n\n完整文件内容:\n${tail}\n\n下一步: 基于上述完整内容构造修改后的全量版本，调用 edit_file(old_string="__FULL_REPLACE__", new_string="完整的新文件内容")。`,
           }
         }
         const occurrenceCount = content.split(oldStr).length - 1
@@ -794,7 +995,7 @@ function deny(callId: string, toolName: string, reason: string): ToolCallResult 
 function pathHint(requestedPath: string): string {
   const dirs = [
     'outline/         — plot.md, worldbuilding.md（大纲和世界观为 .md 格式）',
-    'characters/      — {角色拼音id}.json (每个角色一个文件)',
+    'characters/      — {中文名}.json (每个角色一个文件，如 林语晴.json)',
     'detailed_outline/— {章节id}.json (每章一个细纲)',
     'chapters/        — {章节id}.txt (章节正文)',
     'summaries/       — {章节id}.md (每章摘要，Markdown 格式)',

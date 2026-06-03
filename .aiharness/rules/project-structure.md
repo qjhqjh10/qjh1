@@ -19,7 +19,7 @@ memory/           — 持久化记忆（跨会话 Agent 上下文）
 
 ## 数据格式
 
-- **角色**: `characters/{拼音id}.json` — 16 字段平铺，role 标准化为 男主/女主/男配/女配/反派/其他
+- **角色**: `characters/{中文名}.json` — 16 字段平铺(文件名用中文名如 林语晴.json, id字段用拼音保证唯一), role 标准化为 男主/女主/男配/女配/反派/其他
 - **细纲**: `detailed_outline/{章节id}.json` — 每章一个 JSON
 - **大纲**: `outline/plot.md` — 故事剧情 Markdown
 - **世界观**: `outline/worldbuilding.md` — Markdown

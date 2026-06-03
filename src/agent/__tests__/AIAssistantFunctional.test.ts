@@ -92,8 +92,8 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具裁剪（按 task profile）', () => {
-    it('39 个工具全部注册', () => {
-      expect(toolRegistry.count()).toBe(39)
+    it('38 个工具全部注册', () => {
+      expect(toolRegistry.count()).toBe(38)
     })
 
     it('风格核心工具存在', () => {
@@ -103,13 +103,13 @@ describe('AI 写作助手 — 全面功能测试', () => {
     })
 
     it('章节核心工具存在', () => {
-      for (const t of ['read_file', 'list_directory', 'search_files', 'search_content', 'create_file', 'edit_file']) {
+      for (const t of ['read_file', 'list_directory', 'search_content', 'create_file', 'edit_file']) {
         expect(toolRegistry.has(t)).toBe(true)
       }
     })
 
     it('只读工具存在', () => {
-      for (const t of ['read_file', 'list_directory', 'search_files', 'search_content']) {
+      for (const t of ['read_file', 'list_directory', 'search_content']) {
         expect(toolRegistry.has(t)).toBe(true)
       }
     })
@@ -255,9 +255,6 @@ describe('AI 写作助手 — 全面功能测试', () => {
       const readTool = toolRegistry.get('read_file')
       expect(readTool?.permission).toBe('AUTO')
 
-      // search_files 升级为 DANGEROUS_ASK — 最后手段，需要用户审批
-      const searchTool = toolRegistry.get('search_files')
-      expect(searchTool?.permission).toBe('DANGEROUS_ASK')
     })
   })
 
@@ -266,13 +263,13 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具完整性', () => {
-    it('39 个工具全部注册', () => {
+    it('38 个工具全部注册', () => {
       const schemas = toolRegistry.getAllSchemas()
-      expect(schemas).toHaveLength(39)
+      expect(schemas).toHaveLength(38)
     })
 
     it('8 个文件工具', () => {
-      const fileTools = ['list_directory', 'read_file', 'search_files', 'search_content',
+      const fileTools = ['list_directory', 'read_file', 'search_content',
         'edit_file', 'create_file', 'delete_file', 'rename_file']
       for (const t of fileTools) {
         expect(toolRegistry.has(t)).toBe(true)

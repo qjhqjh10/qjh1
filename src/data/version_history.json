@@ -1,7 +1,22 @@
 {
-  "currentVersion": "9.6.1",
-  "currentDate": "2026-06-02",
+  "currentVersion": "9.6.2",
+  "currentDate": "2026-06-03",
   "history": [
+    {
+      "version": "9.6.2",
+      "date": "2026-06-03",
+      "features": [
+        "Anthropic协议并行支持: V4AnthropicRuntime(流式content blocks)+V4AnthropicChatBridge+anthropicHandlers(SSE解析)",
+        "双协议独立切换: ChatBridgeFactory动态import+ModelConfig.protocol字段+设置界面协议Toggle",
+        "模型设置重构: 四等分布局+英文标签(中英双语)+下拉弹窗选模型+Image卡片匹配Main设计",
+        "API密钥修复: ApiKeyField本地draft+onBlur提交+saveConfigs空密钥保护+partialize全字段剥离",
+        "系统提示词修复: 铁律软化+新增'不用工具的场景'+selectDomainModules聊天检测+桥接fallback清空",
+        "Agent核心修复: sendLockRef竞态/autoRetryRef级联保护/API空响应追加提示/压缩protectRecent/缓存键前缀",
+        "CLI仿真测试体系: 测试方案2/3/4/5+OpenAI+Anthropic双协议实际API测试+real-test真实提示词验证",
+        "设置代码审计: 修复Context0值覆盖/staleClosure删除/TokenStatsTab崩溃风险/Image协议共享/死导入清理"
+      ]
+    },
+    {
     {
       "version": "9.6.1",
       "date": "2026-06-02",

@@ -12,7 +12,6 @@ import GlassCard from '@/components/common/GlassCard'
 const iconMap: Record<string, React.ReactNode> = {
   list_directory: <FolderOpenIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />,
   read_file: <DocumentTextIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />,
-  search_files: <MagnifyingGlassIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />,
   search_content: <MagnifyingGlassIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />,
   create_file: <DocumentPlusIcon style={{ width: 16, height: 16, color: '#16a34a' }} />,
   edit_file: <PencilIcon style={{ width: 16, height: 16, color: '#7c3aed' }} />,
@@ -24,7 +23,6 @@ const iconMap: Record<string, React.ReactNode> = {
 const labelMap: Record<string, string> = {
   list_directory: '列出目录',
   read_file: '读取文件',
-  search_files: '搜索文件',
   search_content: '搜索内容',
   create_file: '创建文件',
   edit_file: '编辑文件',

@@ -175,7 +175,7 @@ export function TokenStatsTab() {
                     <span style={{ minWidth: 60, color: '#4a3f38' }}>{e.configName || e.model}</span>
                     <span style={{ color: '#2563eb' }}>入 {e.inputTokens.toLocaleString()}</span>
                     <span style={{ marginLeft: 6, color: '#16a34a' }}>出 {e.outputTokens.toLocaleString()}</span>
-                    <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>{cSym}{(e as { cost: number }).cost.toFixed(4)}</span>
+                    <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>{cSym}{((e as { cost?: number }).cost ?? 0).toFixed(4)}</span>
                     <button
                       onClick={() => {
                         if (!confirm('删除此条记录？')) return

@@ -51,9 +51,9 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 3. 工具裁剪 ──
-  it('工具裁剪: 风格→3核心, 章节→6核心, 图片→2核心', () => {
+  it('工具裁剪: 风格→3核心, 章节→5核心, 图片→2核心', () => {
     const allTools = toolRegistry.getAllSchemas()
-    const READ = new Set(['read_file','list_directory','search_files','search_content'])
+    const READ = new Set(['read_file','list_directory','search_content'])
     const TMPL = new Set(['create_style_template','create_scene_template'])
     const WRITE = new Set(['create_file','edit_file'])
     const IMG = new Set(['search_images','generate_image'])
@@ -66,7 +66,7 @@ describe('功能冒烟测试 (项目"1")', () => {
       IMG.has(t.function.name))
 
     expect(styleCore.length).toBe(3)
-    expect(chapterCore.length).toBe(6)
+    expect(chapterCore.length).toBe(5)  // READ(3) + WRITE(2) = 5 (search_files removed)
     expect(imageCore.length).toBe(2)
     expect(styleCore.map((t: any) => t.function.name).sort())
       .toEqual(['create_scene_template','create_style_template','read_file'])
@@ -99,12 +99,12 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 6. 系统提示词 ──
-  it('系统提示词: 风格/场景工具+自我优化均已包含', () => {
+  it('系统提示词: 核心+风格/场景工具均已包含', () => {
     const prompt = buildSystemPrompt([STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE], '项目1', '')
     expect(prompt).toContain('青剑')
     expect(prompt).toContain('create_style_template')
     expect(prompt).toContain('create_scene_template')
-    expect(prompt).toContain('自我优化')
+    expect(prompt).toContain('list_directory')
     expect(prompt).toContain('项目1')
   })
 
@@ -137,11 +137,11 @@ describe('功能冒烟测试 (项目"1")', () => {
 
   // ── 9. 缓存域映射 ──
   it('缓存域映射: 角色/细纲/章节/大纲路径→正确域', () => {
-    expect(ContextAssembler.domainsForPath('characters/zhangming.json')).toContain('character')
-    expect(ContextAssembler.domainsForPath('detailed_outline/chapter1.json')).toContain('detailedOutline')
-    expect(ContextAssembler.domainsForPath('chapters/chapter3.txt')).toContain('chapterWriting')
+    expect(ContextAssembler.domainsForPath('characters/zhangming.json')).toContain('characters')
+    expect(ContextAssembler.domainsForPath('detailed_outline/chapter1.json')).toContain('detailed-outline')
+    expect(ContextAssembler.domainsForPath('chapters/chapter3.txt')).toContain('chapter-writing')
     expect(ContextAssembler.domainsForPath('outline/plot.md')).toContain('outline')
-    expect(ContextAssembler.domainsForPath('summaries/chapter1.md')).toContain('chapterWriting')
+    expect(ContextAssembler.domainsForPath('summaries/chapter1.md')).toContain('chapter-writing')
   })
 
   // ── 10. write_learning 工具 ──

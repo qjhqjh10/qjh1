@@ -84,25 +84,6 @@ export const FILE_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'search_files',
-      description:
-        '在项目目录中按文件名搜索文件。\n' +
-        '【何时用】需要找到某个文件名包含特定关键词的文件时，如搜索"章节"找到所有章节文件。\n' +
-        '【何时不用】需要搜索文件内容时用 search_content。需要列出目录时用 list_directory。\n' +
-        '【注意】不能搜索知识库文件（KB文件不在项目目录内），搜索KB文件用 kb_list。',
-      parameters: {
-        type: 'object',
-        properties: {
-          keyword: { type: 'string', description: '文件名关键词（部分匹配），如 "items" 匹配 "items.json"' },
-          dir_path: { type: 'string', description: '搜索起始目录，默认项目根目录' },
-        },
-        required: ['keyword'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
       name: 'search_content',
       description:
         '在项目文件中搜索包含指定文本的行。\n' +

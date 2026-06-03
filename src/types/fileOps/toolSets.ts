@@ -6,7 +6,7 @@ export const PREVIEW_TOOLS = new Set(['edit_file']) as ReadonlySet<string>
 // - create_style_template/create_scene_template: 模板创建写入独立全局目录，不修改项目文件
 // - kb_create_file/kb_append_file: 知识库写入独立目录，不修改项目文件
 // - list_prompts/toggle_prompt/update_prompt: 提示词库管理，不影响项目文件
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_files', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -16,7 +16,6 @@ export function summarizeFileOp(
   switch (toolName) {
     case 'list_directory': return `列出目录: ${args.dir_path || '(根目录)'}`
     case 'read_file': return `读取: ${args.file_path}`
-    case 'search_files': return `搜索文件: "${args.keyword}"`
     case 'search_content': return `搜索内容: "${(args.pattern as string || '').slice(0, 40)}"`
     case 'create_file': return `创建: ${args.file_path}`
     case 'edit_file': return `编辑: ${args.file_path}`

@@ -45,8 +45,8 @@ describe('V4 System Prompt', () => {
   it('core prompt is not empty and has key sections', () => {
     expect(CORE_SYSTEM_PROMPT.length).toBeGreaterThan(100)
     expect(CORE_SYSTEM_PROMPT).toContain('青剑')
-    expect(CORE_SYSTEM_PROMPT).toContain('工作模式')
-    expect(CORE_SYSTEM_PROMPT).toContain('核心规则')
+    expect(CORE_SYSTEM_PROMPT).toContain('铁律')
+    expect(CORE_SYSTEM_PROMPT).toContain('规则')
     expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
@@ -184,8 +184,7 @@ describe('Tool Registry', () => {
     expect(names).toContain('delete_file')
     expect(names).toContain('list_directory')
     expect(names).toContain('search_content')
-    expect(names).toContain('search_files')
-    expect(names.length).toBeGreaterThanOrEqual(30)
+    expect(names.length).toBeGreaterThanOrEqual(29)
   })
 
   it('executes a tool and returns result', async () => {

@@ -17,8 +17,15 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'list_directory',
-      description: '列出目录中的文件和子目录。⚠️ 项目索引已包含所有文件路径和数量——列出内容时直接用索引回复，绝大多数情况不需要此工具。仅在极少数确实需要查看子目录结构细节时使用（如确认 uploads 目录内容）。',
-      parameters: { type: 'object', properties: { dir_path: { type: 'string', description: '相对于项目根目录的路径' } }, required: ['dir_path'] },
+      description: '列出软件内全部文件，支持 Glob 模式过滤。直接并行扫描全局资源(风格/场景/KB/上传/笔记)+所有项目目录。不填 pattern 列出全部。若找电脑其他位置设 broad=true(需批准)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob 模式过滤文件名，如 "*.json" "chapter*.txt"。不填则列出全部' },
+          broad: { type: 'boolean', description: '搜索电脑桌面/文档/下载(需批准)' },
+        },
+        required: [],
+      },
     },
     permission: 'AUTO',
     category: 'file',
@@ -28,7 +35,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'read_file',
-      description: '读取项目文件的完整文本内容。何时使用：需要了解大纲、角色设定、细纲、章节正文的具体内容时。修改文件前必须先调用此工具确认原文——否则 edit_file 的 old_string 无法匹配。路径相对于项目根目录（如 outline/plot.md、characters/许倩.json）。不确定路径时先用 search_files 查找。返回完整内容在 detail 字段。',
+      description: '读取文件完整内容。何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。项目文件路径: 项目名/子路径（如 1/outline/plot.md）。全局文件路径: ../../前缀（如 ../../style_templates/模板名.json、../../knowledge_base/files/文件名.md）。不确定时用 list_directory 查找。返回内容在 detail 字段。',
       parameters: { type: 'object', properties: { file_path: { type: 'string', description: '相对路径' } }, required: ['file_path'] },
     },
     permission: 'AUTO',
@@ -54,32 +61,22 @@ export const fileTools: ToolDefinition[] = [
   },
   {
     schema: {
-      name: 'search_files',
-      description: '🛑 最后手段 — 扫描整个硬盘搜索文件（包括项目目录和全局资源目录）。仅在 list_directory 无法定位目标文件时才使用此工具。已知路径时直接 read_file，不确定路径时先 list_directory，两者都找不到再 search_files。⚠️ 每次调用需要用户批准。',
-      parameters: {
-        type: 'object',
-        properties: {
-          keyword: { type: 'string', description: '文件名关键词' },
-          dir_path: { type: 'string', description: '搜索起始目录。留空则搜索项目目录 + 全局资源目录' },
-        },
-        required: ['keyword'],
-      },
-    },
-    permission: 'DANGEROUS_ASK',
-    category: 'file',
-    availableInPlanMode: true,
-    executor: async (args, ctx) => ipcExecute('search_files', args, ctx.projectId),
-  },
-  {
-    schema: {
       name: 'search_content',
-      description: '在项目文件中搜索指定文本内容。何时使用：需要找到某个角色名、关键词或文本片段在哪些文件中出现时。支持正则表达式。可用 file_pattern 限定搜索范围（如 "*.json" 只搜JSON文件）。找到匹配后对目标文件调用 read_file 获取完整上下文。',
+      description: '在项目文件中搜索指定文本内容。默认子串匹配（不区分大小写）。设置 regex=true 启用正则。设置 context_around 获取匹配行前后上下文（可减少后续 read_file 调用）。file_pattern 支持 glob（如 "**/*.json"）。最多返回 500 条，每行截断至 200 字符。',
       parameters: {
         type: 'object',
         properties: {
-          pattern: { type: 'string', description: '要搜索的文本' },
-          file_pattern: { type: 'string', description: '限定文件类型，如 "*.json"' },
-          dir_path: { type: 'string', description: '起始目录' },
+          pattern: { type: 'string', description: '要搜索的文本（默认子串匹配，regex=true 时为正则）' },
+          regex: { type: 'boolean', description: 'pattern 是否为正则表达式（默认 false）。解析失败时自动降级为子串匹配' },
+          case_sensitive: { type: 'boolean', description: '是否区分大小写（默认 false）' },
+          file_pattern: { type: 'string', description: 'Glob 模式过滤文件，如 "*.json" "**/*.md" "chapter*.txt"' },
+          dir_path: { type: 'string', description: '搜索起始目录，默认项目根目录' },
+          context_around: { type: 'number', description: '匹配行前后各N行上下文（默认 0）。设置后可减少后续 read_file 调用' },
+          context_before: { type: 'number', description: '匹配行前N行（覆盖 context_around）' },
+          context_after: { type: 'number', description: '匹配行后N行（覆盖 context_around）' },
+          max_results: { type: 'number', description: '最大返回结果数（默认 500）' },
+          max_columns: { type: 'number', description: '每行最大字符数（默认 200）' },
+          multiline: { type: 'boolean', description: '跨行搜索模式（默认 false）。启用后 pattern 可包含 \\n 匹配换行符' },
         },
         required: ['pattern'],
       },
@@ -116,7 +113,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'create_file',
-      description: '创建新文件并写入内容。何时使用：创建新角色JSON、新章节正文、新细纲JSON、新摘要文件。创建角色用 characters/{拼音id}.json，细纲用 detailed_outline/{id}.json。创建前先 read_file 参考已有同类型文件格式。会自动创建不存在的父目录。需要用户确认。',
+      description: '创建新文件并写入内容。何时使用：创建新角色JSON、新章节正文、新细纲JSON、新摘要文件。项目内路径: 项目名/子路径（如 1/characters/林语晴.json）。KB文件路径: ../../knowledge_base/files/文件名.md。创建前先 read_file 参考已有同类型文件格式。自动创建不存在的父目录。需要用户确认。',
       parameters: {
         type: 'object',
         properties: {

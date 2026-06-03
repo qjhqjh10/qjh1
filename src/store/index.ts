@@ -290,7 +290,7 @@ export const useSettingsStore = create<SettingsState>()(
       version: 4,
       partialize: (state) => ({
         ...state,
-        configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '' })),
+        configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
       }),
       migrate: (persisted: unknown, version: number) => {
         if (version < 1) {

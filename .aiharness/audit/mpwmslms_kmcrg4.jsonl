@@ -1,0 +1,6 @@
+{"timestamp":1780404372100,"sessionId":"mpwmslms_kmcrg4","event":"session:start","data":{}}
+{"timestamp":1780404374561,"sessionId":"mpwmslms_kmcrg4","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个项目"}}
+{"timestamp":1780404375886,"sessionId":"mpwmslms_kmcrg4","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}
+{"timestamp":1780404377655,"sessionId":"mpwmslms_kmcrg4","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"12 个项目"}}
+{"timestamp":1780404378837,"sessionId":"mpwmslms_kmcrg4","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"9 个项目"}}
+{"timestamp":1780404379933,"sessionId":"mpwmslms_kmcrg4","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"9131 字符"}}

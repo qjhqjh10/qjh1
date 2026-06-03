@@ -286,8 +286,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const encryptionAvailable = safeStorage.isEncryptionAvailable()
 
     const toStore = configs.map(c => {
-      // If renderer sent the masked placeholder, preserve the existing stored key
-      if (c.apiKey === MASKED_KEY && existingMap.has(c.id)) {
+      // Preserve existing key if: masked placeholder OR empty (user clicked away without typing)
+      if ((c.apiKey === MASKED_KEY || !c.apiKey) && existingMap.has(c.id)) {
         const existing = existingMap.get(c.id)!
         return { ...c, apiKey: existing.apiKey, encrypted: existing.encrypted }
       }

@@ -15,11 +15,13 @@ const CN_DIGIT: Record<string, number> = { '一':1,'二':2,'三':3,'四':4,'五'
 const CN_TENS: Record<string, number> = { '十':10, '二十':20, '三十':30, '百':100, '千':1000 }
 
 function parseChineseNum(s: string): number | null {
+  if (!s) return null
   if (CN_DIGIT[s]) return CN_DIGIT[s]
   if (CN_TENS[s]) return CN_TENS[s]
-  // Compound: "十五" = 10+5, "二十三" = 20+3
+  // Compound: "十五"=10+5=15, "三十五"=3*10+5=35, "二十三"=2*10+3=23
   for (const [tChar, tVal] of Object.entries(CN_TENS)) {
     if (s.startsWith(tChar)) {
+      // e.g. "十五": prefix="" matches "十"(10), rest="五"=5, result=10+5=15
       const rest = s.slice(tChar.length)
       if (!rest) return tVal
       const dVal = CN_DIGIT[rest]
@@ -27,10 +29,17 @@ function parseChineseNum(s: string): number | null {
       return null
     }
     if (s.endsWith(tChar)) {
+      // e.g. "三十五": prefix="三"(3), tChar="十"(10), rest after ten="五"
       const prefix = s.slice(0, -tChar.length)
       const dVal = CN_DIGIT[prefix]
-      if (dVal) return dVal * tVal  // "三十五"→3*10=30,actually we want 3*10=30→30+5... Let me just handle simple cases
-      return null
+      if (!dVal) return null
+      // Check if there are trailing digits after the tens unit
+      const afterTenIdx = s.indexOf(tChar) + tChar.length
+      const afterTen = s.slice(afterTenIdx)
+      if (afterTen && CN_DIGIT[afterTen]) {
+        return dVal * tVal + CN_DIGIT[afterTen]  // 35 = 3*10 + 5
+      }
+      return dVal * tVal  // "三十" = 3*10 = 30
     }
   }
   return null
@@ -65,14 +74,14 @@ export const detailedOutlineProvider: ContextProvider = {
       const candidates = [`ch${padded}.json`, `${padded}.json`, `chapter${padded}.json`]
       for (const filename of candidates) {
         try {
-          const content = await cachedRead(`${projectId}/detailed_outline/${filename}`, projectId)
+          const content = await cachedRead(`projects/${projectId}/detailed_outline/${filename}`, projectId)
           return buildOutlineBlock(chapterNum, filename, content)
         } catch { /* try next pattern */ }
       }
 
       // Strategy 2: List directory and find by number
       try {
-        const files = await fileService.listDir(`${projectId}/detailed_outline`)
+        const files = await fileService.listDir(`projects/${projectId}/detailed_outline`)
         const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
         const paddedAlt = String(chapterNum)
         const matched = jsonFiles.find((f: string) => {
@@ -81,7 +90,7 @@ export const detailedOutlineProvider: ContextProvider = {
         })
         if (matched) {
           try {
-            const content = await cachedRead(`${projectId}/detailed_outline/${matched}`, projectId)
+            const content = await cachedRead(`projects/${projectId}/detailed_outline/${matched}`, projectId)
             return buildOutlineBlock(chapterNum, matched, content)
           } catch { /* file read error */ }
         }
@@ -90,7 +99,7 @@ export const detailedOutlineProvider: ContextProvider = {
 
     // General: list all outlines with status
     try {
-      const files = await fileService.listDir(`${projectId}/detailed_outline`)
+      const files = await fileService.listDir(`projects/${projectId}/detailed_outline`)
       const jsonFiles = files.filter((f: string) => f.endsWith('.json'))
       if (jsonFiles.length === 0) {
         return { domain: 'detailed-outline', priority: 80, estimatedTokens: 200, content: '## 细纲\n当前项目暂无细纲。\n\n' + STATIC_DOC }
@@ -98,7 +107,7 @@ export const detailedOutlineProvider: ContextProvider = {
       const summaries: string[] = ['## 细纲概览', '']
       for (const f of jsonFiles.slice(0, 20)) {
         try {
-          const content = await cachedRead(`${projectId}/detailed_outline/${f}`, projectId)
+          const content = await cachedRead(`projects/${projectId}/detailed_outline/${f}`, projectId)
           const obj = JSON.parse(content)
           const status = obj.status === 'complete' ? '✓' : obj.status === 'in_progress' ? '◐' : '○'
           summaries.push(`${status} ${obj.title || f.replace('.json', '')}`)

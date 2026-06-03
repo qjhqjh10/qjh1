@@ -1,0 +1,10 @@
+{"timestamp":1780392960671,"sessionId":"mpwg00in_sqk4qi","event":"session:start","data":{}}
+{"timestamp":1780392963741,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: .aiharness/rules/project-structure.md"}}
+{"timestamp":1780392965244,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780392967205,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780392968434,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780392970928,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780392973255,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780392974577,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: files"}}
+{"timestamp":1780392975734,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780392977688,"sessionId":"mpwg00in_sqk4qi","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5569 字符"}}

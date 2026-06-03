@@ -1,0 +1,12 @@
+{"timestamp":1780390923525,"sessionId":"mpwescn9_4h3omy","event":"session:start","data":{}}
+{"timestamp":1780390928043,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: .aiharness/rules/project-structure.md"}}
+{"timestamp":1780390928044,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: .aiharness/aiharness.json"}}
+{"timestamp":1780390930696,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390932048,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390933494,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390933494,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390935269,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390936600,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}
+{"timestamp":1780390938902,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"search_files","status":"error","summary":"缺少搜索关键词"}}
+{"timestamp":1780390940587,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: files"}}
+{"timestamp":1780390941878,"sessionId":"mpwescn9_4h3omy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}

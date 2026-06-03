@@ -15,6 +15,7 @@ export interface ModelConfig {
   temperature: number
   maxTokens: number               // 0=使用模型默认最大值
   contextWindow?: number          // 上下文窗口大小 (如 128000)
+  protocol?: 'openai' | 'anthropic'  // API 协议：openai (默认) 或 anthropic (流式 content blocks)
   mainProvider?: string
   mainApiUrl?: string
   mainApiKey?: string
@@ -64,6 +65,7 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   temperature: 0.8,
   maxTokens: 0,
   contextWindow: 128000,
+  protocol: 'openai' as const,
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,

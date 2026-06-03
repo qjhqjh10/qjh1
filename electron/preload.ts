@@ -86,6 +86,44 @@ const api = {
       ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools),
     executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
       ipcRenderer.invoke('ai:execute-file-tool', calls),
+    // ── Anthropic 协议（流式 content blocks，独立通道） ──
+    chatAnthropicStream: (params: {
+      system: string[]
+      messages: Array<{
+        role: string
+        content: Array<{
+          type: string
+          text?: string
+          tool_use_id?: string
+          id?: string
+          name?: string
+          input?: Record<string, unknown>
+          content?: string
+        }>
+      }>
+      configId: string
+      projectId?: string
+      tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>
+    }): Promise<string> =>
+      ipcRenderer.invoke('ai:anthropic-messages', params),
+    abortAnthropicStream: (): void => {
+      ipcRenderer.send('ai:abort-anthropic')
+    },
+    onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
+      const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
+      ipcRenderer.on('ai:anthropic-chunk', handler)
+      return () => ipcRenderer.removeListener('ai:anthropic-chunk', handler)
+    },
+    onAnthropicDone: (callback: (data: { text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number } }) => void) => {
+      const handler = (_event: unknown, data: { text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number } }) => callback(data)
+      ipcRenderer.on('ai:anthropic-done', handler)
+      return () => ipcRenderer.removeListener('ai:anthropic-done', handler)
+    },
+    onAnthropicError: (callback: (data: { message: string }) => void) => {
+      const handler = (_event: unknown, data: { message: string }) => callback(data)
+      ipcRenderer.on('ai:anthropic-error', handler)
+      return () => ipcRenderer.removeListener('ai:anthropic-error', handler)
+    },
   },
   settings: {
     saveConfigs: (configs: ModelConfig[]): Promise<{warning?: string}> =>

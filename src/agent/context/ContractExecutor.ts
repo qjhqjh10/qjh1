@@ -20,7 +20,6 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Read tools: keep detail (the actual response content) ──
   read_file:      ['status', 'summary', 'detail'],
   list_directory: ['status', 'summary', 'detail'],
-  search_files:   ['status', 'summary', 'detail'],
   search_content: ['status', 'summary', 'detail'],
   list_notes:     ['status', 'summary', 'detail'],
   read_note:      ['status', 'summary', 'detail'],
@@ -39,6 +38,33 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   write_note:     ['status', 'summary'],
   append_note:    ['status', 'summary'],
   delete_note:    ['status', 'summary'],
+  // ── HTTP tools: strip detail (response body) ──
+  http_get:       ['status', 'summary'],
+  http_fetch:     ['status', 'summary'],
+  // ── Browser tools ──
+  browser_open:   ['status', 'summary'],
+  browser_search: ['status', 'summary'],
+  // ── Shell tools ──
+  shell_exec:     ['status', 'summary'],
+  shell_run_script: ['status', 'summary'],
+  // ── Image tools ──
+  search_images:  ['status', 'summary'],
+  generate_image: ['status', 'summary'],
+  // ── Prompt tools ──
+  list_prompts:   ['status', 'summary', 'detail'],
+  toggle_prompt:  ['status', 'summary'],
+  update_prompt:  ['status', 'summary'],
+  // ── Project tools ──
+  create_project: ['status', 'summary'],
+  delete_project: ['status', 'summary'],
+  // ── LSP ──
+  lsp_diagnose:   ['status', 'summary'],
+  // ── Harness tools ──
+  session_list:   ['status', 'summary', 'detail'],
+  list_rules:     ['status', 'summary', 'detail'],
+  learn_rule:     ['status', 'summary'],
+  list_audit:     ['status', 'summary', 'detail'],
+  write_learning: ['status', 'summary'],
 }
 
 export class ContractExecutor {

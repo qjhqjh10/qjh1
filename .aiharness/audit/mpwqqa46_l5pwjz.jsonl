@@ -1,0 +1,23 @@
+{"timestamp":1780410982326,"sessionId":"mpwqqa46_l5pwjz","event":"session:start","data":{}}
+{"timestamp":1780410985243,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: 1/characters/林语晴.json"}}
+{"timestamp":1780410986634,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"list_directory","status":"error","summary":"minimatch_1.minimatch is not a function"}}
+{"timestamp":1780410988258,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个项目"}}
+{"timestamp":1780410989564,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"1068 字符"}}
+{"timestamp":1780410991453,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}
+{"timestamp":1780410993484,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"error","summary":"minimatch_1.minimatch is not a function"}}
+{"timestamp":1780410995530,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"51 处匹配"}}
+{"timestamp":1780410997267,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}
+{"timestamp":1780410999408,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
+{"timestamp":1780411001392,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
+{"timestamp":1780411002702,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"119 处匹配 (正则)"}}
+{"timestamp":1780411005275,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"write_note","status":"success","summary":"已写入草稿: temp_linyuqing.json (53 字符)"}}
+{"timestamp":1780411007208,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
+{"timestamp":1780411009024,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
+{"timestamp":1780411010852,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"51 处匹配"}}
+{"timestamp":1780411012972,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"11 处匹配"}}
+{"timestamp":1780411014465,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"11 处匹配"}}
+{"timestamp":1780411016836,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配 (正则)"}}
+{"timestamp":1780411018770,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"17 处匹配"}}
+{"timestamp":1780411021132,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"21 处匹配"}}
+{"timestamp":1780411023806,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"10 处匹配"}}
+{"timestamp":1780411026411,"sessionId":"mpwqqa46_l5pwjz","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"7 处匹配"}}

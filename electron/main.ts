@@ -5,6 +5,7 @@ import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
 import { registerExportHandlers } from './ipc/exportHandlers'
 import { registerAiHandlers } from './ipc/aiHandlers'
+import { registerAnthropicHandlers } from './ipc/anthropicHandlers'
 import { registerKbHandlers } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
@@ -131,6 +132,7 @@ app.whenReady().then(async () => {
   registerProjectHandlers(ipcMain, projectsPath)
   registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
   registerAiHandlers(ipcMain, safeStorage, projectsPath)
+  registerAnthropicHandlers(ipcMain, safeStorage, projectsPath)  // Anthropic 协议（独立通道）
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
   registerStatsHandlers(ipcMain, projectsPath)
 
