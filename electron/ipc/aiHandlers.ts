@@ -256,14 +256,16 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     // Anthropic 协议的 URL 含 /anthropic/v1/messages，不能用于 /models 端点，需转换为基础地址
     const apiUrl = (config.apiUrl || '').replace(/\/anthropic\/.*$/, '').replace(/\/+$/, '') + '/v1'
 
+    if (!apiKey) {
+      throw new Error(`API 密钥未设置。请在模型设置中填写 API 密钥后重试。\n当前地址: ${apiUrl}`)
+    }
+
     try {
       const OpenAI = await getOpenAI()
       const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
       const response = await client.models.list()
       return response.data.map(m => m.id)
     } catch {
-      // Fallback: many non-OpenAI providers (DeepSeek etc.) don't support /models.
-      // Use a minimal chat completion to verify connectivity instead.
       try {
         const OpenAI = await getOpenAI()
         const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
@@ -275,7 +277,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         return [config.model || 'deepseek-chat']
       } catch (err2) {
         const msg = err2 instanceof Error ? err2.message : String(err2)
-        throw new Error(`无法连接 API: ${msg}`)
+        throw new Error(`无法连接 API\n地址: ${apiUrl}\n密钥: ${apiKey ? apiKey.slice(0,8)+'...' : '(未设置)'}\n错误: ${msg}`)
       }
     }
   })
