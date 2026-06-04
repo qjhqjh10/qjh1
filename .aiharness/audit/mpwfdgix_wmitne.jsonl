@@ -1,3 +1,0 @@
-{"timestamp":1780391908329,"sessionId":"mpwfdgix_wmitne","event":"session:start","data":{}}
-{"timestamp":1780391911782,"sessionId":"mpwfdgix_wmitne","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: .aiharness/aiharness.json"}}
-{"timestamp":1780391913558,"sessionId":"mpwfdgix_wmitne","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5569 字符"}}

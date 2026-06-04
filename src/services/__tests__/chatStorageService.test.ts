@@ -247,7 +247,7 @@ describe('会话持久化 — 防消失测试', () => {
 
     // 模拟 IndexedDB 损坏：清空 IndexedDB
     const empty = new Map<string, any>()
-    // @ts-expect-error 清空模拟 DB
+    // 清空模拟 DB
     storage['indexedDB'] = empty
 
     // 加载应该从文件恢复
@@ -266,7 +266,6 @@ describe('会话持久化 — 防消失测试', () => {
     await storage.saveConversations(newer)
 
     // 删除 IndexedDB 和文件，只保留 .bak
-    // @ts-expect-error
     storage['indexedDB'] = new Map()
     storage['fileStore'].delete('chat-conversations.json')
 

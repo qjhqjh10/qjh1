@@ -29,7 +29,7 @@ export function ToolDetailPanel(p: Props) {
     <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:299,background:'rgba(0,0,0,0.15)'}}/>
     <div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:300,background:'#fff',borderRadius:16,boxShadow:'0 16px 64px rgba(0,0,0,0.2)',border:'1px solid rgba(0,0,0,0.08)',width:420,maxHeight:'70vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
       <div style={{padding:'16px 20px',borderBottom:'1px solid rgba(0,0,0,0.06)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div>{head('消息工具详情')}<div style={{marginTop:2}}>{sub(`${steps.length||toolsUsed.length} 次调用 · ${iterationCount||1} 轮迭代${(usage&&usage.totalTokens>0)?` · ${(usage.totalTokens/1000).toFixed(1)}K token`:''}`)}</div></div>
+        <div>{head('消息工具详情')}<div style={{marginTop:2}}>{sub(`${steps.length||toolsUsed.length} 次调用 · ${iterationCount||1} 轮迭代${(usage&&usage.total_tokens>0)?` · ${(usage.total_tokens/1000).toFixed(1)}K token`:''}`)}</div></div>
         <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4,borderRadius:6,color:'#9b8e84'}}><XMarkIcon style={{width:18,height:18}}/></button>
       </div>
       <div style={{display:'flex',borderBottom:'1px solid rgba(0,0,0,0.06)',padding:'0 20px'}}>

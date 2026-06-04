@@ -5,11 +5,15 @@
 
 export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 
-# 铁律 — 优先级最高
-- 操作文件必须调用实际的 function call，口头描述 ≠ 操作完成
-- 禁止在文本中用 <tool_name>、[工具名]、或任何 XML/JSON 文本块来模拟工具调用
-- 调用工具后失败时诚实告知原因，不假装成功
-- 不确定能否调用某工具时直接尝试，不要文字描述"我需要调用XX工具"
+# ⚠️ 铁律 — 每条违反都会导致任务失败
+
+1. **调工具 > 说话。** 需要操作文件？直接调 tool，不要先说"我准备…""我来帮你…""确认一下…"。用户说"创建项目"→直接调 create_project。用户说"写角色"→直接调 create_file。不要先确认、先探索、先描述计划。调完工具再用一句话汇报结果。
+
+2. **禁止口头模拟。** 禁止用 <tool>、[工具名]、XML/JSON 文本块来假装调工具。只有实际的 function call 才算操作完成。
+
+3. **禁止无意义探索。** 调了工具得到结果后直接进入下一步，不要用 list_directory 或 find_files "验证"刚才的操作。create_project 成功后→直接 create_file 写内容。read_file 成功后→直接处理。edit_file 成功后→直接汇报。每个工具只调一次，不重复。list_directory / find_files 只在用户说"搜索""找找看""列出"时才用。
+
+4. **失败诚实告知。** 工具调用失败时说出原因，不假装成功。失败后最多重试 1 次。
 
 # 不用工具的场景 — 直接文本回复
 以下情况绝对不要调用任何工具：
@@ -459,17 +463,23 @@ export function selectDomainModules(userMessage: string): string[] {
   const msg = userMessage
 
   // 聊天类消息不添加任何领域模块（节省 token，避免误导模型）
-  if (/^(你好|嗨|谢谢|再见|早上好|晚上好|好的|嗯|哦)/.test(msg.trim())) return []
-  if (/^我是|^我叫|^我喜欢|^我觉得/.test(msg.trim())) return []
-  if (/^什么是|^为什么|^怎么|^推荐|^建议|^怎么办/.test(msg.trim())) return []
-  if (msg.trim().length <= 3) return []  // 超短消息大概率是聊天
+  // ⚠️ 关键：只有纯闲聊（无任务关键词+短消息）才跳过。"你好，帮我分析第三章"含"分析""章节"→不是闲聊
+  if (msg.trim().length <= 3) return []
+
+  const hasTaskKeywords = /角色|人物|大纲|剧情|章节|写|创作|生成|续写|风格|文风|分析|模板|知识库|搜索|查找|创建|删除|编辑|导入|保存|整理/i.test(msg)
+
+  if (!hasTaskKeywords) {
+    if (/^(你好|嗨|谢谢|再见|早上好|晚上好|好的|嗯|哦)[\s，。,.]*$/.test(msg.trim())) return []
+    if (/^(我是|我叫|我喜欢|我觉得)[\s\S]*$/.test(msg.trim()) && msg.trim().length < 30) return []
+    if (/^(什么是|为什么|怎么|推荐|建议|怎么办)/.test(msg.trim()) && msg.trim().length < 30) return []
+  }
 
   const modules: string[] = []
   if (/角色|人物|character/.test(msg)) modules.push(CHARACTER_DOMAIN_MODULE)
-  if (/大纲|剧情|plot|worldbuilding|世界观/.test(msg)) modules.push(OUTLINE_DOMAIN_MODULE)
-  if (/写|创作|生成|续写|章节|chapter/.test(msg)) modules.push(CHAPTER_DOMAIN_MODULE)
-  if (/风格|文风|style|仿写|分析.*文|模板|上传.*分析/.test(msg)) modules.push(STYLE_DOMAIN_MODULE)
-  if (/场景|scene|分析.*场景/.test(msg)) modules.push(SCENE_DOMAIN_MODULE)
+  if (/大纲|剧情|plot|worldbuilding|世界观|设定/.test(msg)) modules.push(OUTLINE_DOMAIN_MODULE)
+  if (/写|创作|生成|续写|章节|第.{1,3}章|chapter/.test(msg)) modules.push(CHAPTER_DOMAIN_MODULE)
+  if (/风格|文风|style|仿写|分析|模板|上传/.test(msg)) modules.push(STYLE_DOMAIN_MODULE)
+  if (/场景|scene/.test(msg)) modules.push(SCENE_DOMAIN_MODULE)
   if (/知识库|kb|素材|收藏|保存/.test(msg)) modules.push(KB_DOMAIN_MODULE)
   if (/你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么/.test(msg)) modules.push(AI_CAPABILITIES_MODULE)
   if (/软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/.test(msg)) modules.push(SOFTWARE_FEATURES_MODULE)

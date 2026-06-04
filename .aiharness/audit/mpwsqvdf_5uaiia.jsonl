@@ -1,5 +1,0 @@
-{"timestamp":1780414369107,"sessionId":"mpwsqvdf_5uaiia","event":"session:start","data":{}}
-{"timestamp":1780414373893,"sessionId":"mpwsqvdf_5uaiia","event":"tool:result","data":{"toolName":"list_notes","status":"success","summary":"2 个草稿"}}
-{"timestamp":1780414373897,"sessionId":"mpwsqvdf_5uaiia","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"5923 字符"}}
-{"timestamp":1780414373897,"sessionId":"mpwsqvdf_5uaiia","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"605 字符"}}
-{"timestamp":1780414384388,"sessionId":"mpwsqvdf_5uaiia","event":"tool:result","data":{"toolName":"write_note","status":"success","summary":"已写入草稿: 第3章改写思路 (984 字符)"}}

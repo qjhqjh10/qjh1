@@ -76,8 +76,19 @@ export default function AIChatWindow() {
   const isOpen = useStore(s => s.isAIChatOpen)
   const { toast } = useToast()
 
+  const pendingMessage = useStore(s => s.pendingMessage)
+  const setPendingMessage = useStore(s => s.setPendingMessage)
+
   // Check API connection when chat window opens
   useEffect(() => { if (isOpen) checkApiConnection() }, [isOpen])
+
+  // 消费来自编辑器右键的 pendingMessage（发送到 AI 写作助手）
+  useEffect(() => {
+    if (isOpen && pendingMessage) {
+      setInput(pendingMessage)
+      setPendingMessage(null)
+    }
+  }, [isOpen, pendingMessage, setPendingMessage])
   const setAIChatOpen = useStore(s => s.setAIChatOpen)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
@@ -243,7 +254,7 @@ export default function AIChatWindow() {
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
-  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
+  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
   const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])

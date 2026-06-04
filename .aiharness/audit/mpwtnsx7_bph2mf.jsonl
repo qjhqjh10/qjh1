@@ -1,7 +1,0 @@
-{"timestamp":1780415905579,"sessionId":"mpwtnsx7_bph2mf","event":"session:start","data":{}}
-{"timestamp":1780415909368,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"1 个匹配"}}
-{"timestamp":1780415911409,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}
-{"timestamp":1780415913404,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个项目"}}
-{"timestamp":1780415916204,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"create_project","status":"success","summary":"已创建项目: test-demo"}}
-{"timestamp":1780415917601,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"8 个项目"}}
-{"timestamp":1780415919326,"sessionId":"mpwtnsx7_bph2mf","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"5 个项目"}}

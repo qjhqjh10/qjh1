@@ -68,7 +68,7 @@ export interface BridgeSendResult {
   totalTokens: number
   phase: string
   toolsUsed: string[]
-  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number }>
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
 }
 
@@ -148,12 +148,13 @@ export class V4AgentChatBridge {
       const skillMatch = skillRegistry.matchBest(msg, 0.5)
 
       // ── Tool scoping ──
-      const READ   = new Set(['read_file','list_directory','search_content'])
-      const WRITE  = new Set(['create_file','edit_file'])
-      const DANGER = new Set(['delete_file','rename_file'])
-      const NOTE   = new Set(['list_notes','read_note','write_note','append_note'])
+      const READ   = new Set(['read_file','list_directory','search_content','find_files','search_files'])
+      const WRITE  = new Set(['create_file','edit_file','batch_replace'])
+      const DANGER = new Set(['delete_file','rename_file','delete_project'])
+      const NOTE   = new Set(['list_notes','read_note','write_note','append_note','delete_note','search_notes'])
       const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
       const TMPL   = new Set(['create_style_template','create_scene_template'])
+      const PROJ   = new Set(['create_project'])
 
       let scopedCore: any[], scopedExtended: any[]
       let taskLabel: string
@@ -172,7 +173,7 @@ export class V4AgentChatBridge {
         const matched = skillMatch
         taskLabel = matched ? `skill-low:${matched.skill.id}` : 'default'
         scopedCore = allTools.filter((t: any) =>
-          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name))
+          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name))
         scopedExtended = allTools.filter((t: any) =>
           DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
       }

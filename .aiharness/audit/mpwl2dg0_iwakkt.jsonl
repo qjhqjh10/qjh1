@@ -1,6 +1,0 @@
-{"timestamp":1780401468816,"sessionId":"mpwl2dg0_iwakkt","event":"session:start","data":{}}
-{"timestamp":1780401472182,"sessionId":"mpwl2dg0_iwakkt","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个项目"}}
-{"timestamp":1780401473376,"sessionId":"mpwl2dg0_iwakkt","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"4 个项目"}}
-{"timestamp":1780401475005,"sessionId":"mpwl2dg0_iwakkt","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个项目"}}
-{"timestamp":1780401476669,"sessionId":"mpwl2dg0_iwakkt","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}
-{"timestamp":1780401477781,"sessionId":"mpwl2dg0_iwakkt","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}

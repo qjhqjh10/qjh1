@@ -1,5 +1,0 @@
-{"timestamp":1780401895608,"sessionId":"mpwlbirc_u20ha1","event":"session:start","data":{}}
-{"timestamp":1780401898089,"sessionId":"mpwlbirc_u20ha1","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: 项目1/characters/linyuqing.json"}}
-{"timestamp":1780401899471,"sessionId":"mpwlbirc_u20ha1","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
-{"timestamp":1780401901101,"sessionId":"mpwlbirc_u20ha1","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个项目"}}
-{"timestamp":1780401903170,"sessionId":"mpwlbirc_u20ha1","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个项目"}}

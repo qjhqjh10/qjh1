@@ -1,5 +1,0 @@
-{"timestamp":1780412205057,"sessionId":"mpwrghkx_axnq1a","event":"session:start","data":{}}
-{"timestamp":1780412207640,"sessionId":"mpwrghkx_axnq1a","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: 1/characters/林语晴.json"}}
-{"timestamp":1780412209205,"sessionId":"mpwrghkx_axnq1a","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个匹配"}}
-{"timestamp":1780412210945,"sessionId":"mpwrghkx_axnq1a","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/linyuqing.json (缓存)"}}
-{"timestamp":1780412213194,"sessionId":"mpwrghkx_axnq1a","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"19 处匹配"}}

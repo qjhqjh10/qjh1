@@ -43,3 +43,10 @@ scripts/v4-mixed-test.mjs
 scripts/v4-compress-test.mjs
 scripts/v4-deep-test.mjs
 scripts/v4-real-test.mjs
+scripts/.tmp/
+_auto_*
+_test_workflow_*
+scripts/autotest-log-*
+scripts/workflow-log-*
+scripts/.tmp_msg_*
+style_templates/create_style_template_mpz*

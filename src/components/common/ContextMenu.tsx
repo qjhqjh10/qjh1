@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { SparklesIcon, PencilSquareIcon, PencilIcon } from '@heroicons/react/24/outline'
+import { SparklesIcon, PencilSquareIcon, PencilIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
 
 interface Props {
   x: number
@@ -7,10 +7,11 @@ interface Props {
   onPolish: () => void
   onContinue: () => void
   onRewrite?: () => void
+  onSendToAI?: () => void
   onClose: () => void
 }
 
-export default function ContextMenu({ x, y, onPolish, onContinue, onRewrite, onClose }: Props) {
+export default function ContextMenu({ x, y, onPolish, onContinue, onRewrite, onSendToAI, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -59,6 +60,17 @@ export default function ContextMenu({ x, y, onPolish, onContinue, onRewrite, onC
       >
         <PencilSquareIcon style={{ width: 16, height: 16, color: '#7c3aed' }} /> 续写
       </button>
+      {onSendToAI && (
+        <>
+          <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '2px 8px' }} />
+          <button onClick={onSendToAI} role="menuitem" style={item}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#fef3c7'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+          >
+            <PaperAirplaneIcon style={{ width: 16, height: 16, color: '#d97706' }} /> 发送到 AI 写作助手
+          </button>
+        </>
+      )}
     </div>
   )
 }

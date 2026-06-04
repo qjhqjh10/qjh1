@@ -27,12 +27,13 @@ function generateSchemas() {
   // This function mirrors src/agent/tools/toolSchemas.ts
   // When the TS build is available, import it; otherwise use this static fallback.
   const tools = [
-    // ── File tools (8) ──
+    // ── File tools (9) ──
     { name: 'list_directory', description: '列出项目目录中的文件和子目录。', params: { dir_path: { type: 'string', description: '相对于项目根目录的路径' } }, required: ['dir_path'] },
     { name: 'read_file', description: '读取项目文件的完整文本内容。', params: { file_path: { type: 'string', description: '相对路径' } }, required: ['file_path'] },
-    { name: 'search_files', description: '在项目目录中按文件名搜索文件。', params: { keyword: { type: 'string', description: '文件名关键词' }, dir_path: { type: 'string', description: '起始目录' } }, required: ['keyword'] },
+    { name: 'find_files', description: '按 Glob 模式递归搜索文件名，支持项目内和电脑全局搜索。', params: { pattern: { type: 'string', description: 'Glob 模式，如 "*.yaml", "chapter*.txt"' }, dir_path: { type: 'string', description: '搜索起始目录' } }, required: ['pattern'] },
     { name: 'search_content', description: '在项目文件中搜索指定文本。', params: { pattern: { type: 'string', description: '要搜索的文本' }, file_pattern: { type: 'string', description: '限定文件类型，如 "*.json"' }, dir_path: { type: 'string', description: '起始目录' } }, required: ['pattern'] },
     { name: 'edit_file', description: '精确字符串替换编辑文件。先 read_file 确认内容再编辑。', params: { file_path: { type: 'string', description: '相对路径' }, old_string: { type: 'string', description: '要被替换的原文' }, new_string: { type: 'string', description: '替换后的新文本' }, replace_all: { type: 'boolean', description: '是否替换所有匹配处' } }, required: ['file_path', 'old_string', 'new_string'] },
+    { name: 'batch_replace', description: '批量替换文件中的多个文本对（3处以上修改时优先使用）。', params: { file_path: { type: 'string', description: '相对路径' }, replacements: { type: 'array', description: '[{old:"原文", new:"新文"}, ...]' } }, required: ['file_path', 'replacements'] },
     { name: 'create_file', description: '创建新文件并写入内容。需要用户确认。', params: { file_path: { type: 'string', description: '相对路径' }, content: { type: 'string', description: '文件内容' } }, required: ['file_path', 'content'] },
     { name: 'delete_file', description: '删除文件。需要用户确认。', params: { file_path: { type: 'string', description: '相对路径' } }, required: ['file_path'] },
     { name: 'rename_file', description: '重命名或移动文件。需要用户确认。', params: { file_path: { type: 'string', description: '当前路径' }, new_path: { type: 'string', description: '新路径' } }, required: ['file_path', 'new_path'] },
@@ -41,12 +42,13 @@ function generateSchemas() {
     { name: 'kb_create_file', description: '在知识库中创建新文件。', params: { file_name: { type: 'string', description: '文件名' }, content: { type: 'string', description: '文件内容' } }, required: ['file_name', 'content'] },
     { name: 'kb_append_file', description: '追加内容到知识库文件。', params: { file_name: { type: 'string', description: '文件名' }, content: { type: 'string', description: '追加内容' } }, required: ['file_name', 'content'] },
     { name: 'kb_index_file', description: '为知识库文件建立语义搜索索引。', params: { file_name: { type: 'string', description: '文件名' } }, required: ['file_name'] },
-    // ── Note tools (5) ──
+    // ── Note tools (6) ──
     { name: 'list_notes', description: '列出所有草稿笔记。', params: {}, required: [] },
     { name: 'read_note', description: '读取草稿笔记内容。', params: { note_name: { type: 'string', description: '笔记文件名' } }, required: ['note_name'] },
     { name: 'write_note', description: '创建或覆盖草稿笔记。', params: { note_name: { type: 'string', description: '笔记文件名' }, content: { type: 'string', description: '笔记内容' } }, required: ['note_name', 'content'] },
     { name: 'append_note', description: '追加内容到草稿笔记。', params: { note_name: { type: 'string', description: '笔记文件名' }, content: { type: 'string', description: '追加内容' } }, required: ['note_name', 'content'] },
     { name: 'delete_note', description: '删除草稿笔记。', params: { note_name: { type: 'string', description: '笔记文件名' } }, required: ['note_name'] },
+    { name: 'search_notes', description: '在笔记文件中搜索指定文本。', params: { query: { type: 'string', description: '搜索关键词' } }, required: ['query'] },
     // ── Image tools (2) ──
     { name: 'search_images', description: '搜索网络图片（Unsplash）。', params: { query: { type: 'string', description: '搜索关键词' }, count: { type: 'number', description: '返回数量' } }, required: ['query'] },
     { name: 'generate_image', description: '使用AI生成图片。', params: { prompt: { type: 'string', description: '图片描述' }, size: { type: 'string', description: '图片尺寸', enum: ['1024x1024', '1792x1024', '1024x1792'] } }, required: ['prompt'] },

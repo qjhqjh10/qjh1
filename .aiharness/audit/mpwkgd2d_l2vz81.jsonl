@@ -1,7 +1,0 @@
-{"timestamp":1780400441893,"sessionId":"mpwkgd2d_l2vz81","event":"session:start","data":{}}
-{"timestamp":1780400445453,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: ../../knowledge_base/files/未命名.md"}}
-{"timestamp":1780400447932,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: ../../knowledge_base/files/mpsn58iemvve53.md"}}
-{"timestamp":1780400450092,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
-{"timestamp":1780400451897,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}
-{"timestamp":1780400451898,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"list_notes","status":"success","summary":"2 个草稿"}}
-{"timestamp":1780400453119,"sessionId":"mpwkgd2d_l2vz81","event":"tool:result","data":{"toolName":"read_note","status":"success","summary":"已读取: 雨夜追踪灵感.md"}}

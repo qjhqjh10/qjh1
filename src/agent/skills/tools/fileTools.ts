@@ -74,7 +74,8 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'search_content',
       description:
-        '在项目文件中搜索指定文本内容。默认子串匹配（不区分大小写）。设置 regex=true 启用正则。设置 context_around 获取匹配行前后上下文（可减少后续 read_file 调用）。file_pattern 支持 glob（如 "**/*.json"）。最多返回 500 条，每行截断至 200 字符。',
+        '在项目文件中搜索指定文本内容。默认子串匹配。设 regex=true 启用正则。设 context_around 获取匹配行前后上下文。file_pattern 支持 glob（如 "**/*.json"）。最多返回 500 条。' +
+        '⚠️ 仅搜索项目目录。要在电脑全局搜索某文件内的文字→先用 find_files(scope="computer") 定位文件，再 read_file 查看内容。',
       parameters: {
         type: 'object',
         properties: {

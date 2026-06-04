@@ -1,4 +1,4 @@
-import { IpcMain, SafeStorage } from 'electron'
+import { IpcMain, SafeStorage, app } from 'electron'
 
 /** ISO timestamp with local timezone offset (e.g. 2026-05-31T10:34:09+08:00) */
 function localISOString(): string {

@@ -40,22 +40,22 @@
   {
     "type": "function",
     "function": {
-      "name": "search_files",
-      "description": "在项目目录中按文件名搜索文件。",
+      "name": "find_files",
+      "description": "按 Glob 模式递归搜索文件名，支持项目内和电脑全局搜索。",
       "parameters": {
         "type": "object",
         "properties": {
-          "keyword": {
+          "pattern": {
             "type": "string",
-            "description": "文件名关键词"
+            "description": "Glob 模式，如 \"*.yaml\", \"chapter*.txt\""
           },
           "dir_path": {
             "type": "string",
-            "description": "起始目录"
+            "description": "搜索起始目录"
           }
         },
         "required": [
-          "keyword"
+          "pattern"
         ]
       }
     }
@@ -116,6 +116,30 @@
           "file_path",
           "old_string",
           "new_string"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "batch_replace",
+      "description": "批量替换文件中的多个文本对（3处以上修改时优先使用）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "相对路径"
+          },
+          "replacements": {
+            "type": "array",
+            "description": "[{old:\"原文\", new:\"新文\"}, ...]"
+          }
+        },
+        "required": [
+          "file_path",
+          "replacements"
         ]
       }
     }
@@ -360,6 +384,25 @@
         },
         "required": [
           "note_name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_notes",
+      "description": "在笔记文件中搜索指定文本。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          }
+        },
+        "required": [
+          "query"
         ]
       }
     }

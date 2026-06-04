@@ -1,3 +1,0 @@
-{"timestamp":1780412662097,"sessionId":"mpwrqa8h_isk5a0","event":"session:start","data":{}}
-{"timestamp":1780412665357,"sessionId":"mpwrqa8h_isk5a0","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"15 个匹配"}}
-{"timestamp":1780412667565,"sessionId":"mpwrqa8h_isk5a0","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"1068 字符"}}

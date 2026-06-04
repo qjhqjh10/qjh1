@@ -259,6 +259,23 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   const handleRewrite = () => doAiEdit('改写')
   const handleContinue = () => doAiEdit('续写')
 
+  // 发送选中文字到 AI 写作助手（走完整 Agent Runtime，有工具支持）
+  const handleSendToAI = useCallback(() => {
+    setCtxMenu(null)
+    if (!selectedText) return
+    const store = useStore.getState()
+    const page = store.activePage
+    let pageLabel = ''
+    if (page === 'chapter') pageLabel = '章节编辑器中'
+    else if (page === 'outline') pageLabel = '大纲编辑器中'
+    else if (page === 'worldbuilding') pageLabel = '世界观编辑器中'
+    const context = pageLabel
+      ? `[从${pageLabel}右键发送]\n\n${selectedText}\n\n---\n请帮我处理以上文字。`
+      : `请帮我处理以下文字：\n\n${selectedText}`
+    store.setPendingMessage(context)
+    store.setAIChatOpen(true)
+  }, [selectedText])
+
   const handleApplyPolish = (text: string, append?: boolean) => {
     if (!editor) return
     if (append) {
@@ -348,6 +365,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
           onPolish={handlePolish}
           onRewrite={handleRewrite}
           onContinue={handleContinue}
+          onSendToAI={handleSendToAI}
           onClose={closeCtxMenu}
         />
       )}

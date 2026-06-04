@@ -62,6 +62,8 @@ import { projectSkill } from './builtin/project'
 import { reviewSkill } from './builtin/review'
 import { textImportSkill } from './builtin/textImport'
 import { textAnalysisSkill } from './builtin/textAnalysis'
+import { worldbuildingImportSkill } from './builtin/worldbuildingImport'
+import { summarizePolishSkill } from './builtin/summarizePolish'
 import type { SkillDefinition } from './types'
 
 export const BUILTIN_SKILLS: SkillDefinition[] = [
@@ -78,6 +80,8 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
   reviewSkill,
   textImportSkill,
   textAnalysisSkill,
+  worldbuildingImportSkill,
+  summarizePolishSkill,
 ]
 
 /**

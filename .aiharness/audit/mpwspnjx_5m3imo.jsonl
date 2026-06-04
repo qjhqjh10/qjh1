@@ -1,5 +1,0 @@
-{"timestamp":1780414312317,"sessionId":"mpwspnjx_5m3imo","event":"session:start","data":{}}
-{"timestamp":1780414321585,"sessionId":"mpwspnjx_5m3imo","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/李四_lisi.json (缓存)"}}
-{"timestamp":1780414321585,"sessionId":"mpwspnjx_5m3imo","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"已读取: 1/characters/李四_li_si.json (缓存)"}}
-{"timestamp":1780414325496,"sessionId":"mpwspnjx_5m3imo","event":"tool:result","data":{"toolName":"edit_file","status":"error","summary":"操作未获用户确认"}}
-{"timestamp":1780414326337,"sessionId":"mpwspnjx_5m3imo","event":"tool:result","data":{"toolName":"edit_file","status":"error","summary":"操作未获用户确认"}}

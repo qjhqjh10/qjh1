@@ -121,7 +121,8 @@ describe('Context Compression', () => {
     const runtime = makeRuntime({ contextWindow: 3000, maxIterations: 10 })
 
     // Generate many tool calls to fill context, then verify the last tool result survives
-    const responses = Array.from({ length: 6 }, (_, i) => ({
+    type MockResp = { text?: string; toolCalls?: ToolCallRequest[]; finishReason?: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }; delay?: number }
+    const responses: MockResp[] = Array.from({ length: 6 }, (_, i) => ({
       text: '',
       toolCalls: [makeToolCall(`c${i}`, 'list_directory', { file_path: `dir${i}` })],
     }))
@@ -437,7 +438,7 @@ describe('Max Iterations & Empty Response', () => {
 
     const { svc } = makeMockAI([
       // First response: empty text, no tools → H5 fallback triggered
-      { text: '', toolCalls: null },
+      { text: '', toolCalls: undefined },
       // Second response: model now produces text
       { text: '好的，这是你要的内容。' },
     ])
@@ -462,7 +463,7 @@ describe('Max Iterations & Empty Response', () => {
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
       // Last iteration: model returns empty → should NOT retry (isLastIteration = true)
-      { text: '', toolCalls: null },
+      { text: '', toolCalls: undefined },
     ])
     const { executor } = makeTrackedExecutor()
 
@@ -708,14 +709,14 @@ describe('Security Fence Integration', () => {
 
     const { executor } = makeTrackedExecutor()
     // Wrap executor with fence check (as ChatBridge does)
-    const fencedExecutor: ToolExecutorFn = vi.fn(async (args, ctx) => {
+    const fencedExecutor = vi.fn(async (args: Record<string, unknown>, ctx: ToolExecutionContext) => {
       const check = fence.check(ctx.toolName, args)
-      if (!check.allowed) return { status: 'error', summary: check.reason || '安全拦截' }
+      if (!check.allowed) return { status: 'error' as const, summary: check.reason || '安全拦截' }
       return executor(args, ctx)
     })
 
     runtime.setAIService(svc)
-    runtime.setToolExecutor(fencedExecutor)
+    runtime.setToolExecutor(fencedExecutor as unknown as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 
     const result = await runtime.run({ userMessage: '读系统密码文件', attachments: [] })
@@ -742,14 +743,14 @@ describe('Security Fence Integration', () => {
     ])
 
     const { executor } = makeTrackedExecutor()
-    const fencedExecutor: ToolExecutorFn = vi.fn(async (args, ctx) => {
+    const fencedExecutor = vi.fn(async (args: Record<string, unknown>, ctx: ToolExecutionContext) => {
       const check = fence.check(ctx.toolName, args)
-      if (!check.allowed) return { status: 'error', summary: check.reason || '校验失败' }
+      if (!check.allowed) return { status: 'error' as const, summary: check.reason || '校验失败' }
       return executor(args, ctx)
     })
 
     runtime.setAIService(svc)
-    runtime.setToolExecutor(fencedExecutor)
+    runtime.setToolExecutor(fencedExecutor as unknown as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 
     const result = await runtime.run({ userMessage: '创建角色JSON', attachments: [] })
