@@ -140,6 +140,9 @@ export class V4AgentRuntime {
 
     store.startRun(runId)
 
+    // Reset empty response counter for this run
+    ;(this as any)._emptyResponseCount = 0
+
     // ── ① Assemble initial messages ──
     let totalTokens = 0
     let totalPromptTokens = 0
