@@ -249,12 +249,28 @@ export class V4AgentChatBridge {
       const coreTokens = estimateTokens(CORE_PROMPT)
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        // Dynamic: global index + provider content (fresh per message)
+        // v9.8.5: Split architecture — [0] core + [1] index + [2] providers + [3] dynamic
+        // [0]: Core rules + domain modules → cached, never changes
+        // [1]: Project index → cached (结构变化时失效)
+        // [2]: Context Providers → cached until project files change
+        // [3]: KB/web search + toolInvoke + plan → fresh each message/iteration
+
+        // ═══════════ [1] Global Index ═══════
         let globalIndex = ''
         try {
           const { buildGlobalIndex } = await import('./context/MemoryIndex')
           globalIndex = await buildGlobalIndex(pid)
         } catch {}
+        const indexDirective = globalIndex
+          ? `⬇️ 以下是软件完整文件索引。索引中列出了所有目录和文件的路径——已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
+          : ''
+        const globalIndexTokens = estimateTokens(globalIndex || '')
+
+        // ═══════════ [2] Context Providers (文件修改才重建) ═══════
+        const base = await contextAssembler.assemble(msg, hist, pid)
+        const providerContent = base.systemMessages.map(m => m.content).filter(Boolean).join('\n\n')
+
+        // ═══════════ [3] Truly dynamic content ═══════
         // KB search
         let searchContext = ''
         if (options.kbEnabled && this.projectId) {
@@ -276,9 +292,7 @@ export class V4AgentChatBridge {
           } catch { /* unavailable */ }
         }
 
-        const base = await contextAssembler.assemble(msg, hist, pid)
-
-        // Plan mode: inject plan-first instruction before the user message
+        // Plan mode
         let planPrompt: string | null = null
         if (options.planMode) {
           try {
@@ -287,47 +301,35 @@ export class V4AgentChatBridge {
           } catch { /* planPrompt stays null; no impact */ }
         }
 
-        // Token accounting: core (cached) + dynamic (per-message)
+        // Force tool invocation + plan instruction
+        const { buildToolInvokePrompt } = await import('@/types/fileOps')
+        const toolInvokePrompt = buildToolInvokePrompt()
+        const dynamicContent = [searchContext, toolInvokePrompt, planInstruction, planPrompt].filter(Boolean).join('\n\n')
+
+        // ═══════════ Token accounting ═══════
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const planTokens = planPrompt ? estimateTokens(planPrompt) : 0
-        const globalIndexTokens = estimateTokens(globalIndex || '')
+        const providerTokens = base.totalTokens || 0
         const historyTokens = hist.reduce((s, m) => s + estimateTokens(m.content || '') + 4, 0)
         const userMsgTokens = estimateTokens(msg)
 
-        const fullTotal = coreTokens + base.totalTokens + searchTokens + planTokens + globalIndexTokens + historyTokens + userMsgTokens
+        const fullTotal = coreTokens + globalIndexTokens + providerTokens + searchTokens + planTokens + historyTokens + userMsgTokens
 
         const fullBreakdown: Array<{ domain: string; tokens: number }> = [
           { domain: '核心法则(缓存)', tokens: coreTokens },
-          { domain: '全局索引+Provider', tokens: globalIndexTokens + (base.totalTokens || 0) },
-          ...(searchContext ? [{ domain: '知识库', tokens: searchTokens }] : []),
+          { domain: '全局索引(缓存)', tokens: globalIndexTokens },
+          { domain: 'Provider(项目文件不变则缓存)', tokens: providerTokens },
+          ...(searchContext ? [{ domain: '知识库/网络', tokens: searchTokens }] : []),
           ...(planPrompt ? [{ domain: '执行规划', tokens: planTokens }] : []),
           { domain: '对话历史', tokens: historyTokens },
           { domain: '当前消息', tokens: userMsgTokens },
         ].filter(b => b.tokens > 0)
 
-        // v4: Split architecture — [0] core (cached) + [1] index (compact, always first) + [2] dynamic
-        // [0]: Core rules + domain modules → cached, never changes
-        // [1]: Project index — ALWAYS first thing model sees, mandatory to read
-        // [2]: Providers + KB/web search → fresh each time
-        const indexDirective = globalIndex
-          ? `⬇️ 以下是软件完整文件索引。索引中列出了所有目录和文件的路径——已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
-          : ''
-        // Force tool invocation prompt — tells model to use actual function calls, not text simulation
-        const { buildToolInvokePrompt } = await import('@/types/fileOps')
-        const toolInvokePrompt = buildToolInvokePrompt()
-
-        const dynamicContent = [
-          ...base.systemMessages.map(m => m.content),              // Context Providers
-          searchContext,                                           // 知识库/网络搜索
-          toolInvokePrompt,                                        // 强制工具调用协议 — 铁律最高优先级
-          planInstruction,                                         // 复杂任务执行方案
-          planPrompt,                                              // Plan模式提示
-        ].filter(Boolean).join('\n\n')
-
         const systemMessages = [
-          coreSystemMsg,                                          // [0] 核心提示词 — 永远不变, DeepSeek缓存
-          ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引 — 强制先看
-          { role: 'system' as const, content: dynamicContent },   // [2] Provider+动态 — 每次变化
+          coreSystemMsg,                                          // [0] 核心提示词 — 永远不变, DeepSeek cache
+          ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引 — 结构变化才变
+          ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []),  // [2] Provider — 项目不变则稳定
+          ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态 — KB/搜索/plan
         ]
 
         return {
