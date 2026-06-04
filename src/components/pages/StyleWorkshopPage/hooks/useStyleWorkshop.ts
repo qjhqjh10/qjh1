@@ -6,7 +6,7 @@ import { getTemplateDims } from '@/types/styleTemplate'
 import type { DimAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPE_LABELS, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import { nanoid } from 'nanoid'
-import { buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3, buildSummarizePromptV3 } from '@/services/extractionService'
+import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
@@ -279,8 +279,8 @@ export function useStyleWorkshop() {
         for (let idx = 0; idx < sample.length; idx++) {
           try {
             const ch = sample[idx]
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-            updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
+            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
             batchSaveProject()
           } catch (err) { logError(`分析章节失败: ${sample[idx].title}`, err) }
           setAnalyzeProgress(`抽样分析: ${idx + 1}/${sample.length}`)
@@ -292,8 +292,8 @@ export function useStyleWorkshop() {
           setAnalyzeProgress(`全量分析: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
             try {
-              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-              updateChapterAnalysis(ch.id, parseStyleAnalysisReplyV3(reply, enabledDimensions))
+              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+              updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
               batchSaveProject()
             } catch (err) { logError(`分析章节失败: ${ch.title}`, err) }
           }
@@ -361,11 +361,11 @@ export function useStyleWorkshop() {
       let fullDescription = ''
       if (dimSummaryParts.length > 0) {
         const dimSummary = dimSummaryParts.join('\n\n')
-        const prompt = buildSummarizePromptV3(analyzedChapters.length, dimSummary, selectedProject.novelType || '通用')
+        const prompt = buildSummarizePrompt(analyzedChapters.length, dimSummary, selectedProject.novelType || '通用')
         const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
-        const v3Result = parseStyleAnalysisReplyV3(reply, enabledDimensions)
-        if (v3Result.dimAnalyses) {
-          for (const [dk, da] of Object.entries(v3Result.dimAnalyses)) {
+        const analysisResult = parseStyleAnalysisReply(reply, enabledDimensions)
+        if (analysisResult.dimAnalyses) {
+          for (const [dk, da] of Object.entries(analysisResult.dimAnalyses)) {
             if (!aggregatedDimAnalyses[dk]) {
               aggregatedDimAnalyses[dk] = da
             } else {
@@ -376,8 +376,8 @@ export function useStyleWorkshop() {
             }
           }
         }
-        fullDescription = v3Result.dimAnalyses
-          ? Object.entries(v3Result.dimAnalyses).map(([k, d]) => `${DIMENSION_META[k]?.label || k}: ${d.description?.slice(0, 80)}`).join('; ')
+        fullDescription = analysisResult.dimAnalyses
+          ? Object.entries(analysisResult.dimAnalyses).map(([k, d]) => `${DIMENSION_META[k]?.label || k}: ${d.description?.slice(0, 80)}`).join('; ')
           : `已分析${analyzedChapters.length}章，${Object.keys(aggregatedDimAnalyses).length}个维度`
       } else {
         const strFields = analyzedChapters[0]?.analysis

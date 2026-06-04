@@ -11,7 +11,6 @@ import {
   computePacingTemplate, chaptersToStyleChapters,
   buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt,
   buildStyleAnalyzePrompt, parseStyleAnalysisReply,
-  buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3,
   computeEventPattern, computeProgressionRhythm,
   computeCharacterArchetype, computeEmotionCurve,
 } from '@/services/extractionService'

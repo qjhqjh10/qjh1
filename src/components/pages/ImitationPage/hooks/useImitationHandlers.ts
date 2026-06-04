@@ -11,7 +11,6 @@ import {
   computePacingTemplate, chaptersToStyleChapters,
   buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt,
   buildStyleAnalyzePrompt, parseStyleAnalysisReply,
-  buildStyleAnalyzePromptV3, parseStyleAnalysisReplyV3,
   computeEventPattern, computeProgressionRhythm,
   computeCharacterArchetype, computeEmotionCurve,
 } from '@/services/extractionService'
@@ -298,8 +297,8 @@ export function useImitationHandlers(d: ImitationHandlersDeps) {
       while (stylePausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
       setStyleProgress(`风格: ${i + 1}/${chs.length}`)
       try {
-        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePromptV3(dims, novelType)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
-        const a = parseStyleAnalysisReplyV3(reply, dims)
+        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(dims, novelType)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
+        const a = parseStyleAnalysisReply(reply, dims)
         chapterAnalyses.push({ chapterNum: chs[i].chapterNumber, analysis: a })
       } catch (err) { logError(`风格分析失败 第${chs[i].chapterNumber}章`, err) }
     }

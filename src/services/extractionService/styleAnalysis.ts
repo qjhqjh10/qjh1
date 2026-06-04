@@ -11,89 +11,13 @@ import { DIMENSION_META } from '@/types/story'
 import { safeJsonParse } from '@/utils/safeJsonParse'
 
 
-import { extractJSON } from './jsonParsers';
-export function buildStyleAnalyzePrompt(dims: string[]): string {
-  const schema = dims.map(k => `  ${DIMENSION_META[k]?.prompt || `"${k}": "..."`}`).join(',\n')
-
-  return `你是专业的文学风格分析师。请对以下章节进行深度的写作风格分析。
-
-【分析要求】
-对每个维度，不要写抽象概括，必须给出：
-1. 具体描述: 从原文中提取的具体模式
-2. 原文例证: 摘录5-10个最能体现该特征的原文句子/短语
-3. 写作规则: 从分析中归纳的可操作的写作指令
-4. 词汇清单: 完整的相关词汇/短语列表（必须是原文中实际出现的词汇）
-
-同时，为每个维度保留一个简短的摘要字符串（填充在旧格式字段中，用于向后兼容）。
-
-输出JSON（不要markdown，只输出已启用的维度）：
-{
-${schema},
-  "excerpts": [{"text": "代表性摘录(50字内)", "note": "体现的特征"}, ...共5个]
-}
-
-注意:
-- 如果某个维度的分析在原文中不适用，将其值设为空字符串 ""
-- 所有 examples 和 vocabularyList 必须是原文中实际出现的词汇/句子，禁止编造
-- writingRules 必须是具体的、"拿来就能用"的写作指令，不要写笼统建议
-- 身体描写(bodyLanguageStyle)、感官(sensoryStyle)是核心维度，必须最详尽`
-}
-
-export function parseStyleAnalysisReply(reply: string): ChapterAnalysis {
-  const parsed = extractJSON(reply)
-  const excerpts = parsed.excerpts || []
-  const first = excerpts[0] || {}
-
-  // Helper: extract a value that might be a string (old format) or DimAnalysis object (new format)
-  const strVal = (key: string): string => {
-    const v = parsed[key]
-    if (!v) return ''
-    if (typeof v === 'string') return v
-    if (typeof v === 'object' && (v as DimAnalysis).description) return (v as DimAnalysis).description
-    return JSON.stringify(v)
-  }
-
-  // Parse dimAnalyses from new-format output
-  const dimKeys = Object.keys(DIMENSION_META)
-  const dimAnalyses: Record<string, DimAnalysis> = {}
-  for (const key of dimKeys) {
-    const v = parsed[key]
-    if (v && typeof v === 'object' && (v as DimAnalysis).description) {
-      const da = v as DimAnalysis
-      dimAnalyses[key] = {
-        description: da.description || '',
-        examples: Array.isArray(da.examples) ? da.examples : [],
-        writingRules: Array.isArray(da.writingRules) ? da.writingRules : [],
-        vocabularyList: Array.isArray(da.vocabularyList) ? da.vocabularyList : [],
-      }
-    }
-  }
-
-  return {
-    sentenceStyle: strVal('sentenceStyle'), vocabularyStyle: strVal('vocabularyStyle'),
-    rhetoricStyle: strVal('rhetoricStyle'), rhythmStyle: strVal('rhythmStyle'),
-    dialogueStyle: strVal('dialogueStyle'), moodStyle: strVal('moodStyle'),
-    perspectiveStyle: strVal('perspectiveStyle'), bodyLanguageStyle: strVal('bodyLanguageStyle'),
-    sensoryStyle: strVal('sensoryStyle'), tensionStyle: strVal('tensionStyle'),
-    subtextStyle: strVal('subtextStyle'),
-    descriptionPattern: parsed.descriptionPattern || null,
-    corruptionArc: parsed.corruptionArc || null, degradationRitual: parsed.degradationRitual || null,
-    narrativeVoice: parsed.narrativeVoice || null, sceneMechanics: parsed.sceneMechanics || null,
-    somaticTension: parsed.somaticTension || null, identityDissolution: parsed.identityDissolution || null,
-    shameVoyeurLoop: parsed.shameVoyeurLoop || null,
-    excerpt: first.text || '', excerptNote: first.note || '',
-    analyzedAt: new Date().toISOString(),
-    dimAnalyses: Object.keys(dimAnalyses).length > 0 ? dimAnalyses : undefined,
-  }
-}
-
 // ============================================================
-// V3 Style Analysis: marked blocks + flat arrays (resilient to JSON errors)
+// Style Analysis: marked-block format (resilient to JSON errors)
 // ============================================================
 
 import { DIM_TIERS, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
 
-export function buildStyleAnalyzePromptV3(dims: string[], novelType?: string): string {
+export function buildStyleAnalyzePrompt(dims: string[], novelType?: string): string {
   const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dims, novelType)
 
   const fmtGroup = (items: string[], prefix: string) => items.map(k => {
@@ -151,8 +75,8 @@ ${skipList || '  （无）'}
 5. 禁止用代码块包裹输出内容`
 }
 
-// Parses V3 marked-block format into ChapterAnalysis
-export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): ChapterAnalysis {
+// Parses marked-block format into ChapterAnalysis
+export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterAnalysis {
   // ── Step 1: Split into sections by markers ──
   const vocabMarker = '---VOCABULARY---'
   const rulesMarker = '---RULES---'
@@ -180,7 +104,7 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
       // V4: Markdown header ## dimKey: label or ## label（dimKey）
       new RegExp(`##\\s+${escapedKey}\\s*[:：]\\s*${escapedLabel}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
       new RegExp(`##\\s+${escapedLabel}\\s*[（(]?\\s*${escapedKey}\\s*[）)]?\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
-      // V3: === dimKey: label ===
+      // Legacy: === dimKey: label ===
       new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
       new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
       // Bracket format: [dimKey]: description
@@ -326,9 +250,9 @@ export function parseStyleAnalysisReplyV3(reply: string, dims: string[]): Chapte
   }
 }
 
-// Builds a V3-format summary prompt that asks AI to synthesize per-chapter
+// Builds a summary prompt that asks AI to synthesize per-chapter
 // dimAnalyses into a unified StyleProfile using the same marked-block format.
-export function buildSummarizePromptV3(
+export function buildSummarizePrompt(
   analyzedCount: number,
   dimAnalysesSummary: string,
   novelType: string,
