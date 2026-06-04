@@ -69,9 +69,12 @@ function localISOString(): string {
 // ── 构建 Anthropic API 端点 URL ──
 
 function buildAnthropicUrl(apiUrl: string): string {
-  // 如果 URL 已含 'anthropic' → 直接用，去掉尾部斜杠后追加 /v1/messages
+  // 如果 URL 已含 'anthropic' → 检查是否已经是完整路径
   if (apiUrl.includes('anthropic')) {
-    return apiUrl.replace(/\/+$/, '') + '/v1/messages'
+    const cleaned = apiUrl.replace(/\/+$/, '')
+    // 如果已经以 /v1/messages 结尾 → 不再追加
+    if (cleaned.endsWith('/v1/messages')) return cleaned
+    return cleaned + '/v1/messages'
   }
   // 否则：去掉 /v1 后缀（如果有），追加 /anthropic/v1/messages
   let base = apiUrl.replace(/\/+$/, '')
@@ -184,6 +187,25 @@ export function registerAnthropicHandlers(
         }
 
         // 4. 发起请求
+        // ── DEBUG: 保存最后一次请求体（排查问题用）──
+        try {
+          const { app } = await import('electron')
+          const { writeFileSync, mkdirSync } = await import('fs')
+          const { join } = await import('path')
+          const dd = join(app.getPath('userData'), 'debug')
+          mkdirSync(dd, { recursive: true })
+          writeFileSync(join(dd, 'last-anthropic-request.json'), JSON.stringify({
+            time: new Date().toISOString(),
+            url: apiUrl,
+            model: config.model,
+            systemLen: params.system?.join('').length || 0,
+            systemPreview: (params.system?.[0] || '').slice(0, 300),
+            msgCount: params.messages?.length || 0,
+            toolCount: params.tools?.length || 0,
+          }, null, 2))
+        } catch {}
+        // ── END DEBUG ──
+
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
@@ -321,6 +343,27 @@ export function registerAnthropicHandlers(
         }
 
         // 6. 记录 token 用量
+        // ── DEBUG: 保存响应摘要 ──
+        try {
+          const { app } = await import('electron')
+          const { writeFileSync, mkdirSync } = await import('fs')
+          const { join } = await import('path')
+          const dd = join(app.getPath('userData'), 'debug')
+          mkdirSync(dd, { recursive: true })
+          writeFileSync(join(dd, 'last-anthropic-response.json'), JSON.stringify({
+            time: new Date().toISOString(),
+            textLen: fullText.length,
+            textPreview: fullText.slice(0, 300),
+            toolCount: toolUses.length,
+            toolNames: toolUses.map(t => t.name),
+            inputTokens,
+            outputTokens,
+            stopReason,
+            eventsReceived: events.length,
+          }, null, 2))
+        } catch {}
+        // ── END DEBUG ──
+
         const cacheHitTotal = cacheCreationTokens + cacheReadTokens
         if (inputTokens > 0 || outputTokens > 0) {
           logTokenUsage({
