@@ -306,8 +306,98 @@ export function AISettingsTab() {
           </div>
           <div style={{ marginTop: 10, ...captionText }}>点击头像可上传图片。上传后会话中的头像将替换为你的自定义图片。留空使用默认emoji。</div>
         </div>
+
+        {/* Voice & Persona Settings */}
+        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: '#2d2520' }}>🎙️ 语音对话</h4>
+          <p style={{ fontSize: 11, color: '#9b8e84', marginBottom: 16 }}>开启后可在AI写作助手窗口使用语音输入（说中文→自动转文字），AI回复可朗读。</p>
+
+          <FormField label="启用语音功能">
+            <input type="checkbox" checked={aiSettings.aiPersona?.enabled ?? false}
+              onChange={e => {
+                const p = aiSettings.aiPersona || { enabled: false, role: '', voice: '', speed: 1.0 }
+                setAISettings({ aiPersona: { ...p, enabled: e.target.checked } })
+              }} />
+          </FormField>
+
+          {(aiSettings.aiPersona?.enabled) && (
+            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <FormField label="AI 角色设定">
+                <select value={aiSettings.aiPersona?.role || ''}
+                  onChange={e => {
+                    const p = aiSettings.aiPersona || { enabled: true, role: '', voice: '', speed: 1.0 }
+                    setAISettings({ aiPersona: { ...p, role: e.target.value } })
+                  }}
+                  className="focus-ring" style={inputStyle}>
+                  <option value="">默认（无角色扮演）</option>
+                  <option value="温柔的女助手，语气亲切耐心">温柔女助手</option>
+                  <option value="严厉的文学编辑，挑剔但专业">严厉编辑</option>
+                  <option value="幽默的写作伙伴，轻松随意">幽默伙伴</option>
+                  <option value="古风的修仙导师，文言雅致">修仙导师</option>
+                  <option value="热情的创作搭档，充满灵感火花">创作搭档</option>
+                </select>
+                <span style={captionText}>设定后AI将用对应角色的语气、用词、态度回复</span>
+              </FormField>
+
+              <FormField label="朗读语音">
+                <VoiceSelector value={aiSettings.aiPersona?.voice || ''}
+                  onChange={voice => {
+                    const p = aiSettings.aiPersona || { enabled: true, role: '', voice: '', speed: 1.0 }
+                    setAISettings({ aiPersona: { ...p, voice } })
+                  }} />
+                <span style={captionText}>选择AI回复时使用的朗读语音（需系统支持中文语音）</span>
+              </FormField>
+
+              <FormField label={`朗读语速: ${(aiSettings.aiPersona?.speed ?? 1.0).toFixed(1)}x`}>
+                <input type="range" min="0.5" max="2.0" step="0.1"
+                  value={aiSettings.aiPersona?.speed ?? 1.0}
+                  onChange={e => {
+                    const p = aiSettings.aiPersona || { enabled: true, role: '', voice: '', speed: 1.0 }
+                    setAISettings({ aiPersona: { ...p, speed: parseFloat(e.target.value) } })
+                  }}
+                  style={{ width: '100%', accentColor: '#7c3aed' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...captionText }}>
+                  <span>0.5x 慢速</span><span>1.0x 正常</span><span>2.0x 快速</span>
+                </div>
+              </FormField>
+
+              <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.1)', fontSize: 11, color: '#6b5e54', lineHeight: 1.6 }}>
+                💡 <b>使用提示：</b><br/>
+                • 语音输入：点击聊天窗输入框旁的 🎤 按钮，说中文即可<br/>
+                • AI 朗读：点击 AI 回复旁的 🔊 按钮，朗读该条消息<br/>
+                • 语音功能基于浏览器 Web Speech API，首次使用需授权麦克风
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  )
+}
+
+/** 语音选择器 — 从浏览器获取可用 TTS 语音列表 */
+function VoiceSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+
+  useEffect(() => {
+    const load = () => {
+      const all = speechSynthesis.getVoices()
+      const zh = all.filter(v => v.lang.startsWith('zh'))
+      setVoices(zh.length > 0 ? zh : all.slice(0, 20))
+    }
+    load()
+    speechSynthesis.onvoiceschanged = load
+    return () => { speechSynthesis.onvoiceschanged = null }
+  }, [])
+
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className="focus-ring" style={inputStyle}>
+      <option value="">系统默认</option>
+      {voices.map(v => (
+        <option key={v.voiceURI} value={v.name}>{v.name} ({v.lang})</option>
+      ))}
+    </select>
   )
 }
 

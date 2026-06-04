@@ -10,6 +10,7 @@ import { logError } from '@/utils/logger'
 import { injectThemeVars } from '@/theme'
 import { getTheme } from '@/themes'
 import { AgentErrorBoundary as ErrorBoundary } from '@/components/ai/ErrorBoundary'
+import { ToastProvider } from '@/components/common/Toast'
 import AppLayout from '@/components/layout/AppLayout'
 import HomePage from '@/components/pages/HomePage'
 import OutlinePage from '@/components/pages/OutlinePage'
@@ -206,15 +207,17 @@ export default function App() {
   }, [displaySettings])
 
   return (
-    <ErrorBoundary>
-      <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-        <AppLayout />
-        <ErrorBoundary><AnimatedRoutes /></ErrorBoundary>
-        <FloatingAIButton />
-        <ErrorBoundary><AIChatWindow /></ErrorBoundary>
-        <PopupWindowsLayer />
-      </div>
-    </ErrorBoundary>
+    <ToastProvider>
+      <ErrorBoundary>
+        <div id="app-root" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+          <AppLayout />
+          <ErrorBoundary><AnimatedRoutes /></ErrorBoundary>
+          <FloatingAIButton />
+          <ErrorBoundary><AIChatWindow /></ErrorBoundary>
+          <PopupWindowsLayer />
+        </div>
+      </ErrorBoundary>
+    </ToastProvider>
   )
 }
 

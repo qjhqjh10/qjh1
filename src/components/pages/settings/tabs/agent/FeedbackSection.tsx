@@ -64,8 +64,8 @@ async function loadSoftwareContext(): Promise<string> {
   } catch {}
   try {
     // Tool count
-    const { toolRegistry } = await import('@/agent/tools/ToolRegistry')
-    const names = toolRegistry.getNames()
+    const mod = await import('@/agent/skills/ToolRegistry')
+    const names = mod.toolRegistry.getNames()
     parts.push(`## 已注册工具 (${names.length}个)\n${names.join(', ')}`)
   } catch {}
   try {

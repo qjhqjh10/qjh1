@@ -29,6 +29,7 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - 创建文件 → 先 read_file 参考已有同类文件格式，再 create_file
 - 删除/重命名 → delete_file / rename_file
 - 搜索文本内容 → search_content
+- 搜索文件名 → find_files（按 Glob 模式递归搜索，支持项目内/电脑全局）
 - 知识库 → kb_list 列出 / kb_create_file 创建(路径: ../../knowledge_base/files/文件名.md) / kb_append_file 追加
 - 笔记 → list_notes/read_note/write_note/append_note（文件名自动加 .md 后缀）
 - 模板 → create_style_template / create_scene_template
@@ -41,8 +42,8 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - 细纲: {项目}/detailed_outline/chapter{N}.yaml     例: 1/detailed_outline/chapter3.yaml
 - 大纲: {项目}/outline/plot.md, worldbuilding.md     例: 1/outline/plot.md
 - 摘要: {项目}/summaries/chapter{N}.md              例: 1/summaries/chapter3.md
-- 风格模板: ../../style_templates/{中文名}.json      例: ../../style_templates/古风言情.json
-- 场景模板: ../../scene_templates/{中文名}.json      例: ../../scene_templates/雨夜场景.json
+- 风格模板: ../../style_templates/{中文名}.yaml      例: ../../style_templates/古风言情.yaml
+- 场景模板: ../../scene_templates/{中文名}.yaml      例: ../../scene_templates/雨夜场景.yaml
 - KB文件: ../../knowledge_base/files/{中文名}.md     例: ../../knowledge_base/files/角色要点.md
 - 笔记: 文件名.md（自动保存到全局 notes/ 目录）      例: 第3章改写思路.md
 
@@ -148,6 +149,11 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - 复杂任务：先列出执行计划，用户确认后按步骤依次执行（每步 = 调工具，不是输出文字）
 - 只做用户要求的，不多做 — 用户说"看大纲"只读不写
 - 工具调用超过 8 次仍未完成时，停止并向用户报告当前进展
+- 用户明确指定执行顺序时（"先做最后一个""倒序执行""先做第X个""按第③→第①的顺序"）→ 严格遵守用户指定的顺序，列出带序号的计划后再执行，不要默认正序
+- 多个独立任务默认按用户提出的先后顺序执行；有依赖关系的任务自动推断（先读后写、先查后改）
+- 任务排序模糊时先列出你理解的顺序，问用户确认
+
+__AI_PERSONA__
 
 # 基本规则
 - 编辑前 read_file 确认原文再 edit_file
@@ -164,7 +170,7 @@ export const CORE_SYSTEM_PROMPT = `你是"青剑"，AI小说创作助手。
 - 创建前先读已有文件参考格式，不确定时用 list_directory 查看已有同类文件
 
 # 文件命名规则
-- 模板/草稿/知识库/上传 → 中文命名（如"古风言情.json"、"第3章改写思路.md"）
+- 模板/草稿/知识库/上传 → 中文命名（如"古风言情.yaml"、"第3章改写思路.md"）
 - 大纲/细纲/章节 → 保持原格式（plot.md, chapter1.yaml, chapter1.txt）
 - 角色文件 → 中文名（如 林语晴.yaml），id 字段用拼音
 
@@ -219,7 +225,7 @@ old_string必须逐字精确匹配（含换行和空格）
 
 export const CHAPTER_DOMAIN_MODULE = `
 ## 细纲格式
-detailed_outline/{章节id}.yaml，每章一个JSON文件。先read_file参考已有细纲格式再创建。
+detailed_outline/{章节id}.yaml，每章一个YAML文件。先read_file参考已有细纲格式再创建。
 必填: id(如chapter1), title, order(数字,从0开始), status(incomplete|completed), plotOverview(150-300字剧情概述), characters(出场角色+每个角色的情绪线), location(场景地点), keyEvents(关键事件，用\\n分隔的多行文本，每行一个事件)
 可选: eroticContent(情色内容，有则详写含具体描写，无情色则填"本章无情色内容"并简述原因), customContent(场景分幕详细描述，有详细分幕设计时填写，过渡/悬疑章可省略), emotionCurve(情绪曲线), writingNotes(写作要点，含视角/节奏/感官侧重/伏笔), summary(摘要)
 
@@ -245,16 +251,16 @@ summaries/{章节id}.md，Markdown格式，200-400字:
 
 export const STYLE_DOMAIN_MODULE = `
 ## 风格模板
-用户上传或引用文本后，逐维度分析文风特征，用 create_style_template 保存。禁止手动 create_file 写JSON。
+用户上传或引用文本后，逐维度分析文风特征，用 create_style_template 保存。禁止手动 create_file 写文件（模板有专用工具）。
 
 【模板存储位置】
 已有模板存储在 ../../style_templates/ 目录（全局共享，所有项目可见）。
-查找模板时: list_directory("../../style_templates", pattern="*.json") → 看到所有模板文件名 → read_file("../../style_templates/模板名.json") 读取。
-模板文件名规律: "《源文本名》风格模板.json" 或 "st_随机id.json"。
+查找模板时: list_directory("../../style_templates", pattern="*.yaml") → 看到所有模板文件名 → read_file("../../style_templates/模板名.yaml") 读取。
+模板文件名规律: "《源文本名》风格模板.yaml" 或 "st_随机id.yaml"。
 
 【工作流程 — 使用已有模板写作】
-1. list_directory("../../style_templates", pattern="*.json") 查看所有可用模板
-2. read_file("../../style_templates/模板名.json") 读取模板内容
+1. list_directory("../../style_templates", pattern="*.yaml") 查看所有可用模板
+2. read_file("../../style_templates/模板名.yaml") 读取模板内容
 3. 理解模板中的 dimensions（各维度的 description + writingRules + vocabularyList + examples）
 4. 按照模板约束生成文本。必须使用模板中的 vocabularyList 词汇、遵守 writingRules 规则
 
@@ -292,11 +298,11 @@ key必须用上面列出的英文维度名，不要用中文。
 
 export const SCENE_DOMAIN_MODULE = `
 ## 场景模板
-用户上传或引用文本后，分析场景结构特征，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写JSON。
+用户上传或引用文本后，分析场景结构特征，用 create_scene_template 保存到场景工坊。禁止手动 create_file 写文件（模板有专用工具）。
 
 【模板存储位置】
 已有模板存储在 ../../scene_templates/ 目录（全局共享）。
-查找: list_directory("../../scene_templates", pattern="*.json") → read_file("../../scene_templates/模板名.json")。
+查找: list_directory("../../scene_templates", pattern="*.yaml") → read_file("../../scene_templates/模板名.yaml")。
 
 【工作流程 — 创建新模板】
 0. 先确认类型 → 用户确认
@@ -406,11 +412,13 @@ export function buildSystemPrompt(
   projectStructure: string,
   projectContext: string,
   skillInjection?: string,
+  personaText?: string,
 ): string {
   const noIndexFallback = '如需操作文件，请确保已选择项目。目录结构和项目状态见下方系统消息。'
   const core = CORE_SYSTEM_PROMPT
     .replace('__PROJECT_STRUCTURE__', projectStructure || noIndexFallback)
     .replace('__PROJECT_CONTEXT__', projectContext || '项目信息见下方目录地图。')
+    .replace('__AI_PERSONA__', personaText || '')
   const parts = [core, ...domainModules]
   if (skillInjection) parts.push(skillInjection)
   return parts.join('\n\n')
@@ -433,7 +441,18 @@ export async function buildSystemPromptWithSkills(
   } catch {
     // 技能系统不可用时静默回退
   }
-  return buildSystemPrompt(domainModules, projectStructure, projectContext, skillInjection)
+  // 读取 AI 角色设定
+  let personaText = ''
+  try {
+    const { useSettingsStore } = await import('@/store')
+    const p = useSettingsStore.getState().aiSettings?.aiPersona
+    if (p?.enabled && p.role) {
+      personaText = `\n你的角色设定：${p.role}。请用符合此角色的语气、用词、态度回复用户。保持专业写作助手能力不变。`
+    }
+  } catch { /* 设置不可用时静默回退 */ }
+  // Skill 命中时：workflow 指引作为补充，不替代 Domain Modules
+  // Domain Modules 含关键格式规范（16字段/YAML格式/枚举值），不能省略
+  return buildSystemPrompt(domainModules, projectStructure, projectContext, skillInjection, personaText)
 }
 
 export function selectDomainModules(userMessage: string): string[] {

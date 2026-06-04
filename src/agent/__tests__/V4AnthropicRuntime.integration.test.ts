@@ -1,6 +1,15 @@
 // ── V4 Anthropic Runtime Integration Tests ──
 // Tests the REAL V4AnthropicRuntime with Anthropic Messages API streaming protocol.
-// All API calls are mocked. Validates:
+//
+// 双模式：
+//   - Mock 模式 (默认):  快速、确定性、离线。验证 Runtime 代码逻辑。
+//   - LIVE 模式 (LIVE_API=1): 真实调用 DeepSeek API。验证 AI 行为。
+//
+// 用法：
+//   npx vitest run src/agent/__tests__/V4AnthropicRuntime.integration.test.ts          # Mock
+//   LIVE_API=1 npx vitest run src/agent/__tests__/V4AnthropicRuntime.integration.test.ts # 真实API
+//
+// Validates:
 //   - Stream with text-only response
 //   - Stream with tool_use blocks (single and multiple)
 //   - Multi-turn tool use loop
@@ -14,7 +23,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { V4AnthropicRuntime } from '../V4AnthropicRuntime'
 import type { AnthropicAIService, ToolExecutorFn } from '../V4AnthropicRuntime'
-import { toolRegistry } from '../tools/ToolRegistry'
+import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import type { AnthropicStreamResult, AnthropicToolDef } from '@/types/anthropicTypes'
 import type { ToolExecutionContext, ToolResult } from '../state/types'
@@ -722,4 +731,172 @@ describe('Anthropic End-to-End', () => {
     expect(r2.toolCalls).toBe(1)
     expect(r2.toolsUsed).toContain('list_directory')
   })
+})
+
+// ══════════════════════════════════════════════════════════════
+// 9. Live API — 真实 DeepSeek API 调用
+// ══════════════════════════════════════════════════════════════
+// 设置 LIVE_API=1 环境变量启用。需要网络 + API key。
+// 验证 AI 实际行为（工具选择/回复质量/格式正确性），而非 Runtime 代码逻辑。
+
+const LIVE_API = process.env.LIVE_API === '1'
+const DEEPSEEK_BASE = process.env.DEEPSEEK_BASE || 'https://api.deepseek.com'
+const DEEPSEEK_KEY = process.env.DEEPSEEK_KEY || ''
+const LIVE_MODEL = process.env.LIVE_MODEL || 'deepseek-v4-flash'
+
+function makeLiveAnthropicAI(): AnthropicAIService {
+  let aborted = false
+
+  return {
+    chatAnthropicStream: async (params) => {
+      if (aborted) throw new Error('已中止')
+
+      const url = `${DEEPSEEK_BASE}/anthropic/v1/messages`
+      const body = JSON.stringify({
+        model: LIVE_MODEL,
+        max_tokens: 4096,
+        system: params.system,
+        messages: params.messages,
+        tools: params.tools,
+        stream: false,  // 非流式简化处理；流式需 SSE 解析
+      })
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': DEEPSEEK_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body,
+        signal: AbortSignal.timeout(60_000),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`API ${res.status}: ${errText.slice(0, 200)}`)
+      }
+
+      const data = await res.json() as any
+      const content = data.content || []
+
+      // 分离 text 和 tool_use blocks
+      let text = ''
+      const toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
+
+      for (const block of content) {
+        if (block.type === 'text') {
+          text += block.text || ''
+        } else if (block.type === 'tool_use') {
+          toolUses.push({
+            id: block.id,
+            name: block.name,
+            input: block.input || {},
+          })
+        }
+      }
+
+      return {
+        text,
+        toolUses,
+        stopReason: data.stop_reason || (toolUses.length > 0 ? 'tool_use' : 'end_turn'),
+        usage: data.usage || { input_tokens: 0, output_tokens: 0 },
+      }
+    },
+
+    abortStream: () => { aborted = true },
+  }
+}
+
+/** 真实文件系统工具执行器 — 使用 @/services/fileService */
+async function liveToolExecutor(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+): Promise<ToolResult> {
+  try {
+    const { aiService } = await import('@/services/fileService')
+    const callId = `live_${ctx.toolName}_${Date.now().toString(36)}`
+    const results = await aiService.executeFileTools([{ callId, toolName: ctx.toolName, args }])
+    const r = results[0]
+    return r || { status: 'error', summary: '无响应' }
+  } catch (e) {
+    return { status: 'error', summary: e instanceof Error ? e.message : '未知错误' }
+  }
+}
+
+;(LIVE_API ? describe : describe.skip)('Live API — 真实 DeepSeek 调用', () => {
+  // 慢：每个测试 ~5-15 秒
+  it('简单聊天 — 无工具调用', async () => {
+    if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
+
+    const runtime = makeRuntime({ maxIterations: 3 })
+    runtime.setAIService(makeLiveAnthropicAI())
+    runtime.setToolExecutor(vi.fn())
+    runtime.setTools([])
+
+    const result = await runtime.run({ userMessage: '你好！简单介绍一下你自己。', attachments: [] })
+
+    expect(result.success).toBe(true)
+    expect(result.text.length).toBeGreaterThan(10)
+    expect(result.toolCalls).toBe(0)
+  }, 20_000)
+
+  it('有工具可用但不需要调用 — 模型自主选择不调', async () => {
+    if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
+
+    const runtime = makeRuntime({ maxIterations: 3 })
+    runtime.setAIService(makeLiveAnthropicAI())
+    runtime.setToolExecutor(vi.fn())
+    // 给工具但不给项目上下文 — 模型应该选择不调工具
+    runtime.setTools(toolRegistry.getAllSchemas())
+
+    const result = await runtime.run({
+      userMessage: '写小说时应该用第几人称比较好？第一人称有什么优缺点？',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    // 纯咨询问题 → 模型不应该调用工具
+    expect(result.toolCalls).toBe(0)
+    expect(result.text.length).toBeGreaterThan(20)
+  }, 20_000)
+
+  it('工具调用 — 模型能正确选择和调用工具', async () => {
+    if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
+
+    const runtime = makeRuntime({ maxIterations: 5 })
+    runtime.setAIService(makeLiveAnthropicAI())
+    runtime.setToolExecutor(liveToolExecutor as ToolExecutorFn)
+    runtime.setTools(toolRegistry.getAllSchemas())
+
+    const result = await runtime.run({
+      userMessage: '列出当前项目的所有角色文件。如果没有任何项目，就告诉我没有。',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    // 模型应该尝试 list_directory 查看角色
+    // 无论是否有项目，模型都应该有合理的工具调用行为
+    console.log(`[Live] 工具调用: ${result.toolsUsed.join(', ') || '无'}`)
+    console.log(`[Live] 回复: ${result.text.slice(0, 200)}`)
+  }, 30_000)
+
+  it('多步工具调用 — 先读后创建', async () => {
+    if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
+
+    const runtime = makeRuntime({ maxIterations: 8 })
+    runtime.setAIService(makeLiveAnthropicAI())
+    runtime.setToolExecutor(liveToolExecutor as ToolExecutorFn)
+    runtime.setTools(toolRegistry.getAllSchemas())
+
+    const result = await runtime.run({
+      userMessage: '读取 outline/plot.md 文件，告诉我大纲的前200字内容。如果文件不存在就创建一个。',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.toolCalls).toBeGreaterThanOrEqual(1)
+    console.log(`[Live] ${result.toolCalls} 次工具调用: ${result.toolsUsed.join(', ')}`)
+    console.log(`[Live] 回复摘要: ${result.text.slice(0, 300)}`)
+  }, 60_000)
 })

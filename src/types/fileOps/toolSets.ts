@@ -1,5 +1,4 @@
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project']) as ReadonlySet<string>
-export const PREVIEW_TOOLS = new Set(['edit_file']) as ReadonlySet<string>
 // Plan 模式工具集。名称保留 "READ_ONLY" 为历史兼容，实际允许以下写操作（设计意图）：
 // - write_note/append_note/delete_note: 草稿笔记管理，Plan 模式下仍需正常使用
 // - generate_image/search_images: 只生成/搜索不修改文件，视为安全操作

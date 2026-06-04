@@ -7,7 +7,7 @@
 //
 // Key insight: don't hard-block .. or absolute paths — escalate to approval instead.
 
-import { toolRegistry } from './tools/ToolRegistry'
+import { toolRegistry } from './skills/ToolRegistry'
 import { tryParseJsonOrYaml } from '../utils/yamlUtils'
 
 export interface SecurityCheckResult {

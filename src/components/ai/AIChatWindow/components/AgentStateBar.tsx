@@ -15,13 +15,12 @@ const PHASE_PROGRESS: Record<AgentPhase, number> = {
   IDLE: 0, RUNNING: 50, WAITING_APPROVAL: 55, DONE: 100, ERROR: 0, ABORTED: 0,
 }
 
-export function AgentStateBar() {
+export function AgentStateBar({ maxIterations = 30 }: { maxIterations?: number }) {
   const phase = useAgentStore(s => s.run.phase)
   const iteration = useAgentStore(s => s.run.iteration)
   const isRunning = useAgentStore(s => s.run.isRunning)
   const thinking = useAgentStore(s => s.run.thinking)
   const error = useAgentStore(s => s.run.lastError)
-  const maxIterations = 15
 
   // Always show bar — even IDLE state is informative
   if (!isRunning && phase === 'IDLE' && !error) {

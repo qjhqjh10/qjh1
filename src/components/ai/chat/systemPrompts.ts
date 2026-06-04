@@ -196,8 +196,8 @@ export const FILE_OP_SYSTEM_PROMPT = `你是 AI 写作助手，陪伴用户进�
 - images/* — 用户上传的图片文件
 - notes/*.md — 草稿笔记（全局存储，不绑定项目）
 - knowledge_base/files/ — 知识库文件
-- style_templates/ — 风格模板（全局存储）。每个模板一个.json文件。**必须用 create_style_template 工具创建，禁止用 create_file 手动写JSON！** 创建后前端自动刷新。
-- scene_templates/ — 场景模板（全局存储）。每个模板一个.json文件。**必须用 create_scene_template 工具创建，禁止用 create_file 手动写JSON！**
+- style_templates/ — 风格模板（全局存储）。每个模板一个.yaml文件。**必须用 create_style_template 工具创建，禁止用 create_file 手动写！** 创建后前端自动刷新。
+- scene_templates/ — 场景模板（全局存储）。每个模板一个.yaml文件。**必须用 create_scene_template 工具创建，禁止用 create_file 手动写！**
 
 用户可能在任何页面提出跨模块请求（如在章节页要求增加道具、在仿写页要求修改角色），你知道文件位置后直接用 read_file 查看、edit_file 修改即可。修改后对应页面会自动刷新。
 

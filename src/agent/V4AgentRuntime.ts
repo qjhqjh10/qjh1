@@ -6,7 +6,9 @@
 import { AgentEventEmitter } from './runtime/AgentEventEmitter'
 import { ContractExecutor } from './context/ContractExecutor'
 import { ContextCompressor } from './context/ContextCompressor'
-import { toolRegistry } from './tools/ToolRegistry'
+import { toolRegistry } from './skills/ToolRegistry'
+import { skillRegistry } from './skills/SkillRegistry'
+import type { ActiveSkillContext } from './skills/types'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
 import type {
@@ -99,6 +101,7 @@ export class V4AgentRuntime {
   private compressor: ContextCompressor  // set in constructor from config.contextWindow
   private compressedAt = 0
   private lastCompressLength = 0  // v4.2: protect recent tool results from being compressed away
+  private activeSkill: ActiveSkillContext | null = null  // v5: Skill 运行时追踪
 
   constructor(config: V4AgentConfig) {
     this.config = config
@@ -113,6 +116,7 @@ export class V4AgentRuntime {
   setTools(tools: unknown[]): void { this.tools = tools }
   setExtendedTools(tools: unknown[]): void { this.extendedTools = tools }  // v4.1 progressive disclosure
   setHistory(messages: Message[]): void { this.historyMessages = messages }
+  setActiveSkill(skill: ActiveSkillContext | null): void { this.activeSkill = skill }  // v5: Skill 运行时追踪
 
   getEmitter(): AgentEventEmitter { return this.emitter }
   getToolResults(): readonly ToolResult[] { return [] }
@@ -472,6 +476,37 @@ export class V4AgentRuntime {
       })
     }
 
+    // ── v5: Skill 质量检查 ──
+    if (this.activeSkill && result.status === 'success') {
+      const skill = skillRegistry.get(this.activeSkill.skillId)
+      if (skill) {
+        // 标记步骤完成
+        const matchedStep = skill.workflow.steps.find(
+          s => s.tool === tc.name && s.order === this.activeSkill!.currentStep
+        )
+        if (matchedStep) {
+          this.activeSkill.completedSteps.add(matchedStep.order)
+          this.activeSkill.currentStep = Math.min(
+            matchedStep.order + 1,
+            skill.workflow.steps.length + 1
+          )
+        }
+
+        // 运行质量检查（仅 write/create 类工具）
+        if (/^(create_file|edit_file|create_style_template|create_scene_template)$/.test(tc.name)) {
+          const failed = this.runQualityChecks(skill, tc.name, result, args)
+          if (failed.length > 0 && this.activeSkill.retryCount < 3) {
+            this.activeSkill.retryCount++
+            const correctionMsg = `[自动纠错] 以下质量检查未通过，请修正后重试：\n` +
+              failed.map(f => `- ${f.description}`).join('\n') +
+              `\n请基于以上反馈修正后重新调用 ${tc.name}。`
+            this.messagesForApi.push({ role: 'user', content: correctionMsg })
+            diagnosticLogger.recordInfo(`Skill QC: ${failed.length} checks failed for ${skill.id}`)
+          }
+        }
+      }
+    }
+
     // Filter result for API context (ContractExecutor: strip verbose detail)
     const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
     // I5: Progressive trim — after iteration 1, truncate read tool detail to 500 chars
@@ -480,5 +515,77 @@ export class V4AgentRuntime {
     }
     const finalResult = note ? { ...resultForApi, note } : resultForApi
     this.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
+  }
+
+  // ── v5: Skill 质量检查执行器 ──
+
+  private runQualityChecks(
+    skill: { qualityChecks: Array<{ id: string; description: string; severity: string; check: string }> },
+    toolName: string,
+    result: ToolResult,
+    args: Record<string, unknown>,
+  ): Array<{ id: string; description: string }> {
+    const failed: Array<{ id: string; description: string }> = []
+    const content = String(args.content || result.detail || '')
+
+    for (const qc of skill.qualityChecks) {
+      // 只对 write/create 工具运行检查
+      if (!this.isQualityCheckApplicable(qc.id, toolName)) continue
+
+      const passed = this.evaluateQualityCheck(qc.id, content)
+      if (!passed) {
+        failed.push({ id: qc.id, description: qc.description })
+      }
+    }
+    return failed
+  }
+
+  private isQualityCheckApplicable(checkId: string, toolName: string): boolean {
+    // 角色相关检查 → 仅 create_file 创建角色文件时
+    if (/^qc-/.test(checkId) && toolName === 'create_file') {
+      return true
+    }
+    // 风格/场景模板检查 → 仅对应模板工具
+    if (/^(no-empty-dims|11-required-dims|vocabulary-limit)$/.test(checkId)) {
+      return toolName === 'create_style_template'
+    }
+    if (/^(required-fields|auto-fields)$/.test(checkId)) {
+      return toolName === 'create_scene_template' || toolName === 'create_style_template'
+    }
+    // 字数/格式检查 → 章节创建
+    if (/^(word-count|paragraph-spacing|not-one-block)$/.test(checkId)) {
+      return toolName === 'create_file'  // 章节正文
+    }
+    return false
+  }
+
+  private evaluateQualityCheck(checkId: string, content: string): boolean {
+    switch (checkId) {
+      case 'qc-all-fields': {
+        // 检查角色 16 字段是否全存在
+        const requiredFields = ['id','name','role','gender','age','occupation',
+          'background','appearance','personality','abilities','weaknesses',
+          'relationships','relationshipTags','arc','importance']
+        return requiredFields.every(f => content.includes(f))
+      }
+      case 'qc-abilities-string':
+        return !/\babilities\b.*:\s*\{/.test(content)
+      case 'qc-role-enum':
+        return /\brole\b.*:\s*(男主|女主|男配|女配|反派|其他)/.test(content)
+      case 'qc-relationship-tags':
+        return /relationshipTags\b.*:\s*\[/.test(content)
+      case 'qc-importance-number':
+        return /\bimportance\b.*:\s*\d+/.test(content)
+      case 'no-empty-dims':
+        return !/\bdimensions\b.*:\s*\{\s*\}/.test(content)
+      case 'word-count':
+        return content.length >= 500  // 最低 500 字
+      case 'paragraph-spacing':
+        return /\n\n/.test(content)
+      case 'not-one-block':
+        return content.split('\n').filter(l => l.trim()).length >= 3
+      default:
+        return true  // 无法自动检测的 → 默认通过
+    }
   }
 }

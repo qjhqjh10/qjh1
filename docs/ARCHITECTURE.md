@@ -43,7 +43,7 @@ V4 用**单一 while 循环**替代了 V3 的 13 态 FSM 及 8 个子系统（Ta
 - `ChatBridgeInterface.ts` — 共享接口 + 协议工厂（根据配置自动选择）
 - `V4SystemPrompt.ts` — 系统提示词 + 10 领域模块 + 动态选择
 - `V4SecurityFence.ts` — 三层安全围栏（硬拦截 → JSON 校验 → 路径审批）
-- `IntentClassifier.ts` — 意图分类器（chat/simple/complex + 要求数统计）
+- `Skill-driven 意图匹配（skillRegistry.matchBest）
 
 ### 工具系统 (`src/agent/tools/`)
 - `ToolRegistry.ts` — 工具注册表（38 工具，12 类别）

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   DANGEROUS_TOOLS,
-  PREVIEW_TOOLS,
   READ_ONLY_TOOLS,
   summarizeFileOp,
 } from '../toolSets'
@@ -27,13 +26,6 @@ describe('DANGEROUS_TOOLS', () => {
   it('is ReadonlySet (immutable at type level)', () => {
     // Runtime check — the set works as expected
     expect(DANGEROUS_TOOLS.has('nonexistent')).toBe(false)
-  })
-})
-
-describe('PREVIEW_TOOLS', () => {
-  it('contains only edit_file', () => {
-    expect(PREVIEW_TOOLS.size).toBe(1)
-    expect(PREVIEW_TOOLS.has('edit_file')).toBe(true)
   })
 })
 

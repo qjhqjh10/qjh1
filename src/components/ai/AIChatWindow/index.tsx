@@ -15,6 +15,9 @@ import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
+import { useToast } from '@/components/common/Toast'
+import VoiceButton from './components/VoiceButton'
+import SpeakButton from './components/SpeakButton'
 import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
@@ -26,7 +29,7 @@ import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
 import { ContextCompressor } from '@/agent/context/ContextCompressor'
 import { useAgentStore } from '@/agent/store/AgentStore'
-import { AgentStatusBar } from './components/AgentStatusBar'
+import { AgentStateBar } from './components/AgentStateBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
 import { ToolDetailPanel } from './components/ToolDetailPanel'
 import { DangerousToolModal, type DangerousTool } from './components/DangerousToolModal'
@@ -71,6 +74,7 @@ const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onC
 
 export default function AIChatWindow() {
   const isOpen = useStore(s => s.isAIChatOpen)
+  const { toast } = useToast()
 
   // Check API connection when chat window opens
   useEffect(() => { if (isOpen) checkApiConnection() }, [isOpen])
@@ -260,7 +264,7 @@ export default function AIChatWindow() {
   }
 
   const compressMessages = async (upToMsgId: string) => {
-    if (!activeConfigId) { alert('请先配置AI模型'); return }
+    if (!activeConfigId) { toast('请先在系统设置中配置AI模型', 'warning'); return }
     const currentMsgs = activeConversation.messages
     const upToIndex = currentMsgs.findIndex(m => m.id === upToMsgId)
     if (upToIndex <= 0) return
@@ -290,7 +294,7 @@ export default function AIChatWindow() {
       }
 
       setMessages([currentMsgs[0], summaryMsg, ...toKeep])
-    } catch (err) { logError('压缩对话失败', err); alert('压缩失败，请重试') }
+    } catch (err) { logError('压缩对话失败', err); toast('压缩失败，请重试', 'error') }
     setCompressing(false)
     setContextMenu(null)
   }
@@ -1182,10 +1186,17 @@ export default function AIChatWindow() {
 
                 {/* Apply button (no insertion, plain text) */}
                 {msg.role === 'assistant' && msg.id !== 'welcome' && !msg.insertion && canApply && msg.content.length > 10 && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14, paddingLeft: 36 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 14, paddingLeft: 36 }}>
+                    <SpeakButton text={msg.content} />
                     <button onClick={() => handleApplyToEditor(msg.content)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                       <ArrowDownTrayIcon style={{ width: 12, height: 12 }} /> 应用到编辑器
                     </button>
+                  </div>
+                )}
+                {/* Speak button for all assistant messages (even without apply button) */}
+                {msg.role === 'assistant' && msg.id !== 'welcome' && (!canApply || msg.insertion || msg.content.length <= 10) && msg.content.length > 5 && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10, paddingLeft: 36 }}>
+                    <SpeakButton text={msg.content} />
                   </div>
                 )}
 
@@ -1231,7 +1242,7 @@ export default function AIChatWindow() {
             </div>
           )}
 
-          <AgentStatusBar />
+          <AgentStateBar maxIterations={30} />
           <DiagnosticPanel />
 
           {/* Input */}
@@ -1273,6 +1284,10 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
+              <VoiceButton
+                onTextChange={(text) => setInput(text)}
+                onFinalText={(text) => { setInput(text); setTimeout(() => handleSend(), 100) }}
+              />
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}

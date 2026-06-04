@@ -5,7 +5,9 @@ export const projectSkill: SkillDefinition = {
   description: '创建新小说项目或删除已有项目。创建时自动初始化characters/chapters/outline/detailed_outline/summaries子目录。',
   triggerPatterns: ['创建.*项目', '新建.*项目', '删除.*项目', '新.*小说'],
   category: 'project',
-  workflow: { description: '根据用户意图创建或删除项目', steps: [
+  workflow: { description:
+    '项目存储在 projects/ 目录。创建项目时自动生成5个标准子目录：characters/ chapters/ outline/ detailed_outline/ summaries/。' +
+    '删除项目不可恢复，必须让用户二次确认。', steps: [
     { order: 1, tool: 'create_project', purpose: '创建新项目（含5个子目录）', argsTemplate: { name: '${name}' }, optional: true },
     { order: 2, tool: 'delete_project', purpose: '删除项目（不可恢复）', argsTemplate: { name: '${name}' }, optional: true },
   ]},

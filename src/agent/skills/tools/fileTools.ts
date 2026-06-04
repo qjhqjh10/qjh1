@@ -1,4 +1,4 @@
-// ── File Tools (7 tools) ──
+// ── File Tools (8 tools) ──
 // Self-contained for skill system. Uses @/services/fileService backend via IPC.
 // NOTE: read_file executor checks the shared FileCache (src/agent/context/FileCache)
 // before making the IPC call. This avoids redundant reads within the same session.
@@ -50,7 +50,7 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'read_file',
       description:
-        '读取文件完整内容。何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。项目文件路径: 项目名/子路径（如 1/outline/plot.md）。全局文件路径: ../../前缀（如 ../../style_templates/模板名.json、../../knowledge_base/files/文件名.md）。不确定时用 list_directory 查找。返回内容在 detail 字段。',
+        '读取文件完整内容。何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。项目文件路径: 项目名/子路径（如 1/outline/plot.md）。全局文件路径: ../../前缀（如 ../../style_templates/模板名.yaml、../../knowledge_base/files/文件名.md）。不确定时用 list_directory 查找。返回内容在 detail 字段。',
       parameters: {
         type: 'object',
         properties: {
@@ -212,5 +212,32 @@ export const fileTools: ToolDefinition[] = [
         return { status: 'error', summary: `重命名失败: ${e instanceof Error ? e.message : '未知错误'}` }
       }
     },
+  },
+
+  // ── File search tool (recursive) ──
+
+  {
+    schema: {
+      name: 'find_files',
+      description:
+        '按文件名模式递归搜索文件。支持 Glob 模式（如 "*.json" "chapter*" "林*"）。' +
+        'scope="project"（默认）：搜索项目+全局资源目录。' +
+        'scope="computer"：搜索用户主目录下的常见文件夹（需用户审批）。' +
+        '最多返回 200 条，递归深度限制 5 层。跳过 node_modules/.git/AppData 等系统目录。',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob 模式匹配文件名，如 "*.yaml" "chapter*" "林*"' },
+          scope: { type: 'string', description: '搜索范围: "project"(默认) 或 "computer"(需审批)' },
+          dir_path: { type: 'string', description: '指定起始目录（scope=computer时可选）' },
+          max_depth: { type: 'number', description: '最大递归深度（默认 5，最大 10）' },
+        },
+        required: ['pattern'],
+      },
+    },
+    permission: 'READ_ASK',
+    category: 'file',
+    availableInPlanMode: true,
+    executor: async (args, ctx) => ipcExecute('find_files', args, ctx),
   },
 ]

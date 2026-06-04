@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { selectDomainModules, AI_CAPABILITIES_MODULE, SOFTWARE_FEATURES_MODULE } from '../V4SystemPrompt'
-import { toolRegistry } from '../tools/ToolRegistry'
+import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 
 beforeAll(() => {
@@ -92,8 +92,8 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具裁剪（按 task profile）', () => {
-    it('38 个工具全部注册', () => {
-      expect(toolRegistry.count()).toBe(38)
+    it('39 个工具全部注册', () => {
+      expect(toolRegistry.count()).toBe(39)
     })
 
     it('风格核心工具存在', () => {
@@ -263,9 +263,9 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具完整性', () => {
-    it('38 个工具全部注册', () => {
+    it('39 个工具全部注册', () => {
       const schemas = toolRegistry.getAllSchemas()
-      expect(schemas).toHaveLength(38)
+      expect(schemas).toHaveLength(39)
     })
 
     it('8 个文件工具', () => {

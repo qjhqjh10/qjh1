@@ -24,9 +24,29 @@ export class SkillToolRegistry {
   count(): number { return this.tools.size }
   getAll(): ToolDefinition[] { return Array.from(this.tools.values()) }
 
+  /** 兼容旧 ToolRegistry 的别名 */
+  getAllDefinitions(): ToolDefinition[] { return this.getAll() }
+
+  /** 获取 OpenAI 格式的工具 schema（别名，兼容旧 ToolRegistry） */
+  getAllSchemas(): Array<{ type: 'function'; function: ToolDefinition['schema'] }> {
+    return this.getAll().map(t => ({ type: 'function' as const, function: t.schema }))
+  }
+
   /** 获取 OpenAI 格式的工具 schema */
   getOpenAISchemas(): Array<{ type: 'function'; function: ToolDefinition['schema'] }> {
-    return this.getAll().map(t => ({ type: 'function' as const, function: t.schema }))
+    return this.getAllSchemas()
+  }
+
+  /** 返回紧凑 schema — name + 一行 description，无完整参数 */
+  getCompactSchemas(): Array<{ type: 'function'; function: { name: string; description: string; parameters: { type: 'object'; properties: {}; required: [] } } }> {
+    return this.getAll().map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.schema.name,
+        description: t.schema.description.slice(0, 80),
+        parameters: { type: 'object' as const, properties: {}, required: [] },
+      },
+    }))
   }
 
   /** 获取 Anthropic 格式的工具 schema */
@@ -58,9 +78,19 @@ export class SkillToolRegistry {
     return this.tools.get(name)?.permission
   }
 
+  /** 权限查询（别名，兼容旧 ToolRegistry） */
+  getPermissionLevel(name: string): ToolDefinition['permission'] | undefined {
+    return this.getPermission(name)
+  }
+
   needsApproval(name: string): boolean {
     const perm = this.getPermission(name)
     return perm === 'DANGEROUS_ASK' || perm === 'PROJECT_ASK'
+  }
+
+  /** 检查工具是否为危险操作（兼容旧 ToolRegistry） */
+  isDangerous(name: string): boolean {
+    return this.tools.get(name)?.permission === 'DANGEROUS_ASK'
   }
 
   isAvailableInPlanMode(name: string): boolean {
@@ -75,3 +105,6 @@ export class SkillToolRegistry {
 
 /** 全局单例 */
 export const skillToolRegistry = new SkillToolRegistry()
+
+/** 兼容旧 ToolRegistry 的别名 — 所有 Bridge/Runtime 使用此名 */
+export const toolRegistry = skillToolRegistry

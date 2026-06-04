@@ -5,7 +5,11 @@ export const noteSkill: SkillDefinition = {
   description: '管理创作笔记：记录灵感、整理思路、搜索已有笔记。',
   triggerPatterns: ['笔记', '记.*灵感', '写.*笔记', '备忘', '记录.*想法', 'note'],
   category: 'note',
-  workflow: { description: '根据用户意图选择操作：新建用write_note，追加用append_note，查看用read_note，搜索用search_notes', steps: [
+  workflow: { description:
+    '笔记存储在全局 notes/ 目录（不绑定项目），.md 格式。文件名自动加 .md 后缀，不需手动加。' +
+    '根据用户意图选择操作：新建用write_note，追加用append_note，查看用read_note，搜索用search_notes。' +
+    '不要用 edit_file 编辑笔记（路径不兼容，必须用 write_note 覆写或 read_note→修改→write_note）。',
+    steps: [
     { order: 1, tool: 'write_note', purpose: '创建新笔记', argsTemplate: { name: '${name}', content: '${content}' }, optional: true },
     { order: 2, tool: 'append_note', purpose: '追加到已有笔记', argsTemplate: { name: '${name}', content: '${content}' }, optional: true },
     { order: 3, tool: 'search_notes', purpose: '搜索已有笔记', argsTemplate: { query: '${query}' }, optional: true },

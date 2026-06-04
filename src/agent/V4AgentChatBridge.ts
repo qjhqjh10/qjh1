@@ -7,9 +7,10 @@
 import { V4AgentRuntime } from './V4AgentRuntime'
 import { V4SecurityFence } from './V4SecurityFence'
 import { buildSystemPrompt, buildSystemPromptWithSkills, selectDomainModules, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
+import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
-import { toolRegistry } from './tools/ToolRegistry'
+import { toolRegistry } from './skills/ToolRegistry'
 import { contextAssembler, ContextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { ALL_PROVIDERS } from './context/providers'
@@ -140,90 +141,62 @@ export class V4AgentChatBridge {
     const unsubscribes: Array<() => void> = []
 
     try {
-      // ── 0.5 Agent 2: Task-aware tool scoping (v4.1 progressive disclosure) ──
-      // Classify task by keywords → give core tools first → expand on iteration 3+
-      // Saves 50-80% tool tokens vs always sending all 38 tools.
-      const { classifyIntent } = await import('./IntentClassifier')
-      const intentResult = await classifyIntent(userMessage, this.configId)
-      const intent = intentResult.intent
-      const reqCount = intentResult.requirementCount
-      intent !== 'complex' && diagnosticLogger.recordInfo(`Agent1: intent=${intent} reqs=${reqCount}`)
-
+      // ── Skill-driven tool scoping ──
+      // Skill 匹配 → 复杂任务按 workflow 裁剪工具（~5-6个），简单任务给默认工具集
       const allTools = toolRegistry.getAllSchemas()
       const msg = userMessage
+      const skillMatch = skillRegistry.matchBest(msg, 0.5)
 
-      // ── Task Profiles: core (一定给) + extended (迭代3+追加) ──
+      // ── Tool scoping ──
       const READ   = new Set(['read_file','list_directory','search_content'])
       const WRITE  = new Set(['create_file','edit_file'])
       const DANGER = new Set(['delete_file','rename_file'])
       const NOTE   = new Set(['list_notes','read_note','write_note','append_note'])
       const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
       const TMPL   = new Set(['create_style_template','create_scene_template'])
-      const IMG    = new Set(['search_images','generate_image'])
-      const WEB    = new Set(['http_get','browser_search'])
-      const SHELL  = new Set(['shell_exec','shell_run_script'])
 
-      // Classify by keyword patterns — ordered by priority (first match wins)
-      let coreTools: Set<string>, extendedTools: Set<string>
-      const taskKey: string = (() => {
-        if (/风格|文风|仿写|分析.*文/.test(msg))                               return 'style'
-        if (/场景.*(?:模板|创建|生成)|创建.*场景/.test(msg))                     return 'scene'
-        if (/模板|创建.*模板|生成.*模板/.test(msg))                             return 'template'
-        if (/创建.*角色|添加.*角色|角色.*创建|新建.*角色/.test(msg))              return 'character'
-        if (/写.{0,5}章|创作|生成.{0,5}章|续写|章节.*写|写.*第[一二三\d]/.test(msg)) return 'chapter'
-        if (/知识库|kb|素材.*保存|保存.*素材|索引.*知识/.test(msg))              return 'kb'
-        if (/笔记|草稿|便签/.test(msg) && !/章节|大纲/.test(msg))                return 'note'
-        if (/图片|插图|配图|生成.*图|画.*图/.test(msg))                         return 'image'
-        if (/删除|移除|清理/.test(msg))                                        return 'delete'
-        if (/修改|编辑|改|替换|重命名|追加/.test(msg))                           return 'edit'
-        if (/搜索|上网|查.*网页|浏览器/.test(msg))                              return 'web'
-        if (/执行.*命令|运行.*脚本|shell/.test(msg))                            return 'shell'
-        if (/查看|检查|列出|读取|看看|显示|搜索|找|读|浏览|打开/.test(msg))       return 'read'
-        if (intent === 'chat')                                                 return 'chat'
-        return 'default'
-      })()
-
-      const PROFILES: Record<string, { core: Set<string>; extended: Set<string> }> = {
-        chat:      { core: new Set([]),                         extended: new Set([]) },
-        read:      { core: READ,                                extended: new Set([...NOTE, ...KB, ...IMG]) },
-        chapter:   { core: new Set([...READ, ...WRITE]),        extended: new Set([...DANGER, ...NOTE, 'search_content']) },
-        character: { core: new Set([...READ, 'create_file']),   extended: new Set([...WRITE, 'search_content']) },
-        style:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
-        scene:     { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
-        template:  { core: new Set(['read_file', ...TMPL]),     extended: new Set([]) },
-        kb:        { core: KB,                                  extended: new Set([...READ, ...WRITE]) },
-        note:      { core: NOTE,                                extended: new Set([...READ, 'delete_note']) },
-        image:     { core: IMG,                                 extended: READ },
-        edit:      { core: new Set([...READ, ...WRITE, ...TMPL]), extended: new Set([...DANGER, 'search_content']) },
-        delete:    { core: new Set(['read_file', ...DANGER]),   extended: new Set([...READ, ...WRITE]) },
-        web:       { core: WEB,                                 extended: READ },
-        shell:     { core: SHELL,                               extended: READ },
-        default:   { core: new Set([...READ, ...WRITE, ...TMPL]), extended: new Set([...DANGER,...NOTE,...KB,...IMG]) },
-      }
-
-      const profile = PROFILES[taskKey]
-      coreTools = profile.core
-      extendedTools = profile.extended
-
-      // ── Build scoped tool arrays (with caching) ──
-      const cacheKey = `${taskKey}`
       let scopedCore: any[], scopedExtended: any[]
-      if (this._toolCache && this._toolCache.key === cacheKey) {
-        scopedCore = this._toolCache.tools
-        scopedExtended = (this._toolCache as any).extended || []
+      let taskLabel: string
+
+      if (skillMatch && skillMatch.confidence >= 0.6) {
+        // Skill 模式：只给 workflow 中引用的工具 + 探索三件套
+        taskLabel = `skill:${skillMatch.skill.id}`
+        const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
+        neededTools.add('read_file')
+        neededTools.add('list_directory')
+        neededTools.add('search_content')
+        scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name))
+        scopedExtended = []
       } else {
-        scopedCore = allTools.filter((t: any) => coreTools.has(t.function.name))
-        scopedExtended = allTools.filter((t: any) => extendedTools.has(t.function.name) && !coreTools.has(t.function.name))
-        this._toolCache = { key: cacheKey, tools: scopedCore, extended: scopedExtended } as any
+        // Tool 模式：默认核心工具集 + 渐进扩展
+        const matched = skillMatch
+        taskLabel = matched ? `skill-low:${matched.skill.id}` : 'default'
+        scopedCore = allTools.filter((t: any) =>
+          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name))
+        scopedExtended = allTools.filter((t: any) =>
+          DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
       }
 
-      diagnosticLogger.recordInfo(`Agent2: task=${taskKey} core=${scopedCore.length} ext=${scopedExtended.length}`)
+      diagnosticLogger.recordInfo(`Agent2: task=${taskLabel} core=${scopedCore.length} ext=${scopedExtended.length}`)
 
-      // planInstruction and planPrompt are mutually exclusive:
-      // planInstruction → "immediately execute" (complex task, non-plan mode)
-      // planPrompt → "wait for user approval" (plan mode, injected later in context assembler)
-      const planInstruction = (intent === 'complex' && !options.planMode)
-        ? `\n## 执行方案\n用户提出了${reqCount}个要求。第一轮列出步骤清单（如"①read_file读大纲 ②edit_file改世界观 ③create_file写角色"），然后立即执行第一步。每轮只做一步，用最精准的工具。全部完成后一句话汇报，不要展开。`
+      // v5: Skill 运行时上下文 — 命中时传给 Runtime 做步骤追踪+质量检查
+      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
+      if (skillMatch && skillMatch.confidence >= 0.6) {
+        activeSkillCtx = {
+          skillId: skillMatch.skill.id,
+          currentStep: 1,
+          completedSteps: new Set(),
+          extractedFields: skillMatch.extractedFields,
+          retryCount: 0,
+        }
+      }
+
+      // planInstruction: Skill 多步骤任务 → 注入执行指引
+      const isComplex = skillMatch
+        ? skillMatch.skill.workflow.steps.filter(s => !s.optional).length >= 3
+        : /写|创建|修改|删除|编辑|生成|续写/.test(msg)
+      const planInstruction = (isComplex && !options.planMode)
+        ? `\n## 执行方案\n这是一个${skillMatch ? `"${skillMatch.skill.name}"` : '多步骤'}任务。第一轮列出步骤清单（如"①read_file读大纲 ②edit_file改世界观 ③create_file写角色"），然后立即执行第一步。每轮只做一步，用最精准的工具。全部完成后一句话汇报，不要展开。`
         : ''
 
       // ── 1. Create Runtime ──
@@ -260,14 +233,9 @@ export class V4AgentChatBridge {
       // Core never changes → DeepSeek prefix caching → 10% billing
       // Dynamic rebuilt per message → fresh global index + relevant providers
       //
-      // V9.5.2: Use selectDomainModules to only include relevant modules.
-      // Previously all 6 were hardcoded, bloating prompt with irrelevant instructions.
+      // V5.1: Domain Modules 已恢复 — 格式规范对模板/角色/大纲创建至关重要
       const selectedModules = selectDomainModules(userMessage)
-      // V9.5.2: All domain modules selected dynamically via selectDomainModules.
-      // Fallback: always include CHARACTER + OUTLINE for simple/chat intents.
-      const coreDomainModules = selectedModules.length > 0
-        ? selectedModules
-        : []  // v9.5.3: 聊天类消息不注入领域模块，避免误导模型调工具
+      const coreDomainModules = selectedModules.length > 0 ? selectedModules : []
       // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
       // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
       // V9.5.2: planInstruction moved to dynamicContent to keep CORE_PROMPT stable for cache
@@ -457,6 +425,9 @@ export class V4AgentChatBridge {
 
       // ── 7. Set history ──
       this.runtime.setHistory(this.history)
+
+      // v5: 传递 Skill 上下文给 Runtime（触发步骤追踪+质量检查）
+      this.runtime.setActiveSkill(activeSkillCtx)
 
       // ── 8. Wire events to store ──
       const emitter = this.runtime.getEmitter()

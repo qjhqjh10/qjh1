@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { V4AgentRuntime } from '../V4AgentRuntime'
 import { V4SecurityFence } from '../V4SecurityFence'
-import { toolRegistry } from '../tools/ToolRegistry'
+import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 

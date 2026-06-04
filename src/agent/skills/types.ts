@@ -208,3 +208,31 @@ export interface SkillPromptFragment {
   matched: boolean                  // 是否匹配到用户意图
   confidence: number
 }
+
+// ═══════════════════════════════════════════════════
+//  Runtime 执行相关
+// ═══════════════════════════════════════════════════
+
+/** 质量检查执行结果 */
+export interface QualityCheckResult {
+  checkId: string
+  description: string
+  passed: boolean
+  message: string
+}
+
+/** Runtime 中活跃的 Skill 执行上下文 */
+export interface ActiveSkillContext {
+  skillId: string
+  currentStep: number
+  completedSteps: Set<number>
+  extractedFields: Record<string, unknown>
+  retryCount: number               // 单步骤最多重试 3 次
+}
+
+/** 质量检查评估器 — 可选的代码级校验 */
+export type QualityCheckEvaluator = (
+  args: Record<string, unknown>,
+  result: ToolResult,
+  extractedFields: Record<string, unknown>,
+) => QualityCheckResult

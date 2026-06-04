@@ -359,11 +359,16 @@ export async function executeFileTool(
           }
         } catch {}
 
-        // If broad scan: add desktop/documents/downloads
+        // If broad scan: add desktop/documents/downloads + common writing dirs
         if (broad) {
-          for (const d of ['Desktop', 'Documents', 'Downloads']) {
+          const broadDirs = [
+            'Desktop', 'Documents', 'Downloads',
+            'OneDrive',
+            '小说', 'novels', 'writing', '写作', '文稿', '创作',
+          ]
+          for (const d of broadDirs) {
             const p = path.join(os.homedir(), d)
-            try { await fsp.access(p); targets.push({ path: p, label: d }) } catch {}
+            try { await fsp.access(p); targets.push({ path: p, label: `电脑:${d}` }) } catch {}
           }
         }
 
@@ -976,6 +981,57 @@ export async function executeFileTool(
         } catch {
           return { callId, toolName, status: 'error', summary: `图片搜索暂时不可用（Unsplash Demo Key 可能已限流，设置 UNSPLASH_ACCESS_KEY 环境变量可解除）` }
         }
+      }
+
+      // ── find_files: recursive file search by name pattern ──
+      case 'find_files': {
+        const pattern = String(args.pattern || '')
+        const scope = String(args.scope || 'project')
+        const maxDepth = Math.min(Number(args.max_depth) || 5, 10)
+        const appRoot = path.dirname(projectPath)
+
+        const skipDirs = new Set(['node_modules', '.git', '.svn', 'AppData', 'Library', '.cache', '__pycache__', 'dist', '.next'])
+        const results: string[] = []
+        const MAX_RESULTS = 200
+
+        const searchDirs: Array<{ root: string; label: string }> = []
+        if (scope === 'computer') {
+          const home = os.homedir()
+          const broadDirs = ['Desktop', 'Documents', 'Downloads', 'OneDrive', '小说', 'novels', 'writing', '写作']
+          for (const d of broadDirs) {
+            const p = path.join(home, d)
+            try { await fsp.access(p); searchDirs.push({ root: p, label: `电脑:${d}` }) } catch {}
+          }
+          if (args.dir_path) searchDirs.push({ root: String(args.dir_path), label: String(args.dir_path) })
+        } else {
+          searchDirs.push({ root: appRoot, label: '软件内' })
+          if (args.dir_path) searchDirs.push({ root: String(args.dir_path), label: String(args.dir_path) })
+        }
+
+        async function walk(dir: string, depth: number): Promise<void> {
+          if (depth > maxDepth || results.length >= MAX_RESULTS) return
+          let entries: fs.Dirent[]
+          try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch { return }
+          for (const e of entries) {
+            if (results.length >= MAX_RESULTS) break
+            if (e.name.startsWith('.') || skipDirs.has(e.name)) continue
+            const full = path.join(dir, e.name)
+            if (e.isDirectory()) { await walk(full, depth + 1) }
+            else if (e.isFile() && minimatch(e.name, pattern, { nocase: true })) {
+              results.push(full)
+            }
+          }
+        }
+
+        for (const sd of searchDirs) {
+          await walk(sd.root, 0)
+        }
+
+        const summary = results.length >= MAX_RESULTS
+          ? `找到 ${results.length}+ 个匹配 "${pattern}" 的文件（已达上限）`
+          : `找到 ${results.length} 个匹配 "${pattern}" 的文件`
+        const detail = results.slice(0, 200).map(r => r.replace(appRoot + path.sep, '')).join('\n') || '无匹配'
+        return { callId, toolName, status: 'success', summary, detail }
       }
 
       default:

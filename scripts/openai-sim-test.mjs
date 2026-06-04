@@ -20,7 +20,7 @@ const tools = {
   read_file: a => { try { const c=fs.readFileSync(P(a.file_path||a.path),'utf-8'); return c.length>2000?c.slice(0,2000)+'\n…('+c.length+'字)':c; } catch(e) { return `[错误: 文件不存在]`; } },
   list_directory: a => { try { const e=fs.readdirSync(P(a.path||'.'),{withFileTypes:true}); return e.map(x=>(x.isDirectory()?'DIR ':'FILE ')+x.name).join('\n'); } catch(e) { return `[错误: 目录不存在]`; } },
   search_content: a => { try { const fp=P(a.path||'.'); const re=new RegExp((a.pattern||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'); const results=[]; function searchDir(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=path.join(d,e.name);if(e.isDirectory()){searchDir(f);continue}const c=fs.readFileSync(f,'utf-8');const ls=c.split('\n');for(let i=0;i<ls.length;i++)if(re.test(ls[i]))results.push(f.replace(ROOT+'/projects/','')+':'+(i+1)+':'+ls[i].slice(0,200))}} if(fs.statSync(fp).isFile()){const c=fs.readFileSync(fp,'utf-8');const ls=c.split('\n');for(let i=0;i<ls.length;i++)if(re.test(ls[i]))results.push((a.path||'')+':'+(i+1)+':'+ls[i].slice(0,200))}else searchDir(fp);return results.slice(0,15).join('\n')||'无匹配'; } catch(e) { return '[错误]'; } },
-  create_file: a => { try { const fp=P(a.file_path||a.path); const c=a.content||''; if(fp.endsWith('.json')&&c) try{JSON.parse(c)}catch(e){return `[JSON格式错误: ${e.message}]`}; fs.mkdirSync(path.dirname(fp),{recursive:true}); fs.writeFileSync(fp,c); return `创建成功: ${a.file_path}`; } catch(e) { return `[错误: ${e.message}]`; } },
+  create_file: a => { try { const fp=P(a.file_path||a.path); const c=a.content||''; if(fp.endsWith('.yaml')&&c) try{JSON.parse(c)}catch(e){return `[JSON格式错误: ${e.message}]`}; fs.mkdirSync(path.dirname(fp),{recursive:true}); fs.writeFileSync(fp,c); return `创建成功: ${a.file_path}`; } catch(e) { return `[错误: ${e.message}]`; } },
   edit_file: a => { try { const fp=P(a.file_path);let c=fs.readFileSync(fp,'utf-8');const old=a.old_string||'';const nw=a.new_string||'';if(old==='__FULL_REPLACE__'){fs.writeFileSync(fp,nw);return '全量替换成功'} let idx=c.indexOf(old);if(idx<0)idx=c.indexOf(old.trim());if(idx<0)return `[未找到匹配文本]`;fs.writeFileSync(fp,c.slice(0,idx)+nw+c.slice(idx+old.length));return '编辑成功'; } catch(e) { return `[错误: ${e.message}]`; } },
   delete_file: a => { try { fs.unlinkSync(P(a.file_path)); return '删除成功'; } catch(e) { return `[错误]`; } },
   kb_list: () => { try { return fs.readdirSync(K('')).filter(f=>f.endsWith('.md')).join('\n')||'无KB文件'; } catch { return '无KB文件'; } },
@@ -29,7 +29,7 @@ const tools = {
   write_note: a => { try { fs.mkdirSync(N(''),{recursive:true}); fs.writeFileSync(N((a.name||'x')+'.md'),a.content||''); return '笔记创建成功'; } catch(e) { return `[错误]`; } },
   read_note: a => { try { return fs.readFileSync(N((a.name||'x')+'.md'),'utf-8').slice(0,500); } catch { return '[笔记不存在]'; } },
   delete_note: a => { try { fs.unlinkSync(N((a.name||'x')+'.md')); return '笔记删除成功'; } catch { return '[错误]'; } },
-  create_style_template: a => { try { const fp=path.join(ROOT,'style_templates',(a.name||'x')+'.json'); fs.mkdirSync(path.dirname(fp),{recursive:true}); fs.writeFileSync(fp,JSON.stringify(a,null,2)); return '模板创建成功'; } catch(e) { return `[错误]`; } },
+  create_style_template: a => { try { const fp=path.join(ROOT,'style_templates',(a.name||'x')+'.yaml'); fs.mkdirSync(path.dirname(fp),{recursive:true}); fs.writeFileSync(fp,yaml.dump(a,null,2)); return '模板创建成功'; } catch(e) { return `[错误]`; } },
   create_project: a => { try { const d=P(a.name);['characters','chapters','outline','detailed_outline','summaries'].forEach(s=>fs.mkdirSync(path.join(d,s),{recursive:true})); return `项目${a.name}创建成功`; } catch(e) { return `[错误]`; } },
   delete_project: a => { try { fs.rmSync(P(a.name),{recursive:true,force:true}); return '项目删除成功'; } catch(e) { return `[错误]`; } },
   list_prompts: () => '灵感/世界观/角色/大纲/细纲/章节/润色/续写/改写/摘要/审稿',
@@ -79,9 +79,9 @@ const SYS = [
 
 async function callOpenAI(messages) {
   const body = { model: MODEL, messages, max_tokens: 2048, tools: TOOLS, tool_choice: 'auto' }
-  const res = await fetch(OPENAI_URL, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY}, body:JSON.stringify(body) })
+  const res = await fetch(OPENAI_URL, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY}, body:yaml.dump(body) })
   if (!res.ok) throw new Error('HTTP '+res.status+': '+(await res.text()).slice(0,200))
-  const json = await res.json()
+  const json = await res.yaml()
   const choice = json.choices[0]
   return {
     text: choice.message?.content || '',

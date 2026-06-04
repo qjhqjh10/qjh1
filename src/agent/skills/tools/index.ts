@@ -18,7 +18,7 @@ import { lspTools } from './lspTools'
 import type { ToolDefinition } from '../types'
 
 export const ALL_TOOLS: ToolDefinition[] = [
-  ...fileTools,      // 7 tools:  list_directory, read_file, search_content, edit_file, create_file, delete_file, rename_file
+  ...fileTools,      // 8 tools:  list_directory, read_file, search_content, edit_file, create_file, delete_file, rename_file, find_files
   ...kbTools,        // 4 tools:  kb_list, kb_create_file, kb_append_file, kb_index_file
   ...noteTools,      // 6 tools:  list_notes, read_note, write_note, append_note, delete_note, search_notes
   ...imageTools,     // 2 tools:  search_images, generate_image
@@ -30,7 +30,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...browserTools,   // 2 tools:  browser_open, browser_search
   ...shellTools,     // 2 tools:  shell_exec, shell_run_script
   ...lspTools,       // 1 tool:   lsp_diagnose
-  // Total: 38 tools
+  // Total: 39 tools
 ]
 
 export {

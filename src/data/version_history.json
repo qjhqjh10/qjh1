@@ -1,8 +1,26 @@
 {
-  "currentVersion": "9.7.0",
-  "currentDate": "2026-06-03",
+  "currentVersion": "9.8.0",
+  "currentDate": "2026-06-04",
   "history": [
     {
+    {
+      "version": "9.8.0",
+      "date": "2026-06-04",
+      "features": [
+        "v5 Agent优化: 统一工具注册表(删除tools/ToolRegistry合并到skills/ToolRegistry), 删除IntentClassifier省去额外API调用, Skill驱动工具裁剪替代PROFILES硬编码",
+        "Skill系统完善: 12个Skill全部重写为自包含完整格式定义(含26维/16字段/YAML规则/信号分级), 新建textImport路由型技能",
+        "模板JSON→YAML: styleTemplateHandler+templateHandler改用js-yaml, 删旧JSON文件, 提示词全面更新",
+        "Domain Modules恢复启用: 格式规范对模板/角色/大纲创建至关重要, 同时Skill已自包含不再依赖Domain",
+        "语音功能: VoiceButton接入webkitSpeechRecognition(STT), SpeakButton接入AIChatWindow, AISettingsTab新增角色/语音设置, types新增aiPersona字段",
+        "搜索增强: 新增find_files工具(递归文件名搜索), list_directory broad扩展到9个目录(OneDrive/小说/写作等)",
+        "UI优化: Toast替换alert, AgentStateBar替换AgentStatusBar(Zustand订阅替代轮询), 组件归位(Voice/Speak移入AIChatWindow/components)",
+        "死代码清理: 删除10+未引用组件(ChatToolbar/PlanCard/BatchApprovalPanel/AgentThinkingPanel/ToggleButton/ToolExecutionCard等), 删除空目录+旧测试脚本",
+        "质量检查引擎: Runtime中新增Skill质量检查执行器(9个自动检查规则), 失败自动注入纠错消息(最多重试3次)",
+        "三层测试体系: L1(Mock集成19用例)+L2(Live集成4用例)+L3(模板创建完整链路20用例100%通过), 新增test-template-creation.mjs",
+        "CLI测试安全规则: 写入记忆文件, 禁止测试触碰真实项目数据, 项目1数据恢复(plot/worldbuilding从备份还原)"
+      ]
+    },
+
       "version": "9.7.0",
       "date": "2026-06-03",
       "features": [

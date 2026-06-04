@@ -123,8 +123,8 @@ async function walkDir(
 
 function getDirDescription(relPath: string): string {
   const map: Record<string, string> = {
-    'style_templates': ' — 写作风格模板 (JSON)',
-    'scene_templates': ' — 场景模板 (JSON)',
+    'style_templates': ' — 写作风格模板 (YAML)',
+    'scene_templates': ' — 场景模板 (YAML)',
     'knowledge_base/files': ' — 知识库参考资料',
     'knowledge_base': ' — 知识库',
     'uploads/files': ' — 上传的文本文件',

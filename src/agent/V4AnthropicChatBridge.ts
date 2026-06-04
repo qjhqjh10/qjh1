@@ -14,13 +14,15 @@ import type { V4AgentRunResult, ToolExecutorFn } from './V4AnthropicRuntime'
 import { V4SecurityFence } from './V4SecurityFence'
 import {
   buildSystemPrompt,
+  buildSystemPromptWithSkills,
   selectDomainModules,
   CHARACTER_DOMAIN_MODULE,
   OUTLINE_DOMAIN_MODULE,
 } from './V4SystemPrompt'
+import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
-import { toolRegistry } from './tools/ToolRegistry'
+import { toolRegistry } from './skills/ToolRegistry'
 import { contextAssembler, ContextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { ALL_PROVIDERS } from './context/providers'
@@ -144,13 +146,11 @@ export class V4AnthropicChatBridge {
       })
 
       // ── 3. 注入 Context Assembler ──
+      // V5.1: Domain Modules 已恢复 — 格式规范对模板/角色/大纲创建至关重要
       const selectedModules = selectDomainModules(userMessage)
-      const coreDomainModules =
-        selectedModules.length > 0
-          ? selectedModules
-          : []  // v9.5.3: 聊天类消息不注入领域模块
+      const coreDomainModules = selectedModules.length > 0 ? selectedModules : []
 
-      const CORE_PROMPT = buildSystemPrompt(coreDomainModules, '', '')
+      const CORE_PROMPT = await buildSystemPromptWithSkills(coreDomainModules, '', '', userMessage)
       const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
       const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -319,12 +319,34 @@ export class V4AnthropicChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 5. 注入全部工具（不需要渐进展开） ──
+      // ── 5. Skill 驱动的工具裁剪 ──
       const allTools = toolRegistry.getAllSchemas()
-      this.runtime.setTools(allTools)
+      const skillMatch = skillRegistry.matchBest(userMessage, 0.5)
+      let toolsForRuntime = allTools
+      if (skillMatch && skillMatch.confidence >= 0.6) {
+        const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
+        neededTools.add('read_file')
+        neededTools.add('list_directory')
+        neededTools.add('search_content')
+        toolsForRuntime = allTools.filter((t: any) => neededTools.has(t.function.name))
+      }
+      this.runtime.setTools(toolsForRuntime)
+
+      // v5: Skill 运行时上下文 — 命中时传给 Runtime 做步骤追踪+质量检查
+      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
+      if (skillMatch && skillMatch.confidence >= 0.6) {
+        activeSkillCtx = {
+          skillId: skillMatch.skill.id,
+          currentStep: 1,
+          completedSteps: new Set(),
+          extractedFields: skillMatch.extractedFields,
+          retryCount: 0,
+        }
+      }
 
       // ── 6. 注入历史 ──
       this.runtime.setHistory(this.history)
+      this.runtime.setActiveSkill(activeSkillCtx)
 
       // ── 7. 事件监听 ──
       const emitter = this.runtime.getEmitter()
