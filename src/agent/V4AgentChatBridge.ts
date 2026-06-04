@@ -282,47 +282,44 @@ export class V4AgentChatBridge {
           } catch { /* planPrompt stays null; no impact */ }
         }
 
-        // Token accounting: core (cached) + dynamic (per-message)
+        // Token accounting: [0]core(cached) + [1]index + [2]providers + [3]dynamic
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const planTokens = planPrompt ? estimateTokens(planPrompt) : 0
         const globalIndexTokens = estimateTokens(globalIndex || '')
+        const providerTokens = base.totalTokens || 0
         const historyTokens = hist.reduce((s, m) => s + estimateTokens(m.content || '') + 4, 0)
         const userMsgTokens = estimateTokens(msg)
 
-        const fullTotal = coreTokens + base.totalTokens + searchTokens + planTokens + globalIndexTokens + historyTokens + userMsgTokens
+        const fullTotal = coreTokens + globalIndexTokens + providerTokens + searchTokens + planTokens + historyTokens + userMsgTokens
 
         const fullBreakdown: Array<{ domain: string; tokens: number }> = [
           { domain: '核心法则(缓存)', tokens: coreTokens },
-          { domain: '全局索引+Provider', tokens: globalIndexTokens + (base.totalTokens || 0) },
+          { domain: '全局索引', tokens: globalIndexTokens },
+          { domain: 'Provider(项目不变则缓存)', tokens: providerTokens },
           ...(searchContext ? [{ domain: '知识库', tokens: searchTokens }] : []),
           ...(planPrompt ? [{ domain: '执行规划', tokens: planTokens }] : []),
           { domain: '对话历史', tokens: historyTokens },
           { domain: '当前消息', tokens: userMsgTokens },
         ].filter(b => b.tokens > 0)
 
-        // v4: Split architecture — [0] core (cached) + [1] index (compact, always first) + [2] dynamic
-        // [0]: Core rules + domain modules → cached, never changes
-        // [1]: Project index — ALWAYS first thing model sees, mandatory to read
-        // [2]: Providers + KB/web search → fresh each time
+        // [0] Core rules → cached, never changes
+        // [1] Project index → cached, changes on structure
+        // [2] Context Providers → stable while project files unchanged
+        // [3] Truly dynamic → KB/search/toolInvoke/plan (per-message)
         const indexDirective = globalIndex
           ? `⬇️ 以下是软件完整文件索引。索引中列出了所有目录和文件的路径——已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
           : ''
-        // Force tool invocation prompt — tells model to use actual function calls, not text simulation
         const { buildToolInvokePrompt } = await import('@/types/fileOps')
         const toolInvokePrompt = buildToolInvokePrompt()
 
-        const dynamicContent = [
-          ...base.systemMessages.map(m => m.content),              // Context Providers
-          searchContext,                                           // 知识库/网络搜索
-          toolInvokePrompt,                                        // 强制工具调用协议 — 铁律最高优先级
-          planInstruction,                                         // 复杂任务执行方案
-          planPrompt,                                              // Plan模式提示
-        ].filter(Boolean).join('\n\n')
+        const providerContent = base.systemMessages.map(m => m.content).filter(Boolean).join('\n\n')
+        const dynamicContent = [searchContext, toolInvokePrompt, planInstruction, planPrompt].filter(Boolean).join('\n\n')
 
         const systemMessages = [
-          coreSystemMsg,                                          // [0] 核心提示词 — 永远不变, DeepSeek缓存
-          ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引 — 强制先看
-          { role: 'system' as const, content: dynamicContent },   // [2] Provider+动态 — 每次变化
+          coreSystemMsg,                                          // [0] 核心提示词 — cached
+          ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引
+          ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []),  // [2] Provider — stable
+          ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态内容
         ]
 
         return {
