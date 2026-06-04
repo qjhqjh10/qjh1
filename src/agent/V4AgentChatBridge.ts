@@ -200,10 +200,15 @@ export class V4AgentChatBridge {
         : ''
 
       // ── 1. Create Runtime ──
+      // Chat detection: short greetings/chat messages get lower maxIterations
+      const isChat = /^(你好|嗨|谢谢|再见|早上好|晚上好|好的|嗯|哦|我叫|我是)/.test(msg.trim())
+        || msg.trim().length <= 3
+        || (!skillMatch && msg.trim().length <= 8 && !/[读写创建改删]/.test(msg))
+      const effectiveMaxIter = isChat ? Math.min(3, this.maxIterations) : this.maxIterations
       this.runtime = new V4AgentRuntime({
         configId: this.configId,
         projectId: this.projectId,
-        maxIterations: this.maxIterations,
+        maxIterations: effectiveMaxIter,
         abortSignal: this.abortController.signal,
         contextWindow: this.contextWindow,
       })

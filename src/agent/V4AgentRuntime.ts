@@ -301,14 +301,19 @@ export class V4AgentRuntime {
       // ── No tool calls → model is done ──
       if (!response.toolCalls || response.toolCalls.length === 0) {
         collectedText = response.text || ''
-        // H5: If model returns neither tool calls nor text, give it one more
-        // chance to produce a text reply (may be a premature stop with empty content).
+        // H5: If model returns neither tool calls nor text, give it limited
+        // chances. After 3 consecutive empty responses, use fallback.
         if (!collectedText.trim() && !isLastIteration) {
-          this.messagesForApi.push({
-            role: 'user',
-            content: '请用中文直接生成文本回复。不要调用工具，直接输出回复内容。',
-          })
-          continue  // retry the loop — model gets another shot
+          const emptyCount = (this as any)._emptyResponseCount = ((this as any)._emptyResponseCount || 0) + 1
+          if (emptyCount <= 2) {
+            this.messagesForApi.push({
+              role: 'user',
+              content: '请用中文直接生成文本回复。不要调用工具，直接输出回复内容。',
+            })
+            continue
+          }
+          diagnosticLogger.recordInfo(`H5: ${emptyCount} consecutive empty responses — fallback`)
+          collectedText = '你好！我是青剑AI写作助手。有什么可以帮你的？'
         }
         this.emitter.emit('response:streaming', { text: response.text, accumulated: response.text, timestamp: Date.now() })
         shouldContinue = false
