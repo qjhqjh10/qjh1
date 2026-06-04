@@ -4,7 +4,7 @@ import type { SkillDefinition } from '../types'
 export const sceneTemplateSkill: SkillDefinition = {
   id: 'scene-template', name: '场景模板',
   description: '分析场景结构特征，创建可复用的场景模板(YAML)。通用字段+情色专属字段。',
-  triggerPatterns: ['场景.*分析', '场景模板', 'create_scene_template', '分析.*场景', '上传.*分析'],
+  triggerPatterns: ['场景.*分析', '场景模板', 'create_scene_template', '分析.*场景', '场景.*提取'],
   category: 'scene',
   workflow: {
     description:

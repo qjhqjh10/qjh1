@@ -4,7 +4,7 @@ import type { SkillDefinition } from '../types'
 export const styleTemplateSkill: SkillDefinition = {
   id: 'style-template', name: '风格模板',
   description: '分析文本的26个文风维度，创建可复用的风格模板(YAML)。',
-  triggerPatterns: ['风格.*分析', '文风', 'create_style_template', '分析.*风格', '风格模板', '上传.*分析', '分析.*[文风风格]', '这段.*风格'],
+  triggerPatterns: ['风格.*分析', '文风', 'create_style_template', '分析.*风格', '风格模板', '上传.*风格', '分析.*[文风风格]', '这段.*风格', '写作.*风格'],
   category: 'style',
   workflow: {
     description:

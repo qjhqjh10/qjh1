@@ -3,7 +3,6 @@
   "currentDate": "2026-06-04",
   "history": [
     {
-    {
       "version": "9.8.0",
       "date": "2026-06-04",
       "features": [
@@ -20,7 +19,7 @@
         "CLI测试安全规则: 写入记忆文件, 禁止测试触碰真实项目数据, 项目1数据恢复(plot/worldbuilding从备份还原)"
       ]
     },
-
+    {
       "version": "9.7.0",
       "date": "2026-06-03",
       "features": [
