@@ -27,8 +27,12 @@ uploads/
 # Coverage reports (generated)
 coverage/
 
-# Test data
-测试/
+# Test fixtures kept in repo
+
+
+# Integration test scripts (contain API keys for local testing only)
+tests/integration/*.test.mjs
+tests/integration/real-prompt.mjs
 
 # CLI test scripts (contain API keys for local testing only)
 scripts/v4-test.mjs
