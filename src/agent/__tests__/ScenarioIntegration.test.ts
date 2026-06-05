@@ -96,8 +96,8 @@ describe('S1: 文本导入→大纲/草稿', () => {
     expect(match!.skill.id).toBe('text-import')
   })
 
-  it('大纲创作技能匹配：直接写故事剧情', () => {
-    const match = skillRegistry.matchBest('帮我写一下第三章的故事剧情大纲', 0.3)
+  it('大纲创作技能匹配：编故事剧情大纲', () => {
+    const match = skillRegistry.matchBest('帮我编一下这个故事的世界观和剧情大纲', 0.3)
     expect(match).not.toBeNull()
     expect(match!.skill.id).toBe('outline-creation')
   })

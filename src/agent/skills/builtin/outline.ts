@@ -4,8 +4,13 @@ import type { SkillDefinition } from '../types'
 export const outlineSkill: SkillDefinition = {
   id: 'outline-creation',
   name: '大纲创作',
-  description: '编写、修改故事大纲(plot.md)和世界观(worldbuilding.md)。Markdown格式，支持追加和编辑。',
-  triggerPatterns: ['大纲', 'plot', '剧情', 'worldbuilding', '世界观', '故事主线', '修炼体系'],
+  description: '编写、修改、导入故事大纲(plot.md)和世界观(worldbuilding.md)。Markdown格式，支持追加和编辑。',
+  triggerPatterns: [
+    '大纲', 'plot', '剧情', 'worldbuilding', '世界观', '故事主线', '修炼体系',
+    '导入.*(?:世界观|设定|worldbuilding)', '(?:世界观|设定|世界设定).*导入',
+    '(?:加到|追加|写入|整理到).*(?:世界观|设定|worldbuilding)',
+    '(?:整理|添加|补充).*(?:设定|世界观|世界)',
+  ],
   category: 'outline',
   workflow: {
     description:
@@ -47,6 +52,7 @@ export const outlineSkill: SkillDefinition = {
     { id: 'read-before-edit', description: 'edit_file 前必须先 read_file 确认原文', severity: 'error', check: '工具调用顺序: read_file在edit_file之前' },
     { id: 'old-string-exact', description: 'old_string 从 read_file 结果中原样复制（含换行和空格）', severity: 'error', check: '逐字精确匹配' },
     { id: 'append-not-overwrite', description: '追加内容用edit_file追加，不要create_file覆盖已有文件', severity: 'error', check: '使用了edit_file' },
+    { id: 'content-length', description: '导入的追加内容至少 50 字，太短说明提取不完整', severity: 'warn', check: 'new_string长度≥50' },
   ],
   inputSchema: {
     fields: [

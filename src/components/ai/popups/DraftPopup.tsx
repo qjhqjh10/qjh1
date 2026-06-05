@@ -12,6 +12,7 @@ interface Props {
 export function DraftPopup({ documentKey }: Props) {
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const fileVersion = useStore(s => s.fileVersion)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const [content, setContent] = useState('')
@@ -29,7 +30,7 @@ export function DraftPopup({ documentKey }: Props) {
     fileService.listDir(notesDir).then(entries => {
       setNotes(entries.filter((e: string) => e.endsWith('.md')).sort())
     }).catch(() => setNotes([]))
-  }, [notesDir])
+  }, [notesDir, fileVersion])
 
   // Load content
   useEffect(() => {

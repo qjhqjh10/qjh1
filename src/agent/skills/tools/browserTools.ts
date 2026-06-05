@@ -19,7 +19,7 @@ export const browserTools: ToolDefinition[] = [
         required: ['url'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'browser',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
@@ -50,7 +50,7 @@ export const browserTools: ToolDefinition[] = [
         required: ['query'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'browser',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {

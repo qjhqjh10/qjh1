@@ -10,7 +10,9 @@ import { estimateTokens } from '../utils/tokenEstimation'
 
 let _globalIndexCache: { index: string; tokenCount: number } | null = null
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', '.ai_backups', 'out'])
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', '.ai_backups', 'out', '.stats'])
+// 跳过代码/构建目录，其余全部自动纳入（用户新增目录无需改代码）
+const SKIP_ROOT_DIRS = new Set([...SKIP_DIRS, 'src', 'electron', 'scripts', 'tests', 'docs', '__pycache__', 'vendor'])
 const SKIP_PREFIXES = ['.']
 const MAX_DEPTH = 5
 const MAX_FILES_PER_DIR = 30
@@ -23,8 +25,8 @@ export async function buildGlobalIndex(projectId?: string | null): Promise<strin
     const lines: string[] = []
 
     lines.push('## 📁 软件文件索引')
-    lines.push('> 以下是软件内全部文件和目录。已知路径的文件直接 read_file 读取。')
-    lines.push('> 路径: ../../ = 软件根目录。项目路径: 项目名/子路径（如 1/outline/plot.md）。')
+    lines.push('> 跳过代码目录，其余全部自动列出。需要时用 list_directory 搜索。')
+    lines.push('> 路径: ../../ = 软件根目录。项目路径: 项目名/子路径（如 剑道长生/outline/plot.md）。')
     lines.push('')
 
     // ═══════════════════════════════════════════
@@ -84,9 +86,18 @@ async function walkDir(
 
   // ── Output this directory ──
   if (depth === 0) {
-    // Root level: just list top-level dirs, not individual root files
+    // Root level: 跳过代码/构建目录，其余全部自动纳入
     lines.push('### 📁 软件根目录')
+    lines.push('> 代码目录（src/electron/scripts等）不在此列出，需要时用 list_directory。')
     lines.push('')
+    // 过滤：跳过代码和构建目录
+    dirs.length = 0
+    for (const d of entries) {
+      const fullName = d as string
+      if (SKIP_ROOT_DIRS.has(fullName)) continue
+      if (SKIP_PREFIXES.some(p => fullName.startsWith(p))) continue
+      dirs.push(fullName)
+    }
   } else {
     const indent = '  '.repeat(Math.min(depth, 3))
     const dirName = relPath.split('/').pop() || relPath

@@ -45,8 +45,8 @@ describe('V4 System Prompt', () => {
   it('core prompt is not empty and has key sections', () => {
     expect(CORE_SYSTEM_PROMPT.length).toBeGreaterThan(100)
     expect(CORE_SYSTEM_PROMPT).toContain('青剑')
-    expect(CORE_SYSTEM_PROMPT).toContain('铁律')
-    expect(CORE_SYSTEM_PROMPT).toContain('规则')
+    expect(CORE_SYSTEM_PROMPT).toContain('__FULL_REPLACE__')
+    expect(CORE_SYSTEM_PROMPT).toContain('read_file')
     expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
@@ -62,7 +62,7 @@ describe('V4 System Prompt', () => {
       CHARACTER_DOMAIN_MODULE,
     ], '测试项目', '测试上下文')
     expect(prompt).toContain('青剑')
-    expect(prompt).toContain('角色操作')
+    expect(prompt).toContain('角色')
     expect(prompt).toContain('测试项目')
     expect(prompt).toContain('测试上下文')
   })

@@ -14,7 +14,7 @@ kb_list | kb_create_file(name, content) | kb_append_file(file_id, content) | kb_
 list_notes | read_note(note_name) | write_note(note_name, content) | append_note(note_name, content) | delete_note(note_name)
 
 【图片】
-search_images(query, count?) — 搜索Unsplash图库 | generate_image(prompt, size?, style?)
+search_images(query, count?, orientation?, size?) — 搜索Pexels图库(支持中文, 免费注册pexels.com/api) | generate_image(prompt, size?, style?)
 
 【模板 — 全局存储】
 create_style_template(name, type, dimensions) | create_scene_template(name, type, ...)

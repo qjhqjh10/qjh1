@@ -9,17 +9,19 @@ export const imageTools: ToolDefinition[] = [
     schema: {
       name: 'search_images',
       description:
-        '在 Unsplash 图库搜索高清图片并保存到项目 images/ 目录。仅当用户明确要求图片时才调用。',
+        '在 Pexels 图库搜索免费高清图片并保存到 images/ 目录。支持中文搜索。需设置 PEXELS_API_KEY 环境变量（免费注册: https://www.pexels.com/api/）。',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '搜索关键词（建议英文）' },
-          count: { type: 'number', description: '返回数量（默认3，最多5）' },
+          query: { type: 'string', description: '搜索关键词（支持中文，如"古装美女""山水风景"）' },
+          count: { type: 'number', description: '返回数量（默认3，最多10）' },
+          orientation: { type: 'string', description: '图片方向: landscape(横版) / portrait(竖版) / square(方形)' },
+          size: { type: 'string', description: '尺寸: large(大) / medium(中) / small(小)' },
         },
         required: ['query'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'image',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
@@ -60,7 +62,7 @@ export const imageTools: ToolDefinition[] = [
         required: ['prompt'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'image',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
@@ -77,8 +79,8 @@ export const imageTools: ToolDefinition[] = [
         )
         return {
           status: 'success',
-          summary: '已生成图片',
-          detail: `图片路径: ${result.path}\n花费: $${result.cost.toFixed(2)}`,
+          summary: `已生成图片: ${result.path}（花费 $${result.cost.toFixed(2)}）`,
+          detail: `图片已保存到项目 images/ 目录。\n路径: ${result.path}\n原始URL: ${result.url}\n提示词: ${result.prompt}`,
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '未知错误'

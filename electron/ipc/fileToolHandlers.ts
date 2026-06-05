@@ -925,8 +925,15 @@ export async function executeFileTool(
         for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
-        await fsp.writeFile(path.join(pp, 'outline', 'plot.json'), '', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.json'), '', 'utf-8')
+        // 初始模板文件（YAML，匹配当前系统提示词）
+        await fsp.writeFile(path.join(pp, 'outline', 'plot.md'), '# 故事剧情\n\n> 一句话梗概\n\n## 第1章\n\n（待填写）', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.md'), '# 世界观设定\n\n> 类型·基调\n\n## 一、核心规则\n\n（待填写）', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'items.yaml'), 'items: []', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'locations.yaml'), 'locations: []', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'factions.yaml'), 'factions: []', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'power_system.yaml'), "name: ''\nlevels: []\ndescription: ''", 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'outline_meta.yaml'), 'foreshadowing: []\nplotThreads: []\nupdatedAt: ""', 'utf-8')
+        await fsp.writeFile(path.join(pp, 'outline', 'emotion.yaml'), 'segments: []', 'utf-8')
         const novelCat = (args.novelCategory as string) || 'general'
         const projType = (args.type as string) === 'imitation' ? 'imitation' : (args.type as string) === 'continuation' ? 'continuation' : 'writing'
         await fsp.writeFile(path.join(pp, 'project.json'), JSON.stringify({ type: projType, novelCategory: novelCat }), 'utf-8')
@@ -952,34 +959,51 @@ export async function executeFileTool(
         const count = Math.min(Number(args.count) || 3, 5)
         if (!query) return { callId, toolName, status: 'error', summary: '搜索关键词不能为空' }
         try {
-          const accessKey = process.env.UNSPLASH_ACCESS_KEY || 'demo'
-          if (accessKey === 'demo') {
-            console.warn('[fileTool] 图片搜索使用 Unsplash Demo 密钥（50次/小时限制）。设置环境变量 UNSPLASH_ACCESS_KEY 以解除限制。')
+          // 优先读环境变量，其次读应用设置
+          const accessKey = process.env.PEXELS_API_KEY || await (async () => {
+            try { const { getConfigStore } = await import('./utils'); const s = await getConfigStore(); return (s as any).get('pexelsApiKey', '') } catch { return '' }
+          })()
+          if (!accessKey) {
+            return { callId, toolName, status: 'error',
+              summary: '图片搜索未配置 Pexels API 密钥。\n请在 设置 → AI写作助手 → 图片搜索 中填写密钥。\n免费注册: https://www.pexels.com/api/（200次/时，2万次/月）' }
           }
-          const searchUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${count}&client_id=${accessKey}`
-          const res = await fetch(searchUrl)
+          const orientation = String(args.orientation || '')
+          const size = String(args.size || '')
+          const locale = String(args.locale || 'zh-CN')
+          let searchUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&locale=${locale}`
+          if (orientation) searchUrl += `&orientation=${orientation}`
+          if (size) searchUrl += `&size=${size}`
+          const res = await fetch(searchUrl, { headers: { Authorization: accessKey } })
+          if (res.status === 401 || res.status === 403) {
+            return { callId, toolName, status: 'error',
+              summary: `Pexels API 密钥无效(${res.status})。请检查 PEXELS_API_KEY 环境变量是否正确。` }
+          }
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const data = await res.json() as { results?: { id: string; description: string; alt_description: string; urls: { regular: string; small: string }; user: { name: string } }[] }
-          const imagesDir = path.join(projectPath, 'images')
+          const data = await res.json() as { photos?: { id: number; photographer: string; alt: string; src: { original: string; large: string; medium: string; small: string } }[] }
+          const appRoot = path.dirname(projectPath)
+          const imagesDir = path.join(appRoot, 'images')
           await fsp.mkdir(imagesDir, { recursive: true })
-          const saved: { path: string; description: string }[] = []
-          for (const r of (data.results || [])) {
-            const imgUrl = r.urls?.regular || r.urls?.small || ''
+          const saved: { path: string; description: string; photographer?: string }[] = []
+          for (const p of (data.photos || [])) {
+            const imgUrl = p.src?.large || p.src?.original || ''
             if (!imgUrl) continue
             try {
               const imgRes = await fetch(imgUrl)
               if (!imgRes.ok) continue
               const buf = Buffer.from(await imgRes.arrayBuffer())
               if (buf.length > MAX_FILE_SIZE) continue
-              const fileName = `img_${r.id || Date.now().toString(36)}.jpg`
+              const ext = imgUrl.split('.').pop()?.split('?')[0] || 'jpg'
+              const fileName = `img_${p.id}.${ext}`
               await fsp.writeFile(path.join(imagesDir, fileName), buf)
-              saved.push({ path: `images/${fileName}`, description: r.alt_description || r.description || query })
+              saved.push({ path: `images/${fileName}`, description: p.alt || query, photographer: p.photographer })
             } catch { /* skip failed downloads */ }
           }
-          if (saved.length === 0) return { callId, toolName, status: 'success', summary: `未找到 "${query}" 相关图片`, detail: '[]' }
-          return { callId, toolName, status: 'success', summary: `已保存 ${saved.length} 张 "${query}" 图片到项目 images/ 目录`, detail: JSON.stringify(saved) }
+          if (saved.length === 0) {
+            return { callId, toolName, status: 'success', summary: `未找到 "${query}" 相关图片`, detail: '[]' }
+          }
+          return { callId, toolName, status: 'success', summary: `已保存 ${saved.length} 张 "${query}" 图片到 images/ 目录`, detail: JSON.stringify(saved) }
         } catch {
-          return { callId, toolName, status: 'error', summary: `图片搜索暂时不可用（Unsplash Demo Key 可能已限流，设置 UNSPLASH_ACCESS_KEY 环境变量可解除）` }
+          return { callId, toolName, status: 'error', summary: '图片搜索请求失败，请检查网络连接。' }
         }
       }
 

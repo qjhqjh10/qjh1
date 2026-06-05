@@ -378,19 +378,6 @@ export class V4AnthropicRuntime {
       // 有工具调用 → 构建 assistant 消息并执行
       toolCallsCount += response.toolUses.length
 
-      const assistantContent: Array<{ type: string; text?: string; tool_use?: { id: string; name: string; input: Record<string, unknown> } }> = []
-      if (response.text) {
-        assistantContent.push({ type: 'text', text: response.text })
-      }
-      for (const tu of response.toolUses) {
-        assistantContent.push({ type: 'tool_use', tool_use: tu })
-      }
-
-      this.messagesForApi.push({
-        role: 'assistant',
-        content: JSON.stringify(assistantContent),  // 内部存储序列化
-      } as Message)
-
       // 转换 toolUses 为统一的 ToolCallRequest 格式
       const toolCalls: ToolCallRequest[] = response.toolUses.map(tu => ({
         id: tu.id,
@@ -398,16 +385,31 @@ export class V4AnthropicRuntime {
         arguments: JSON.stringify(tu.input),
       }))
 
-      // 按权限分组执行（与 OpenAI Runtime 相同逻辑）
+      // 存储 assistant 消息：content 存纯文本，tool_calls 存 OpenAI 格式。
+      // messagesToAnthropic() 会通过 tool_calls 正确重建 tool_use content blocks，
+      // 避免将 JSON 序列化字符串误传为纯文本导致 Anthropic API 协议违规。
+      this.messagesForApi.push({
+        role: 'assistant',
+        content: response.text || '',
+        tool_calls: toolCalls.map(tc => ({
+          type: 'function' as const,
+          id: tc.id,
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      } as Message)
+
+      // Read tools → parallel, write tools → sequential
+      const WRITE_TOOLS = new Set(['create_file','edit_file','delete_file','rename_file','create_project','delete_project',
+        'create_style_template','create_scene_template','kb_create_file','kb_append_file','write_note','append_note','delete_note',
+        'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search'])
       const readOnlyCalls: ToolCallRequest[] = []
       const writeCalls: ToolCallRequest[] = []
 
       for (const tc of toolCalls) {
-        const perm = toolRegistry.getPermissionLevel(tc.name)
-        if (perm === 'AUTO' || perm === 'READ_ASK') {
-          readOnlyCalls.push(tc)
-        } else {
+        if (WRITE_TOOLS.has(tc.name)) {
           writeCalls.push(tc)
+        } else {
+          readOnlyCalls.push(tc)
         }
       }
 

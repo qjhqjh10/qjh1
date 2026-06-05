@@ -48,8 +48,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   shell_exec:     ['status', 'summary'],
   shell_run_script: ['status', 'summary'],
   // ── Image tools ──
-  search_images:  ['status', 'summary'],
-  generate_image: ['status', 'summary'],
+  search_images:  ['status', 'summary', 'detail'],
+  generate_image: ['status', 'summary', 'detail'],
   // ── Prompt tools ──
   list_prompts:   ['status', 'summary', 'detail'],
   toggle_prompt:  ['status', 'summary'],

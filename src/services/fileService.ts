@@ -110,7 +110,7 @@ export const aiService = {
     } catch (err) { logError('解析 AI 回复 JSON 失败 (chatWithUsage)', err) }
     return { text: raw, usage: undefined }
   },
-  listModels: (configId: string) => e().ai.listModels(configId),
+  listModels: (configId: string, scope?: string) => e().ai.listModels(configId, scope),
   chatWithTools: async (
     messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
     configId: string,
@@ -169,8 +169,8 @@ export const aiService = {
     e().ai.chatStream(messages, configId, projectId)
     return { abort }
   },
-  generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> => {
-    return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number }>
+  generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> => {
+    return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number; prompt: string }>
   },
   abortStream: () => { e().ai.abortStream() },
 }
@@ -223,6 +223,8 @@ export const settingsService = {
   saveConfigs: (configs: ModelConfig[]) => e().settings.saveConfigs(configs),
   loadConfigs: () => e().settings.loadConfigs(),
   clearConfigs: () => e().settings.clearConfigs(),
+  savePexelsKey: (key: string) => e().settings.savePexelsKey(key),
+  loadPexelsKey: () => e().settings.loadPexelsKey(),
 }
 
 export const statsService = {
@@ -234,6 +236,8 @@ export const statsService = {
   getMonthCost: () => e().stats.getMonthCost(),
   getSessionStats: () => e().stats.getSessionStats(),
   reset: () => e().stats.reset(),
+  deleteSession: (sessionId: string) => e().stats.deleteSession(sessionId),
+  resetSessions: () => e().stats.resetSessions(),
 }
 
 export const styleProjectService = {

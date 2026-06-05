@@ -428,7 +428,7 @@ describe('Agent 功能全景验证', () => {
     const p = buildSystemPrompt([], 'project-structure', 'project-context')
     expect(p).toContain('青剑')
     expect(p).toContain('list_directory')
-    expect(p).toContain('铁律')
+    expect(p).toContain('__FULL_REPLACE__')
     expect(p).toContain('read_file')
   })
 

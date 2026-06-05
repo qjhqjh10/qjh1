@@ -241,6 +241,14 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
 ]
 
+/** 图片模型专用服务商 — 仅列出支持 OpenAI Images API（/v1/images/generations）的服务商 */
+export const IMAGE_PROVIDER_PRESETS: ProviderPreset[] = [
+  { name: 'openai', label: 'OpenAI（DALL-E 2/3）', apiUrl: 'https://api.openai.com/v1' },
+  { name: 'azure', label: 'Azure OpenAI（DALL-E）', apiUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
+  { name: 'siliconflow', label: '硅基流动（FLUX / SD）', apiUrl: 'https://api.siliconflow.cn/v1' },
+  { name: 'together', label: 'Together AI（FLUX / SDXL）', apiUrl: 'https://api.together.xyz/v1' },
+]
+
 export const DEFAULT_PROMPTS: PromptTemplate[] = [
   {
     id: 'default_chapter',

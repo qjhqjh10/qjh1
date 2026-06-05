@@ -46,7 +46,7 @@ export const kbTools: ToolDefinition[] = [
         required: ['name', 'content'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'AUTO',
     category: 'kb',
     availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
@@ -95,7 +95,7 @@ export const kbTools: ToolDefinition[] = [
         required: ['file_id', 'content'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'AUTO',
     category: 'kb',
     availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
@@ -125,7 +125,7 @@ export const kbTools: ToolDefinition[] = [
         required: ['file_id'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'AUTO',
     category: 'kb',
     availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {

@@ -27,6 +27,7 @@ export default function HomePage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const fileVersion = useStore(s => s.fileVersion)
   const setProjects = useStore(s => s.setProjects)
   const addProject = useStore(s => s.addProject)
   const removeProject = useStore(s => s.removeProject)
@@ -62,7 +63,7 @@ projList.push({ id: name, ...meta, type: pt })
   // Projects loaded globally in App.tsx; refresh after create/delete only
   useEffect(() => {
     loadProjects()
-  }, [loadProjects])
+  }, [loadProjects, fileVersion])
 
   // Reload projects when AI creates/deletes/modifies project files
   useEffect(() => {

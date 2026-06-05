@@ -221,6 +221,9 @@ export function AISettingsTab() {
               </select>
             </FormField>
           </div>
+
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, marginTop: 24, color: '#2d2520' }}>🖼️ 图片搜索 Pexels</h4>
+          <PexelsKeyField />
         </div>
 
         {/* Priority Sites */}
@@ -370,6 +373,39 @@ export function AISettingsTab() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** Pexels API 密钥管理 */
+function PexelsKeyField() {
+  const [key, setKey] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    settingsService.loadPexelsKey().then((k: string) => { if (k) setKey(k) }).catch(() => {})
+  }, [])
+
+  const save = async () => {
+    await settingsService.savePexelsKey(key.trim())
+    setSaved(true); setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <p style={{ fontSize: 11, color: '#9b8e84', lineHeight: 1.5 }}>
+        免费注册 <a href="https://www.pexels.com/api/" target="_blank" style={{ color: '#7c3aed' }}>pexels.com/api</a> 获取 API Key。
+        200次/时，2万次/月。支持中文搜索，国内可直接访问。
+      </p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={key} onChange={e => setKey(e.target.value)}
+          placeholder="粘贴 Pexels API Key..."
+          className="focus-ring" style={{ ...inputStyle, flex: 1 }} />
+        <button onClick={save}
+          style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: saved ? '#16a34a' : '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          {saved ? '✓ 已保存' : '保存'}
+        </button>
       </div>
     </div>
   )

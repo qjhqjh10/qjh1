@@ -25,21 +25,54 @@ interface ModelPrice {
 
 let statsBasePath = ''
 
-export function getStatsPath(): string {
+let _migrated = false
+
+export function getStatsPath(opts?: { projectsPath?: string }): string {
   if (!statsBasePath) {
-    statsBasePath = path.join(app.getPath('userData'), 'stats')
+    if (opts?.projectsPath) {
+      statsBasePath = path.join(path.dirname(opts.projectsPath), '.stats')
+    } else {
+      statsBasePath = path.join(app.getPath('userData'), 'stats')
+    }
   }
   return statsBasePath
 }
 
-async function ensureStatsDir() {
-  await fs.mkdir(getStatsPath(), { recursive: true })
+async function migrateOldStats(statsDir: string) {
+  if (_migrated) return
+  _migrated = true
+  const oldDirs = [
+    path.join(app.getPath('userData'), 'stats'),
+    path.join(app.getPath('userData').replace('ai-writing-qingjian', 'novel-writing-app'), 'stats'),
+  ]
+  for (const oldDir of oldDirs) {
+    if (oldDir === statsDir) continue
+    try {
+      const oldFile = path.join(oldDir, 'usage.jsonl')
+      const newFile = path.join(statsDir, 'usage.jsonl')
+      const oldContent = await fs.readFile(oldFile, 'utf-8')
+      if (oldContent.trim()) {
+        await fs.mkdir(statsDir, { recursive: true })
+        await fs.writeFile(newFile, oldContent, 'utf-8')
+        await fs.writeFile(oldFile, '', 'utf-8')
+        console.log(`[stats] migrated: ${oldFile} → ${newFile} (${oldContent.split('\n').filter(Boolean).length} entries)`)
+      }
+    } catch { /* best-effort */ }
+  }
 }
+
+async function ensureStatsDir() {
+  const dir = getStatsPath({ projectsPath: _projectsPath })
+  await fs.mkdir(dir, { recursive: true })
+  await migrateOldStats(dir)
+}
+
+let _projectsPath = ''
 
 export async function logTokenUsage(entry: TokenUsageEntry) {
   try {
     await ensureStatsDir()
-    const logPath = path.join(getStatsPath(), 'usage.jsonl')
+    const logPath = path.join(getStatsPath({ projectsPath: _projectsPath }), 'usage.jsonl')
     await fs.appendFile(logPath, JSON.stringify(entry) + '\n', 'utf-8')
     // Debug: verify write succeeded by checking file size
     try {
@@ -62,7 +95,7 @@ export async function logTokenUsage(entry: TokenUsageEntry) {
 // Get current month's total cost for budget check
 export async function getCurrentMonthCost(): Promise<number> {
   try {
-    const logPath = path.join(getStatsPath(), 'usage.jsonl')
+    const logPath = path.join(getStatsPath({ projectsPath: _projectsPath }), 'usage.jsonl')
     let content = ''
     try { content = await fs.readFile(logPath, 'utf-8') } catch { return 0 }
 
@@ -97,9 +130,11 @@ interface GetUsageOptions {
 }
 
 export function registerStatsHandlers(ipcMain: IpcMain, projectsPath?: string) {
+  if (projectsPath) _projectsPath = projectsPath
+
   ipcMain.handle('stats:getUsage', async (_event, opts: GetUsageOptions = {}) => {
     try {
-      const logPath = path.join(getStatsPath(), 'usage.jsonl')
+      const logPath = path.join(getStatsPath({ projectsPath }), 'usage.jsonl')
       let content = ''
       try { content = await fs.readFile(logPath, 'utf-8') } catch { return emptyResult() }
 
@@ -222,11 +257,43 @@ export function registerStatsHandlers(ipcMain: IpcMain, projectsPath?: string) {
 
   ipcMain.handle('stats:reset', async () => {
     try {
-      const logPath = path.join(getStatsPath(), 'usage.jsonl')
+      const logPath = path.join(getStatsPath({ projectsPath }), 'usage.jsonl')
       await fs.writeFile(logPath, '', 'utf-8')
       return { status: 'success', summary: 'Token 统计数据已清空' }
     } catch (e) {
       return { status: 'error', summary: `清除失败: ${e instanceof Error ? e.message : '未知错误'}` }
+    }
+  })
+
+  // Session audit management
+  ipcMain.handle('stats:deleteSession', async (_event, sessionId: string) => {
+    try {
+      const auditDirs = await getAuditBasePath(projectsPath)
+      for (const dir of auditDirs) {
+        const filePath = join(dir, `${sessionId}.jsonl`)
+        try { await fs.unlink(filePath); return { status: 'success' } } catch { /* try next dir */ }
+      }
+      return { status: 'error', summary: '会话文件未找到' }
+    } catch (e) {
+      return { status: 'error', summary: `删除失败: ${e instanceof Error ? e.message : '未知错误'}` }
+    }
+  })
+
+  ipcMain.handle('stats:resetSessions', async () => {
+    try {
+      const auditDirs = await getAuditBasePath(projectsPath)
+      let deleted = 0
+      for (const dir of auditDirs) {
+        try {
+          const files = await fs.readdir(dir)
+          for (const f of files) {
+            if (f.endsWith('.jsonl')) { await fs.unlink(join(dir, f)); deleted++ }
+          }
+        } catch { /* dir may not exist */ }
+      }
+      return { status: 'success', summary: `已清空 ${deleted} 个会话记录` }
+    } catch (e) {
+      return { status: 'error', summary: `清空失败: ${e instanceof Error ? e.message : '未知错误'}` }
     }
   })
 }
@@ -271,11 +338,16 @@ export interface SessionStatsResult {
 
 // ── Session Stats Helper ──
 
-async function getAuditBasePath(projectsPath?: string): Promise<string> {
-  // V9.5.2: AuditTrail writes to projectsPath/.aiharness/audit/
-  // (fileService.resolvePath resolves relative .aiharness/audit/ against projectsPath)
-  if (projectsPath) return join(projectsPath, '.aiharness', 'audit')
-  return join(app.getPath('userData'), 'projects', '.aiharness', 'audit')
+async function getAuditBasePath(projectsPath?: string): Promise<string[]> {
+  // 两个可能位置：projectsPath/.aiharness/audit/ 和 appRoot/.aiharness/audit/
+  const dirs: string[] = []
+  if (projectsPath) {
+    dirs.push(join(projectsPath, '.aiharness', 'audit'))
+    dirs.push(join(path.dirname(projectsPath), '.aiharness', 'audit'))
+  } else {
+    dirs.push(join(app.getPath('userData'), 'projects', '.aiharness', 'audit'))
+  }
+  return dirs
 }
 
 async function readSessionStats(projectsPath?: string): Promise<SessionStatsResult> {
@@ -285,22 +357,24 @@ async function readSessionStats(projectsPath?: string): Promise<SessionStatsResu
     totals: { apiCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0 },
   }
 
-  const auditPath = await getAuditBasePath(projectsPath)
+  const auditDirs = await getAuditBasePath(projectsPath)
 
-  let files: string[]
-  try {
-    files = await fs.readdir(auditPath)
-  } catch {
-    return empty  // no audit directory yet
+  let files: string[] = []
+  for (const auditPath of auditDirs) {
+    try {
+      const dirFiles = await fs.readdir(auditPath)
+      files.push(...dirFiles.map(f => join(auditPath, f)))
+    } catch { /* dir may not exist */ }
   }
+  if (files.length === 0) return empty
 
   const jsonlFiles = files.filter(f => f.endsWith('.jsonl')).sort()
   const sessions: SessionStatEntry[] = []
 
-  for (const file of jsonlFiles) {
+  for (const filePath of jsonlFiles) {
     let content: string
     try {
-      content = await fs.readFile(join(auditPath, file), 'utf-8')
+      content = await fs.readFile(filePath, 'utf-8')
     } catch {
       continue
     }
@@ -308,7 +382,7 @@ async function readSessionStats(projectsPath?: string): Promise<SessionStatsResu
     const lines = content.split('\n').filter(Boolean)
     if (lines.length === 0) continue
 
-    const sessionId = file.replace('.jsonl', '')
+    const sessionId = path.basename(filePath).replace('.jsonl', '')
     let startedAt = ''
     let lastTimestamp = 0
     let apiCallCount = 0

@@ -30,7 +30,7 @@ function categorizeError(err: unknown): string {
     return '[RATE_LIMIT] 请求过于频繁，请稍后重试。'
   if (lower.includes('invalid_api_key') || lower.includes('unauthorized') || lower.includes('authentication') || lower.includes('401') || lower.includes('403'))
     return '[AUTH_ERROR] API 密钥无效或权限不足，请检查模型设置。'
-  if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('timeout') || lower.includes('network') || lower.includes('econnreset'))
+  if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('timeout') || lower.includes('network') || lower.includes('econnreset') || lower.includes('connection'))
     return '[NETWORK] 网络连接失败，请检查 API 地址和网络。'
   if (lower.includes('unsupported') || lower.includes('not support') || lower.includes('not found') || lower.includes('404') || lower.includes('does not exist'))
     return '[UNSUPPORTED_OPERATION] 当前模型不支持此操作。请切换到支持该功能的模型。'
@@ -140,9 +140,10 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     }
   })
 
-  // Track abort handlers per webContents (stream and tool-chat use separate maps/channels)
+  // Track abort handlers per webContents
   const streamAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
   const toolChatAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
+  const imageAbortControllers = new Map<number, AbortController>()
 
   // Streaming chat: renders chunks via events
   ipcMain.handle('ai:chat-stream', async (event, messages: { role: string; content: string }[], configId: string, projectId?: string) => {
@@ -245,20 +246,34 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     }
   })
 
-  ipcMain.handle('ai:listModels', async (_event, configId: string) => {
+  ipcMain.handle('ai:listModels', async (_event, configId: string, scope?: string) => {
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
     const config = configs.find(c => c.id === configId)
     if (!config || !config.apiUrl) return []
 
-    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
-
-    // Anthropic 协议的地址含 /anthropic，/models 端点不存在于此路径
-    // 自动回退到供应商的 OpenAI 兼容基础地址
-    const protocol = (config as any).protocol
-    const apiUrl = (protocol === 'anthropic')
-      ? (config.apiUrl || '').replace(/\/anthropic(\/.*)?$/, '').replace(/\/+$/, '')
-      : config.apiUrl
+    // ── scope='image': 使用图片专用 API 配置（如果用户填写了独立的图片提供商） ──
+    // 未填写图片 API 配置时回退到 Main 配置，支持多模态模型（如 GPT-4o 同时输出文本和图片）
+    let apiKey: string
+    let apiUrl: string
+    if (scope === 'image' && config.imageApiUrl && config.imageApiKey) {
+      const imageKey = decryptKey(config.imageApiKey, config.imageEncrypted ?? false, safeStorage)
+      if (imageKey) {
+        apiKey = imageKey
+        apiUrl = config.imageApiUrl
+      } else {
+        apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+        apiUrl = config.apiUrl
+      }
+    } else {
+      apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      // Anthropic 协议的地址含 /anthropic，/models 端点不存在于此路径
+      // 自动回退到供应商的 OpenAI 兼容基础地址
+      const protocol = (config as any).protocol
+      apiUrl = (protocol === 'anthropic')
+        ? (config.apiUrl || '').replace(/\/anthropic(\/.*)?$/, '').replace(/\/+$/, '')
+        : config.apiUrl
+    }
 
     if (!apiKey) {
       throw new Error(`API 密钥未设置。请在模型设置中填写 API 密钥后重试。\n当前地址: ${apiUrl}`)
@@ -284,6 +299,14 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         throw new Error(`无法连接 API\n地址: ${apiUrl}\n密钥: ${apiKey ? apiKey.slice(0,8)+'...' : '(未设置)'}\n错误: ${msg}`)
       }
     }
+  })
+
+  // Pexels API key — stored separately from model configs
+  ipcMain.handle('settings:savePexelsKey', async (_event, key: string) => {
+    const store = await getConfigStore(); (store as any).set('pexelsApiKey', key)
+  })
+  ipcMain.handle('settings:loadPexelsKey', async () => {
+    const store = await getConfigStore(); return (store as any).get('pexelsApiKey', '')
   })
 
   // Save configs from renderer (encrypt keys, preserve existing keys for masked placeholders)
@@ -481,8 +504,23 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
   // ── AI Image Generation ──
 
+  // Abort in-progress image generation
+  ipcMain.on('ai:abort-image', (event) => {
+    const wcId = event.sender.id
+    const ctrl = imageAbortControllers.get(wcId)
+    if (ctrl) { ctrl.abort(); imageAbortControllers.delete(wcId) }
+  })
+
   ipcMain.handle('ai:generateImage',
-    async (_event, prompt: string, configId: string, projectId?: string, size?: string, style?: string) => {
+    async (event, prompt: string, configId: string, projectId?: string, size?: string, style?: string) => {
+      const wcId = event.sender.id
+      // Cancel any previous image generation for this window
+      const prevCtrl = imageAbortControllers.get(wcId)
+      if (prevCtrl) { prevCtrl.abort(); imageAbortControllers.delete(wcId) }
+      const abortCtrl = new AbortController()
+      imageAbortControllers.set(wcId, abortCtrl)
+
+      try {
       const store = await getConfigStore()
       const configs = store.get('configs', []) as StoredConfig[]
       const config = configs.find(c => c.id === configId)
@@ -514,9 +552,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       if (imageSize) genParams.size = imageSize
       if (imageStyle && imageModel.includes('dall-e')) genParams.style = imageStyle
 
-      let response: { data?: { url?: string }[] }
+      let response: { data?: { url?: string; b64_json?: string }[] }
       try {
-        response = await client.images.generate(genParams as any) as { data?: { url?: string }[] }
+        response = await client.images.generate(genParams as any, { signal: abortCtrl.signal }) as { data?: { url?: string; b64_json?: string }[] }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : ''
         const status = (err as { status?: number })?.status
@@ -526,33 +564,40 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         throw new Error(categorizeError(err))
       }
 
+      // 兼容两类响应：url（OpenAI 原生）和 b64_json（NovelAI 等第三方代理）
       const imageUrl = response?.data?.[0]?.url
-      if (!imageUrl) throw new Error('图片生成返回空结果')
+      const imageB64 = response?.data?.[0]?.b64_json
+      if (!imageUrl && !imageB64) throw new Error('图片生成返回空结果')
 
-      // Download image to project
-      const { join, basename } = await import('path')
+      // 图片统一保存到根目录 images/
+      const { join, dirname } = await import('path')
       const { mkdir, writeFile } = await import('fs/promises')
       const timestamp = Date.now().toString(36)
       const fileName = `gen_${timestamp}.png`
-      // Sanitize projectId to prevent path traversal
-      const safeId = basename(projectId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
-      if (!safeId) throw new Error('Invalid project ID')
       if (!projectsPath) throw new Error('Projects path not configured')
-      const imagesDir = join(projectsPath, safeId, 'images')
+      const imagesDir = join(dirname(projectsPath), 'images')
       await mkdir(imagesDir, { recursive: true })
       const imagePath = join(imagesDir, fileName)
+      const relativePath = `images/${fileName}`
 
-      const imgRes = await fetch(imageUrl)
-      if (!imgRes.ok) throw new Error(`下载图片失败: HTTP ${imgRes.status}`)
-      const buf = Buffer.from(await imgRes.arrayBuffer())
+      let buf: Buffer
+      if (imageUrl) {
+        const imgRes = await fetch(imageUrl)
+        if (!imgRes.ok) throw new Error(`下载图片失败: HTTP ${imgRes.status}`)
+        buf = Buffer.from(await imgRes.arrayBuffer())
+      } else {
+        // b64_json 响应 — 直接解码写入磁盘
+        buf = Buffer.from(imageB64!, 'base64')
+      }
       await writeFile(imagePath, buf)
 
-      const relativePath = `images/${fileName}`
-      // Use image pricing if available, otherwise estimate
-      const costPerImage = config.imageInputPricePerM > 0
-        ? config.imageInputPricePerM / 1000
+      // 图片定价：优先使用 imageInputPricePerM（用户填入的值即为每张图价格，如 DALL-E $0.04/张），
+      // 若未填写则回退到 Main 模型的输入价格估算。字段名含 "PerM" 仅为兼容旧版结构。
+      const pricePerImage = config.imageInputPricePerM > 0
+        ? config.imageInputPricePerM
         : config.inputPricePerM > 0 ? config.inputPricePerM / 1000 : 0.04
-      const cost = config.currency === 'CNY' ? costPerImage * 7.2 : costPerImage
+      const imageCurrency = config.mainCurrency || config.currency
+      const cost = imageCurrency === 'CNY' ? pricePerImage * 7.2 : pricePerImage
 
       // Log token usage for stats
       logTokenUsage({
@@ -568,6 +613,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       })
 
       return { path: relativePath, url: imageUrl, cost, prompt }
+      } finally {
+        imageAbortControllers.delete(wcId)
+      }
     })
 
   // ── Execute file tools on main process ──

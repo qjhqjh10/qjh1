@@ -155,12 +155,18 @@ export class V4AnthropicChatBridge {
       const coreTokens = estimateTokens(CORE_PROMPT)
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
+        // 闲聊/简单消息 → 跳过全局索引和 Provider，节省 ~6k+ tokens
+        const isChatOnly = /^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye|早上好|晚上好|下午好|晚安|早|在吗|在不在|你是谁|你叫什么|你能做什么|你有什么功能)[!！。.，,～~]*$/i.test(msg.trim())
+        const hasTaskKeywords = /角色|人物|大纲|剧情|章节|写|创作|生成|续写|风格|文风|分析|模板|知识库|搜索|查找|创建|删除|编辑|导入|保存|整理|修改|改|图片|图|插图|搜|画|草稿|笔记|项目|世界|细纲|仿写/i.test(msg)
+
         // 动态内容（每轮刷新）
         let globalIndex = ''
-        try {
-          const { buildGlobalIndex } = await import('./context/MemoryIndex')
-          globalIndex = await buildGlobalIndex(pid)
-        } catch { /* unavailable */ }
+        if (hasTaskKeywords || hist.length > 0) {
+          try {
+            const { buildGlobalIndex } = await import('./context/MemoryIndex')
+            globalIndex = await buildGlobalIndex(pid)
+          } catch { /* unavailable */ }
+        }
 
         let searchContext = ''
         if (options.kbEnabled && this.projectId) {
@@ -186,9 +192,12 @@ export class V4AnthropicChatBridge {
           } catch { /* unavailable */ }
         }
 
-        const base = await contextAssembler.assemble(msg, hist, pid)
+        // 闲聊消息跳过 Provider 内容（节省 ~10k+ tokens）
+        const base = isChatOnly
+          ? { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
+          : await contextAssembler.assemble(msg, hist, pid)
         const { buildToolInvokePrompt } = await import('@/types/fileOps')
-        const toolInvokePrompt = buildToolInvokePrompt()
+        const toolInvokePrompt = isChatOnly ? '' : buildToolInvokePrompt()
 
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const globalIndexTokens = estimateTokens(globalIndex || '')
@@ -208,12 +217,7 @@ export class V4AnthropicChatBridge {
         const systemMessages = [
           coreSystemMsg,
           ...(globalIndex
-            ? [
-                {
-                  role: 'system' as const,
-                  content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}`,
-                },
-              ]
+            ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }]
             : []),
           { role: 'system' as const, content: dynamicContent },
         ]
@@ -303,12 +307,13 @@ export class V4AnthropicChatBridge {
           }
         }
 
-        // 通知 GUI 文件变更
+        // 通知 GUI 文件变更 → 触发 UI 刷新
         if (
           result.status === 'success' &&
-          /^(create_file|edit_file|delete_file|rename_file)$/.test(ctx.toolName)
+          /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|write_note|delete_note|kb_create_file|kb_append_file)$/.test(ctx.toolName)
         ) {
           const { useStore } = await import('@/store')
+          useStore.getState().bumpFileVersion()
           useStore.getState().setFileEditNotify({
             filePath: String(args.file_path || ''),
             newContent: '__AI_EDITED__',

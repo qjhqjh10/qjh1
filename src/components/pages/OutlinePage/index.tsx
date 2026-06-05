@@ -33,6 +33,7 @@ export default function OutlinePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const outlineContent = useStore(s => s.outlineContent)
   const setOutlineContent = useStore(s => s.setOutlineContent)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
@@ -153,7 +154,7 @@ export default function OutlinePage() {
       }),
       loadOutlineData(pp, 'emotion', { segments: [] }).then(setEmotionData),
     ]).finally(() => setLoading(false))
-  }, [activeProjectId, projectsBasePath])
+  }, [activeProjectId, projectsBasePath, fileVersion])
 
   // AI direct edit via edit_file → reload editor with clean content
   useEffect(() => {

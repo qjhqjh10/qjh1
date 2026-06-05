@@ -336,16 +336,18 @@ export class V4AgentRuntime {
       this.messagesForApi.push(assistantMsg)
 
       // ── Execute tools ──
-      // Classify: safe (read) tools can run in parallel, write tools sequentially
+      // Read tools → parallel, write tools → sequential (based on operation type, not permission)
+      const WRITE_TOOLS = new Set(['create_file','edit_file','delete_file','rename_file','create_project','delete_project',
+        'create_style_template','create_scene_template','kb_create_file','kb_append_file','write_note','append_note','delete_note',
+        'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search'])
       const readOnlyCalls: ToolCallRequest[] = []
       const writeCalls: ToolCallRequest[] = []
 
       for (const tc of response.toolCalls) {
-        const perm = toolRegistry.getPermissionLevel(tc.name)
-        if (perm === 'AUTO' || perm === 'READ_ASK') {
-          readOnlyCalls.push(tc)
-        } else {
+        if (WRITE_TOOLS.has(tc.name)) {
           writeCalls.push(tc)
+        } else {
+          readOnlyCalls.push(tc)
         }
       }
 

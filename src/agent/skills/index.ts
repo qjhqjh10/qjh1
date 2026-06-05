@@ -48,7 +48,7 @@ export type { SkillSource } from './types'
 // ── 核心实例 ──
 import { skillRegistry } from './SkillRegistry'
 
-// ── 内置技能 ──
+// ── 内置技能（11个） ──
 import { characterSkill } from './builtin/character'
 import { outlineSkill } from './builtin/outline'
 import { detailedOutlineSkill } from './builtin/detailedOutline'
@@ -57,13 +57,8 @@ import { chapterPolishSkill } from './builtin/chapterPolish'
 import { styleTemplateSkill } from './builtin/styleTemplate'
 import { sceneTemplateSkill } from './builtin/sceneTemplate'
 import { knowledgeBaseSkill } from './builtin/knowledgeBase'
-import { noteSkill } from './builtin/note'
-import { projectSkill } from './builtin/project'
-import { reviewSkill } from './builtin/review'
 import { textImportSkill } from './builtin/textImport'
 import { textAnalysisSkill } from './builtin/textAnalysis'
-import { worldbuildingImportSkill } from './builtin/worldbuildingImport'
-import { summarizePolishSkill } from './builtin/summarizePolish'
 import type { SkillDefinition } from './types'
 
 export const BUILTIN_SKILLS: SkillDefinition[] = [
@@ -75,13 +70,8 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
   styleTemplateSkill,
   sceneTemplateSkill,
   knowledgeBaseSkill,
-  noteSkill,
-  projectSkill,
-  reviewSkill,
   textImportSkill,
   textAnalysisSkill,
-  worldbuildingImportSkill,
-  summarizePolishSkill,
 ]
 
 /**

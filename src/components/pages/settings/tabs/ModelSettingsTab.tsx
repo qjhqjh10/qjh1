@@ -6,7 +6,8 @@ import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig } from '@/types/settings'
-import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS } from '@/types/settings'
+import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS, IMAGE_PROVIDER_PRESETS } from '@/types/settings'
+import type { ProviderPreset } from '@/types/settings'
 import { FormField } from '../shared'
 import { logError } from '@/utils/logger'
 
@@ -72,7 +73,7 @@ function ModelCard({
   currency, onCurrency,
   apiUrl, onApiUrl, apiKey, onApiKey,
   provider, onProvider, protocol, onProtocol,
-  showMainFields,
+  showMainFields, apiUrlHint, providerPresets,
   configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
   children,
 }: {
@@ -90,6 +91,8 @@ function ModelCard({
   provider?: string; onProvider?: (v: string) => void
   protocol?: string; onProtocol?: (v: string) => void
   showMainFields?: boolean
+  apiUrlHint?: string  // 自定义 API URL 提示文本
+  providerPresets?: ProviderPreset[]  // 自定义服务商列表（图片模型用 IMAGE_PROVIDER_PRESETS）
   configId: string
   onRefreshModels: () => void; loadingModels: boolean
   modelList: string[]; showDropdown: boolean; setShowDropdown: (v: boolean) => void
@@ -106,29 +109,47 @@ function ModelCard({
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
           <div style={{ flex: '1 1 120px' }}>
             <label style={fieldLabel}>服务商 Provider</label>
-            <select value={PROVIDER_PRESETS.some(p => p.name === provider) ? provider : '__custom__'}
+            {(() => {
+              const presets = providerPresets || PROVIDER_PRESETS
+              return (<>
+            <select value={presets.some(p => p.name === provider) ? provider : '__custom__'}
               onChange={e => {
                 const v = e.target.value
-                if (v === '__custom__') return
-                const p = PROVIDER_PRESETS.find(x => x.name === v)
+                if (v === '__custom__') { onProvider?.(''); return }
+                const p = presets.find(x => x.name === v)
                 onProvider?.(v)
                 if (p?.apiUrl) onApiUrl?.(p.apiUrl)
               }}
               style={{ ...inputBase, cursor: 'pointer' }}>
-              {PROVIDER_PRESETS.map(p => <option key={p.name} value={p.name}>{p.label}</option>)}
-              <option value="__custom__">自定义</option>
+              {presets.map(p => <option key={p.name} value={p.name}>{p.label}</option>)}
+              <option value="__custom__">自定义（手动填写地址和密钥）</option>
             </select>
+            <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>列表中没有你的服务商？选"自定义"后直接在下方地址栏输入 API URL 即可</div>
+              </>)
+            })()}
           </div>
           {onProtocol && (
-            <div style={{ flex: '1 1 140px' }}>
+            <div style={{ flex: '1 1 200px' }}>
               <label style={fieldLabel}>协议 Protocol</label>
-              <div style={{ display: 'flex', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                <button onClick={() => onProtocol('openai')}
-                  style={{ flex:1, padding:'7px 10px', border:'none', cursor:'pointer', fontSize:11, fontWeight:protocol!=='anthropic'?700:400, background:protocol!=='anthropic'?'rgba(124,58,237,0.08)':'#fff', color:protocol!=='anthropic'?'#7c3aed':'#9b8e84', fontFamily:'inherit' }}
-                  title="OpenAI 兼容协议 — tool_calls 数组格式">OpenAI</button>
-                <button onClick={() => onProtocol('anthropic')}
-                  style={{ flex:1, padding:'7px 10px', border:'none', borderLeft:'1px solid rgba(0,0,0,0.06)', cursor:'pointer', fontSize:11, fontWeight:protocol==='anthropic'?700:400, background:protocol==='anthropic'?'rgba(22,163,74,0.08)':'#fff', color:protocol==='anthropic'?'#16a34a':'#9b8e84', fontFamily:'inherit' }}
-                  title="Anthropic Messages API — 流式 content blocks">Anthropic</button>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <div style={{ display: 'flex', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden', flex: 1 }}>
+                  <button onClick={() => onProtocol('openai')}
+                    style={{ flex:1, padding:'7px 10px', border:'none', cursor:'pointer', fontSize:11, fontWeight:protocol!=='anthropic'?700:400, background:protocol!=='anthropic'?'rgba(124,58,237,0.08)':'#fff', color:protocol!=='anthropic'?'#7c3aed':'#9b8e84', fontFamily:'inherit' }}
+                    title="OpenAI 兼容协议 — tool_calls 数组格式">OpenAI</button>
+                  <button onClick={() => onProtocol('anthropic')}
+                    style={{ flex:1, padding:'7px 10px', border:'none', borderLeft:'1px solid rgba(0,0,0,0.06)', cursor:'pointer', fontSize:11, fontWeight:protocol==='anthropic'?700:400, background:protocol==='anthropic'?'rgba(22,163,74,0.08)':'#fff', color:protocol==='anthropic'?'#16a34a':'#9b8e84', fontFamily:'inherit' }}
+                    title="Anthropic Messages API — 流式 content blocks">Anthropic</button>
+                </div>
+                <button
+                  onClick={() => onProtocol('openai')}
+                  title="图片模型始终使用 OpenAI Images API。无论 Main 协议选什么，图片生成独立工作。如需单模型同时处理文本+图片，请切换到 OpenAI。"
+                  style={{
+                    padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)',
+                    background: 'rgba(245,158,11,0.06)', color: '#b45309',
+                    fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >🎨 图片</button>
               </div>
             </div>
           )}
@@ -137,7 +158,7 @@ function ModelCard({
             <input type="text" value={apiUrl || ''} onChange={e => onApiUrl?.(e.target.value)}
               className="focus-ring" style={{ ...inputBase, fontSize: 12 }} />
             <div style={{ fontSize: 9, color: '#9b8e84', marginTop: 2 }}>
-              {protocol === 'anthropic' ? 'DeepSeek Anthropic: https://api.deepseek.com/anthropic' : 'DeepSeek: https://api.deepseek.com'}
+              {apiUrlHint || (protocol === 'anthropic' ? 'DeepSeek Anthropic: https://api.deepseek.com/anthropic' : 'DeepSeek: https://api.deepseek.com')}
             </div>
           </div>
           {onApiKey && apiKey !== undefined && (
@@ -328,7 +349,9 @@ export function ModelSettingsTab() {
     try {
       // 强制立即保存配置，确保 API 密钥已同步到主进程
       await settingsService.saveConfigs(useSettingsStore.getState().configs)
-      const raw = await aiService.listModels(currentConfigId)
+      // scope='image': 如果用户配置了独立的图片 API，使用图片专用密钥和地址；否则回退到 Main 配置
+      const scope = card === 'image' ? 'image' : undefined
+      const raw = await aiService.listModels(currentConfigId, scope)
       const list: string[] = Array.isArray(raw) ? raw
         : typeof raw === 'string' ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : (p.data || []) } catch { return [] } })()
         : []
@@ -460,7 +483,7 @@ export function ModelSettingsTab() {
 
             {/* ── 🎨 Image ── */}
             <ModelCard
-              icon="🎨" title="Image 图片模型" desc="图片生成 — 与 Main 模型在同一会话中协作。留空则禁用图片生成。"
+              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用；若图片与 Main 提供商不同，请填写独立 API 地址和密钥。"
               modelValue={activeConfig.imageModel} onModelChange={v => u({ imageModel: v })}
               placeholder="留空 = 禁用（如 dall-e-3）"
               tempValue={0} onTempChange={() => {}} tempDisabled
@@ -473,10 +496,17 @@ export function ModelSettingsTab() {
               apiKey={activeConfig.imageApiKey || ''} onApiKey={v => u({ imageApiKey: v })}
               provider={activeConfig.imageProvider || activeConfig.provider}
               onProvider={v => u({ imageProvider: v })}
+              apiUrlHint="图片 API 地址（DALL-E / FLUX / SD — 需支持 OpenAI Images 端点）"
+              providerPresets={IMAGE_PROVIDER_PRESETS}
               showMainFields={true}
               configId={activeConfig.id} onRefreshModels={() => handleRefreshModels('image')} loadingModels={loadingImageModels}
               modelList={imageModelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
-            />
+            >
+              <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', fontSize: 10, color: '#6b5e54', lineHeight: 1.5 }}>
+                💡 定价说明：DALL-E 等专用图片模型按 <b>每张图</b> 计费（填入单价如 0.04），GPT-4o 等多模态模型按 <b>token</b> 计费（结合 Main 模型价格）。<br />
+                ⚠️ 未填写独立 API 密钥时，图片生成将共用 Main 模型的 API 连接。
+              </div>
+            </ModelCard>
 
             {/* ── 📚 Embedding ── */}
             <div style={cardInner}>

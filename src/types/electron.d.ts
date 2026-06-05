@@ -55,8 +55,8 @@ export interface AIAPI {
   onChatDone: (callback: (data: { text: string; usage?: StreamUsage }) => void) => () => void
   onChatError: (callback: (data: { message: string }) => void) => () => void
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
-  listModels: (configId: string) => Promise<string[]>
-  generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number }>
+  listModels: (configId: string, scope?: string) => Promise<string[]>
+  generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
   // ── Anthropic 协议 ──
@@ -99,6 +99,8 @@ export interface SettingsAPI {
   saveConfigs: (configs: ModelConfig[]) => Promise<{warning?: string}>
   loadConfigs: () => Promise<ModelConfig[]>
   clearConfigs: () => Promise<void>
+  savePexelsKey: (key: string) => Promise<void>
+  loadPexelsKey: () => Promise<string>
 }
 
 export interface ModelPrice {
@@ -151,6 +153,8 @@ export interface StatsAPI {
   getMonthCost: () => Promise<number>
   getSessionStats: () => Promise<SessionStatsResult>
   reset: () => Promise<any>
+  deleteSession: (sessionId: string) => Promise<any>
+  resetSessions: () => Promise<any>
 }
 
 export interface StyleProjectsAPI {

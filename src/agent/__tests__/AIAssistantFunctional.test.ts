@@ -248,7 +248,7 @@ describe('AI 写作助手 — 全面功能测试', () => {
       expect(deleteTool?.permission).toBe('DANGEROUS_ASK')
 
       const createTool = toolRegistry.get('create_file')
-      expect(createTool?.permission).toBe('DANGEROUS_ASK')
+      expect(createTool?.permission).toBe('AUTO')
     })
 
     it('只读工具 → AUTO 权限', () => {

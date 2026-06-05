@@ -19,7 +19,7 @@ export const httpTools: ToolDefinition[] = [
         required: ['url'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'http',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
@@ -55,7 +55,7 @@ export const httpTools: ToolDefinition[] = [
         required: ['url'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'http',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {

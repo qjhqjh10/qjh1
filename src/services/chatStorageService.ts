@@ -139,6 +139,18 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   // Mirror to file
   if (filePath) {
     await writeFile(filePath, JSON.stringify(conversations))
+    // Human-readable mirror — for CLI debugging
+    let log = ''
+    for (const conv of conversations) {
+      log += `\n══════ ${conv.title} (${conv.id}) ══════\n`
+      for (const m of conv.messages) {
+        if (m.displayOnly || m.compressedSummary) continue
+        const time = m.timestamp ? new Date(m.timestamp).toLocaleString('zh-CN') : '未知时间'
+        const role = m.role === 'user' ? '👤 用户' : m.role === 'assistant' ? '🤖 AI' : `🔧 ${m.role}`
+        log += `\n[${time}] ${role}\n${(m.content || '').slice(0, 500)}\n`
+      }
+    }
+    await writeFile(filePath.replace('.json', '.txt'), log)
   }
 }
 

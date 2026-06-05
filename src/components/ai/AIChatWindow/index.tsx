@@ -4,7 +4,7 @@ import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService, styleTemplateService, templateService, settingsService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, SparklesIcon,
-  ArrowDownTrayIcon, BookOpenIcon, GlobeAltIcon,
+  BookOpenIcon, GlobeAltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
@@ -236,7 +236,6 @@ export default function AIChatWindow() {
   // Token reset handled directly in switchConversation/handleNewConversation/handleClearConversation
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const abortRef = useRef(false)
   const conversationToolNames = useRef(new Set<string>())  // persists across messages within conversation
   const pendingCorrection = useRef<string | null>(null)  // hallucination auto-correction for next send
   const autoRetryRef = useRef(false)  // prevent infinite auto-retry loops
@@ -352,7 +351,7 @@ export default function AIChatWindow() {
     })
   }
 
-  const abortToolLoop = () => { abortRef.current = true; bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
+  const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
   const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
   const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
@@ -673,26 +672,6 @@ export default function AIChatWindow() {
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text)
   }
-
-  const handleApplyToEditor = (content: string) => {
-    switch (activePage) {
-      case 'outline':
-        setOutlineContent(outlineContent ? outlineContent + '\n\n' + content : content); break
-      case 'worldbuilding':
-        setWorldbuildingContent(worldbuildingContent ? worldbuildingContent + '\n\n' + content : content); break
-      case 'detailed-outline':
-        if (currentChapterId) {
-          const f = detailedChapters.find(c => c.id === currentChapterId)
-          if (f) updateDetailedChapter(f.id, { ...f, description: f.description ? f.description + '\n\n' + content : content })
-        }; break
-      case 'chapter':
-        if (currentChapterId) {
-          setReplaceAction({ chapterId: currentChapterId, content })
-        }; break
-    }
-  }
-
-  const canApply = ['worldbuilding', 'outline', 'detailed-outline', 'chapter'].includes(activePage)
 
   return (
     <>
@@ -1195,17 +1174,8 @@ export default function AIChatWindow() {
                   </div>
                 )}
 
-                {/* Apply button (no insertion, plain text) */}
-                {msg.role === 'assistant' && msg.id !== 'welcome' && !msg.insertion && canApply && msg.content.length > 10 && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 14, paddingLeft: 36 }}>
-                    <SpeakButton text={msg.content} />
-                    <button onClick={() => handleApplyToEditor(msg.content)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                      <ArrowDownTrayIcon style={{ width: 12, height: 12 }} /> 应用到编辑器
-                    </button>
-                  </div>
-                )}
-                {/* Speak button for all assistant messages (even without apply button) */}
-                {msg.role === 'assistant' && msg.id !== 'welcome' && (!canApply || msg.insertion || msg.content.length <= 10) && msg.content.length > 5 && (
+                {/* Speak button for assistant messages */}
+                {msg.role === 'assistant' && msg.id !== 'welcome' && msg.content.length > 5 && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10, paddingLeft: 36 }}>
                     <SpeakButton text={msg.content} />
                   </div>

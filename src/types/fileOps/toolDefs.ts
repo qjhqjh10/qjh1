@@ -361,10 +361,11 @@ export const FILE_TOOLS = [
     function: {
       name: 'search_images',
       description:
-        '在 Unsplash 图库搜索高清图片并保存到项目 images/ 目录。\n' +
+        '在 Pexels 图库搜索免费高清图片并保存到 images/ 目录。\n' +
         '【严格限制】仅当用户明确要求图片/照片/插图/形象图/配图时才调用。\n' +
         '【绝对禁止】在以下场景使用：收集文字素材、记录信息到知识库、搜索写作参考资料、查找描写词汇。这些场景用 webSearch 或模型知识。\n' +
-        '【可用场景】用户说"找张图""有照片吗""搜插图""给角色配图""找图片存草稿"。',
+        '【可用场景】用户说"找张图""有照片吗""搜插图""给角色配图""找图片存草稿"。\n' +
+        '【需 PEXELS_API_KEY 环境变量】免费注册 https://www.pexels.com/api/（200次/时，2万次/月）。',
       parameters: {
         type: 'object',
         properties: {
@@ -382,7 +383,7 @@ export const FILE_TOOLS = [
       description:
         '使用当前配置的 AI 模型生成图片并保存到项目 images/ 目录。\n' +
         '【何时用】用户要求给角色配图/画形象图、生成章节插图、创建封面图等需要 AI 绘画的场景。\n' +
-        '【何时不用】用户只是找参考图/素材图 — 用 search_images 搜索 Unsplash 图库。\n' +
+        '【何时不用】用户只是找参考图/素材图 — 用 search_images 搜索 Pexels 图库。\n' +
         '【流程】生成后图片自动保存到 images/ 目录，返回文件路径。给角色配图时需再调用 edit_file 设置 image 字段。\n' +
         '【注意】使用用户在设置中配置的模型（支持 DALL-E 3 或其他兼容 API）。',
       parameters: {

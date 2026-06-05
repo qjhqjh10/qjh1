@@ -213,6 +213,14 @@ export function TokenStatsTab() {
           <span style={{ fontSize: 11, color: '#9b8e84' }}>
             基于审计日志，按 Agent 会话聚合
           </span>
+          <button onClick={async () => {
+            if (!confirm('确定清空所有会话统计记录？此操作不可撤销。')) return
+            await statsService.resetSessions()
+            setSessionStats(null)
+            setTimeout(() => statsService.getSessionStats().then(setSessionStats).catch(() => {}), 200)
+          }} className="interactive" style={{ ...miniSelect, cursor: 'pointer', marginLeft: 'auto', border: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.04)', color: '#dc2626', fontWeight: 600 }}>
+            🗑 清空会话
+          </button>
         </div>
 
         {sessionStats && sessionStats.totalSessions > 0 ? (
@@ -281,6 +289,18 @@ export function TokenStatsTab() {
                               {s.errorCount} 错误
                             </span>
                           )}
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              if (!confirm(`删除会话 ${s.sessionId.slice(0, 8)}... 的记录？`)) return
+                              await statsService.deleteSession(s.sessionId)
+                              statsService.getSessionStats().then(setSessionStats).catch(() => {})
+                            }}
+                            title="删除此会话"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#d4ccc4', marginLeft: 'auto', flexShrink: 0 }}
+                          >
+                            <TrashIcon style={{ width: 12, height: 12 }} />
+                          </button>
                         </div>
 
                         {/* Session detail (expanded) */}

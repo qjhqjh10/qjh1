@@ -25,6 +25,7 @@ export default function DetailedOutlinePage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const projects = useStore(s => s.projects)
   const detailedChapters = useStore(s => s.detailedChapters)
   const setDetailedChapters = useStore(s => s.setDetailedChapters)
@@ -65,7 +66,7 @@ export default function DetailedOutlinePage() {
 
     setLoading(true)
     loadDetailedChapters(pp).then(setDetailedChapters).finally(() => setLoading(false))
-  }, [activeProjectId, projectsBasePath])
+  }, [activeProjectId, projectsBasePath, fileVersion])
 
   // AI file edit → auto-refresh
   useEffect(() => {

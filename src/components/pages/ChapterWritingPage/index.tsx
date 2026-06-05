@@ -47,6 +47,7 @@ export default function ChapterWritingPage() {
     if (!activeProjectId) navigate('/')
   }, [activeProjectId, navigate])
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const detailedChapters = useStore(s => s.detailedChapters)
   const updateDetailedChapter = useStore(s => s.updateDetailedChapter)
   const characters = useStore(s => s.characters)
@@ -144,7 +145,7 @@ export default function ChapterWritingPage() {
     loadVersionHistory(pp, chapterId).then(setVersionHistory)
     // Load saved scene config
     sceneService.loadChapterSceneConfig(pp, chapterId).then(setChapterSceneConfig)
-  }, [activeProjectId, chapterId, projectsBasePath])
+  }, [activeProjectId, chapterId, projectsBasePath, fileVersion])
 
   // Handle insertion action from AI
   useEffect(() => {

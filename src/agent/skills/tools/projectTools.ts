@@ -19,7 +19,7 @@ export const projectTools: ToolDefinition[] = [
         required: ['name'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'AUTO',
     category: 'project',
     availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {

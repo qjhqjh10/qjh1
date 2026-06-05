@@ -26,6 +26,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileEditNotify = useStore(s => s.fileEditNotify)
+  const fileVersion = useStore(s => s.fileVersion)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const characters = useStore(s => s.characters)
   const setCharacters = useStore(s => s.setCharacters)
@@ -73,7 +74,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     }
     setLoading(true)
     loadCharacters(pp).then(setCharacters).finally(() => setLoading(false))
-  }, [activeProjectId, projectsBasePath])
+  }, [activeProjectId, projectsBasePath, fileVersion])
 
   useEffect(() => {
     const p = (fileEditNotify?.filePath || '').replace(/\\/g, '/').toLowerCase()

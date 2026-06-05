@@ -103,7 +103,7 @@ export const noteTools: ToolDefinition[] = [
         required: ['note_name', 'content'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'AUTO',
     category: 'note',
     availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
@@ -138,7 +138,7 @@ export const noteTools: ToolDefinition[] = [
         required: ['note_name', 'content'],
       },
     },
-    permission: 'READ_ASK',
+    permission: 'AUTO',
     category: 'note',
     availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {

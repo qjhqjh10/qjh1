@@ -57,9 +57,9 @@ const api = {
       ipcRenderer.invoke('ai:chat', messages, configId, projectId),
     chatStream: (messages: { role: string; content: string }[], configId: string, projectId?: string): Promise<void> =>
       ipcRenderer.invoke('ai:chat-stream', messages, configId, projectId),
-    generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number }> =>
+    generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> =>
       ipcRenderer.invoke('ai:generateImage', prompt, configId, projectId, size, style),
-    abortStream: (): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat') },
+    abortStream: (): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat'); ipcRenderer.send('ai:abort-image') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
       ipcRenderer.on('ai:chat-chunk', handler)
@@ -80,8 +80,8 @@ const api = {
       ipcRenderer.on('ai:chat-cancelled', handler)
       return () => ipcRenderer.removeListener('ai:chat-cancelled', handler)
     },
-    listModels: (configId: string): Promise<string[]> =>
-      ipcRenderer.invoke('ai:listModels', configId),
+    listModels: (configId: string, scope?: string): Promise<string[]> =>
+      ipcRenderer.invoke('ai:listModels', configId, scope),
     chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]): Promise<string> =>
       ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools),
     executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
@@ -132,6 +132,10 @@ const api = {
       ipcRenderer.invoke('settings:loadConfigs'),
     clearConfigs: (): Promise<void> =>
       ipcRenderer.invoke('settings:clearConfigs'),
+    savePexelsKey: (key: string): Promise<void> =>
+      ipcRenderer.invoke('settings:savePexelsKey', key),
+    loadPexelsKey: (): Promise<string> =>
+      ipcRenderer.invoke('settings:loadPexelsKey'),
   },
   dialog: {
     saveFile: (defaultName: string): Promise<string | null> =>
@@ -186,6 +190,8 @@ const api = {
     getMonthCost: (): Promise<number> => ipcRenderer.invoke('stats:getMonthCost'),
     getSessionStats: (): Promise<SessionStatsResult> => ipcRenderer.invoke('stats:getSessionStats'),
     reset: (): Promise<any> => ipcRenderer.invoke('stats:reset'),
+    deleteSession: (sessionId: string): Promise<any> => ipcRenderer.invoke('stats:deleteSession', sessionId),
+    resetSessions: (): Promise<any> => ipcRenderer.invoke('stats:resetSessions'),
   },
   styleProjects: {
     importFile: (): Promise<{ name: string; content: string } | null> => ipcRenderer.invoke('style:importFile'),
