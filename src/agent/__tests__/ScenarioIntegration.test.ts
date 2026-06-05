@@ -75,25 +75,25 @@ describe('S1: 文本导入→大纲/草稿', () => {
     expect(match).not.toBeNull()
     // "加到故事大纲"同时触发 text-import 和 outline-creation
     // outline-creation 更精准（直接操作大纲），这是正确的匹配优先级
-    expect(['text-import', 'outline-creation']).toContain(match!.skill.id)
+    expect(['text-processor', 'outline-creation']).toContain(match!.skill.id)
   })
 
   it('text-import 技能匹配：上传文件后分析并导入世界观', () => {
     const match = skillRegistry.matchBest('看看 uploads/files/world_setting.txt，把世界观相关内容写入设定里', 0.3)
     expect(match).not.toBeNull()
-    expect(['text-import', 'outline-creation', 'worldbuilding-import']).toContain(match!.skill.id)
+    expect(['text-processor', 'outline-creation', 'worldbuilding-import']).toContain(match!.skill.id)
   })
 
   it('text-import 技能匹配：新增触发词"整理这段内容写入大纲"', () => {
     const match = skillRegistry.matchBest('整理这段文字的内容，把人物设定写入角色里', 0.3)
     expect(match).not.toBeNull()
-    expect(match!.skill.id).toBe('text-import')
+    expect(match!.skill.id).toBe('text-processor')
   })
 
   it('text-import 技能匹配：存为草稿', () => {
     const match = skillRegistry.matchBest('这段文字存为草稿：主角的武器是一把会说话的剑', 0.3)
     expect(match).not.toBeNull()
-    expect(match!.skill.id).toBe('text-import')
+    expect(match!.skill.id).toBe('text-processor')
   })
 
   it('大纲创作技能匹配：编故事剧情大纲', () => {
@@ -234,25 +234,25 @@ describe('S3: 文本→纯分析', () => {
     expect(match).not.toBeNull()
     // 注意："分析+风格"关键词会同时触发 text-analysis 和 style-template
     // style-template 优先级更高（有更多维度相关 trigger），这是设计权衡
-    expect(['text-analysis', 'style-template']).toContain(match!.skill.id)
+    expect(['text-processor', 'style-template']).toContain(match!.skill.id)
   })
 
   it('text-analysis 技能匹配：新增触发词"评估这段文风"', () => {
     const match = skillRegistry.matchBest('评估这段文字的风格和写法特点', 0.3)
     expect(match).not.toBeNull()
-    expect(['text-analysis', 'style-template']).toContain(match!.skill.id)
+    expect(['text-processor', 'style-template']).toContain(match!.skill.id)
   })
 
   it('text-analysis 技能匹配：新增触发词"这段写得怎么样"', () => {
     const match = skillRegistry.matchBest('这段文字写得怎么样？帮我分析分析', 0.3)
     expect(match).not.toBeNull()
-    expect(match!.skill.id).toBe('text-analysis')
+    expect(match!.skill.id).toBe('text-processor')
   })
 
   it('text-analysis 技能匹配：新增触发词"看看什么风格"', () => {
     const match = skillRegistry.matchBest('看看这段文字是什么风格的写法', 0.3)
     expect(match).not.toBeNull()
-    expect(['text-analysis', 'style-template']).toContain(match!.skill.id)
+    expect(['text-processor', 'style-template']).toContain(match!.skill.id)
   })
 
   it('RUN: text-analysis → 纯文本回复（零工具调用）', async () => {
@@ -425,10 +425,11 @@ describe('S6: 关键词搜索', () => {
 describe('S7: 任务排序', () => {
   it('V4SystemPrompt 包含任务排序指令', async () => {
     const prompt = await buildSystemPromptWithSkills([], '', '', 'test')
-    expect(prompt).toContain('先做最后一个')
-    expect(prompt).toContain('倒序执行')
-    expect(prompt).toContain('严格遵守用户指定的顺序')
-    expect(prompt).toContain('任务排序模糊时先列出你理解的顺序')
+    // v9.5.3: 排序指令已增强为独立段落
+    expect(prompt).toContain('任务排序')
+    expect(prompt).toContain('严格遵守')
+    expect(prompt).toContain('指定顺序')
+    expect(prompt).toContain('执行前先列出你理解的顺序')
   })
 
   it('Skill 匹配不干扰任务排序逻辑 — 多任务消息可匹配或默认工具集', () => {
@@ -444,12 +445,12 @@ describe('S7: 任务排序', () => {
 
   it('V4SystemPrompt 任务排序指令覆盖所有场景', async () => {
     const prompt = await buildSystemPromptWithSkills([], '', '', 'test')
-    // 验证三个顺序指令都存在
-    expect(prompt).toContain('先做最后一个')
-    expect(prompt).toContain('倒序执行')
-    expect(prompt).toContain('严格遵守用户指定的顺序')
-    expect(prompt).toContain('任务排序模糊时先列出你理解的顺序')
-    expect(prompt).toContain('多个独立任务默认按用户提出的先后顺序执行')
+    // v9.5.3: 排序指令已增强为 ## 任务排序 独立段落
+    expect(prompt).toContain('任务排序')
+    expect(prompt).toContain('指定顺序')
+    expect(prompt).toContain('严格遵守')
+    expect(prompt).toContain('执行前先列出你理解的顺序')
+    expect(prompt).toContain('多任务逐个完成')
   })
 })
 

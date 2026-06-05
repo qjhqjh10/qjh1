@@ -65,6 +65,11 @@ export interface SkillStep {
   argsTemplate: Record<string, string>  // 参数模板，${field} 从用户输入提取
   optional: boolean
   condition?: string                // 条件表达式，满足才执行
+  /** v9.5.3: 前置条件 — 如果指定的文件不存在，自动跳过此步骤 */
+  precondition?: {
+    type: 'file_exists' | 'file_not_empty'
+    path: string                    // 支持 ${projectId} ${n} ${prevChapter} 模板变量
+  }
 }
 
 /** 技能工作流 */
@@ -228,6 +233,8 @@ export interface ActiveSkillContext {
   completedSteps: Set<number>
   extractedFields: Record<string, unknown>
   retryCount: number               // 单步骤最多重试 3 次
+  /** v9.5.3: 已确认缺失的文件路径集合。前置条件检查时自动跳过这些文件的步骤。 */
+  missingFiles: Set<string>
 }
 
 /** 质量检查评估器 — 可选的代码级校验 */

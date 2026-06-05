@@ -36,7 +36,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_create_file',
       description:
-        '在知识库创建新文件保存资料。何时使用：要保存的内容不匹配任何已有知识库文件时。先调用 kb_list 确认是否需要新建。文件名应描述性（如"古风服饰描写收集.md"）。创建后可调用 kb_index_file 建立语义搜索索引。',
+        '在知识库创建新文件保存资料。何时使用：要保存的内容不匹配任何已有知识库文件时。先调用 kb_list 确认是否需要新建。文件名应描述性（如"古风服饰描写收集.md"）。创建后必须调用 kb_index_file 建立语义搜索索引（索引不会自动建立）。',
       parameters: {
         type: 'object',
         properties: {
@@ -60,17 +60,11 @@ export const kbTools: ToolDefinition[] = [
           (args.content as string) || '',
           ctx.projectId || undefined,
         )
-        if (ctx.configId) {
-          try {
-            await kbService.index(result.id, ctx.configId)
-          } catch {
-            /* best-effort indexing */
-          }
-        }
+        // v9.5.3: 不再自动索引 — 由模型通过 kb_index_file 手动控制索引时机
         return {
           status: 'success',
           summary: `已创建知识库文件: ${result.name}`,
-          detail: `文件ID: ${result.id}`,
+          detail: `文件ID: ${result.id}（提示：调用 kb_index_file 建立语义搜索索引）`,
         }
       } catch (e) {
         return {

@@ -31,6 +31,7 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Write tools: strip detail to stay lean ──
   create_file:    ['status', 'summary'],
   edit_file:      ['status', 'summary'],
+  batch_replace:  ['status', 'summary'],  // v9.5.3: write tool
   delete_file:    ['status', 'summary'],
   rename_file:    ['status', 'summary'],
   kb_create_file: ['status', 'summary'],
@@ -38,6 +39,9 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   write_note:     ['status', 'summary'],
   append_note:    ['status', 'summary'],
   delete_note:    ['status', 'summary'],
+  // ── Search tools ──
+  find_files:     ['status', 'summary', 'detail'],  // v9.5.3: read/search
+  search_notes:   ['status', 'summary', 'detail'],  // v9.5.3: read
   // ── HTTP tools: strip detail (response body) ──
   http_get:       ['status', 'summary'],
   http_fetch:     ['status', 'summary'],
@@ -60,11 +64,12 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── LSP ──
   lsp_diagnose:   ['status', 'summary'],
   // ── Harness tools ──
-  session_list:   ['status', 'summary', 'detail'],
+  think:          ['status', 'summary', 'detail'],  // v9.5.3: thought content
   list_rules:     ['status', 'summary', 'detail'],
   learn_rule:     ['status', 'summary'],
   list_audit:     ['status', 'summary', 'detail'],
   write_learning: ['status', 'summary'],
+  update_config:  ['status', 'summary'],  // v9.5.3: harness write
 }
 
 export class ContractExecutor {
@@ -74,9 +79,18 @@ export class ContractExecutor {
     const kept: Record<string, unknown> = {}
     const stripped: string[] = []
 
+    // v9.5.3: 当工具返回 error 时，保留 detail 字段（最多 1000 字符），
+    // 让模型能看到错误详情从而自我修复。覆盖 Contract 中的 strip 规则。
+    const isError = resultObj['status'] === 'error'
+    const errorFields = isError ? ['detail'] : []
+
     for (const field of allFields) {
-      if (contract.includes(field)) {
+      if (contract.includes(field) || errorFields.includes(field)) {
         kept[field] = resultObj[field]
+        // 截断错误 detail 防止上下文膨胀
+        if (isError && field === 'detail' && typeof kept[field] === 'string' && (kept[field] as string).length > 1000) {
+          kept[field] = (kept[field] as string).slice(0, 1000) + '…(已截断)'
+        }
       } else {
         stripped.push(field)
       }

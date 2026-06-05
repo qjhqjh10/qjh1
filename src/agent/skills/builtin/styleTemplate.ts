@@ -52,14 +52,15 @@ export const styleTemplateSkill: SkillDefinition = {
       '⚠️ 禁止传空dimensions！有信号必须填！vocabularyList≤80词 writingRules≤30条',
     steps: [
       { order: 1, tool: 'read_file', purpose: '读取原文（1次，不重读）', argsTemplate: { file_path: '${file_path}' }, optional: false },
-      { order: 2, tool: 'create_style_template', purpose: '创建风格模板', argsTemplate: { name: '${name}', type: '${type}' }, optional: false },
+      { order: 2, tool: 'create_style_template', purpose: '创建风格模板前，先在文本回复中确认已覆盖全部11个必填维度（narrativeTone/sentenceStyle/vocabularyStyle/rhetoricStyle/rhythmStyle/dialogueStyle/moodStyle/perspectiveStyle/bodyLanguageStyle/sensoryStyle/descriptionPattern），每维度含 description/examples/writingRules/vocabularyList', argsTemplate: {}, optional: false, condition: '在文本中列出维度分析清单后再调用 create_style_template' },
+      { order: 3, tool: 'create_style_template', purpose: '创建风格模板（基于步骤2的分析结果）', argsTemplate: { name: '${name}', type: '${type}', dimensions: '${dimensions}' }, optional: false },
     ],
   },
   qualityChecks: [
     { id: '11-required-dims', description: '11必填维全部填写(narrativeTone,sentenceStyle,vocabularyStyle,rhetoricStyle,rhythmStyle,dialogueStyle,moodStyle,perspectiveStyle,bodyLanguageStyle,sensoryStyle,descriptionPattern)', severity: 'error', check: '逐一检查' },
     { id: 'no-empty-dims', description: '禁止传空dimensions对象', severity: 'error', check: 'dimensions非空' },
     { id: 'english-keys', description: '维度key必须用英文（narrativeTone等），不能用中文', severity: 'error', check: 'key全英文' },
-    { id: 'vocab-limit', description: 'vocabularyList≤80词 writingRules≤30条', severity: 'warn', check: '长度' },
+    { id: 'vocabulary-limit', description: 'vocabularyList≤80词 writingRules≤30条', severity: 'warn', check: '长度' },
   ],
   inputSchema: {
     fields: [

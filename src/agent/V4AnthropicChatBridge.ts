@@ -67,7 +67,7 @@ export class V4AnthropicChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 8
+  private maxIterations = 12  // v9.5.3: 8→12，为多步Skill工作流留足余量
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -81,7 +81,7 @@ export class V4AnthropicChatBridge {
   init(options: BridgeOptions): void {
     this.configId = options.configId
     this.projectId = options.projectId
-    this.maxIterations = options.maxIterations ?? 8
+    this.maxIterations = options.maxIterations ?? 12
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
@@ -199,6 +199,14 @@ export class V4AnthropicChatBridge {
         const { buildToolInvokePrompt } = await import('@/types/fileOps')
         const toolInvokePrompt = isChatOnly ? '' : buildToolInvokePrompt()
 
+        // ── v9.5.3: 复杂任务规划指引 — 强制"先规划→逐个执行"模式 ──
+        const multiFilePattern = /(?:每个|所有|各个|全部|分别).*(?:tab|文件|yaml|md)|(?:填写|创建|写入).*(?:各个|多个|每个)/i
+        const isMultiFile = multiFilePattern.test(msg)
+        const isComplex = skillMatch
+          ? skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
+          : /写|创建|修改|删除|编辑|生成|续写/.test(msg)
+        const planInstruction = ((isMultiFile || isComplex) && !options.planMode) ? (isMultiFile ? '逐个文件完成。' : isComplex ? '逐步骤完成。' : '')
+
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const globalIndexTokens = estimateTokens(globalIndex || '')
         const historyTokens = hist.reduce(
@@ -212,6 +220,7 @@ export class V4AnthropicChatBridge {
           ...base.systemMessages.map(m => m.content),
           searchContext,
           toolInvokePrompt,
+          planInstruction,  // v9.5.3: 已精简
         ].filter(Boolean).join('\n\n')
 
         const systemMessages = [
@@ -325,27 +334,48 @@ export class V4AnthropicChatBridge {
       this.runtime.setToolExecutor(toolExecutor)
 
       // ── 5. Skill 驱动的工具裁剪 ──
+      // v9.5.4: SKILL 模式触发条件 = 任务复杂度（多文件 / 多步骤 / 多 Skill），不再依赖 confidence 阈值
       const allTools = toolRegistry.getAllSchemas()
-      const skillMatch = skillRegistry.matchBest(userMessage, 0.5)
+      const skillMatch = skillRegistry.matchBest(userMessage, 0.3)
+      const allMatches = skillRegistry.match(userMessage).filter(m => m.confidence >= 0.3)
+      const isMultiSkill = allMatches.length >= 2
+      const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
+      const useSkillMode = isMultiFile || isComplexSkill || isMultiSkill
+
       let toolsForRuntime = allTools
-      if (skillMatch && skillMatch.confidence >= 0.6) {
+      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
+
+      if (useSkillMode && skillMatch) {
+        // SKILL 模式：合并所有匹配 Skill 的工具 + 通用工具
         const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
+        if (isMultiSkill) {
+          for (const m of allMatches) {
+            for (const s of m.skill.workflow.steps) neededTools.add(s.tool)
+          }
+        }
         neededTools.add('read_file')
         neededTools.add('list_directory')
         neededTools.add('search_content')
+        neededTools.add('think')
         toolsForRuntime = allTools.filter((t: any) => neededTools.has(t.function.name))
-      }
-      this.runtime.setTools(toolsForRuntime)
 
-      // v5: Skill 运行时上下文 — 命中时传给 Runtime 做步骤追踪+质量检查
-      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
-      if (skillMatch && skillMatch.confidence >= 0.6) {
         activeSkillCtx = {
           skillId: skillMatch.skill.id,
           currentStep: 1,
           completedSteps: new Set(),
           extractedFields: skillMatch.extractedFields,
           retryCount: 0,
+          missingFiles: new Set(),
+        }
+      }
+      // else: TOOL 模式 — 全部工具可用，零 Skill 开销
+      this.runtime.setTools(toolsForRuntime)
+
+      // v9.5.3: Skill 可覆盖 maxIterations（如批量角色=15，多任务编排=20）
+      if (activeSkillCtx) {
+        const skill = skillRegistry.get(activeSkillCtx.skillId)
+        if (skill?.workflow.maxIterations) {
+          this.runtime.setMaxIterations(Math.max(this.maxIterations, skill.workflow.maxIterations))
         }
       }
 

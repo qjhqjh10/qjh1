@@ -1058,6 +1058,46 @@ export async function executeFileTool(
         return { callId, toolName, status: 'success', summary, detail }
       }
 
+      // ── batch_replace: 单文件批量精确替换 ──
+      case 'batch_replace': {
+        const replacements = args.replacements as Array<{ old_string: string; new_string: string }> | undefined
+        if (!replacements || !Array.isArray(replacements) || replacements.length === 0) {
+          return { callId, toolName, status: 'error', summary: 'replacements 必须是非空数组' }
+        }
+        const fp = resolvePath(String(args.file_path || ''), projectPath, appRoot)
+        if (!fp) return { callId, toolName, status: 'error', summary: `路径无效` }
+
+        let content: string
+        try { content = await fsp.readFile(fp, 'utf-8') } catch {
+          return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
+        }
+        if (content.length > 10_000_000) {
+          return { callId, toolName, status: 'error', summary: '文件过大（>10MB），请手动编辑' }
+        }
+
+        let modified = content
+        let applied = 0
+        for (let i = 0; i < replacements.length; i++) {
+          const { old_string, new_string } = replacements[i]
+          if (old_string === '__FULL_REPLACE__') {
+            modified = new_string
+            applied++
+            break // 全量替换后忽略后续替换
+          }
+          if (!modified.includes(old_string)) {
+            return {
+              callId, toolName, status: 'error',
+              summary: `第 ${i + 1}/${replacements.length} 个替换失败: 未找到匹配文本`,
+              detail: `old_string 前80字: ${old_string.slice(0, 80)}\n文件前200字: ${modified.slice(0, 200)}`,
+            }
+          }
+          modified = modified.replace(old_string, new_string)
+          applied++
+        }
+        await fsp.writeFile(fp, modified, 'utf-8')
+        return { callId, toolName, status: 'success', summary: `已执行 ${applied}/${replacements.length} 个替换` }
+      }
+
       default:
         return { callId, toolName, status: 'error', summary: `未知操作: ${toolName}` }
     }

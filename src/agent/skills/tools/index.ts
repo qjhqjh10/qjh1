@@ -1,5 +1,5 @@
 // ── Tool Aggregator ──
-// Aggregates all 38 self-contained skill-system tools across 12 categories.
+// Aggregates all 41 self-contained skill-system tools across 12 categories.
 // Import from individual category modules and re-export as a flat array.
 
 import { fileTools } from './fileTools'
@@ -14,11 +14,12 @@ import { httpTools } from './httpTools'
 import { browserTools } from './browserTools'
 import { shellTools } from './shellTools'
 import { lspTools } from './lspTools'
+import { thinkTools } from './thinkTools'
 
 import type { ToolDefinition } from '../types'
 
 export const ALL_TOOLS: ToolDefinition[] = [
-  ...fileTools,      // 8 tools:  list_directory, read_file, search_content, edit_file, create_file, delete_file, rename_file, find_files
+  ...fileTools,      // 9 tools:  list_directory, read_file, search_content, edit_file, batch_replace, create_file, delete_file, rename_file, find_files
   ...kbTools,        // 4 tools:  kb_list, kb_create_file, kb_append_file, kb_index_file
   ...noteTools,      // 6 tools:  list_notes, read_note, write_note, append_note, delete_note, search_notes
   ...imageTools,     // 2 tools:  search_images, generate_image
@@ -30,7 +31,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...browserTools,   // 2 tools:  browser_open, browser_search
   ...shellTools,     // 2 tools:  shell_exec, shell_run_script
   ...lspTools,       // 1 tool:   lsp_diagnose
-  // Total: 39 tools
+  ...thinkTools,     // 1 tool:   think
+  // Total: 41 tools
 ]
 
 export {
@@ -46,4 +48,5 @@ export {
   browserTools,
   shellTools,
   lspTools,
+  thinkTools,
 }

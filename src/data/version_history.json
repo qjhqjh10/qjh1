@@ -1,7 +1,25 @@
 {
-  "currentVersion": "9.8.9",
-  "currentDate": "2026-06-04",
+  "currentVersion": "9.9.0",
+  "currentDate": "2026-06-06",
   "history": [
+    {
+      "version": "9.9.0",
+      "date": "2026-06-06",
+      "features": [
+        "Tool/Skill关系重构: SKILL模式触发从confidence>=0.6改为任务复杂度判断(多文件/多步骤/多Skill),TOOL模式零Skill开销",
+        "CORE_SYSTEM_PROMPT重写: 铁律置顶+禁止行为独立章节+6段结构化,Claude Code逆向工程启发",
+        "新增3工具: batch_replace(批量精确替换)+think(中间推理,54%准确率提升)+taskOrchestration(多意图编排)",
+        "代码硬限制修复: maxIterations 8→12,Skill级覆盖(character 15/taskOrch 20),I5截断500→2000,retryCount熔断反馈,ContractExecutor error状态保留detail",
+        "Tool Bug修复: batch_replace IPC handler, SecurityFence edit_file内容提取, kb_create_file自索引矛盾,find_files权限对齐",
+        "Skill指引增强: character批量创建+maxIterations:15,textImport步骤un-optional, detailedOutline缺失依赖处理,styleTemplate中间验证步骤, knowledgeBase工作流修正",
+        "新能力: think工具(41工具),前置条件检查(missingFiles+自动跳过),Progress Report(skillProgress),多Skill工具集合并(isMultiSkill),连续读行动提示注入",
+        "提示词精简: planInstruction 110→10t, toolInvokePrompt 250→170t, OUTLINE_DOMAIN_MODULE 120→25t,节省~375t(15%)",
+        "质量检查扩展: evaluateQualityCheck从10项→23项(qc-no-nesting/qc-name-match/qc-file-extension/11-required-dims/english-keys/auto-fields-limit/no-empty-config等)",
+        "15场景CLI测试体系: comprehensive-test-suite.mjs+test-utils.mjs,项目创建对齐GUI模板,三层验证(工具调用+文件内容+关键词)",
+        "Anthropic Runtime迭代提示: user角色注入(兼容Anthropic协议)+V4AgentChatBridge同步更新",
+        "textAnalysis+textImport合并为textProcessor(10 Skills), taskOrchestration步骤增强"
+      ]
+    },
     {
       "version": "9.8.0",
       "date": "2026-06-04",

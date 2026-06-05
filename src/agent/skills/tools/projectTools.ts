@@ -8,7 +8,7 @@ export const projectTools: ToolDefinition[] = [
   {
     schema: {
       name: 'create_project',
-      description: '创建新的小说项目（含完整目录骨架）。需要用户确认。',
+      description: '创建新的小说项目（含完整目录骨架：characters/outline/detailed_outline/chapters/summaries + 8个初始化tab文件）。',
       parameters: {
         type: 'object',
         properties: {

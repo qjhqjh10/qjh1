@@ -6,7 +6,7 @@
 
 import { V4AgentRuntime } from './V4AgentRuntime'
 import { V4SecurityFence } from './V4SecurityFence'
-import { buildSystemPrompt, buildSystemPromptWithSkills, selectDomainModules, CHARACTER_DOMAIN_MODULE, OUTLINE_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE, KB_DOMAIN_MODULE } from './V4SystemPrompt'
+import { buildSystemPromptWithSkills, selectDomainModules } from './V4SystemPrompt'
 import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
@@ -83,7 +83,7 @@ export class V4AgentChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 8  // default, overridden by init()
+  private maxIterations = 12  // v9.5.3: 8→12，为多步Skill工作流留足余量
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -98,7 +98,7 @@ export class V4AgentChatBridge {
   init(options: BridgeOptions): void {
     this.configId = options.configId
     this.projectId = options.projectId
-    this.maxIterations = options.maxIterations ?? 8
+    this.maxIterations = options.maxIterations ?? 12
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
@@ -142,13 +142,14 @@ export class V4AgentChatBridge {
 
     try {
       // ── Skill-driven tool scoping ──
-      // Skill 匹配 → 复杂任务按 workflow 裁剪工具（~5-6个），简单任务给默认工具集
+      // v9.5.4: SKILL 模式 = 任务复杂度（多文件 / 多步骤 / 多 Skill），不再依赖 confidence 阈值
       const allTools = toolRegistry.getAllSchemas()
       const msg = userMessage
-      const skillMatch = skillRegistry.matchBest(msg, 0.5)
+      const skillMatch = skillRegistry.matchBest(msg, 0.3)
 
       // ── Tool scoping ──
       const READ   = new Set(['read_file','list_directory','search_content','find_files','search_files'])
+      const ALWAYS = new Set(['think'])
       const WRITE  = new Set(['create_file','edit_file','batch_replace'])
       const DANGER = new Set(['delete_file','rename_file','delete_project'])
       const NOTE   = new Set(['list_notes','read_note','write_note','append_note','delete_note','search_notes'])
@@ -156,49 +157,61 @@ export class V4AgentChatBridge {
       const TMPL   = new Set(['create_style_template','create_scene_template'])
       const PROJ   = new Set(['create_project'])
 
+      // v9.5.4: SKILL 模式判断
+      const allMatches = skillRegistry.match(msg).filter(m => m.confidence >= 0.3)
+      const isMultiSkill = allMatches.length >= 2
+      const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
+      const isMultiFile = /(?:每个|所有|各个|全部|分别).*(?:tab|文件|yaml|md)|(?:填写|创建|写入).*(?:各个|多个|每个)/i.test(msg)
+      const useSkillMode = isMultiFile || isComplexSkill || isMultiSkill
+
       let scopedCore: any[], scopedExtended: any[]
       let taskLabel: string
+      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
 
-      if (skillMatch && skillMatch.confidence >= 0.6) {
-        // Skill 模式：只给 workflow 中引用的工具 + 探索三件套
-        taskLabel = `skill:${skillMatch.skill.id}`
+      if (useSkillMode && skillMatch) {
+        // SKILL 模式：合并所有匹配 Skill 的工具 + 通用工具
+        taskLabel = `skill:${skillMatch.skill.id}${isMultiSkill ? '+multi' : ''}`
         const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
+        if (isMultiSkill) {
+          for (const m of allMatches) {
+            for (const s of m.skill.workflow.steps) neededTools.add(s.tool)
+          }
+        }
         neededTools.add('read_file')
         neededTools.add('list_directory')
         neededTools.add('search_content')
-        scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name))
+        scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name) || ALWAYS.has(t.function.name))
         scopedExtended = []
-      } else {
-        // Tool 模式：默认核心工具集 + 渐进扩展
-        const matched = skillMatch
-        taskLabel = matched ? `skill-low:${matched.skill.id}` : 'default'
-        scopedCore = allTools.filter((t: any) =>
-          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name))
-        scopedExtended = allTools.filter((t: any) =>
-          DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
-      }
 
-      diagnosticLogger.recordInfo(`Agent2: task=${taskLabel} core=${scopedCore.length} ext=${scopedExtended.length}`)
-
-      // v5: Skill 运行时上下文 — 命中时传给 Runtime 做步骤追踪+质量检查
-      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
-      if (skillMatch && skillMatch.confidence >= 0.6) {
         activeSkillCtx = {
           skillId: skillMatch.skill.id,
           currentStep: 1,
           completedSteps: new Set(),
           extractedFields: skillMatch.extractedFields,
           retryCount: 0,
+          missingFiles: new Set(),
         }
       }
 
-      // planInstruction: Skill 多步骤任务 → 注入执行指引
-      const isComplex = skillMatch
-        ? skillMatch.skill.workflow.steps.filter(s => !s.optional).length >= 3
-        : /写|创建|修改|删除|编辑|生成|续写/.test(msg)
-      const planInstruction = (isComplex && !options.planMode)
-        ? `\n## 执行方案\n这是一个${skillMatch ? `"${skillMatch.skill.name}"` : '多步骤'}任务。第一轮列出步骤清单（如"①read_file读大纲 ②edit_file改世界观 ③create_file写角色"），然后立即执行第一步。每轮只做一步，用最精准的工具。全部完成后一句话汇报，不要展开。`
-        : ''
+      // v9.5.3: Skill 可覆盖 maxIterations
+      if (activeSkillCtx) {
+        const skill = skillRegistry.get(activeSkillCtx.skillId)
+        if (skill?.workflow.maxIterations) {
+          this.runtime.setMaxIterations(Math.max(this.maxIterations, skill.workflow.maxIterations))
+        }
+      } else {
+        // TOOL 模式：全工具集，零 Skill 开销
+        taskLabel = skillMatch ? `tool:${skillMatch.skill.id}` : 'default'
+        scopedCore = allTools.filter((t: any) =>
+          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
+        scopedExtended = allTools.filter((t: any) =>
+          DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
+      }
+
+      diagnosticLogger.recordInfo(`Agent2: task=${taskLabel} core=${scopedCore.length} ext=${scopedExtended.length}`)
+
+      // v9.5.4: planInstruction 使用 useSkillMode
+      const planInstruction = useSkillMode ? (isMultiFile ? '逐个文件完成。' : '逐步骤完成。') : ''
 
       // ── 1. Create Runtime ──
       this.runtime = new V4AgentRuntime({

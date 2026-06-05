@@ -32,7 +32,7 @@ export const detailedOutlineSkill: SkillDefinition = {
       '读大纲了解背景 → 读前章摘要了解前情 → 创建细纲YAML。',
     steps: [
       { order: 1, tool: 'read_file', purpose: '读取大纲了解整体剧情', argsTemplate: { file_path: '${projectId}/outline/plot.md' }, optional: false },
-      { order: 2, tool: 'read_file', purpose: '读取前章摘要了解前情（可选）', argsTemplate: { file_path: '${projectId}/summaries/chapter${prevChapter}.md' }, optional: true },
+      { order: 2, tool: 'read_file', purpose: '读取前章摘要了解前情。如果文件不存在（read_file 返回 error），直接跳过此步继续创建细纲。不要重复尝试读取。', argsTemplate: { file_path: '${projectId}/summaries/chapter${prevChapter}.md' }, optional: true },
       { order: 3, tool: 'create_file', purpose: '创建细纲YAML', argsTemplate: { file_path: '${projectId}/detailed_outline/chapter${n}.yaml', content: '${yaml}' }, optional: false },
     ],
   },

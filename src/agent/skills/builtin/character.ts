@@ -42,12 +42,20 @@ export const characterSkill: SkillDefinition = {
       '- 列表: 用 - 前缀，每项一行\n' +
       '- 枚举值不加额外描述（role: 男主，不要写成 role: 男主/血煞教内应）\n\n' +
       '### 创建流程\n' +
-      '先列出已有角色了解格式 → 读取参考角色 → 创建/编辑新角色 → 验证16字段完整性',
+      '先列出已有角色了解格式 → 读取参考角色 → 逐个创建新角色 → 验证16字段完整性\n\n' +
+      '### 批量创建规则\n' +
+      '如果用户要求创建多个角色（如"创建3个角色"），按以下流程：\n' +
+      '1. 先 list_directory 查看已有角色\n' +
+      '2. 读一个参考角色了解格式\n' +
+      '3. 为每个角色执行：create_file → 完成后立即检查16字段完整性\n' +
+      '4. 完成一个角色的所有质量检查后再处理下一个\n' +
+      '5. 全部完成后汇报"X个角色已创建"',
     steps: [
       { order: 1, tool: 'list_directory', purpose: '查看已有角色文件，了解命名和格式', argsTemplate: { path: '${projectId}/characters/' }, optional: false },
       { order: 2, tool: 'read_file', purpose: '读取一个已有角色作为格式参考', argsTemplate: { file_path: '${projectId}/characters/${referenceName}.yaml' }, optional: false },
-      { order: 3, tool: 'create_file', purpose: '创建16字段完整YAML', argsTemplate: { file_path: '${projectId}/characters/${name}.yaml', content: '${yaml}' }, optional: false },
+      { order: 3, tool: 'create_file', purpose: '创建单个角色的16字段完整YAML。如果是批量，重复此步为每个角色创建文件。', argsTemplate: { file_path: '${projectId}/characters/${name}.yaml', content: '${yaml}' }, optional: false },
     ],
+    maxIterations: 15,  // v9.5.3: 批量场景需要更多轮次
   },
   qualityChecks: [
     { id: 'qc-all-fields', description: '16字段必须全部填写（id,name,role,gender,age,occupation,background,appearance,personality,abilities,weaknesses,relationships,relationshipTags,arc,importance,image）', severity: 'error', check: '逐字段检查' },

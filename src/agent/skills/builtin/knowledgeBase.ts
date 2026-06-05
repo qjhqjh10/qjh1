@@ -9,11 +9,11 @@ export const knowledgeBaseSkill: SkillDefinition = {
     { order: 1, tool: 'kb_list', purpose: '查看已有KB文件，判断新建还是追加', argsTemplate: {}, optional: false },
     { order: 2, tool: 'kb_create_file', purpose: '创建新KB文件', argsTemplate: { name: '${name}', content: '${content}' }, optional: true, condition: '用户需要新建' },
     { order: 3, tool: 'kb_append_file', purpose: '追加到已有KB文件', argsTemplate: { name: '${name}', content: '${content}' }, optional: true, condition: '用户需要追加' },
-    { order: 4, tool: 'kb_index_file', purpose: '建立索引以加速搜索', argsTemplate: {}, optional: true },
+    { order: 4, tool: 'kb_index_file', purpose: '建立索引以加速搜索（必须执行，索引不会自动建立）', argsTemplate: {}, optional: false },
   ]},
   qualityChecks: [
     { id: 'list-before-create', description: '创建前先 kb_list，让用户决定新建还是追加', severity: 'error', check: 'kb_list 在 kb_create_file 之前' },
-    { id: 'remind-index', description: 'KB文件创建后提醒用户用 kb_index_file 建立索引', severity: 'warn', check: '文本回复中提及索引' },
+    { id: 'remind-index', description: 'KB文件创建后必须调用 kb_index_file 建立索引（索引不会自动建立）', severity: 'error', check: 'kb_index_file 在 kb_create_file 之后' },
     { id: 'chinese-name', description: 'KB文件使用中文命名', severity: 'warn', check: '文件名含中文' },
   ],
   inputSchema: { fields: [{ name: 'name', type: 'string', required: true }, { name: 'content', type: 'string', required: true }], extractionHint: '提取KB文件名和内容' },

@@ -36,8 +36,8 @@ export const chapterWritingSkill: SkillDefinition = {
     steps: [
       { order: 1, tool: 'read_file', purpose: '读大纲', argsTemplate: { file_path: '${projectId}/outline/plot.md' }, optional: false },
       { order: 2, tool: 'read_file', purpose: '读本章出场角色卡', argsTemplate: { file_path: '${projectId}/characters/${name}.yaml' }, optional: false },
-      { order: 3, tool: 'read_file', purpose: '读本章细纲', argsTemplate: { file_path: '${projectId}/detailed_outline/chapter${n}.yaml' }, optional: false },
-      { order: 4, tool: 'read_file', purpose: '读前章摘要', argsTemplate: { file_path: '${projectId}/summaries/chapter${prev}.md' }, optional: false },
+      { order: 3, tool: 'read_file', purpose: '读本章细纲。如果文件不存在，跳过继续。', argsTemplate: { file_path: '${projectId}/detailed_outline/chapter${n}.yaml' }, optional: true },
+      { order: 4, tool: 'read_file', purpose: '读前章摘要。如果文件不存在，跳过继续。', argsTemplate: { file_path: '${projectId}/summaries/chapter${prev}.md' }, optional: true },
       { order: 5, tool: 'create_file', purpose: '创建章节正文', argsTemplate: { file_path: '${projectId}/chapters/chapter${n}.txt', content: '${text}' }, optional: false },
     ],
   },

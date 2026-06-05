@@ -1,4 +1,4 @@
-// ── File Tools (8 tools) ──
+// ── File Tools (9 tools) ──
 // Self-contained for skill system. Uses @/services/fileService backend via IPC.
 // NOTE: read_file executor checks the shared FileCache (src/agent/context/FileCache)
 // before making the IPC call. This avoids redundant reads within the same session.
@@ -40,7 +40,7 @@ export const fileTools: ToolDefinition[] = [
         required: [],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    permission: 'READ_ASK',
     category: 'file',
     availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('list_directory', args, ctx),
@@ -124,6 +124,39 @@ export const fileTools: ToolDefinition[] = [
     executor: async (args, ctx) => ipcExecute('edit_file', args, ctx),
   },
 
+  // ── Batch replace tool ──
+
+  {
+    schema: {
+      name: 'batch_replace',
+      description:
+        '在单个文件中执行多个精确字符串替换，按顺序依次应用。比多次调用 edit_file 更高效（减少工具调用轮次），且保证替换顺序。何时使用：需要同时修改文件中多处不相邻内容时（如批量修正错别字、多处追加内容、格式化调整）。必须先 read_file 确认原文——每个 old_string 必须与文件逐字精确匹配。任一替换失败则停止后续替换并报错。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string', description: '相对路径' },
+          replacements: {
+            type: 'array',
+            description: '替换列表，按数组顺序依次执行。每项含 old_string（要被替换的原文）和 new_string（替换后的新文本）',
+            items: {
+              type: 'object',
+              properties: {
+                old_string: { type: 'string', description: '要被替换的原文（必须逐字精确匹配，含换行和空格）' },
+                new_string: { type: 'string', description: '替换后的新文本' },
+              },
+              required: ['old_string', 'new_string'],
+            },
+          },
+        },
+        required: ['file_path', 'replacements'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'file',
+    availableInPlanMode: false,
+    executor: async (args, ctx) => ipcExecute('batch_replace', args, ctx),
+  },
+
   // ── Dangerous tools ──
 
   {
@@ -140,6 +173,9 @@ export const fileTools: ToolDefinition[] = [
         required: ['file_path', 'content'],
       },
     },
+    // NOTE: create_file 的 permission 设为 AUTO 是有意为之（非 bug）。
+    // 用户在创作流程中需要 AI 自动创建文件（角色、章节、细纲等），
+    // 避免每次创作都弹出确认框打断工作流。后端服务会在覆盖已有文件前校验。
     permission: 'AUTO',
     category: 'file',
     availableInPlanMode: false,
@@ -236,7 +272,8 @@ export const fileTools: ToolDefinition[] = [
         required: ['pattern'],
       },
     },
-    permission: 'READ_ASK',
+    // scope="computer" 可搜索用户整个电脑 → 需要用户确认
+    permission: 'DANGEROUS_ASK',
     category: 'file',
     availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('find_files', args, ctx),

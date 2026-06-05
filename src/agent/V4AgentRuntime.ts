@@ -50,6 +50,8 @@ export interface V4AgentRunResult {
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
   iterationCount: number
+  /** v9.5.3: Skill 任务完成进度 */
+  skillProgress?: { completed: number; total: number }
 }
 
 // ── Dependency Contracts ──
@@ -102,6 +104,7 @@ export class V4AgentRuntime {
   private compressedAt = 0
   private lastCompressLength = 0  // v4.2: protect recent tool results from being compressed away
   private activeSkill: ActiveSkillContext | null = null  // v5: Skill 运行时追踪
+  private _consecutiveReads = 0  // v9.5.3: 行动提示计数器
 
   constructor(config: V4AgentConfig) {
     this.config = config
@@ -117,6 +120,7 @@ export class V4AgentRuntime {
   setExtendedTools(tools: unknown[]): void { this.extendedTools = tools }  // v4.1 progressive disclosure
   setHistory(messages: Message[]): void { this.historyMessages = messages }
   setActiveSkill(skill: ActiveSkillContext | null): void { this.activeSkill = skill }  // v5: Skill 运行时追踪
+  setMaxIterations(n: number): void { this.config.maxIterations = n }  // v9.5.3: Skill 可覆盖
 
   getEmitter(): AgentEventEmitter { return this.emitter }
   getToolResults(): readonly ToolResult[] { return [] }
@@ -337,7 +341,7 @@ export class V4AgentRuntime {
 
       // ── Execute tools ──
       // Read tools → parallel, write tools → sequential (based on operation type, not permission)
-      const WRITE_TOOLS = new Set(['create_file','edit_file','delete_file','rename_file','create_project','delete_project',
+      const WRITE_TOOLS = new Set(['create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
         'create_style_template','create_scene_template','kb_create_file','kb_append_file','write_note','append_note','delete_note',
         'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search'])
       const readOnlyCalls: ToolCallRequest[] = []
@@ -406,6 +410,9 @@ export class V4AgentRuntime {
       toolCallSteps: this.toolCallSteps,
       contextBreakdown: contextResult.breakdown,
       iterationCount: iteration,
+      skillProgress: this.activeSkill
+        ? { completed: this.activeSkill.completedSteps.size, total: skillRegistry.get(this.activeSkill.skillId)?.workflow.steps.length ?? 0 }
+        : undefined,
     }
   }
 
@@ -478,10 +485,44 @@ export class V4AgentRuntime {
       })
     }
 
+    // ── v9.5.3: 前置条件 — 跟踪缺失文件 ──
+    if (this.activeSkill && tc.name === 'read_file' && result.status === 'error') {
+      const fp = String(args.file_path || '')
+      if (fp) this.activeSkill.missingFiles.add(fp)
+    }
+
+    // ── v9.5.3: 行动提示 — 连续读取后无写入则注入提醒 ──
+    const READ_TOOLS_ACTION = new Set(['read_file','list_directory','search_content','find_files'])
+    const WRITE_TOOLS_ACTION2 = new Set(['create_file','edit_file','batch_replace','delete_file','rename_file',
+      'kb_create_file','kb_append_file','write_note','append_note'])
+    if (READ_TOOLS_ACTION.has(tc.name)) {
+      this._consecutiveReads = (this._consecutiveReads || 0) + 1
+    } else if (WRITE_TOOLS_ACTION2.has(tc.name)) {
+      this._consecutiveReads = 0
+    }
+    if ((this._consecutiveReads || 0) >= 2 && result.status === 'success') {
+      this.messagesForApi.push({
+        role: 'user',
+        content: '[行动提示] 已连续读取多个文件，请立即对需要修改的文件调用 edit_file 或 create_file 写入。',
+      })
+      this._consecutiveReads = 0
+    }
+
     // ── v5: Skill 质量检查 ──
     if (this.activeSkill && result.status === 'success') {
       const skill = skillRegistry.get(this.activeSkill.skillId)
       if (skill) {
+        // v9.5.3: 前置条件 — 下一步文件已知缺失则自动跳过
+        const nextStep = skill.workflow.steps.find(s => s.order === this.activeSkill!.currentStep + 1)
+        if (nextStep?.precondition && this.activeSkill!.missingFiles.has(nextStep.precondition.path)) {
+          this.activeSkill!.completedSteps.add(nextStep.order)
+          this.activeSkill!.currentStep = Math.min(nextStep.order + 1, skill.workflow.steps.length + 1)
+          this.messagesForApi.push({
+            role: 'user',
+            content: `[前置条件] 步骤 ${nextStep.order}（${nextStep.purpose}）所需文件已知不存在，已自动跳过。`,
+          })
+        }
+
         // 标记步骤完成
         const matchedStep = skill.workflow.steps.find(
           s => s.tool === tc.name && s.order === this.activeSkill!.currentStep
@@ -504,6 +545,13 @@ export class V4AgentRuntime {
               `\n请基于以上反馈修正后重新调用 ${tc.name}。`
             this.messagesForApi.push({ role: 'user', content: correctionMsg })
             diagnosticLogger.recordInfo(`Skill QC: ${failed.length} checks failed for ${skill.id}`)
+          } else if (failed.length > 0 && this.activeSkill.retryCount >= 3) {
+            // v9.5.3: 熔断反馈 — retryCount 耗尽时告知模型，避免静默放弃
+            this.messagesForApi.push({
+              role: 'user',
+              content: `[质量检查] 已重试 ${this.activeSkill.retryCount} 次仍未通过以下检查，当前结果已接受，请继续后续步骤：\n` +
+                failed.map(f => `- ${f.description}`).join('\n'),
+            })
           }
         }
       }
@@ -512,14 +560,19 @@ export class V4AgentRuntime {
     // Filter result for API context (ContractExecutor: strip verbose detail)
     const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
     // I5: Progressive trim — after iteration 1, truncate read tool detail to 500 chars
-    if (iteration > 1 && resultForApi.detail && resultForApi.detail.length > 500) {
-      resultForApi.detail = resultForApi.detail.slice(0, 500) + '…(已截断)'
+    // v9.5.3: I5 截断阈值 500→2000，对齐 ContextCompressor Stage 1
+    if (iteration > 1 && resultForApi.detail && resultForApi.detail.length > 2000) {
+      resultForApi.detail = resultForApi.detail.slice(0, 2000) + '…(已截断)'
     }
     const finalResult = note ? { ...resultForApi, note } : resultForApi
     this.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
   }
 
   // ── v5: Skill 质量检查执行器 ──
+  // 质量检查分两类：
+  //   A. 代码可自动检测 — 正则/结构校验（如字段完整性、格式合法性）
+  //   B. 行为约束 — 依赖提示词约束（如"必须先 read_file"、"等待用户确认"）
+  //     此类在 evaluateQualityCheck 中 default → true，不会误报
 
   private runQualityChecks(
     skill: { qualityChecks: Array<{ id: string; description: string; severity: string; check: string }> },
@@ -531,10 +584,9 @@ export class V4AgentRuntime {
     const content = String(args.content || result.detail || '')
 
     for (const qc of skill.qualityChecks) {
-      // 只对 write/create 工具运行检查
       if (!this.isQualityCheckApplicable(qc.id, toolName)) continue
 
-      const passed = this.evaluateQualityCheck(qc.id, content)
+      const passed = this.evaluateQualityCheck(qc.id, content, args)
       if (!passed) {
         failed.push({ id: qc.id, description: qc.description })
       }
@@ -543,51 +595,139 @@ export class V4AgentRuntime {
   }
 
   private isQualityCheckApplicable(checkId: string, toolName: string): boolean {
-    // 角色相关检查 → 仅 create_file 创建角色文件时
-    if (/^qc-/.test(checkId) && toolName === 'create_file') {
-      return true
-    }
-    // 风格/场景模板检查 → 仅对应模板工具
-    if (/^(no-empty-dims|11-required-dims|vocabulary-limit)$/.test(checkId)) {
-      return toolName === 'create_style_template'
-    }
-    if (/^(required-fields|auto-fields)$/.test(checkId)) {
-      return toolName === 'create_scene_template' || toolName === 'create_style_template'
-    }
-    // 字数/格式检查 → 章节创建
-    if (/^(word-count|paragraph-spacing|not-one-block)$/.test(checkId)) {
-      return toolName === 'create_file'  // 章节正文
+    // 角色相关检查（qc- 前缀）→ 仅 create_file 创建角色文件时
+    if (/^qc-/.test(checkId) && toolName === 'create_file') return true
+    // 章节内容检查 → create_file（章节正文 .txt）
+    if (/^(word-count|paragraph-spacing|not-one-block|chapter-format|read-summary-not-chapter)$/.test(checkId)) return toolName === 'create_file'
+    // 风格模板检查 → create_style_template
+    if (/^(no-empty-dims|11-required-dims|vocabulary-limit|english-keys)$/.test(checkId)) return toolName === 'create_style_template'
+    // 场景模板检查
+    if (/^(required-fields|auto-fields-limit|no-empty-config)$/.test(checkId)) return toolName === 'create_scene_template'
+    // 大纲/追加内容检查 → edit_file 或 create_file
+    if (/^(content-length|old-string-exact|append-not-overwrite)$/.test(checkId)) return toolName === 'edit_file' || toolName === 'create_file'
+    // KB/其他检查
+    if (/^(list-before-create|remind-index|chinese-name)$/.test(checkId)) return toolName === 'kb_create_file'
+    // 通用格式检查
+    if (/^(yaml-format|plot-length|analyze-first|wait-confirm|offer-options|confirm-type|read-before-edit)$/.test(checkId)) {
+      // 行为约束类 → 代码无法检测，不在此处拦截（依赖 Skill 提示词中的指引）
+      return false
     }
     return false
   }
 
-  private evaluateQualityCheck(checkId: string, content: string): boolean {
+  private evaluateQualityCheck(checkId: string, content: string, args: Record<string, unknown>): boolean {
+    const filePath = String(args.file_path || '')
+    const fileName = filePath.replace(/^.*[/\\]/, '').replace(/\.(yaml|yml|json)$/, '')
+
     switch (checkId) {
+      // ═══ 角色卡检查 ═══
       case 'qc-all-fields': {
-        // 检查角色 16 字段是否全存在
         const requiredFields = ['id','name','role','gender','age','occupation',
           'background','appearance','personality','abilities','weaknesses',
           'relationships','relationshipTags','arc','importance']
-        return requiredFields.every(f => content.includes(f))
+        return requiredFields.every(f => content.includes(f + ':'))
       }
       case 'qc-abilities-string':
-        return !/\babilities\b.*:\s*\{/.test(content)
+        return !/\babilities\b.*:\s*[\{\[]/.test(content)
       case 'qc-role-enum':
         return /\brole\b.*:\s*(男主|女主|男配|女配|反派|其他)/.test(content)
       case 'qc-relationship-tags':
         return /relationshipTags\b.*:\s*\[/.test(content)
       case 'qc-importance-number':
         return /\bimportance\b.*:\s*\d+/.test(content)
+      case 'qc-no-nesting':
+        // 检测常见的嵌套反模式：字段值后面紧跟缩进的子键
+        return !/^(id|name|role|gender|age|occupation|background|appearance|personality|abilities|weaknesses|relationships|relationshipTags|arc|importance):\s*\n\s+\w+:/m.test(content)
+      case 'qc-name-match': {
+        if (!fileName || !content) return true // 无法判断时放行
+        const nameField = content.match(/^name:\s*(.+)$/m)
+        return nameField ? nameField[1].trim() === fileName : true
+      }
+      case 'qc-file-extension':
+        return filePath.endsWith('.yaml') || filePath.endsWith('.yml')
+
+      // ═══ 风格模板检查 ═══
       case 'no-empty-dims':
-        return !/\bdimensions\b.*:\s*\{\s*\}/.test(content)
+        return !/\bdimensions\b.*:\s*\{\s*\}/.test(content) && !/\bdimensions\b.*:\s*""/.test(content)
+      case '11-required-dims': {
+        const requiredDims = ['narrativeTone','sentenceStyle','vocabularyStyle','rhetoricStyle',
+          'rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle',
+          'sensoryStyle','descriptionPattern']
+        // args.dimensions 可能是对象或 JSON 字符串
+        let dims: Record<string, unknown> | null = null
+        const rawDims = args.dimensions
+        if (typeof rawDims === 'string') {
+          try { dims = JSON.parse(rawDims) } catch { /* not JSON */ }
+        } else if (rawDims && typeof rawDims === 'object') {
+          dims = rawDims as Record<string, unknown>
+        }
+        if (dims) {
+          return requiredDims.every(d => dims![d] && typeof dims![d] === 'object')
+        }
+        // fallback: 检查 content 字符串中包含所有维度 key
+        return requiredDims.every(d => content.includes(`"${d}"`) || content.includes(d + ':'))
+      }
+      case 'vocabulary-limit': {
+        // vocabularyList ≤ 80 词, writingRules ≤ 30 条 — warn 级别，仅大致检查
+        const vocabMatches = content.match(/"vocabularyList"\s*:\s*\[/g)
+        const rulesMatches = content.match(/"writingRules"\s*:\s*\[/g)
+        return true // warn 级别，不做硬拦截
+      }
+      case 'english-keys': {
+        // 维度 key 必须是英文（ASCII），不能是中文
+        let dimsStr = ''
+        const rawDims = args.dimensions
+        if (typeof rawDims === 'string') dimsStr = rawDims
+        else if (rawDims && typeof rawDims === 'object') dimsStr = JSON.stringify(rawDims)
+        else dimsStr = content
+        // 提取 dimensions 对象内的 key
+        const keyMatch = dimsStr.match(/"dimensions"\s*:\s*\{([^}]+)\}/)
+        if (keyMatch) {
+          return !/[一-鿿]/.test(keyMatch[1])
+        }
+        return true // 无法提取时放行
+      }
+
+      // ═══ 章节正文检查 ═══
       case 'word-count':
-        return content.length >= 500  // 最低 500 字
+        return content.length >= 500
       case 'paragraph-spacing':
         return /\n\n/.test(content)
       case 'not-one-block':
         return content.split('\n').filter(l => l.trim()).length >= 3
+      case 'chapter-format':
+        return /^#\s+.+/m.test(content) && content.split('\n').filter(l => l.trim()).length >= 3
+
+      // ═══ 场景模板检查 ═══
+      case 'required-fields': {
+        const hasName = typeof args.name === 'string' && args.name.trim().length > 0
+        const hasType = typeof args.type === 'string' && args.type.trim().length > 0
+        return hasName && hasType
+      }
+      case 'auto-fields-limit': {
+        const af = args.autoFields
+        return !Array.isArray(af) || af.length <= 10
+      }
+      case 'no-empty-config': {
+        const plotOk = typeof args.plotOverview === 'string' && args.plotOverview.trim().length > 0
+        const sceneOk = typeof args.sceneType === 'string' && args.sceneType.trim().length > 0
+        return plotOk || sceneOk
+      }
+
+      // ═══ 大纲/KB 检查 ═══
+      case 'content-length':
+        return content.length >= 50
+      case 'chinese-name':
+        return /[一-鿿]/.test(fileName)
+
+      // ═══ 行为约束类（代码无法检测，依赖提示词）═══
+      // read-before-edit, append-not-overwrite, old-string-exact,
+      // list-before-create, remind-index, analyze-first, wait-confirm,
+      // offer-options, confirm-type, yaml-format, plot-length
+      // → isQualityCheckApplicable 已返回 false，不会走到这里
+
       default:
-        return true  // 无法自动检测的 → 默认通过
+        return true
     }
   }
 }

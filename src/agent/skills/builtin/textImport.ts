@@ -7,17 +7,18 @@ export const textImportSkill: SkillDefinition = {
   name: '文本导入',
   description: '分析上传/粘贴的文本内容，根据类型自动导入：剧情→故事剧情Tab、设定→世界观Tab、灵感→草稿、角色→角色卡。',
   triggerPatterns: [
-    '导入.*(?:大纲|故事|剧情|世界观|草稿|角色)',
-    '保存.*(?:大纲|故事|剧情|世界观|草稿)',
-    '上传.*分析',
-    '分析.*导入',
-    '加到.*(?:大纲|故事|剧情|世界观)',
-    '这段.*(?:存|保存|导入|写入)',
-    '把.*(?:导入|追加|加到|存到)',
-    '(?:分析|看看|读一下).*(?:这段|这个|这句|文字|内容|txt|TXT|文章)',
-    '(?:写入|追加|加入|放到).*(?:大纲|故事|剧情|世界观|角色|草稿)',
-    '(?:整理|归类|判断).*(?:内容|文字|这段|文本)',
-    '(?:存为|保存为|写成).*(?:草稿|笔记|大纲)',
+    // 明确的导入/保存意图 — 含目标位置
+    '导入.*(?:大纲|故事|剧情|世界观|草稿|角色|知识库)',
+    '保存.*(?:大纲|故事|剧情|世界观|草稿|知识库)',
+    '(?:加到|追加到|写入|放入).*(?:大纲|故事|剧情|世界观|角色|草稿|知识库)',
+    '(?:存为|保存为|写成).*(?:草稿|笔记|大纲|角色)',
+    '把.*(?:导入|追加|加到|存到).*(?:大纲|故事|剧情|世界观|角色|草稿)',
+    '(?:整理|归类).*(?:到|至).*(?:大纲|世界观|角色|草稿)',
+    // 上传文件 + 明确导入意图
+    '上传.*(?:导入|分析.*导入|保存)',
+    // 内容已在用户消息中 + 指定了目标位置
+    '这段.*(?:存|保存|导入|写入|追加).*(?:大纲|故事|剧情|世界观|角色|草稿)',
+    // 注意：不包含纯"分析这段..."（那是 textAnalysis 的范畴）
   ],
   category: 'general',
   workflow: {
@@ -29,11 +30,11 @@ export const textImportSkill: SkillDefinition = {
       '• 灵感/随笔/片段 → write_note存入草稿（notes/目录，文件名自动加.md）\n' +
       '• 不确定类型 → 先分析内容特征告诉用户判断依据，问用户想导入到哪里',
     steps: [
-      { order: 1, tool: 'read_file', purpose: '读取要导入的文本内容（若内容已在用户消息中则跳过此步）', argsTemplate: { file_path: '${filePath}' }, optional: true },
-      { order: 2, tool: 'read_file', purpose: '读取目标文件末尾了解现有结构（导入到plot/worldbuilding时必做）', argsTemplate: { file_path: '${projectId}/outline/plot.md' }, optional: true },
-      { order: 3, tool: 'edit_file', purpose: '追加剧情/世界观内容（old_string=末尾段落，new_string=原文+新内容）', argsTemplate: { file_path: '${targetFile}', old_string: '${old}', new_string: '${new}' }, optional: true },
-      { order: 4, tool: 'create_file', purpose: '创建角色YAML（16字段完整，先read_file参考已有角色格式）', argsTemplate: { file_path: '${projectId}/characters/${name}.yaml', content: '${yaml}' }, optional: true },
-      { order: 5, tool: 'write_note', purpose: '存入草稿笔记', argsTemplate: { name: '${noteName}', content: '${content}' }, optional: true },
+      { order: 1, tool: 'read_file', purpose: '读取要导入的文本内容（若内容已在用户消息中则跳过此步）', argsTemplate: { file_path: '${filePath}' }, optional: false },
+      { order: 2, tool: 'read_file', purpose: '读取目标文件末尾了解现有结构。如果文件不存在或为空，直接用 __FULL_REPLACE__ 写入', argsTemplate: { file_path: '${projectId}/outline/plot.md' }, optional: true, condition: '导入目标为 plot 或 worldbuilding' },
+      { order: 3, tool: 'edit_file', purpose: '追加剧情/世界观内容。old_string 从 read_file 结果中原样复制。空文件时用 __FULL_REPLACE__', argsTemplate: { file_path: '${targetFile}', old_string: '${old}', new_string: '${new}' }, optional: true, condition: '导入目标为已有文件（plot/worldbuilding）' },
+      { order: 4, tool: 'create_file', purpose: '创建角色YAML（16字段完整，先 read_file 参考已有角色格式）', argsTemplate: { file_path: '${projectId}/characters/${name}.yaml', content: '${yaml}' }, optional: true, condition: '内容类型为角色描述' },
+      { order: 5, tool: 'write_note', purpose: '存入草稿笔记', argsTemplate: { name: '${noteName}', content: '${content}' }, optional: true, condition: '内容类型为灵感/随笔' },
     ],
   },
   qualityChecks: [

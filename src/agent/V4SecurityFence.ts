@@ -99,7 +99,7 @@ export class V4SecurityFence {
     const isJson = fp.endsWith('.json')
     if (!isYaml && !isJson) return { allowed: true, needsApproval: false }
 
-    const content = String(args.content || '')
+    const content = String(args.content || args.new_string || '')
     if (!content) return { allowed: true, needsApproval: false }
 
     // 按文件扩展名选择对应的解析器（.json 只接受 JSON，.yaml 只接受 YAML）

@@ -48,7 +48,7 @@ export type { SkillSource } from './types'
 // ── 核心实例 ──
 import { skillRegistry } from './SkillRegistry'
 
-// ── 内置技能（11个） ──
+// ── 内置技能（10个） ──
 import { characterSkill } from './builtin/character'
 import { outlineSkill } from './builtin/outline'
 import { detailedOutlineSkill } from './builtin/detailedOutline'
@@ -57,11 +57,12 @@ import { chapterPolishSkill } from './builtin/chapterPolish'
 import { styleTemplateSkill } from './builtin/styleTemplate'
 import { sceneTemplateSkill } from './builtin/sceneTemplate'
 import { knowledgeBaseSkill } from './builtin/knowledgeBase'
-import { textImportSkill } from './builtin/textImport'
-import { textAnalysisSkill } from './builtin/textAnalysis'
+import { textProcessorSkill } from './builtin/textProcessor'
+import { taskOrchestrationSkill } from './builtin/taskOrchestration'
 import type { SkillDefinition } from './types'
 
 export const BUILTIN_SKILLS: SkillDefinition[] = [
+  taskOrchestrationSkill,  // v9.5.3: 最高优先级 — 多意图编排
   characterSkill,
   outlineSkill,
   detailedOutlineSkill,
@@ -70,8 +71,7 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
   styleTemplateSkill,
   sceneTemplateSkill,
   knowledgeBaseSkill,
-  textImportSkill,
-  textAnalysisSkill,
+  textProcessorSkill,    // v9.5.4: 合并 textAnalysis + textImport
 ]
 
 /**

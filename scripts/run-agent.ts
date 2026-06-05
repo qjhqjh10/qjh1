@@ -99,6 +99,14 @@ class NodeFSToolExecutor {
       while (clean.startsWith('../')) clean = clean.slice(3)
       return path.join(this.rootDir, clean)
     }
+    // 模型可能根据系统提示词拼接了项目名前缀（如 _test_dpc/outline/plot.md）
+    // 剥掉这个前缀，避免 projectPath 与模型路径双重嵌套
+    if (this.activeProject) {
+      const prefix = this.activeProject + '/'
+      if (clean.startsWith(prefix)) {
+        clean = clean.slice(prefix.length)
+      }
+    }
     return path.join(projectPath, clean)
   }
 
@@ -439,6 +447,9 @@ async function main() {
 
   // 初始化（和 ChatBridge 逻辑一致）
   toolRegistry.registerAll(ALL_TOOLS as any)
+  // v9.5.3: 必须在 matchBest 之前注册技能，否则首次消息 Skill 匹配为空
+  const { initSkills } = await import('@/agent/skills')
+  initSkills()
   for (const p of ALL_PROVIDERS as any[]) {
     if (!contextAssembler.getProviders().some((ex: any) => ex.domain === p.domain)) {
       contextAssembler.register(p)
@@ -503,10 +514,10 @@ async function main() {
     // ① Skill 工具裁剪（对齐 GUI Bridge）
     // ════════════════════════════════════════════════════════════
     const allTools = toolRegistry.getAllSchemas()
-    const skillMatch = skillRegistry.matchBest(userMessage, 0.5)
+    const skillMatch = skillRegistry.matchBest(userMessage, 0.3)
 
     const READ   = new Set(['read_file','list_directory','search_content'])
-    const WRITE  = new Set(['create_file','edit_file'])
+    const WRITE  = new Set(['create_file','edit_file','batch_replace'])
     const DANGER = new Set(['delete_file','rename_file'])
     const NOTE   = new Set(['list_notes','read_note','write_note','append_note'])
     const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
@@ -515,7 +526,7 @@ async function main() {
     let scopedCore: any[], scopedExtended: any[]
     let activeSkillCtx: any = null
 
-    if (skillMatch && skillMatch.confidence >= 0.6) {
+    if (isMultiFile || isComplexSkill || isMultiSkill) {
       const neededTools = new Set(skillMatch.skill.workflow.steps.map((s: any) => s.tool))
       neededTools.add('read_file'); neededTools.add('list_directory'); neededTools.add('search_content')
       scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name))
@@ -883,7 +894,7 @@ async function main() {
     // ════════════════════════════════════════════════════════════
     if (protocol === 'anthropic') {
       // Anthropic: 模型自然选择，不需要渐进披露
-      const anthropicTools = skillMatch && skillMatch.confidence >= 0.6
+      const anthropicTools = isMultiFile || isComplexSkill || isMultiSkill
         ? scopedCore
         : [...scopedCore, ...scopedExtended]
       runtime.setTools(anthropicTools)
