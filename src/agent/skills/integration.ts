@@ -28,10 +28,8 @@ function ensureInit(): void {
 
 /**
  * 构建技能注入文本。
- * 在 V4SystemPrompt 的 buildSystemPrompt() 之后调用，
- * 将匹配到的技能指引追加到系统提示词末尾。
- *
- * @returns 技能提示词文本，无匹配时返回空字符串
+ * 匹配到的技能指引以"强制工作流"形式注入系统提示词。
+ * v9.6.1: 语气从"推荐"改为"必须"，定位从末尾改为任务区。
  */
 export function buildSkillInjection(userMessage: string): string {
   ensureInit()
@@ -48,24 +46,21 @@ export function buildSkillInjection(userMessage: string): string {
   // 按优先级排序
   matched.sort((a, b) => b.priority - a.priority)
 
-  const lines: string[] = [
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '## 🔧 技能匹配指引（以下技能已匹配到用户意图，优先参考）',
-    '',
-  ]
+  const lines: string[] = []
 
-  for (const f of matched.slice(0, 2)) { // 最多注入 2 个匹配技能
+  for (const f of matched.slice(0, 1)) { // 只注入最高匹配的 1 个技能（避免冲突）
+    lines.push(
+      '',
+      '═══════════════════════════════════════',
+      `## 🔧 当前任务匹配到技能: ${f.skillName}（必须按以下工作流执行）`,
+      '',
+    )
+    // 直接嵌入技能工作流描述 + 步骤
     lines.push(f.promptText)
+    lines.push('')
+    lines.push('⚠️ 以上工作流是强制要求。不允许跳过任何非可选步骤。不允许调换步骤顺序。')
+    lines.push('═══════════════════════════════════════')
   }
-
-  // 高置信度技能：强调必须遵守
-  const highConf = matched.filter(f => f.confidence >= 0.7)
-  if (highConf.length > 0) {
-    lines.push('⚠️ 以上技能指引具有高置信度匹配，请严格遵循推荐的步骤和质量检查规则。')
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
   return lines.join('\n')
 }

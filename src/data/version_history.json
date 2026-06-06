@@ -1,7 +1,27 @@
 {
-  "currentVersion": "9.9.0",
+  "currentVersion": "10.1.0",
   "currentDate": "2026-06-06",
   "history": [
+    {
+      "version": "10.1.0",
+      "date": "2026-06-06",
+      "features": [
+        "v10.0三阶段状态机: AgentPhase从RUNNING→ANALYZE/EXECUTE/VERIFY, PhaseManager门控+复杂度路由+Skill Gate",
+        "v9.6统一Runtime: V4AgentRuntime+V4AnthropicRuntime→V4UnifiedRuntime,ProtocolAdapter接口,消除~500行重复",
+        "v9.6 Skill主动调用: invoke_skill工具+Skill Catalog元数据(~800t)取代被动注入,模型自主选择Skill",
+        "模块提取: QualityCheckEngine/ToolExecutor/ToolActionPrompter/PhaseManager独立文件,runtime/目录结构",
+        "v9.7 Plan-Commit-Verify: 3个验证脚本(validate-outline-tabs/character/style-dims),invoke_skill输出计划清单+执行前承诺",
+        "v10.0.1任务完成检查: 复杂任务迭代不足时强制继续,Skill Gate允许但建议模式,复杂度路由分离",
+        "v10.0.2迭代提示修复: 复杂任务不注入提示(仅最后轮次警告),简单任务5轮后温和提示",
+        "v10.0.3迭代限制移除: maxIterations 30→60, Bridge默认12→60, CLI默认20→60,最后一轮保留工具",
+        "v10.0.4冲突修复: 6个prompt冲突修复(迭代提示/ToolInvokePrompt/Skill建议spam/汇报vs继续/行动提示阈值),精简ToolInvokePrompt",
+        "Bug修复: Anthropic Bridge缺失HTTP流中止,5个事件监听器死代码,ChatBridgeInterface双重断言,recordApiCallStart重试位置",
+        "AnthropicAdapter: messagesToAnthropic/toAnthropicTools提取+thinking blocks回传,thinking/signature保留",
+        "OpenAIAdapter: 薄封装,ChatWithToolsResult→NormalizedModelResponse归一化",
+        "任务复杂度判断: BATCH_QUANTIFIER/ENTITY_KEYWORDS/ORCHESTRATION_VERBS/DECOMPOSE_MARKERS加权评分",
+        "熔断器实现: AgentStore recordApiFailure/Success/checkCircuit方法,V4UnifiedRuntime电路状态检查"
+      ]
+    },
     {
       "version": "9.9.0",
       "date": "2026-06-06",

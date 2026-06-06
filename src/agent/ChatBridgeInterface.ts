@@ -5,7 +5,7 @@
 // V4AnthropicChatBridge    → Anthropic 协议（新建）
 
 import type { Message } from './state/types'
-import type { V4AgentRunResult } from './V4AgentRuntime'
+import type { V4AgentRunResult } from './runtime/RuntimeTypes'
 import type { BridgeSendResult } from './V4AgentChatBridge'
 
 // 从 V4AgentChatBridge 重导出类型（单一数据源，不重复定义）
@@ -74,6 +74,6 @@ export async function createChatBridge(
     return new V4AnthropicChatBridge(projectId)
   }
 
-  // 默认走 OpenAI 协议（V4AgentChatBridge 本身已满足 IChatBridge 接口）
-  return new V4AgentChatBridge(projectId) as unknown as IChatBridge
+  // v9.6.0: V4AgentChatBridge implements IChatBridge structurally
+  return new V4AgentChatBridge(projectId)
 }

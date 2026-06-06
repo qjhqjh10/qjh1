@@ -47,6 +47,7 @@ export interface PermissionPattern {
 export interface AgentHealthState {
   circuitState: 'CLOSED' | 'OPEN' | 'HALF_OPEN'
   circuitFailures: number
+  circuitOpenedAt: number | null  // v9.5.5: 熔断器打开时间戳（用于冷却计时）
   checkpointCount: number
   autoApprovedTools: string[]
   lastSessionMetrics: {
@@ -105,6 +106,14 @@ export interface AgentStoreState {
 
   // Actions — Health
   setHealth: (health: Partial<AgentHealthState>) => void
+
+  // v9.5.5: 熔断器方法
+  /** 记录 API 调用失败，达到阈值时触发熔断 */
+  recordApiFailure: (maxFailures?: number) => { tripped: boolean }
+  /** 记录 API 调用成功，重置失败计数 */
+  recordApiSuccess: () => void
+  /** 检查熔断器状态，返回是否允许执行 */
+  checkCircuit: (maxFailures?: number, cooldownMs?: number) => { allowed: boolean; reason?: string }
 }
 
 // Shared reset fields for startRun/endRun to avoid duplication
@@ -143,6 +152,7 @@ export const useAgentStore = create<AgentStoreState>()(
     health: {
       circuitState: 'CLOSED',
       circuitFailures: 0,
+      circuitOpenedAt: null,  // v9.5.5
       checkpointCount: 0,
       autoApprovedTools: [],
       lastSessionMetrics: null,
@@ -172,7 +182,7 @@ export const useAgentStore = create<AgentStoreState>()(
       _lastStreamUpdate = 0
       return set(s => {
         s.run.runId = runId
-        s.run.phase = 'RUNNING'
+        s.run.phase = 'ANALYZE'
         s.run.isRunning = true
         s.run.iteration = 0
         s.run.thinking = null
@@ -291,5 +301,71 @@ export const useAgentStore = create<AgentStoreState>()(
     // ── Health Actions ──
 
     setHealth: (partial) => set(s => { Object.assign(s.health, partial) }),
+
+    // ── v9.5.5: 熔断器方法 ──
+    // 配置默认值（对齐 aiharness.json）：
+    //   maxConsecutiveFailures = 5
+    //   cooldownMs = 30_000 (30秒)
+
+    recordApiFailure: (maxFailures = 5) => {
+      let tripped = false
+      set(s => {
+        s.health.circuitFailures++
+        if (s.health.circuitFailures >= maxFailures) {
+          s.health.circuitState = 'OPEN'
+          s.health.circuitOpenedAt = Date.now()
+          tripped = true
+        }
+      })
+      return { tripped }
+    },
+
+    recordApiSuccess: () => set(s => {
+      // HALF_OPEN 成功后恢复；CLOSED 下重置计数器（防漂移累积）
+      if (s.health.circuitState === 'HALF_OPEN') {
+        s.health.circuitState = 'CLOSED'
+        s.health.circuitOpenedAt = null
+      }
+      s.health.circuitFailures = 0
+    }),
+
+    checkCircuit: (maxFailures = 5, cooldownMs = 30_000) => {
+      const state = get()
+      const { circuitState, circuitFailures, circuitOpenedAt } = state.health
+
+      if (circuitState === 'CLOSED') {
+        // 防御: 如果计数异常高但状态未同步，手动触发（幂等安全）
+        if (circuitFailures >= maxFailures) {
+          set(s => {
+            s.health.circuitState = 'OPEN'
+            s.health.circuitOpenedAt = Date.now()
+          })
+          return {
+            allowed: false,
+            reason: `[熔断] 连续 ${circuitFailures} 次 API 失败，熔断器已打开。请等待 ${cooldownMs / 1000} 秒后重试。`,
+          }
+        }
+        return { allowed: true }
+      }
+
+      if (circuitState === 'OPEN') {
+        const elapsed = circuitOpenedAt ? Date.now() - circuitOpenedAt : 0
+        if (elapsed >= cooldownMs) {
+          // 冷却完成 → 半开（允许下一次尝试）
+          set(s => {
+            s.health.circuitState = 'HALF_OPEN'
+          })
+          return { allowed: true }
+        }
+        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000)
+        return {
+          allowed: false,
+          reason: `[熔断] 连续 API 调用失败，熔断器保护中。请等待 ${remainingSec} 秒后重试。`,
+        }
+      }
+
+      // HALF_OPEN: 允许尝试（一次机会）
+      return { allowed: true }
+    },
   }))
 )

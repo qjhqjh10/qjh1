@@ -8,19 +8,19 @@ describe('buildToolInvokePrompt', () => {
     expect(prompt.length).toBeGreaterThan(100)
   })
 
-  it('contains mandatory tool invocation header', () => {
+  it('contains invoke_skill and core tools', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('[强制工具调用]')
+    expect(prompt).toContain('invoke_skill')
+    expect(prompt).toContain('read_file')
   })
 
   it('lists all major tool categories', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('文件操作')
+    expect(prompt).toContain('核心工具')
     expect(prompt).toContain('知识库')
-    expect(prompt).toContain('草稿笔记')
-    expect(prompt).toContain('图片')
+    expect(prompt).toContain('笔记')
     expect(prompt).toContain('模板')
-    expect(prompt).toContain('项目管理')
+    expect(prompt).toContain('模板')
   })
 
   it('includes read_file tool', () => {
@@ -49,11 +49,10 @@ describe('buildToolInvokePrompt', () => {
 
   it('includes note tools', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('list_notes')
-    expect(prompt).toContain('read_note')
     expect(prompt).toContain('write_note')
+    expect(prompt).toContain('read_note')
+    expect(prompt).toContain('list_notes')
     expect(prompt).toContain('append_note')
-    expect(prompt).toContain('delete_note')
   })
 
   it('includes image tools', () => {
@@ -71,24 +70,24 @@ describe('buildToolInvokePrompt', () => {
   it('includes project tools', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).toContain('create_project')
-    expect(prompt).toContain('delete_project')
+    expect(prompt).toContain('shell_run_script')
   })
 
-  it('contains the iron law rules', () => {
+  it('contains tool and skill guidance', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('铁律')
-    expect(prompt).toContain('tool_calls')
-    expect(prompt).toContain('success')
+    expect(prompt).toContain('invoke_skill')
+    expect(prompt).toContain('read_file')
+    expect(prompt).toContain('edit_file')
+    expect(prompt).toContain('create_file')
   })
 
-  it('states that describing an action is not equivalent to doing it', () => {
+  it('emphasizes invoke_skill before complex operations', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('描述操作不等于操作')
+    expect(prompt).toContain('必须先调用 invoke_skill')
   })
 
-  it('mentions batch approval requirement', () => {
+  it('has sufficient length for tool descriptions', () => {
     const prompt = buildToolInvokePrompt()
-    // The prompt should instruct AI to explain its plan before executing
-    expect(prompt.length).toBeGreaterThan(500)
+    expect(prompt.length).toBeGreaterThan(300)
   })
 })

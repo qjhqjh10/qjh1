@@ -17,13 +17,15 @@
 //   - Tool cache key reuse in ChatBridge
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { V4AgentRuntime } from '../V4AgentRuntime'
+import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import { ContextCompressor } from '../context/ContextCompressor'
 import type { Message, ToolCallRequest, ToolResult, ToolExecutionContext } from '../state/types'
-import type { AIService, ToolExecutorFn, ContextAssemblerFn } from '../V4AgentRuntime'
+import type { OpenAIAIService as AIService } from '../runtime/adapters/OpenAIAdapter'
+import type { V4AgentRunResult, ToolExecutorFn, ContextAssemblerFn } from '../runtime/RuntimeTypes'
 
 // ── Setup ──
 toolRegistry.registerAll(ALL_TOOLS)
@@ -70,18 +72,20 @@ function makeMockAI(responses: Array<{
 }
 
 /** Build a fresh runtime with default test config */
-function makeRuntime(overrides?: {
+function makeRuntime(adapter: OpenAIAdapter, overrides?: {
   maxIterations?: number
   abortSignal?: AbortSignal
   contextWindow?: number
 }) {
-  return new V4AgentRuntime({
+  return new V4UnifiedRuntime({
     configId: 'test-config',
     projectId: 'test-project',
     maxIterations: overrides?.maxIterations ?? 10,
     abortSignal: overrides?.abortSignal ?? new AbortController().signal,
     contextWindow: overrides?.contextWindow ?? 128_000,
-  })
+    skipAnalyze: true,
+    skipSkillGate: true,
+  }, adapter)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -91,8 +95,6 @@ function makeRuntime(overrides?: {
 describe('Context Compression', () => {
   it('triggers compression when estimated tokens exceed threshold', async () => {
     // Set a tiny context window so compression triggers almost immediately
-    const runtime = makeRuntime({ contextWindow: 2000, maxIterations: 8 })
-
     const { svc } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'outline/plot.md' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'characters/a.json' })] },
@@ -100,11 +102,12 @@ describe('Context Compression', () => {
       { text: '', toolCalls: [makeToolCall('c4', 'read_file', { file_path: 'characters/c.json' })] },
       { text: '所有文件读取完毕。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { contextWindow: 2000, maxIterations: 8 })
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功', detail: 'A'.repeat(3000) }, // large result triggers compression sooner
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getCompactSchemas())
 
@@ -118,8 +121,6 @@ describe('Context Compression', () => {
   })
 
   it('protects recent messages from compression (H10)', async () => {
-    const runtime = makeRuntime({ contextWindow: 3000, maxIterations: 10 })
-
     // Generate many tool calls to fill context, then verify the last tool result survives
     type MockResp = { text?: string; toolCalls?: ToolCallRequest[]; finishReason?: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }; delay?: number }
     const responses: MockResp[] = Array.from({ length: 6 }, (_, i) => ({
@@ -129,9 +130,10 @@ describe('Context Compression', () => {
     responses.push({ text: '全部完成，最后一个文件内容已读取。' })
 
     const { svc, calls } = makeMockAI(responses)
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { contextWindow: 3000, maxIterations: 10 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getCompactSchemas())
 
@@ -153,8 +155,6 @@ describe('Context Compression', () => {
 
 describe('Progressive Tool Disclosure', () => {
   it('adds extended tools at iteration 3+', async () => {
-    const runtime = makeRuntime({ maxIterations: 10 })
-
     // 5 rounds of tool calls — iteration 1-2 use core tools, 3+ use extended
     const responses = Array.from({ length: 5 }, (_, i) => ({
       text: i === 4 ? '操作完成。' : '',
@@ -162,9 +162,10 @@ describe('Progressive Tool Disclosure', () => {
     }))
 
     const { svc, calls } = makeMockAI(responses)
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
 
     // Set core tools = 3, extended = more
@@ -182,17 +183,16 @@ describe('Progressive Tool Disclosure', () => {
   })
 
   it('removes all tools on the LAST iteration (forces text reply)', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
       // Iteration 3 = maxIterations → tools removed, model forced to text
       { text: '操作完成，共读取2个文件。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -211,14 +211,14 @@ describe('Progressive Tool Disclosure', () => {
 describe('Abort Handling', () => {
   it('stops loop immediately when abort is signaled before API call', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal, maxIterations: 10 })
 
     const { svc } = makeMockAI([
       { text: '已完成。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal, maxIterations: 10 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -235,7 +235,6 @@ describe('Abort Handling', () => {
 
   it('stops during tool execution when abort is signaled', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal, maxIterations: 10 })
 
     const { svc } = makeMockAI([
       {
@@ -246,6 +245,8 @@ describe('Abort Handling', () => {
         ],
       },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal, maxIterations: 10 })
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功' },
     })
@@ -258,7 +259,6 @@ describe('Abort Handling', () => {
       return { status: 'success', summary: '读取成功' }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -270,7 +270,6 @@ describe('Abort Handling', () => {
 
   it('abort during API call stops the loop (bridge-style abort via controller)', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal, maxIterations: 10 })
 
     let apiCallCount = 0
     const svc: AIService = {
@@ -285,9 +284,10 @@ describe('Abort Handling', () => {
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal, maxIterations: 10 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -305,8 +305,6 @@ describe('Abort Handling', () => {
 
 describe('API Error Handling', () => {
   it('retries once on transient errors (timeout/429/503)', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     let callCount = 0
     const svc: AIService = {
       chatWithTools: vi.fn(async () => {
@@ -316,10 +314,11 @@ describe('API Error Handling', () => {
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
 
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -331,18 +330,17 @@ describe('API Error Handling', () => {
   })
 
   it('does NOT retry on auth errors (401/403)', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     const svc: AIService = {
       chatWithTools: vi.fn(async () => {
         throw new Error('401 Unauthorized')
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
 
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -354,18 +352,17 @@ describe('API Error Handling', () => {
   })
 
   it('stops on second consecutive transient error', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     const svc: AIService = {
       chatWithTools: vi.fn(async () => {
         throw new Error('503 Service Unavailable')
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
 
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -381,45 +378,44 @@ describe('API Error Handling', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Max Iterations & Empty Response', () => {
-  it('injects iteration hints at iteration 3+', async () => {
-    const runtime = makeRuntime({ maxIterations: 8 })
-
+  it('injects iteration hints at iteration 5+ (v10.0.3: 简单任务5轮后才提示)', async () => {
     const responses = [
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
       { text: '', toolCalls: [makeToolCall('c3', 'read_file', { file_path: 'c' })] },
       { text: '', toolCalls: [makeToolCall('c4', 'read_file', { file_path: 'd' })] },
+      { text: '', toolCalls: [makeToolCall('c5', 'read_file', { file_path: 'e' })] },
       { text: '全部完成。' },
     ]
 
     const { svc, calls } = makeMockAI(responses)
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
     await runtime.run({ userMessage: '批量读取', attachments: [] })
 
-    // Check that iteration 3+ calls include hint messages
-    const iter3Msgs = calls[2] // 0-indexed, third call
-    const hasHint = iter3Msgs.some(m =>
+    // v10.0.3: 简单任务5轮后才注入提示
+    const iter5Msgs = calls[4] // 0-indexed, fifth call (iteration 5)
+    const hasHint = iter5Msgs.some(m =>
       m.role === 'system' && typeof m.content === 'string' && m.content.includes('提示')
     )
     expect(hasHint).toBe(true)
   })
 
   it('injects "last round" hint on final iteration', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc, calls } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
       { text: '任务完成。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -434,17 +430,16 @@ describe('Max Iterations & Empty Response', () => {
   })
 
   it('falls back to user prompt when model returns empty text + no tools (H5)', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     const { svc } = makeMockAI([
       // First response: empty text, no tools → H5 fallback triggered
       { text: '', toolCalls: undefined },
       // Second response: model now produces text
       { text: '好的，这是你要的内容。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -457,17 +452,16 @@ describe('Max Iterations & Empty Response', () => {
   })
 
   it('does NOT retry empty response on the last iteration', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
       // Last iteration: model returns empty → should NOT retry (isLastIteration = true)
       { text: '', toolCalls: undefined },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -485,8 +479,6 @@ describe('Max Iterations & Empty Response', () => {
 
 describe('Tool Execution Ordering', () => {
   it('executes read-only tools in parallel, write tools sequentially', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeMockAI([
       {
         text: '开始操作',
@@ -500,6 +492,8 @@ describe('Tool Execution Ordering', () => {
       },
       { text: '操作完成。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
     const executionOrder: string[] = []
     const { executor } = makeTrackedExecutor()
@@ -511,7 +505,6 @@ describe('Tool Execution Ordering', () => {
       return { status: 'success', summary: `${ctx.toolName} 完成` }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -537,7 +530,6 @@ describe('Tool Execution Ordering', () => {
 
   it('stops executing write tools after abort', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal, maxIterations: 3 })
 
     const { svc } = makeMockAI([
       {
@@ -549,6 +541,8 @@ describe('Tool Execution Ordering', () => {
         ],
       },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal, maxIterations: 3 })
 
     const { executor } = makeTrackedExecutor()
     executor.mockImplementation(async (args, ctx) => {
@@ -558,7 +552,6 @@ describe('Tool Execution Ordering', () => {
       return { status: 'success', summary: '完成' }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -574,8 +567,6 @@ describe('Tool Execution Ordering', () => {
 
 describe('Tool Execution Timeout', () => {
   it('completes tool within timeout boundary (Promise.race mechanism)', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeMockAI([
       {
         text: '',
@@ -583,12 +574,13 @@ describe('Tool Execution Timeout', () => {
       },
       { text: '文件读取完毕。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功', detail: '文件内容' },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -602,8 +594,6 @@ describe('Tool Execution Timeout', () => {
   })
 
   it('handles tool JSON parse error gracefully', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     // Create a tool call with invalid JSON arguments (JSON.parse will throw)
     const { svc } = makeMockAI([
       {
@@ -612,10 +602,11 @@ describe('Tool Execution Timeout', () => {
       },
       { text: '参数格式有误，但我继续了。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -641,8 +632,6 @@ describe('Tool Execution Timeout', () => {
 
 describe('ContractExecutor Output Filtering', () => {
   it('truncates read tool detail after iteration 1 (I5 progressive trim)', async () => {
-    const runtime = makeRuntime({ maxIterations: 6 })
-
     const longDetail = 'X'.repeat(3000)
     const { svc } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
@@ -650,12 +639,13 @@ describe('ContractExecutor Output Filtering', () => {
       { text: '', toolCalls: [makeToolCall('c3', 'read_file', { file_path: 'c' })] },
       { text: '完成。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 6 })
 
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功', detail: longDetail },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -666,8 +656,6 @@ describe('ContractExecutor Output Filtering', () => {
   })
 
   it('filters error tool results for context', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeMockAI([
       {
         text: '',
@@ -675,12 +663,13 @@ describe('ContractExecutor Output Filtering', () => {
       },
       { text: '文件不存在，但我可以继续帮你。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'error', summary: '文件不存在', detail: 'ENOENT: no such file' },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -698,14 +687,14 @@ describe('ContractExecutor Output Filtering', () => {
 
 describe('Security Fence Integration', () => {
   it('blocks hard-blocked paths during runtime', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-    const fence = new V4SecurityFence('test-project')
-
     // Simulate: AI tries to read /etc/passwd
     const { svc } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: '/etc/passwd' })] },
       { text: '无法访问系统路径，请使用项目内相对路径。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
+    const fence = new V4SecurityFence('test-project')
 
     const { executor } = makeTrackedExecutor()
     // Wrap executor with fence check (as ChatBridge does)
@@ -715,7 +704,6 @@ describe('Security Fence Integration', () => {
       return executor(args, ctx)
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(fencedExecutor as unknown as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -728,9 +716,6 @@ describe('Security Fence Integration', () => {
   })
 
   it('validates JSON on create_file', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-    const fence = new V4SecurityFence('test-project')
-
     const { svc } = makeMockAI([
       {
         text: '',
@@ -741,6 +726,9 @@ describe('Security Fence Integration', () => {
       },
       { text: 'JSON 格式有问题，让我修正。' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
+    const fence = new V4SecurityFence('test-project')
 
     const { executor } = makeTrackedExecutor()
     const fencedExecutor = vi.fn(async (args: Record<string, unknown>, ctx: ToolExecutionContext) => {
@@ -749,7 +737,6 @@ describe('Security Fence Integration', () => {
       return executor(args, ctx)
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(fencedExecutor as unknown as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -768,8 +755,6 @@ describe('Security Fence Integration', () => {
 
 describe('End-to-End Scenarios', () => {
   it('multi-tool character creation workflow', async () => {
-    const runtime = makeRuntime({ maxIterations: 8 })
-
     const { svc } = makeMockAI([
       // Step 1: list to find existing characters for reference
       {
@@ -799,9 +784,10 @@ describe('End-to-End Scenarios', () => {
       },
       { text: '角色林语晴创建完成！需要我查看角色卡确认吗？' },
     ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 8 })
 
     const { executor } = makeTrackedExecutor()
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -816,32 +802,32 @@ describe('End-to-End Scenarios', () => {
   })
 
   it('handles consecutive runs (reuse runtime instance)', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     // Run 1
     const { svc: svc1 } = makeMockAI([
       { text: '你好！有什么可以帮你的？' },
     ])
     const { executor: exec1 } = makeTrackedExecutor()
-    runtime.setAIService(svc1)
-    runtime.setToolExecutor(exec1)
-    runtime.setTools([])
+    const adapter1 = new OpenAIAdapter(svc1)
+    const runtime1 = makeRuntime(adapter1, { maxIterations: 5 })
+    runtime1.setToolExecutor(exec1)
+    runtime1.setTools([])
 
-    const r1 = await runtime.run({ userMessage: '你好', attachments: [] })
+    const r1 = await runtime1.run({ userMessage: '你好', attachments: [] })
     expect(r1.success).toBe(true)
     expect(r1.text).toContain('你好')
 
-    // Run 2 — reuse same runtime with different AI service
+    // Run 2 — separate runtime with different AI service
     const { svc: svc2 } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'list_directory', { file_path: '.' })] },
       { text: '当前项目包含5个角色和10章内容。' },
     ])
     const { executor: exec2 } = makeTrackedExecutor()
-    runtime.setAIService(svc2)
-    runtime.setToolExecutor(exec2)
-    runtime.setTools(toolRegistry.getAllSchemas())
+    const adapter2 = new OpenAIAdapter(svc2)
+    const runtime2 = makeRuntime(adapter2, { maxIterations: 5 })
+    runtime2.setToolExecutor(exec2)
+    runtime2.setTools(toolRegistry.getAllSchemas())
 
-    const r2 = await runtime.run({ userMessage: '列出项目文件', attachments: [] })
+    const r2 = await runtime2.run({ userMessage: '列出项目文件', attachments: [] })
     expect(r2.success).toBe(true)
     expect(r2.toolCalls).toBe(1)
     expect(r2.toolsUsed).toContain('list_directory')

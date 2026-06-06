@@ -2,7 +2,7 @@
 /**
  * AI 写作助手 — 真实 Runtime CLI Agent
  *
- * 使用真实的 V4AgentRuntime（GUI 同一套代码），在 Node.js 命令行运行。
+ * 使用真实的 V4UnifiedRuntime（GUI 同一套代码），在 Node.js 命令行运行。
  * 与 GUI 的区别仅在于：AIService 用 openai SDK（非 Electron IPC），
  * ToolExecutor 用 Node.js fs（非 Electron IPC）。
  *
@@ -41,7 +41,7 @@ function parseArgs() {
     mock: process.env.AI_MOCK === '1',
     command: null as string | null,
     interactive: false,
-    maxIterations: 20,
+    maxIterations: 60,
     temperature: 0.8,
     help: false,
   }
@@ -427,22 +427,25 @@ class NodeFSToolExecutor {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 主函数：使用真实 V4AgentRuntime
+// 主函数：使用真实 V4UnifiedRuntime
 // ══════════════════════════════════════════════════════════════
 
 async function main() {
   // ══════════════════════════════════════════════════════════════
   // 动态导入真实 Runtime（V4AgentRuntime 无 Electron 依赖）
   // ══════════════════════════════════════════════════════════════
-  const { V4AgentRuntime } = await import('@/agent/V4AgentRuntime')
+  const { V4UnifiedRuntime } = await import('@/agent/runtime/V4UnifiedRuntime')
+  const { OpenAIAdapter } = await import('@/agent/runtime/adapters/OpenAIAdapter')
+  const { AnthropicAdapter } = await import('@/agent/runtime/adapters/AnthropicAdapter')
   const { V4SecurityFence } = await import('@/agent/V4SecurityFence')
   const { toolRegistry } = await import('@/agent/skills/ToolRegistry')
   const { skillRegistry } = await import('@/agent/skills/SkillRegistry')
   const { contextAssembler } = await import('@/agent/context/ContextAssembler')
   const { ALL_TOOLS } = await import('@/agent/skills/tools')
   const { ALL_PROVIDERS } = await import('@/agent/context/providers')
-  const { buildSystemPromptWithSkills, selectDomainModules } = await import('@/agent/V4SystemPrompt')
+  const { buildSystemPromptWithSkills, selectDomainModules, getSkillSystemMessage } = await import('@/agent/V4SystemPrompt')
   const { estimateTokens } = await import('@/agent/utils/tokenEstimation')
+  const { isComplexTask } = await import('@/agent/utils/taskDetection')
   const { diagnosticLogger } = await import('@/agent/diagnostics/DiagnosticLogger')
 
   // 初始化（和 ChatBridge 逻辑一致）
@@ -462,7 +465,7 @@ async function main() {
     console.log(`
 ╔══════════════════════════════════════════╗
 ║  AI 写作助手 CLI — 真实 Runtime 模式   ║
-║  使用 V4AgentRuntime（GUI 同一套代码）  ║
+║  使用 V4UnifiedRuntime（GUI 同一套代码）  ║
 ╠══════════════════════════════════════════╣
 ║  npx tsx scripts/run-agent.ts [选项]    ║
 ╠══════════════════════════════════════════╣
@@ -494,7 +497,7 @@ async function main() {
   console.log(`\x1b[36m╔══════════════════════════════════════╗\x1b[0m`)
   console.log(`\x1b[36m║  AI 写作助手 — 真实 Runtime 模式   ║\x1b[0m`)
   console.log(`\x1b[36m╠══════════════════════════════════════╣\x1b[0m`)
-  console.log(`\x1b[36m║  Runtime:  ${args.protocol === 'anthropic' ? 'V4AnthropicRuntime' : 'V4AgentRuntime'} (GUI同款) ║\x1b[0m`)
+  console.log(`\x1b[36m║  Runtime:  V4UnifiedRuntime (GUI同款) ║\x1b[0m`)
   console.log(`\x1b[36m║  工具注册: ToolRegistry (${toolRegistry.count()} 工具)  ║\x1b[0m`)
   console.log(`\x1b[36m║  Skill:    SkillRegistry (${skillRegistry.count()} 技能) ║\x1b[0m`)
   console.log(`\x1b[36m║  协议:     ${args.protocol.padEnd(22)}║\x1b[0m`)
@@ -516,6 +519,12 @@ async function main() {
     const allTools = toolRegistry.getAllSchemas()
     const skillMatch = skillRegistry.matchBest(userMessage, 0.3)
 
+    // v9.5.5: SKILL 模式判断 — 使用加权评分
+    const allMatches = skillRegistry.match(userMessage).filter((m: any) => m.confidence >= 0.3)
+    const isMultiSkill = allMatches.length >= 2
+    const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
+    const isMultiFile = isComplexTask(userMessage)
+
     const READ   = new Set(['read_file','list_directory','search_content'])
     const WRITE  = new Set(['create_file','edit_file','batch_replace'])
     const DANGER = new Set(['delete_file','rename_file'])
@@ -534,6 +543,7 @@ async function main() {
       activeSkillCtx = {
         skillId: skillMatch.skill.id, currentStep: 1, completedSteps: new Set(),
         extractedFields: skillMatch.extractedFields, retryCount: 0,
+        missingFiles: new Set(),
       }
       diagnosticLogger.recordInfo(`Agent2: task=skill:${skillMatch.skill.id} core=${scopedCore.length} ext=0`)
     } else {
@@ -560,11 +570,6 @@ async function main() {
     if (args.mock) {
       // ── Mock 模式：不调真实 API，使用关键词匹配返回预设响应 ──
       console.log('\x1b[33m[MOCK 模式] 不调用真实 API，使用预设模拟响应\x1b[0m')
-      runtime = new V4AgentRuntime({
-        configId: 'cli-mock', projectId: args.project,
-        maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000,
-      })
 
       // Mock AIService: 根据用户消息关键词决定返回什么
       const isCreateStyle = /风格模板|文风|style.?template/i.test(userMessage)
@@ -575,7 +580,7 @@ async function main() {
       const isAnalysis = /分析|评估|看看|风格|什么类型/i.test(userMessage) && !isCreateStyle
 
       let _mockCalls = 0
-      runtime.setAIService({
+      const mockAdapter = new OpenAIAdapter({
         chatWithTools: async (_msgs: any) => {
           _mockCalls++
           if (isSearch && _mockCalls === 1) {
@@ -644,16 +649,14 @@ async function main() {
         },
         abortStream: () => abortController.abort(),
       })
-    } else if (protocol === 'anthropic') {
-      const { V4AnthropicRuntime } = await import('@/agent/V4AnthropicRuntime')
-      runtime = new V4AnthropicRuntime({
-        configId: 'cli', projectId: args.project,
+      runtime = new V4UnifiedRuntime({
+        configId: 'cli-mock', projectId: args.project,
         maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000,
-      })
-
-      // Anthropic AIService: fetch + SSE 流式呼叫 DeepSeek /anthropic 端点
-      runtime.setAIService({
+        contextWindow: 128_000, skipAnalyze: true,
+      }, mockAdapter)
+    } else if (protocol === 'anthropic') {
+      // v9.6.0: Anthropic adapter — wraps fetch+SSE, replaces V4AnthropicRuntime + setAIService
+      const anthropicAdapter = new AnthropicAdapter({
         chatAnthropicStream: async (params: any) => {
           const apiUrl = args.apiUrl.replace(/\/+$/, '')
           const url = apiUrl.includes('anthropic')
@@ -746,17 +749,16 @@ async function main() {
         },
         abortStream: () => abortController.abort(),
       })
-    } else {
-      // OpenAI 协议（默认）
-      runtime = new V4AgentRuntime({
-        configId: 'cli', projectId: args.project,
+      runtime = new V4UnifiedRuntime({
+        configId: 'cli-anthropic', projectId: args.project,
         maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000,
-      })
-
+        contextWindow: 128_000, skipAnalyze: true,
+      }, anthropicAdapter)
+    } else {
+      // OpenAI 协议（默认）— v9.6.0: OpenAIAdapter wraps openai SDK, replaces V4AgentRuntime + setAIService
       const { default: OpenAI } = await import('openai')
       const client = new OpenAI({ apiKey: args.apiKey, baseURL: args.apiUrl, timeout: 120_000, maxRetries: 1 })
-      runtime.setAIService({
+      const openaiAdapter = new OpenAIAdapter({
         chatWithTools: async (msgs: any, _c: any, _p: any, tools: any) => {
           const params: any = {
             model: args.model, messages: msgs,
@@ -781,6 +783,11 @@ async function main() {
         },
         abortStream: () => abortController.abort(),
       })
+      runtime = new V4UnifiedRuntime({
+        configId: 'cli-openai', projectId: args.project,
+        maxIterations: args.maxIterations, abortSignal: abortController.signal,
+        contextWindow: 128_000, skipAnalyze: true,
+      }, openaiAdapter)
     }
 
     // ════════════════════════════════════════════════════════════
@@ -815,11 +822,15 @@ async function main() {
         ? `⬇️ 以下是软件完整文件索引。已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
         : ''
 
+      // v9.6.1: Skill 注入 — 独立 system 消息，权重最高
+      const skillSysMsg = getSkillSystemMessage(msg)
+
       const systemMessages = [
         coreSystemMsg,                                          // [0] 核心提示词 — 不变
         ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []), // [1] 索引
         ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []), // [2] Provider
         ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态
+        ...(skillSysMsg ? [skillSysMsg] : []),                  // [4] Skill 工作流
       ]
 
       const globalIndexTokens = estimateTokens(globalIndex || '')

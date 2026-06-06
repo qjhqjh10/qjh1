@@ -9,13 +9,26 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作AI Agent。�
 2. **调用工具才算完成**：文字中说"已完成""已创建"没有意义。只有工具返回 status: "success" 才算真正完成。
 3. **只做用户要求的事**：不要额外创建用户没要求的文件或内容。
 
-## 工作方式
+## 工作方式（v10: 分阶段执行）
 
-1. 收到非闲聊消息 → 立即调用工具。不要先说"好的我来看看"。
-2. read_file → edit_file/create_file → 汇报结果。三步一体，中间不停顿。
-3. 空模板用 edit_file(old_string="__FULL_REPLACE__", new_string=完整内容) 全量覆写。
-4. 多文件任务：完成一个文件的所有操作后，再开始下一个。
-5. 最终回复只汇报完成情况，不展开描述。
+### 🔍 阶段1: ANALYZE — 意图分析（必须先完成，不能跳过）
+1. 收到用户消息后，先用一到两句话分析：用户想完成什么？涉及哪些文件？需要哪个技能？
+2. 意图模糊时追问澄清，不要猜测
+3. 意图清晰时输出你的理解，系统会自动进入执行阶段
+4. **这个阶段不允许调用工具**。只需输出文本分析。
+
+### ⚡ 阶段2: EXECUTE — 任务执行（ANALYZE完成后自动进入）
+**简单任务**（读文件、搜索、列表）→ 直接调用对应工具
+**复杂任务**（创建角色/章节/模板/大纲编辑）→ 必须先 invoke_skill 再调工具
+- read_file → edit_file/create_file → 确认。三步一体，每步确认status:"success"
+- 空文件用 old_string="__FULL_REPLACE__" 全量覆写
+- 多文件任务：完成一个文件→确认success→下一个。逐个处理，全部完成后再做最终汇报
+- 严格按 Skill 工作流步骤执行，持续不断直至所有文件操作完毕
+
+### ✅ 阶段3: VERIFY — 事后验证（任务完成后自动触发）
+- 运行 Skill 指定的验证脚本（shell_run_script）
+- 验证失败→修正→重新验证
+- 验证通过→汇报结果
 
 ## 🚫 禁止行为
 
@@ -23,6 +36,7 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作AI Agent。�
 - 一次性 read_file 所有文件然后不做写入
 - 说"已完成"但没调用工具
 - 把不同任务的操作混在一起处理
+- **只完成部分任务就声称"已完成"**（所有文件都必须操作完毕才能停止）
 
 ## 路径速查
 
@@ -32,9 +46,10 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作AI Agent。�
 
 ## 任务排序
 
-- 用户指定顺序 → 严格遵守，不得调换
-- 执行前先列出你理解的顺序，确认后立即开始
-- 多任务逐个完成，每完成一个汇报一次进度
+- 用户指定了多个任务 → 严格遵守用户指定的顺序，不得调换或跳过
+- 批量操作（多个文件/多个角色/多个Tab）→ 逐个完成，完成一个汇报一次进度
+- 如果用户列举了编号列表（1. 2. 3.），必须先完成1再完成2再完成3
+- 全部完成后一次性列出所有结果
 
 项目: __PROJECT_STRUCTURE__ __PROJECT_CONTEXT__`
 
@@ -64,7 +79,7 @@ export const SOFTWARE_FEATURES_MODULE = `青剑是AI辅助小说创作桌面软�
 // ── Helpers ──
 
 import type { ActiveSkillContext } from './skills/types'
-import { buildSkillInjection } from './skills/integration'
+// v10.0.0: Skill 注入已由 Skill Catalog + invoke_skill 取代
 
 export function selectDomainModules(userMessage: string): string[] {
   const m: string[] = []
@@ -85,20 +100,78 @@ export function buildSystemPrompt(domainModules?: string[], projectStructure?: s
   return p.replace('__PROJECT_STRUCTURE__', projectStructure || '').replace('__PROJECT_CONTEXT__', projectContext || '')
 }
 
-export function buildSystemPromptWithSkills(domainModules?: string[], projectStructure?: string, projectContext?: string, userMessage?: string, _activeSkill?: ActiveSkillContext | null): string {
-  let p = CORE_SYSTEM_PROMPT
-  if (domainModules?.length) p += '\n\n' + domainModules.join('\n\n')
+/**
+ * v9.6.1: 构建 Skill 目录（仅元数据，~800 tokens，常驻系统提示词）。
+ * 模型读取目录后，通过 invoke_skill 工具主动调用所需的 Skill。
+ * 替代旧的被动注入方式。
+ */
+import { skillRegistry } from './skills/SkillRegistry'
+import { initSkills } from './skills'
 
-  // ── v9.5.3: Skill 指引注入 — 将匹配到的技能工作流/质量检查注入系统提示词
-  // 这是防止 AI "只读不写"循环死锁的关键：模型需要知道正确的工具调用顺序
-  if (userMessage) {
-    try {
-      const skillInjection = buildSkillInjection(userMessage)
-      if (skillInjection) p += '\n\n' + skillInjection
-    } catch {
-      // 技能注入失败不阻塞 Agent 运行
-    }
+let _skillsInited = false
+function ensureSkillsInit() {
+  if (!_skillsInited) { try { initSkills(); _skillsInited = true } catch {} }
+}
+
+export function getSkillCatalog(): string {
+  ensureSkillsInit()
+  const skills = skillRegistry.getEnabled()
+  if (skills.length === 0) return ''
+
+  const byCategory = new Map<string, string[]>()
+  for (const s of skills) {
+    const cat = s.category
+    if (!byCategory.has(cat)) byCategory.set(cat, [])
+    // 提取前 3 个最有辨识度的触发词
+    const triggers = s.triggerPatterns
+      .filter(p => p.length <= 12 && !/^[\\^$.*+?()[\]{}|]/.test(p)) // 纯文本短触发词
+      .slice(0, 3)
+      .join('、')
+    const hint = triggers ? ` | 触发: ${triggers}` : ''
+    byCategory.get(cat)!.push(`- **${s.id}** — ${s.description}${hint}`)
   }
 
+  const catLabels: Record<string, string> = {
+    outline: '大纲', character: '角色', chapter: '章节',
+    style: '风格', scene: '场景', knowledge: '知识库',
+    review: '审稿', continuation: '续写', imitation: '仿写',
+    general: '通用',
+  }
+
+  const lines: string[] = [
+    '',
+    '## 🔧 技能目录（Skill Catalog）',
+    '',
+    '以下技能封装了完成特定任务的**完整工作流**。当你面对以下任务时，',
+    '**必须先调用 `invoke_skill` 工具**获取该技能的详细步骤指引，然后严格按步骤执行。',
+    '不要跳过 invoke_skill 直接开始操作——技能工作流中包含了关键的格式规范和操作顺序。',
+    '',
+  ]
+
+  for (const [cat, entries] of byCategory) {
+    lines.push(`### ${catLabels[cat] || cat}`)
+    for (const e of entries) lines.push(`- ${e}`)
+    lines.push('')
+  }
+
+  return lines.join('\n')
+}
+
+export function buildSystemPromptWithSkills(domainModules?: string[], projectStructure?: string, projectContext?: string, userMessage?: string, _activeSkill?: ActiveSkillContext | null): string {
+  let p = CORE_SYSTEM_PROMPT
+
+  // v9.6.1: Skill 目录（元数据，~800 tokens，常驻）
+  // 替代旧的全量工作流注入。模型通过 invoke_skill 主动获取详细步骤。
+  p += getSkillCatalog()
+
+  if (domainModules?.length) p += '\n\n' + domainModules.join('\n\n')
+
   return p.replace('__PROJECT_STRUCTURE__', projectStructure || '').replace('__PROJECT_CONTEXT__', projectContext || '')
+}
+
+/**
+ * v9.6.1: 不再使用（保留接口兼容）。Skill 工作流改为由 invoke_skill 工具按需返回。
+ */
+export function getSkillSystemMessage(_userMessage: string): { role: 'system'; content: string } | null {
+  return null
 }

@@ -21,8 +21,10 @@
 //   - Tool result bundling (all tool_results in a single user message per Anthropic spec)
 
 import { describe, it, expect, vi } from 'vitest'
-import { V4AnthropicRuntime } from '../V4AnthropicRuntime'
-import type { AnthropicAIService, ToolExecutorFn } from '../V4AnthropicRuntime'
+import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { AnthropicAdapter } from '../runtime/adapters/AnthropicAdapter'
+import type { AnthropicAIService } from '../runtime/adapters/AnthropicAdapter'
+import type { V4AgentRunResult, ToolExecutorFn, ContextAssemblerFn } from '../runtime/RuntimeTypes'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import type { AnthropicStreamResult, AnthropicToolDef } from '@/types/anthropicTypes'
@@ -78,18 +80,20 @@ function makeTrackedExecutor(responses?: Record<string, ToolResult>) {
   return { executor, calls, callCount: () => calls.length }
 }
 
-function makeRuntime(overrides?: {
+function makeRuntime(adapter: AnthropicAdapter, overrides?: {
   maxIterations?: number
   abortSignal?: AbortSignal
   contextWindow?: number
 }) {
-  return new V4AnthropicRuntime({
+  return new V4UnifiedRuntime({
     configId: 'test-config',
     projectId: 'test-project',
     maxIterations: overrides?.maxIterations ?? 10,
     abortSignal: overrides?.abortSignal ?? new AbortController().signal,
     contextWindow: overrides?.contextWindow ?? 128_000,
-  })
+    skipAnalyze: true,
+    skipSkillGate: true,
+  }, adapter)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -98,13 +102,13 @@ function makeRuntime(overrides?: {
 
 describe('Anthropic Stream — Text Only', () => {
   it('returns text directly when stream has no tool_use blocks', async () => {
-    const runtime = makeRuntime()
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '你好！我是青剑，AI小说创作助手。有什么可以帮你的？', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -118,14 +122,14 @@ describe('Anthropic Stream — Text Only', () => {
   })
 
   it('stops when stream returns empty text with no tools (not infinite loop)', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '', toolUses: [], stopReason: 'end_turn' }),
       makeStreamResult({ text: '好的，我理解了。' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -144,7 +148,6 @@ describe('Anthropic Stream — Text Only', () => {
 
 describe('Anthropic Stream — Tool Use', () => {
   it('executes a single tool_use block and continues', async () => {
-    const runtime = makeRuntime()
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({
         text: '让我读取大纲。',
@@ -156,9 +159,10 @@ describe('Anthropic Stream — Tool Use', () => {
         stopReason: 'end_turn',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor, calls } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -174,7 +178,6 @@ describe('Anthropic Stream — Tool Use', () => {
   })
 
   it('executes multiple tool_use blocks from one stream response', async () => {
-    const runtime = makeRuntime()
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '让我先全面了解上下文。',
@@ -190,9 +193,10 @@ describe('Anthropic Stream — Tool Use', () => {
         stopReason: 'end_turn',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor, calls } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -205,7 +209,6 @@ describe('Anthropic Stream — Tool Use', () => {
   })
 
   it('executes parallel reads then serial writes in correct order', async () => {
-    const runtime = makeRuntime()
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '开始操作。',
@@ -222,6 +225,8 @@ describe('Anthropic Stream — Tool Use', () => {
       }),
       makeStreamResult({ text: '所有操作完成。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
 
     const executionOrder: string[] = []
     const { executor } = makeTrackedExecutor()
@@ -230,7 +235,6 @@ describe('Anthropic Stream — Tool Use', () => {
       return { status: 'success', summary: `${ctx.toolName} 完成` }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -247,7 +251,6 @@ describe('Anthropic Stream — Tool Use', () => {
   })
 
   it('handles multi-turn tool use (tool → result → tool → result → text)', async () => {
-    const runtime = makeRuntime({ maxIterations: 8 })
     const { svc } = makeAnthropicAI([
       // Turn 1: list directory
       makeStreamResult({
@@ -267,9 +270,10 @@ describe('Anthropic Stream — Tool Use', () => {
         stopReason: 'end_turn',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 8 })
     const { executor, calls } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -289,10 +293,11 @@ describe('Anthropic Stream — Tool Use', () => {
 
 describe('Anthropic Message Format Conversion', () => {
   it('converts system messages to top-level system parameter', async () => {
-    const runtime = makeRuntime()
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '收到。系统提示词已加载。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor } = makeTrackedExecutor()
 
     // Set a context assembler that returns system messages
@@ -306,7 +311,6 @@ describe('Anthropic Message Format Conversion', () => {
       breakdown: [{ domain: 'core', tokens: 100 }],
     }))
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -319,13 +323,13 @@ describe('Anthropic Message Format Conversion', () => {
   })
 
   it('converts tools to Anthropic format with input_schema', async () => {
-    const runtime = makeRuntime()
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '工具已加载。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
 
     // Use a small set of tools with known schemas
@@ -348,7 +352,6 @@ describe('Anthropic Message Format Conversion', () => {
   })
 
   it('handles tool_results from previous turns in stream messages', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({
         text: '第一步',
@@ -362,9 +365,10 @@ describe('Anthropic Message Format Conversion', () => {
       }),
       makeStreamResult({ text: '全部完成。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -395,11 +399,11 @@ describe('Anthropic Message Format Conversion', () => {
 describe('Anthropic Abort Handling', () => {
   it('stops immediately when abort is signaled before stream', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal })
     const { svc } = makeAnthropicAI([])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -414,7 +418,6 @@ describe('Anthropic Abort Handling', () => {
 
   it('stops during tool execution when abort is signaled (no more writes)', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal })
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '',
@@ -426,6 +429,8 @@ describe('Anthropic Abort Handling', () => {
         stopReason: 'tool_use',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal })
     const { executor } = makeTrackedExecutor()
     let callCount = 0
     executor.mockImplementation(async (_args, ctx) => {
@@ -434,7 +439,6 @@ describe('Anthropic Abort Handling', () => {
       return { status: 'success', summary: '完成' }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -446,7 +450,6 @@ describe('Anthropic Abort Handling', () => {
 
   it('abort via controller stops further tool execution', async () => {
     const ctrl = new AbortController()
-    const runtime = makeRuntime({ abortSignal: ctrl.signal })
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '',
@@ -458,6 +461,8 @@ describe('Anthropic Abort Handling', () => {
         stopReason: 'tool_use',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { abortSignal: ctrl.signal })
     const { executor } = makeTrackedExecutor()
     let callCount = 0
     executor.mockImplementation(async (_args, ctx) => {
@@ -466,7 +471,6 @@ describe('Anthropic Abort Handling', () => {
       return { status: 'success', summary: '完成' }
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -484,8 +488,6 @@ describe('Anthropic Abort Handling', () => {
 describe('Anthropic Context Compression', () => {
   it('triggers compression during multi-turn tool use', async () => {
     // Low context window to force compression
-    const runtime = makeRuntime({ contextWindow: 2000, maxIterations: 10 })
-
     // Generate many tool turns to fill context
     const responses = Array.from({ length: 6 }, (_, i) =>
       makeStreamResult({
@@ -495,11 +497,12 @@ describe('Anthropic Context Compression', () => {
       })
     )
     const { svc } = makeAnthropicAI(responses)
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { contextWindow: 2000, maxIterations: 10 })
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功', detail: 'A'.repeat(3000) },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -517,7 +520,6 @@ describe('Anthropic Context Compression', () => {
 
 describe('Anthropic Tool Timeout', () => {
   it('completes tool within timeout boundary (Promise.race mechanism)', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '',
@@ -526,11 +528,12 @@ describe('Anthropic Tool Timeout', () => {
       }),
       makeStreamResult({ text: '文件读取完毕。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'success', summary: '读取成功', detail: '内容' },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -542,8 +545,6 @@ describe('Anthropic Tool Timeout', () => {
   })
 
   it('handles tool returning error status (e.g. file not found)', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
-
     const { svc } = makeAnthropicAI([
       makeStreamResult({
         text: '',
@@ -552,12 +553,13 @@ describe('Anthropic Tool Timeout', () => {
       }),
       makeStreamResult({ text: '文件不存在，让我搜索正确的路径。', stopReason: 'end_turn' }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
     const { executor } = makeTrackedExecutor({
       read_file: { status: 'error', summary: '文件不存在 (ENOENT)', detail: '路径: nonexistent.json' },
     })
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -576,16 +578,16 @@ describe('Anthropic Tool Timeout', () => {
 
 describe('Anthropic API Errors', () => {
   it('handles stream error gracefully (runtime catches, reports in text)', async () => {
-    const runtime = makeRuntime()
     const svc: AnthropicAIService = {
       chatAnthropicStream: vi.fn(async () => {
         throw new Error('网络连接失败')
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter)
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools([])
 
@@ -599,21 +601,12 @@ describe('Anthropic API Errors', () => {
   })
 
   it('collects partial text even when subsequent stream fails', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-    const { svc } = makeAnthropicAI([
-      makeStreamResult({
-        text: '第一步读取成功。',
-        toolUses: [{ id: 'tu_1', name: 'read_file', input: { file_path: 'a' } }],
-        stopReason: 'tool_use',
-      }),
-      // Second call throws
-    ])
     // Override to throw on second call
     let callCount = 0
     const brokenSvc: AnthropicAIService = {
       chatAnthropicStream: vi.fn(async (params) => {
         callCount++
-        if (callCount === 2) throw new Error('API 超时')
+        if (callCount === 2) throw new Error('401 Unauthorized')
         return makeStreamResult({
           text: '第一步读取成功。',
           toolUses: [{ id: 'tu_1', name: 'read_file', input: { file_path: 'a' } }],
@@ -622,9 +615,10 @@ describe('Anthropic API Errors', () => {
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new AnthropicAdapter(brokenSvc)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     const { executor } = makeTrackedExecutor()
 
-    runtime.setAIService(brokenSvc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -642,7 +636,6 @@ describe('Anthropic API Errors', () => {
 
 describe('Anthropic End-to-End', () => {
   it('full character creation workflow via Anthropic protocol', async () => {
-    const runtime = makeRuntime({ maxIterations: 8 })
     const { svc } = makeAnthropicAI([
       // Step 1: List existing characters
       makeStreamResult({
@@ -681,9 +674,10 @@ describe('Anthropic End-to-End', () => {
         stopReason: 'end_turn',
       }),
     ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 8 })
     const { executor, calls } = makeTrackedExecutor()
 
-    runtime.setAIService(svc)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -697,18 +691,17 @@ describe('Anthropic End-to-End', () => {
   })
 
   it('consecutive runs on same runtime instance', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
-
     // Run 1: simple chat
     const { svc: svc1 } = makeAnthropicAI([
       makeStreamResult({ text: '你好！我是青剑。有什么写作方面的需要？', stopReason: 'end_turn' }),
     ])
     const { executor: exec1 } = makeTrackedExecutor()
-    runtime.setAIService(svc1)
-    runtime.setToolExecutor(exec1)
-    runtime.setTools([])
+    const adapter1 = new AnthropicAdapter(svc1)
+    const runtime1 = makeRuntime(adapter1, { maxIterations: 5 })
+    runtime1.setToolExecutor(exec1)
+    runtime1.setTools([])
 
-    const r1 = await runtime.run({ userMessage: '你好', attachments: [] })
+    const r1 = await runtime1.run({ userMessage: '你好', attachments: [] })
     expect(r1.success).toBe(true)
     expect(r1.toolCalls).toBe(0)
 
@@ -722,11 +715,12 @@ describe('Anthropic End-to-End', () => {
       makeStreamResult({ text: '项目包含5个角色、10章内容。', stopReason: 'end_turn' }),
     ])
     const { executor: exec2 } = makeTrackedExecutor()
-    runtime.setAIService(svc2)
-    runtime.setToolExecutor(exec2)
-    runtime.setTools(toolRegistry.getAllSchemas())
+    const adapter2 = new AnthropicAdapter(svc2)
+    const runtime2 = makeRuntime(adapter2, { maxIterations: 5 })
+    runtime2.setToolExecutor(exec2)
+    runtime2.setTools(toolRegistry.getAllSchemas())
 
-    const r2 = await runtime.run({ userMessage: '列出项目文件', attachments: [] })
+    const r2 = await runtime2.run({ userMessage: '列出项目文件', attachments: [] })
     expect(r2.success).toBe(true)
     expect(r2.toolCalls).toBe(1)
     expect(r2.toolsUsed).toContain('list_directory')
@@ -748,7 +742,7 @@ function makeLiveAnthropicAI(): AnthropicAIService {
   let aborted = false
 
   return {
-    chatAnthropicStream: async (params) => {
+    chatAnthropicStream: async (params: any) => {
       if (aborted) throw new Error('已中止')
 
       const url = `${DEEPSEEK_BASE}/anthropic/v1/messages`
@@ -829,8 +823,9 @@ async function liveToolExecutor(
   it('简单聊天 — 无工具调用', async () => {
     if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
 
-    const runtime = makeRuntime({ maxIterations: 3 })
-    runtime.setAIService(makeLiveAnthropicAI())
+    const ai = makeLiveAnthropicAI()
+    const adapter = new AnthropicAdapter(ai)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     runtime.setToolExecutor(vi.fn())
     runtime.setTools([])
 
@@ -844,8 +839,9 @@ async function liveToolExecutor(
   it('有工具可用但不需要调用 — 模型自主选择不调', async () => {
     if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
 
-    const runtime = makeRuntime({ maxIterations: 3 })
-    runtime.setAIService(makeLiveAnthropicAI())
+    const ai = makeLiveAnthropicAI()
+    const adapter = new AnthropicAdapter(ai)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
     runtime.setToolExecutor(vi.fn())
     // 给工具但不给项目上下文 — 模型应该选择不调工具
     runtime.setTools(toolRegistry.getAllSchemas())
@@ -864,8 +860,9 @@ async function liveToolExecutor(
   it('工具调用 — 模型能正确选择和调用工具', async () => {
     if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
 
-    const runtime = makeRuntime({ maxIterations: 5 })
-    runtime.setAIService(makeLiveAnthropicAI())
+    const ai = makeLiveAnthropicAI()
+    const adapter = new AnthropicAdapter(ai)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     runtime.setToolExecutor(liveToolExecutor as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -884,8 +881,9 @@ async function liveToolExecutor(
   it('多步工具调用 — 先读后创建', async () => {
     if (!DEEPSEEK_KEY) throw new Error('请设置 DEEPSEEK_KEY 环境变量')
 
-    const runtime = makeRuntime({ maxIterations: 8 })
-    runtime.setAIService(makeLiveAnthropicAI())
+    const ai = makeLiveAnthropicAI()
+    const adapter = new AnthropicAdapter(ai)
+    const runtime = makeRuntime(adapter, { maxIterations: 8 })
     runtime.setToolExecutor(liveToolExecutor as ToolExecutorFn)
     runtime.setTools(toolRegistry.getAllSchemas())
 

@@ -15,6 +15,7 @@ import { browserTools } from './browserTools'
 import { shellTools } from './shellTools'
 import { lspTools } from './lspTools'
 import { thinkTools } from './thinkTools'
+import { invokeSkillTool } from './skillTools'
 
 import type { ToolDefinition } from '../types'
 
@@ -32,7 +33,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...shellTools,     // 2 tools:  shell_exec, shell_run_script
   ...lspTools,       // 1 tool:   lsp_diagnose
   ...thinkTools,     // 1 tool:   think
-  // Total: 41 tools
+  invokeSkillTool,   // 1 tool:   invoke_skill (v9.6.1: Skill 主动调用)
+  // Total: 42 tools
 ]
 
 export {

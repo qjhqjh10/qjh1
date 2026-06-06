@@ -3,7 +3,8 @@
 // Verifies: simple tasks, multi-turn dialog, multi-tool calls, token efficiency.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { V4AgentRuntime } from '../V4AgentRuntime'
+import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
@@ -73,13 +74,15 @@ function makeRealToolExecutor() {
   }
 }
 
-function makeRuntime(maxIter = 10) {
-  return new V4AgentRuntime({
+function makeRuntime(adapter: OpenAIAdapter, maxIter = 10) {
+  return new V4UnifiedRuntime({
     configId: 'test-config',
     projectId: 'test-project',
     maxIterations: maxIter,
     abortSignal: new AbortController().signal,
-  })
+    skipAnalyze: true,
+    skipSkillGate: true,
+  }, adapter)
 }
 
 // ═══════════════════════════════════════════════════════
@@ -97,8 +100,8 @@ describe('简单任务 — 快捷执行', () => {
     ])
     const { executor, executedTools } = makeRealToolExecutor()
 
-    const runtime = makeRuntime()
-    runtime.setAIService(service)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -124,8 +127,8 @@ describe('简单任务 — 快捷执行', () => {
     ])
     const { executor, executedTools } = makeRealToolExecutor()
 
-    const runtime = makeRuntime()
-    runtime.setAIService(service)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -143,8 +146,8 @@ describe('简单任务 — 快捷执行', () => {
     ])
     const { executor, executedTools } = makeRealToolExecutor()
 
-    const runtime = makeRuntime()
-    runtime.setAIService(service)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -179,8 +182,8 @@ describe('多工具调用 — 精准不冗余', () => {
     ])
     const { executor, executedTools } = makeRealToolExecutor()
 
-    const runtime = makeRuntime()
-    runtime.setAIService(service)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -214,8 +217,8 @@ describe('多工具调用 — 精准不冗余', () => {
     ])
     const { executor, executedTools } = makeRealToolExecutor()
 
-    const runtime = makeRuntime()
-    runtime.setAIService(service)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -243,8 +246,9 @@ describe('多轮对话 — 上下文保持', () => {
       { text: '第3章已完成。' },
     ])
     const { executor: e1 } = makeRealToolExecutor()
-    const rt1 = makeRuntime()
-    rt1.setAIService(s1); rt1.setToolExecutor(e1); rt1.setTools(toolRegistry.getAllSchemas())
+    const adapter1 = new OpenAIAdapter(s1)
+    const rt1 = makeRuntime(adapter1)
+    rt1.setToolExecutor(e1); rt1.setTools(toolRegistry.getAllSchemas())
     const r1 = await rt1.run({ userMessage: '写第3章', attachments: [] })
     expect(r1.success).toBe(true)
 
@@ -261,8 +265,9 @@ describe('多轮对话 — 上下文保持', () => {
       { text: '已润色完成。改进了对话部分，增加了环境描写。' },
     ])
     const { executor: e2, executedTools: et2 } = makeRealToolExecutor()
-    const rt2 = makeRuntime()
-    rt2.setAIService(s2); rt2.setToolExecutor(e2); rt2.setTools(toolRegistry.getAllSchemas())
+    const adapter2 = new OpenAIAdapter(s2)
+    const rt2 = makeRuntime(adapter2)
+    rt2.setToolExecutor(e2); rt2.setTools(toolRegistry.getAllSchemas())
     // Feed history from turn 1
     rt2.setHistory([
       { role: 'user', content: '写第3章' },
@@ -289,8 +294,9 @@ describe('Token 效率', () => {
       { text: '大纲显示故事在第2幕。' },
     ])
     const { executor } = makeRealToolExecutor()
-    const runtime = makeRuntime()
-    runtime.setAIService(service); runtime.setToolExecutor(executor)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
+    runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
     await runtime.run({ userMessage: '查看大纲', attachments: [] })
@@ -318,8 +324,9 @@ describe('Token 效率', () => {
       { text: '完成。' },
     ])
     const { executor, executedTools } = makeRealToolExecutor()
-    const runtime = makeRuntime()
-    runtime.setAIService(service); runtime.setToolExecutor(executor)
+    const adapter = new OpenAIAdapter(service)
+    const runtime = makeRuntime(adapter)
+    runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
     await runtime.run({ userMessage: '创建测试章节', attachments: [] })
@@ -339,8 +346,9 @@ describe('Agent 功能全景验证', () => {
   // ── 核心循环 ──
   it('功能01: 统一Agent循环 — 聊天直接回复', async () => {
     const { service } = makeSimulatedAIService([{ text: '你好！' }])
-    const rt = makeRuntime(); const { executor } = makeRealToolExecutor()
-    rt.setAIService(service); rt.setToolExecutor(executor); rt.setTools([])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter); const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools([])
     const r = await rt.run({ userMessage: '你好', attachments: [] })
     expect(r.toolCalls).toBe(0); expect(r.success).toBe(true)
   })
@@ -350,8 +358,9 @@ describe('Agent 功能全景验证', () => {
       { text: '', toolCalls: [{ id: 'c1', name: 'list_directory', arguments: '{"dir_path":"characters/"}' }] },
       { text: '完成' },
     ])
-    const rt = makeRuntime(); const { executor } = makeRealToolExecutor()
-    rt.setAIService(service); rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter); const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
     const r = await rt.run({ userMessage: '列出角色', attachments: [] })
     expect(r.toolCalls).toBeGreaterThan(0); expect(r.success).toBe(true)
   })
@@ -493,8 +502,9 @@ describe('Agent 功能全景验证', () => {
       { text: '完成' },
     ])
     const { executor } = makeRealToolExecutor()
-    const rt = makeRuntime()
-    rt.setAIService(service); rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter)
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
 
     await rt.run({ userMessage: '复制', attachments: [] })
     // 3个工具都执行了
@@ -510,8 +520,9 @@ describe('Agent 功能全景验证', () => {
     }))
     const { service } = makeSimulatedAIService([...manyToolCalls, { text: 'done' }])
     const { executor } = makeRealToolExecutor()
-    const rt = makeRuntime(3) // max 3 iterations
-    rt.setAIService(service); rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 3) // max 3 iterations
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
 
     const r = await rt.run({ userMessage: 'loop', attachments: [] })
     // Should have terminated after maxIterations
@@ -525,8 +536,9 @@ describe('Agent 功能全景验证', () => {
       { text: '', toolCalls: [{ id: 'c1', name: 'list_directory', arguments: '{"dir_path":"test/"}' }] },
     ])
     const { executor } = makeRealToolExecutor()
-    const rt = new V4AgentRuntime({ configId: 'test', projectId: null, maxIterations: 5, abortSignal: ac.signal })
-    rt.setAIService(service); rt.setToolExecutor(executor); rt.setTools([])
+    const adapter = new OpenAIAdapter(service)
+    const rt = new V4UnifiedRuntime({ configId: 'test', projectId: null, maxIterations: 5, abortSignal: ac.signal }, adapter)
+    rt.setToolExecutor(executor); rt.setTools([])
 
     ac.abort() // abort before run
     const r = await rt.run({ userMessage: 'test', attachments: [] })

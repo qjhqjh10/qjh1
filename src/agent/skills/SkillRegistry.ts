@@ -248,27 +248,26 @@ export class SkillRegistry {
     for (const match of matches.slice(0, 3)) { // 最多注入 3 个匹配技能
       const { skill } = match
       const lines: string[] = [
-        `## 🔧 技能匹配: ${skill.name}`,
+        `## 🔧 技能: ${skill.name}`,
         `> ${skill.description}`,
         '',
-        `**推荐操作流程：**`,
         skill.workflow.description,
         '',
       ]
 
-      // 添加步骤指引
+      // 步骤指引 — 强制语气
       if (skill.workflow.steps.length > 0) {
-        lines.push('**具体步骤：**')
+        lines.push('### 必须执行的步骤（不允许跳过或调换顺序）：')
         for (const step of skill.workflow.steps) {
-          const prefix = step.optional ? '  (可选)' : '  '
-          lines.push(`${prefix}${step.order}. ${step.purpose} — 调用 \`${step.tool}\``)
+          const prefix = step.optional ? '  [可选]' : '  [必做]'
+          lines.push(`${prefix} 步骤${step.order}. ${step.purpose} → 工具: \`${step.tool}\``)
         }
         lines.push('')
       }
 
-      // 添加质量检查
+      // 质量检查
       if (skill.qualityChecks.length > 0) {
-        lines.push('**质量检查（必须遵守）：**')
+        lines.push('### 质量检查（不通过会被自动退回重做）：')
         for (const qc of skill.qualityChecks) {
           const icon = qc.severity === 'error' ? '❌' : '⚠️'
           lines.push(`  ${icon} ${qc.description}`)
@@ -276,9 +275,9 @@ export class SkillRegistry {
         lines.push('')
       }
 
-      // 添加字段提取指引
+      // 字段提取
       if (skill.inputSchema.fields.length > 0 && match.extractedFields) {
-        lines.push('**已提取的参数：**')
+        lines.push('### 已提取的参数：')
         for (const [k, v] of Object.entries(match.extractedFields)) {
           lines.push(`  - ${k}: ${v}`)
         }

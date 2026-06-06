@@ -12,7 +12,8 @@
 //   S7: 任务排序（先做最后一个）
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { V4AgentRuntime } from '../V4AgentRuntime'
+import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { skillRegistry } from '../skills/SkillRegistry'
@@ -22,7 +23,8 @@ import { ALL_PROVIDERS } from '../context/providers'
 import { selectDomainModules, buildSystemPromptWithSkills } from '../V4SystemPrompt'
 import { estimateTokens } from '../utils/tokenEstimation'
 import type { Message, ToolCallRequest, ToolResult, ToolExecutionContext } from '../state/types'
-import type { AIService, ToolExecutorFn } from '../V4AgentRuntime'
+import type { OpenAIAIService as AIService } from '../runtime/adapters/OpenAIAdapter'
+import type { V4AgentRunResult, ToolExecutorFn, ContextAssemblerFn } from '../runtime/RuntimeTypes'
 
 // ── Setup ──
 toolRegistry.registerAll(ALL_TOOLS)
@@ -38,13 +40,15 @@ skillRegistry.registerBuiltins(BUILTIN_SKILLS)
 // ── Test Utilities ──
 
 /** 构造 Runtime 实例 */
-function makeRuntime(opts?: { maxIterations?: number; contextWindow?: number }) {
-  return new V4AgentRuntime({
+function makeRuntime(adapter: OpenAIAdapter, opts?: { maxIterations?: number; contextWindow?: number }) {
+  return new V4UnifiedRuntime({
     configId: 'test-scenario', projectId: 'test-project',
     maxIterations: opts?.maxIterations ?? 10,
     abortSignal: new AbortController().signal,
     contextWindow: opts?.contextWindow ?? 128_000,
-  })
+    skipAnalyze: true,
+    skipSkillGate: true,
+  }, adapter)
 }
 
 /** 构造 ToolCall */
@@ -103,7 +107,6 @@ describe('S1: 文本导入→大纲/草稿', () => {
   })
 
   it('RUN: text-import → read_file + edit_file（验证核心工具链）', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
     const { calls, executor } = makeRecorder()
 
     let round = 0
@@ -134,9 +137,10 @@ describe('S1: 文本导入→大纲/草稿', () => {
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     const fence = new V4SecurityFence('test-project')
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(async (args, ctx) => {
       const check = fence.check(ctx.toolName, args)
       if (!check.allowed) return { status: 'error', summary: check.reason || '' }
@@ -178,7 +182,6 @@ describe('S2: 文本→风格/场景模板', () => {
   })
 
   it('RUN: style-template → read_file + create_style_template', async () => {
-    const runtime = makeRuntime({ maxIterations: 5 })
     const { calls, executor } = makeRecorder({
       create_style_template: { status: 'success', summary: '已创建风格模板: 古风言情' },
     })
@@ -195,9 +198,10 @@ describe('S2: 文本→风格/场景模板', () => {
       })),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 5 })
     const fence = new V4SecurityFence('test-project')
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(async (args, ctx) => {
       const check = fence.check(ctx.toolName, args)
       if (!check.allowed) return { status: 'error', summary: check.reason || '' }
@@ -214,6 +218,7 @@ describe('S2: 文本→风格/场景模板', () => {
       runtime.setActiveSkill({
         skillId: match.skill.id, currentStep: 1, completedSteps: new Set(),
         extractedFields: match.extractedFields, retryCount: 0,
+        missingFiles: new Set(),
       })
     }
 
@@ -256,7 +261,6 @@ describe('S3: 文本→纯分析', () => {
   })
 
   it('RUN: text-analysis → 纯文本回复（零工具调用）', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
     const { calls, executor } = makeRecorder()
 
     const analysisText = '这段文字属于古风言情风格。叙事基调温柔细腻，句式以中短句为主...'
@@ -269,8 +273,9 @@ describe('S3: 文本→纯分析', () => {
       })),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(async (args, ctx) => {
       const fence = new V4SecurityFence('test-project')
       const check = fence.check(ctx.toolName, args)
@@ -344,7 +349,6 @@ describe('S5: 文件搜索→汇报', () => {
   })
 
   it('RUN: find_files → 汇报结果', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
     const { calls, executor } = makeRecorder({
       find_files: { status: 'success', summary: '5 个匹配文件', detail: 'characters/林语晴.yaml\noutline/plot.md\n...' },
     })
@@ -358,8 +362,9 @@ describe('S5: 文件搜索→汇报', () => {
       })),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -392,7 +397,6 @@ describe('S6: 关键词搜索', () => {
   })
 
   it('RUN: search_content → 汇报匹配结果', async () => {
-    const runtime = makeRuntime({ maxIterations: 3 })
     const { calls, executor } = makeRecorder({
       search_content: { status: 'success', summary: '12 处匹配', detail: '详细匹配结果...' },
     })
@@ -406,8 +410,9 @@ describe('S6: 关键词搜索', () => {
       })),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
@@ -425,11 +430,11 @@ describe('S6: 关键词搜索', () => {
 describe('S7: 任务排序', () => {
   it('V4SystemPrompt 包含任务排序指令', async () => {
     const prompt = await buildSystemPromptWithSkills([], '', '', 'test')
-    // v9.5.3: 排序指令已增强为独立段落
+    // v9.6.0: 排序指令强化为多文件/批量任务指引
     expect(prompt).toContain('任务排序')
     expect(prompt).toContain('严格遵守')
-    expect(prompt).toContain('指定顺序')
-    expect(prompt).toContain('执行前先列出你理解的顺序')
+    expect(prompt).toContain('批量操作')
+    expect(prompt).toContain('逐个完成')
   })
 
   it('Skill 匹配不干扰任务排序逻辑 — 多任务消息可匹配或默认工具集', () => {
@@ -445,12 +450,12 @@ describe('S7: 任务排序', () => {
 
   it('V4SystemPrompt 任务排序指令覆盖所有场景', async () => {
     const prompt = await buildSystemPromptWithSkills([], '', '', 'test')
-    // v9.5.3: 排序指令已增强为 ## 任务排序 独立段落
+    // v9.6.0: 排序指令强化为多文件/批量任务指引
     expect(prompt).toContain('任务排序')
-    expect(prompt).toContain('指定顺序')
+    expect(prompt).toContain('批量操作')
     expect(prompt).toContain('严格遵守')
-    expect(prompt).toContain('执行前先列出你理解的顺序')
-    expect(prompt).toContain('多任务逐个完成')
+    expect(prompt).toContain('逐个完成')
+    expect(prompt).toContain('全部完成后')
   })
 })
 
@@ -574,7 +579,6 @@ describe('R: 真实场景输入', () => {
   })
 
   it('R6: RUN 大段输入 → Runtime 正常执行不崩溃', async () => {
-    const runtime = makeRuntime({ maxIterations: 8 })
     const { calls, executor } = makeRecorder({
       create_file: { status: 'success', summary: '已创建角色: 陈远山' },
       read_file: { status: 'success', summary: '读取成功', detail: '文件内容...' },
@@ -607,9 +611,10 @@ describe('R: 真实场景输入', () => {
       }),
       abortStream: vi.fn(),
     }
+    const adapter = new OpenAIAdapter(mockAI)
+    const runtime = makeRuntime(adapter, { maxIterations: 8 })
     const fence = new V4SecurityFence('test-project')
 
-    runtime.setAIService(mockAI)
     runtime.setToolExecutor(async (args, ctx) => {
       const check = fence.check(ctx.toolName, args)
       if (!check.allowed) return { status: 'error', summary: check.reason || '' }

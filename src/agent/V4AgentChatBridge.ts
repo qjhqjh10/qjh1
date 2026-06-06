@@ -4,9 +4,10 @@
 // LearningEngine.
 // ~180 lines (down from V3's 962).
 
-import { V4AgentRuntime } from './V4AgentRuntime'
+import { V4UnifiedRuntime } from './runtime/V4UnifiedRuntime'
+import { OpenAIAdapter } from './runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from './V4SecurityFence'
-import { buildSystemPromptWithSkills, selectDomainModules } from './V4SystemPrompt'
+import { buildSystemPromptWithSkills, selectDomainModules, getSkillSystemMessage } from './V4SystemPrompt'
 import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
@@ -17,8 +18,9 @@ import { ALL_PROVIDERS } from './context/providers'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
 import { estimateTokens } from './utils/tokenEstimation'
+import { isComplexTask } from './utils/taskDetection'
 import type { Message } from './state/types'
-import type { V4AgentRunResult, ToolExecutorFn } from './V4AgentRuntime'
+import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 
 // ── Init ──
 
@@ -75,7 +77,7 @@ export interface BridgeSendResult {
 // ── Bridge ──
 
 export class V4AgentChatBridge {
-  private runtime: V4AgentRuntime | null = null
+  private runtime: V4UnifiedRuntime | null = null
   private securityFence: V4SecurityFence
   private auditTrail = new AuditTrail()
   private learningEngine = new LearningEngine()
@@ -83,7 +85,7 @@ export class V4AgentChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 12  // v9.5.3: 8→12，为多步Skill工作流留足余量
+  private maxIterations = 60  // v10.0.3: 12→60，不限制复杂任务迭代
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -98,7 +100,7 @@ export class V4AgentChatBridge {
   init(options: BridgeOptions): void {
     this.configId = options.configId
     this.projectId = options.projectId
-    this.maxIterations = options.maxIterations ?? 12
+    this.maxIterations = options.maxIterations ?? 60
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
@@ -141,98 +143,16 @@ export class V4AgentChatBridge {
     const unsubscribes: Array<() => void> = []
 
     try {
-      // ── Skill-driven tool scoping ──
-      // v9.5.4: SKILL 模式 = 任务复杂度（多文件 / 多步骤 / 多 Skill），不再依赖 confidence 阈值
-      const allTools = toolRegistry.getAllSchemas()
-      const msg = userMessage
-      const skillMatch = skillRegistry.matchBest(msg, 0.3)
-
-      // ── Tool scoping ──
-      const READ   = new Set(['read_file','list_directory','search_content','find_files','search_files'])
-      const ALWAYS = new Set(['think'])
-      const WRITE  = new Set(['create_file','edit_file','batch_replace'])
-      const DANGER = new Set(['delete_file','rename_file','delete_project'])
-      const NOTE   = new Set(['list_notes','read_note','write_note','append_note','delete_note','search_notes'])
-      const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
-      const TMPL   = new Set(['create_style_template','create_scene_template'])
-      const PROJ   = new Set(['create_project'])
-
-      // v9.5.4: SKILL 模式判断
-      const allMatches = skillRegistry.match(msg).filter(m => m.confidence >= 0.3)
-      const isMultiSkill = allMatches.length >= 2
-      const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
-      const isMultiFile = /(?:每个|所有|各个|全部|分别).*(?:tab|文件|yaml|md)|(?:填写|创建|写入).*(?:各个|多个|每个)/i.test(msg)
-      const useSkillMode = isMultiFile || isComplexSkill || isMultiSkill
-
-      let scopedCore: any[], scopedExtended: any[]
-      let taskLabel: string
-      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
-
-      if (useSkillMode && skillMatch) {
-        // SKILL 模式：合并所有匹配 Skill 的工具 + 通用工具
-        taskLabel = `skill:${skillMatch.skill.id}${isMultiSkill ? '+multi' : ''}`
-        const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
-        if (isMultiSkill) {
-          for (const m of allMatches) {
-            for (const s of m.skill.workflow.steps) neededTools.add(s.tool)
-          }
-        }
-        neededTools.add('read_file')
-        neededTools.add('list_directory')
-        neededTools.add('search_content')
-        scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name) || ALWAYS.has(t.function.name))
-        scopedExtended = []
-
-        activeSkillCtx = {
-          skillId: skillMatch.skill.id,
-          currentStep: 1,
-          completedSteps: new Set(),
-          extractedFields: skillMatch.extractedFields,
-          retryCount: 0,
-          missingFiles: new Set(),
-        }
-      }
-
-      // v9.5.3: Skill 可覆盖 maxIterations
-      if (activeSkillCtx) {
-        const skill = skillRegistry.get(activeSkillCtx.skillId)
-        if (skill?.workflow.maxIterations) {
-          this.runtime.setMaxIterations(Math.max(this.maxIterations, skill.workflow.maxIterations))
-        }
-      } else {
-        // TOOL 模式：全工具集，零 Skill 开销
-        taskLabel = skillMatch ? `tool:${skillMatch.skill.id}` : 'default'
-        scopedCore = allTools.filter((t: any) =>
-          READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
-        scopedExtended = allTools.filter((t: any) =>
-          DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
-      }
-
-      diagnosticLogger.recordInfo(`Agent2: task=${taskLabel} core=${scopedCore.length} ext=${scopedExtended.length}`)
-
-      // v9.5.4: planInstruction 使用 useSkillMode
-      const planInstruction = useSkillMode ? (isMultiFile ? '逐个文件完成。' : '逐步骤完成。') : ''
-
-      // ── 1. Create Runtime ──
-      this.runtime = new V4AgentRuntime({
-        configId: this.configId,
-        projectId: this.projectId,
-        maxIterations: this.maxIterations,
-        abortSignal: this.abortController.signal,
-        contextWindow: this.contextWindow,
-      })
-
-      // ── 2. Wire AI Service ──
+      // ── 1. Create Runtime (via V4UnifiedRuntime + OpenAIAdapter — no setAIService needed) ──
+      // Note: Skill scoping below may override maxIterations via this.runtime.setMaxIterations()
       const { aiService } = await import('@/services/fileService')
-      this.runtime.setAIService({
+      const adapter = new OpenAIAdapter({
         chatWithTools: async (msgs, cid, pid, tools) => {
           const result = await aiService.chatWithTools(msgs, cid, pid, tools)
           return {
             text: result.text,
             toolCalls: result.toolCalls?.map(tc => ({
-              id: tc.id,
-              name: tc.function.name,
-              arguments: tc.function.arguments,
+              id: tc.id, name: tc.function.name, arguments: tc.function.arguments,
             })) || null,
             finishReason: result.finishReason,
             usage: result.usage,
@@ -241,6 +161,41 @@ export class V4AgentChatBridge {
         },
         abortStream: () => aiService.abortStream(),
       })
+      this.runtime = new V4UnifiedRuntime({
+        configId: this.configId,
+        projectId: this.projectId,
+        maxIterations: this.maxIterations,
+        abortSignal: this.abortController.signal,
+        contextWindow: this.contextWindow,
+      }, adapter)
+
+      // ── 2. Tool scoping (v9.6.1: Skill 不再预裁剪工具 — 模型通过 invoke_skill 主动选择) ──
+      const allTools = toolRegistry.getAllSchemas()
+      const msg = userMessage
+
+      const READ   = new Set(['read_file','list_directory','search_content','find_files','search_files'])
+      const ALWAYS = new Set(['think','invoke_skill'])
+      const WRITE  = new Set(['create_file','edit_file','batch_replace'])
+      const DANGER = new Set(['delete_file','rename_file','delete_project'])
+      const NOTE   = new Set(['list_notes','read_note','write_note','append_note','delete_note','search_notes'])
+      const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
+      const TMPL   = new Set(['create_style_template','create_scene_template'])
+      const PROJ   = new Set(['create_project'])
+
+      // 复杂任务 → planInstruction 提示逐个完成
+      const isMultiFile = isComplexTask(msg)
+      const planInstruction = isMultiFile ? '逐个文件完成。' : ''
+
+      // 全工具集 — invoke_skill 始终可用
+      const scopedCore = allTools.filter((t: any) =>
+        READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
+      const scopedExtended = allTools.filter((t: any) =>
+        DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
+
+      diagnosticLogger.recordInfo(`Agent2: task=default core=${scopedCore.length} ext=${scopedExtended.length}`)
+
+      // v9.6.1: activeSkillCtx 不再预设置 — 当模型调用 invoke_skill 时由 Runtime 设置
+      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
 
       // ── 3. Wire Context Assembler ──
       // v4: Split System Prompt — core (locked, cached) + dynamic (index + providers)
@@ -338,11 +293,15 @@ export class V4AgentChatBridge {
         const providerContent = base.systemMessages.map(m => m.content).filter(Boolean).join('\n\n')
         const dynamicContent = [searchContext, toolInvokePrompt, planInstruction, planPrompt].filter(Boolean).join('\n\n')
 
+        // v9.6.1: Skill 注入作为最后一个 system 消息（紧贴 user，最大化权重）
+        const skillSysMsg = getSkillSystemMessage(msg)
+
         const systemMessages = [
           coreSystemMsg,                                          // [0] 核心提示词 — cached
           ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引
           ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []),  // [2] Provider — stable
           ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态内容
+          ...(skillSysMsg ? [skillSysMsg] : []),                  // [4] Skill 工作流 — 最后权重最高
         ]
 
         return {
@@ -353,7 +312,7 @@ export class V4AgentChatBridge {
         }
       })
 
-      // ── 4. Wire Tool Executor (SecurityFence → execute → audit → learning) ──
+      // ── 5. Wire Tool Executor (SecurityFence → execute → audit → learning) ──
       const toolExecutor: ToolExecutorFn = async (args, ctx) => {
         // Security fence check
         const secCheck = this.securityFence.check(ctx.toolName, args)
@@ -440,7 +399,7 @@ export class V4AgentChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 5. Set core + extended tools (v4.1 progressive disclosure) ──
+      // ── 6. Set core + extended tools (v4.1 progressive disclosure) ──
       this.runtime.setTools(scopedCore)
       this.runtime.setExtendedTools(scopedExtended)
 

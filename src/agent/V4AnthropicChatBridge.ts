@@ -9,15 +9,14 @@
 //   - 不需要 IntentClassifier / 工具裁剪（模型自然选择工具）
 //   - 不需要渐进工具展开（模型决定何时调工具）
 
-import { V4AnthropicRuntime } from './V4AnthropicRuntime'
-import type { V4AgentRunResult, ToolExecutorFn } from './V4AnthropicRuntime'
+import { V4UnifiedRuntime } from './runtime/V4UnifiedRuntime'
+import { AnthropicAdapter } from './runtime/adapters/AnthropicAdapter'
+import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 import { V4SecurityFence } from './V4SecurityFence'
 import {
-  buildSystemPrompt,
   buildSystemPromptWithSkills,
   selectDomainModules,
-  CHARACTER_DOMAIN_MODULE,
-  OUTLINE_DOMAIN_MODULE,
+  getSkillSystemMessage,
 } from './V4SystemPrompt'
 import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
@@ -29,6 +28,7 @@ import { ALL_PROVIDERS } from './context/providers'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
 import { estimateTokens } from './utils/tokenEstimation'
+import { isComplexTask } from './utils/taskDetection'
 import type { Message } from './state/types'
 import type {
   BridgeOptions,
@@ -59,7 +59,7 @@ function ensureInitialized() {
 // ── Bridge ──
 
 export class V4AnthropicChatBridge {
-  private runtime: V4AnthropicRuntime | null = null
+  private runtime: V4UnifiedRuntime | null = null
   private securityFence: V4SecurityFence
   private auditTrail = new AuditTrail()
   private learningEngine = new LearningEngine()
@@ -67,7 +67,7 @@ export class V4AnthropicChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 12  // v9.5.3: 8→12，为多步Skill工作流留足余量
+  private maxIterations = 60  // v10.0.3: 12→60，不限制复杂任务迭代
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -81,7 +81,7 @@ export class V4AnthropicChatBridge {
   init(options: BridgeOptions): void {
     this.configId = options.configId
     this.projectId = options.projectId
-    this.maxIterations = options.maxIterations ?? 12
+    this.maxIterations = options.maxIterations ?? 60
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
@@ -109,10 +109,13 @@ export class V4AnthropicChatBridge {
   ): Promise<BridgeSendResult> {
     if (!this.initialized) throw new Error('V4AnthropicChatBridge not initialized')
 
-    // 中止之前的运行
+    // 中止之前的运行（v9.6.0: 补充 anthropicService stream abort — Bug 1 修复）
     if (this.runtime) {
       this.abortController.abort()
       this.runtime.abort()
+      import('@/services/anthropicService').then(m =>
+        m.anthropicService.abortAnthropicStream(),
+      ).catch(() => {})
     }
 
     this.runId = `ant_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
@@ -126,24 +129,26 @@ export class V4AnthropicChatBridge {
     const unsubscribes: Array<() => void> = []
 
     try {
-      // ── 1. 创建 Runtime ──
-      this.runtime = new V4AnthropicRuntime({
-        configId: this.configId,
-        projectId: this.projectId,
-        maxIterations: this.maxIterations,
-        abortSignal: this.abortController.signal,
-        contextWindow: this.contextWindow,
-      })
-
-      // ── 2. 注入 Anthropic AI Service ──
+      // ── 1. 创建 Runtime (V4UnifiedRuntime + AnthropicAdapter — constructor-injected) ──
       const { anthropicService } = await import('@/services/anthropicService')
-      this.runtime.setAIService({
+      const adapter = new AnthropicAdapter({
         chatAnthropicStream: async (params) => {
           const result = await anthropicService.chatAnthropicStream(params)
           return result
         },
         abortStream: () => anthropicService.abortAnthropicStream(),
       })
+      this.runtime = new V4UnifiedRuntime({
+        configId: this.configId,
+        projectId: this.projectId,
+        maxIterations: this.maxIterations,
+        abortSignal: this.abortController.signal,
+        contextWindow: this.contextWindow,
+      }, adapter)
+
+      // ── 2.5. 工具准备 (v9.6.1: 全工具可用 — 模型通过 invoke_skill 主动选择 Skill) ──
+      const allTools = toolRegistry.getAllSchemas()
+      const isMultiFile = isComplexTask(userMessage)  // 用于 planInstruction
 
       // ── 3. 注入 Context Assembler ──
       // V5.1: Domain Modules 已恢复 — 格式规范对模板/角色/大纲创建至关重要
@@ -199,13 +204,9 @@ export class V4AnthropicChatBridge {
         const { buildToolInvokePrompt } = await import('@/types/fileOps')
         const toolInvokePrompt = isChatOnly ? '' : buildToolInvokePrompt()
 
-        // ── v9.5.3: 复杂任务规划指引 — 强制"先规划→逐个执行"模式 ──
-        const multiFilePattern = /(?:每个|所有|各个|全部|分别).*(?:tab|文件|yaml|md)|(?:填写|创建|写入).*(?:各个|多个|每个)/i
-        const isMultiFile = multiFilePattern.test(msg)
-        const isComplex = skillMatch
-          ? skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
-          : /写|创建|修改|删除|编辑|生成|续写/.test(msg)
-        const planInstruction = ((isMultiFile || isComplex) && !options.planMode) ? (isMultiFile ? '逐个文件完成。' : isComplex ? '逐步骤完成。' : '')
+        // ── v9.6.1: 复杂任务规划指引 ──
+        const msgIsMultiFile = isComplexTask(msg)
+        const planInstruction = (msgIsMultiFile && !options.planMode) ? '逐个文件完成。' : ''
 
         const searchTokens = searchContext ? estimateTokens(searchContext) : 0
         const globalIndexTokens = estimateTokens(globalIndex || '')
@@ -223,12 +224,16 @@ export class V4AnthropicChatBridge {
           planInstruction,  // v9.5.3: 已精简
         ].filter(Boolean).join('\n\n')
 
+        // v9.6.1: Skill 注入作为最后一个 system 消息（紧贴 user，最大化权重）
+        const skillSysMsg = getSkillSystemMessage(msg)
+
         const systemMessages = [
           coreSystemMsg,
           ...(globalIndex
             ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }]
             : []),
           { role: 'system' as const, content: dynamicContent },
+          ...(skillSysMsg ? [skillSysMsg] : []),  // Skill 工作流 — 最后权重最高
         ]
 
         return {
@@ -333,51 +338,9 @@ export class V4AnthropicChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 5. Skill 驱动的工具裁剪 ──
-      // v9.5.4: SKILL 模式触发条件 = 任务复杂度（多文件 / 多步骤 / 多 Skill），不再依赖 confidence 阈值
-      const allTools = toolRegistry.getAllSchemas()
-      const skillMatch = skillRegistry.matchBest(userMessage, 0.3)
-      const allMatches = skillRegistry.match(userMessage).filter(m => m.confidence >= 0.3)
-      const isMultiSkill = allMatches.length >= 2
-      const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
-      const useSkillMode = isMultiFile || isComplexSkill || isMultiSkill
-
-      let toolsForRuntime = allTools
+      // ── 5. 工具注入 (v9.6.1: 全工具可用，模型通过 invoke_skill 主动选择 Skill) ──
       let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
-
-      if (useSkillMode && skillMatch) {
-        // SKILL 模式：合并所有匹配 Skill 的工具 + 通用工具
-        const neededTools = new Set(skillMatch.skill.workflow.steps.map(s => s.tool))
-        if (isMultiSkill) {
-          for (const m of allMatches) {
-            for (const s of m.skill.workflow.steps) neededTools.add(s.tool)
-          }
-        }
-        neededTools.add('read_file')
-        neededTools.add('list_directory')
-        neededTools.add('search_content')
-        neededTools.add('think')
-        toolsForRuntime = allTools.filter((t: any) => neededTools.has(t.function.name))
-
-        activeSkillCtx = {
-          skillId: skillMatch.skill.id,
-          currentStep: 1,
-          completedSteps: new Set(),
-          extractedFields: skillMatch.extractedFields,
-          retryCount: 0,
-          missingFiles: new Set(),
-        }
-      }
-      // else: TOOL 模式 — 全部工具可用，零 Skill 开销
-      this.runtime.setTools(toolsForRuntime)
-
-      // v9.5.3: Skill 可覆盖 maxIterations（如批量角色=15，多任务编排=20）
-      if (activeSkillCtx) {
-        const skill = skillRegistry.get(activeSkillCtx.skillId)
-        if (skill?.workflow.maxIterations) {
-          this.runtime.setMaxIterations(Math.max(this.maxIterations, skill.workflow.maxIterations))
-        }
-      }
+      this.runtime.setTools(allTools)
 
       // ── 6. 注入历史 ──
       this.runtime.setHistory(this.history)

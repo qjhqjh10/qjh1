@@ -4,7 +4,9 @@ import type { AgentPhase } from '@/agent/state/types'
 
 const PHASE_LABELS: Record<AgentPhase, { label: string; color: string; bg: string }> = {
   IDLE:               { label: '就绪',    color: '#9b8e84', bg: 'transparent' },
-  RUNNING:            { label: '思考中',  color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
+  ANALYZE:            { label: '分析中',  color: '#6366f1', bg: 'rgba(99,102,241,0.08)' },
+  EXECUTE:            { label: '执行中',  color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
+  VERIFY:             { label: '验证中',  color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
   WAITING_APPROVAL:   { label: '待审批',  color: '#d97706', bg: 'rgba(217,119,6,0.10)' },
   DONE:               { label: '完成',    color: '#059669', bg: 'rgba(5,150,105,0.08)' },
   ERROR:              { label: '错误',    color: '#dc2626', bg: 'rgba(220,38,38,0.10)' },
@@ -12,7 +14,7 @@ const PHASE_LABELS: Record<AgentPhase, { label: string; color: string; bg: strin
 }
 
 const PHASE_PROGRESS: Record<AgentPhase, number> = {
-  IDLE: 0, RUNNING: 50, WAITING_APPROVAL: 55, DONE: 100, ERROR: 0, ABORTED: 0,
+  IDLE: 0, ANALYZE: 20, EXECUTE: 50, VERIFY: 80, WAITING_APPROVAL: 55, DONE: 100, ERROR: 0, ABORTED: 0,
 }
 
 export function AgentStateBar({ maxIterations = 30 }: { maxIterations?: number }) {

@@ -10,6 +10,8 @@ export const outlineSkill: SkillDefinition = {
     '导入.*(?:世界观|设定|worldbuilding)', '(?:世界观|设定|世界设定).*导入',
     '(?:加到|追加|写入|整理到).*(?:世界观|设定|worldbuilding)',
     '(?:整理|添加|补充).*(?:设定|世界观|世界)',
+    'Tab', '填充.*Tab', '填充.*tab', 'items\\.yaml', 'locations\\.yaml', 'factions\\.yaml',
+    'power_system', 'outline_meta', 'emotion\\.yaml',
   ],
   category: 'outline',
   workflow: {
@@ -35,18 +37,32 @@ export const outlineSkill: SkillDefinition = {
       '- old_string必须逐字精确匹配（含换行和空格）\n' +
       '- 匹配失败时用 __FULL_REPLACE__ 做全量替换\n' +
       '- 新设定>500字: 可创建 outline/worldbuilding_supplement.md 作为补充，在worldbuilding.md末尾追加引用\n\n' +
-      '## 大纲Tab（outline/{tab}.yaml）\n' +
+      '## 大纲Tab（outline/{tab}.yaml）— ⚠️ 批量填充规则\n' +
+      '每个 Tab 文件独立处理，完成一个再处理下一个（不要同时操作多个 tab）。\n\n' +
       '- items.yaml: 道具列表 {\"items\":[{\"id\",\"name\",\"type\",\"grade\",\"ability\",\"owner\",\"description\"}]}\n' +
       '- locations.yaml: 地点列表 {\"locations\":[{\"id\",\"name\",\"description\",\"type\"}]}\n' +
       '- factions.yaml: 势力列表 {\"factions\":[{\"id\",\"name\",\"description\",\"type\"}]}\n' +
       '- power_system.yaml: 等级体系 {\"name\",\"levels\":[{\"name\",\"description\"}],\"description\"}\n' +
       '- outline_meta.yaml: 伏笔+故事线 {\"foreshadowing\":[...],\"plotThreads\":[...]}\n' +
-      '- emotion.yaml: 情绪曲线 {\"segments\":[{\"chapterStart\",\"chapterEnd\",\"dominantEmotion\"}]}\n' +
-      '追加条目: read_file → edit_file(定位最后一个条目前, old_string=条目前内容, new_string=原文+新条目)',
+      '- emotion.yaml: 情绪曲线 {\"segments\":[{\"chapterStart\",\"chapterEnd\",\"dominantEmotion\"}]}\n\n' +
+      'Tab 填充工作流（必须遵守）：\n' +
+      '1. read_file 读取当前 tab 文件（了解格式和现有内容）\n' +
+      '2. 空文件或仅模板占位 → old_string=\"__FULL_REPLACE__\" 全量覆写 JSON\n' +
+      '3. 已有内容 → edit_file 追加，old_string=最后条目末尾原文\n' +
+      '4. 确认status:\"success\"后立即处理下一个 tab\n' +
+      '5. 全部 tab 完成后汇报"X个tab已填充"',
     steps: [
       { order: 1, tool: 'read_file', purpose: '读取现有大纲了解结构和已有内容（追加时读末尾200字）', argsTemplate: { file_path: '${projectId}/outline/plot.md' }, optional: false },
-      { order: 2, tool: 'edit_file', purpose: '精确替换或追加内容', argsTemplate: { file_path: '${projectId}/outline/plot.md', old_string: '${old}', new_string: '${new}' }, optional: false },
+      { order: 2, tool: 'edit_file', purpose: '精确替换或追加内容到 plot.md / worldbuilding.md', argsTemplate: { file_path: '${projectId}/outline/plot.md', old_string: '${old}', new_string: '${new}' }, optional: false },
+      { order: 3, tool: 'read_file', purpose: '读 Tab YAML 文件了解当前结构和格式（items/locations/factions/power_system 等）。如果文件为空（content=""），用 __FULL_REPLACE__ 写入完整内容', argsTemplate: { file_path: '${projectId}/outline/${tabName}.yaml' }, optional: true, condition: '用户要求填充YAML Tab文件时执行' },
+      { order: 4, tool: 'edit_file', purpose: '编辑Tab YAML文件追加条目或替换内容。空文件用 old_string="__FULL_REPLACE__"', argsTemplate: { file_path: '${projectId}/outline/${tabName}.yaml', old_string: '${old}', new_string: '${new}' }, optional: true, condition: '用户要求填充YAML Tab文件时执行' },
     ],
+    verification: {
+      script: 'validate-outline-tabs.mjs',
+      description: '验证所有大纲Tab文件存在且内容有效，plot.md有内容',
+      requiredSteps: [1, 2],
+      mandatoryChecks: ['content-length'],
+    },
   },
   qualityChecks: [
     { id: 'read-before-edit', description: 'edit_file 前必须先 read_file 确认原文', severity: 'error', check: '工具调用顺序: read_file在edit_file之前' },

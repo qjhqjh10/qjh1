@@ -49,12 +49,18 @@ export const styleTemplateSkill: SkillDefinition = {
       '★★中→标准: description100-200字/examples1-2条/writingRules1-2条/vocabularyList3-5词\n' +
       '★弱→简要: description50-100字\n' +
       '☆无→跳过该维度不填\n' +
-      '⚠️ 禁止传空dimensions！有信号必须填！vocabularyList≤80词 writingRules≤30条',
+      '⚠️ 禁止传空dimensions！有信号必须填！vocabularyList≤80词 writingRules≤30条\n' +
+      '⚠️ 11个必填维度缺一不可，必须全部填写！系统会自动检查，缺失会被退回重做。',
     steps: [
-      { order: 1, tool: 'read_file', purpose: '读取原文（1次，不重读）', argsTemplate: { file_path: '${file_path}' }, optional: false },
-      { order: 2, tool: 'create_style_template', purpose: '创建风格模板前，先在文本回复中确认已覆盖全部11个必填维度（narrativeTone/sentenceStyle/vocabularyStyle/rhetoricStyle/rhythmStyle/dialogueStyle/moodStyle/perspectiveStyle/bodyLanguageStyle/sensoryStyle/descriptionPattern），每维度含 description/examples/writingRules/vocabularyList', argsTemplate: {}, optional: false, condition: '在文本中列出维度分析清单后再调用 create_style_template' },
-      { order: 3, tool: 'create_style_template', purpose: '创建风格模板（基于步骤2的分析结果）', argsTemplate: { name: '${name}', type: '${type}', dimensions: '${dimensions}' }, optional: false },
+      { order: 1, tool: 'read_file', purpose: '读取原文分析文风（1次，不重读）', argsTemplate: { file_path: '${file_path}' }, optional: false },
+      { order: 2, tool: 'create_style_template', purpose: '创建风格模板。dimensions 必须包含全部11个必填维度: narrativeTone, sentenceStyle, vocabularyStyle, rhetoricStyle, rhythmStyle, dialogueStyle, moodStyle, perspectiveStyle, bodyLanguageStyle, sensoryStyle, descriptionPattern。每维含 description/examples/writingRules/vocabularyList。缺任何一维系统会自动退回重做。', argsTemplate: { name: '${name}', type: '${type}', dimensions: '${dimensions}' }, optional: false },
     ],
+    verification: {
+      script: 'validate-style-dims.mjs',
+      description: '验证风格模板11个必填维度全部填写且key为英文',
+      requiredSteps: [1, 2],
+      mandatoryChecks: ['11-required-dims', 'no-empty-dims', 'english-keys'],
+    },
   },
   qualityChecks: [
     { id: '11-required-dims', description: '11必填维全部填写(narrativeTone,sentenceStyle,vocabularyStyle,rhetoricStyle,rhythmStyle,dialogueStyle,moodStyle,perspectiveStyle,bodyLanguageStyle,sensoryStyle,descriptionPattern)', severity: 'error', check: '逐一检查' },

@@ -2,7 +2,8 @@
 // Verifies the complete chain: Bridge → Runtime → Loop → Result
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { V4AgentRuntime } from '../V4AgentRuntime'
+import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { buildSystemPrompt, selectDomainModules, CORE_SYSTEM_PROMPT, CHARACTER_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE } from '../V4SystemPrompt'
 import { toolRegistry } from '../skills/ToolRegistry'
@@ -118,13 +119,15 @@ describe('V4 Security Fence', () => {
 describe('V4 Agent Runtime (chat mode)', () => {
   it('returns text directly when AI responds without tools', async () => {
     const ai = makeMockAIService([{ text: '你好！有什么可以帮你的？' }])
-    const runtime = new V4AgentRuntime({
+    const adapter = new OpenAIAdapter(ai)
+    const runtime = new V4UnifiedRuntime({
       configId: 'test-config',
       projectId: null,
       maxIterations: 5,
       abortSignal: new AbortController().signal,
-    })
-    runtime.setAIService(ai)
+      skipAnalyze: true,
+      skipSkillGate: true,
+    }, adapter)
     runtime.setToolExecutor(makeMockToolExecutor({}))
     runtime.setTools([])
 
@@ -152,13 +155,15 @@ describe('V4 Agent Runtime (task mode)', () => {
     const toolExecutor = makeMockToolExecutor({
       '{"file_path":"outline/plot.md"}': { status: 'success', summary: '读取成功' },
     })
-    const runtime = new V4AgentRuntime({
+    const adapter = new OpenAIAdapter(ai)
+    const runtime = new V4UnifiedRuntime({
       configId: 'test-config',
       projectId: null,
       maxIterations: 5,
       abortSignal: new AbortController().signal,
-    })
-    runtime.setAIService(ai)
+      skipAnalyze: true,
+      skipSkillGate: true,
+    }, adapter)
     runtime.setToolExecutor(toolExecutor)
     runtime.setTools([])
 

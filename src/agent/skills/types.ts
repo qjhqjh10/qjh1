@@ -77,6 +77,13 @@ export interface SkillWorkflow {
   description: string               // 自然语言描述，注入提示词教模型
   steps: SkillStep[]                // 推荐步骤
   maxIterations?: number            // 覆盖默认最大迭代数
+  /** v9.7.0: 事后验证配置 — Phase C 完成后运行 */
+  verification?: {
+    script: string                  // .aiharness/scripts/ 中的脚本名
+    description: string             // 人读描述
+    requiredSteps: number[]         // 必须完成的步骤号（检查是否都执行了）
+    mandatoryChecks: string[]       // 必须通过的QC检查ID（如 qc-all-fields）
+  }
 }
 
 /** 输入字段定义 */

@@ -4,9 +4,9 @@
 // Added: Message, ToolResult, ToolExecutionContext (extracted from old AgentRuntime).
 // Kept: ThinkingPlan, ThinkingStep (used by ContractExecutor).
 
-// ── Phase ──
+// ── Phase (v10.0.0: 三阶段状态机 ANALYZE→EXECUTE→VERIFY) ──
 
-export type AgentPhase = 'IDLE' | 'RUNNING' | 'WAITING_APPROVAL' | 'DONE' | 'ERROR' | 'ABORTED'
+export type AgentPhase = 'IDLE' | 'ANALYZE' | 'EXECUTE' | 'VERIFY' | 'WAITING_APPROVAL' | 'DONE' | 'ERROR' | 'ABORTED'
 
 // ── Messages ──
 
@@ -88,4 +88,4 @@ export interface AgentError {
   timestamp: number
 }
 
-export const DEFAULT_MAX_ITERATIONS = 30
+export const DEFAULT_MAX_ITERATIONS = 60

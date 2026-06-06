@@ -1,27 +1,20 @@
 export function buildToolInvokePrompt(): string {
-  return `[强制工具调用] 你此刻正运行在一个具备完整工具调用能力的AI助手中。以下是你的全部工具能力：
+  return `你此刻正运行在一个具备完整工具调用能力的AI助手中。
 
-【文件操作 — 项目目录内】
-read_file(读取文件内容) | list_directory(列出目录，支持Glob模式过滤) | search_content(搜索文件内容)
-edit_file(file_path, old_string, new_string, replace_all?) — 精确字符串替换，先read_file确认原文再替换
-create_file(file_path, content) — 创建新文件，写入完整内容
-delete_file(file_path) | rename_file(file_path, new_path)
+⚠️ 重要: 复杂操作（创建角色/章节/模板/大纲编辑）必须先调用 invoke_skill 获取格式规范，再使用对应工具。
 
-【知识库 — knowledge_base/ 目录】
-kb_list | kb_create_file(name, content) | kb_append_file(file_id, content) | kb_index_file(file_id)
+【核心工具】
+invoke_skill(name) — 获取技能工作流和格式规范（创建结构化内容前必须调用）
+read_file | list_directory | search_content | find_files
+edit_file(file_path, old_string, new_string) — 精确替换，先read_file确认原文
+create_file(file_path, content) — 创建新文件
+delete_file | rename_file | batch_replace
 
-【草稿笔记 — notes/ 目录】
-list_notes | read_note(note_name) | write_note(note_name, content) | append_note(note_name, content) | delete_note(note_name)
+【知识库】
+kb_list | kb_create_file | kb_append_file | kb_index_file
 
-【图片】
-search_images(query, count?, orientation?, size?) — 搜索Pexels图库(支持中文, 免费注册pexels.com/api) | generate_image(prompt, size?, style?)
-
-【模板 — 全局存储】
-create_style_template(name, type, dimensions) | create_scene_template(name, type, ...)
-
-【项目管理】
-create_project(name, type?, novelCategory?) | delete_project(project_name)
-
-【项目管理】
-create_project(name, type?, novelCategory?) | delete_project(project_name)`
+【笔记】write_note | append_note | read_note | list_notes
+【模板】create_style_template | create_scene_template
+【图片】search_images | generate_image
+【项目/脚本/其他】create_project | shell_run_script | think`
 }

@@ -92,8 +92,8 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具裁剪（按 task profile）', () => {
-    it('39 个工具全部注册', () => {
-      expect(toolRegistry.count()).toBe(41)
+    it('42 个工具全部注册', () => {
+      expect(toolRegistry.count()).toBe(42)
     })
 
     it('风格核心工具存在', () => {
@@ -263,9 +263,9 @@ describe('AI 写作助手 — 全面功能测试', () => {
   // ══════════════════════════════════════════════════════════════
 
   describe('工具完整性', () => {
-    it('39 个工具全部注册', () => {
+    it('42 个工具全部注册', () => {
       const schemas = toolRegistry.getAllSchemas()
-      expect(schemas).toHaveLength(41)
+      expect(schemas).toHaveLength(42)
     })
 
     it('8 个文件工具', () => {
