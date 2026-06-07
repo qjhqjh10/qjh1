@@ -1,0 +1,21 @@
+# 势力列表 — 纯YAML格式
+factions:
+  - id: elder_faction
+    name: 陈长老一脉
+    description: 表面忠于青云宗，实则与魔道暗通款曲。掌控宗门丹堂和法器库
+    type: 宗门内斗势力
+
+  - id: orthodox_alliance
+    name: 正道联盟
+    description: 七大正道宗门的松散联盟，名义上共同抵御魔道，实质上各怀鬼胎
+    type: 联盟
+
+  - id: blood_cult
+    name: 血煞教
+    description: 三大魔道之首，以血炼之法淬体修炼。被正道视为邪魔之首
+    type: 魔道势力
+
+  - id: sword_hall
+    name: 剑堂
+    description: 青云宗内剑修弟子的组织，由剑道天赋最强的弟子组成
+    type: 宗门内部团体

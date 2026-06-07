@@ -1,0 +1,3 @@
+{"timestamp":1780628212961,"sessionId":"ant_mq0c2ach_7pio","event":"session:start","data":{}}
+{"timestamp":1780628219409,"sessionId":"ant_mq0c2ach_7pio","event":"tool:result","data":{"toolName":"search_images","status":"error","summary":"图片搜索暂时不可用（Unsplash Demo Key 可能已限流，设置 UNSPLASH_ACCESS_KEY 环境变量可解除）"}}
+{"timestamp":1780628245222,"sessionId":"ant_mq0c2ach_7pio","event":"tool:result","data":{"toolName":"generate_image","status":"error","summary":"图片生成失败: Error invoking remote method 'ai:generateImage': Error: [API_ERROR] Request was aborted."}}

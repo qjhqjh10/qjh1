@@ -1,0 +1,26 @@
+# 道具列表 — 纯YAML格式，缩进2空格，禁止Tab
+# 每个道具一个列表项。添加新道具时在 items: 下方追加新条目。
+items:
+  - id: spirit_sword
+    name: 青冥古剑
+    type: 武器
+    grade: 仙品
+    ability: 蕴含上古剑魂之力，可斩断灵力护盾，剑出如龙吟
+    owner: 林逸
+    description: 禁地深处发现的上古遗物，剑身布满神秘符文，剑柄刻有"青冥"二字
+
+  - id: poison_smoke_bomb
+    name: 九幽瘴烟弹
+    type: 暗器
+    grade: 灵品
+    ability: 投掷后爆发毒烟，范围十丈内筑基期以下修士短暂失明眩晕
+    owner: 魔道卧底
+    description: 以九幽毒沼瘴气凝练而成，外壳为易碎玉瓶
+
+  - id: healing_pill
+    name: 回春丹
+    type: 丹药
+    grade: 凡品
+    ability: 加速伤口愈合，内伤轻症一炷香内见效
+    owner: ''
+    description: 修真界最常见的疗伤丹药，市价十枚下品灵石

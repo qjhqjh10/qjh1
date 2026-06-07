@@ -1,0 +1,62 @@
+# 场景模板 — 完整字段格式
+# 存储于 scene_templates/ 目录
+# 必填: name、type(17种之一: 情色小说|奇幻|都市小说|修仙小说|武侠小说|恋爱小说|古风小说|悬疑小说|历史小说|科幻小说|玄幻小说|灵异小说|轻小说|普通小说|穿越小说|末世小说|游戏小说)
+# 不确定的字段放在 autoFields 数组中，不要强行填值
+name: 示例擂台比武场景
+type: 修仙小说
+
+# ── 通用场景字段 ──
+sceneType: 战斗           # 日常|战斗|对话|内心独白|过渡|高潮|情色
+conflictType: 正面对抗
+scenePurpose:             # 场景目的列表
+  - 展现主角逆境中的觉醒
+  - 引入幕后阴谋视角
+characters:               # 出场角色及情绪
+  - characterId: ''
+    characterName: 林逸
+    emotion: 紧张→爆发
+  - characterId: ''
+    characterName: 陈啸天
+    emotion: 轻蔑→震惊
+location: 青云宗演武场·主擂台
+time: 清晨至午时
+weather: 晴空万里
+atmosphere: 紧张→震撼
+wordTarget: 3000
+narrativePOV: 第三人称跟随林逸
+pacing: 中速→加速→爆发→回落
+bodyLanguage: 剑法动作+面部表情+擂台对峙姿态
+detail: |                # 详细场景配置(Markdown)
+  剑光、灵力波动、观众反应、青芒冲天。
+  通过林逸的视角感受灵力流动，通过观众的惊呼侧面烘托觉醒的震撼。
+extraNote: 此场景为全书第一个高潮，剑魂觉醒需要充分渲染
+autoFields: {}            # 不确定的字段名→true (如 {"costumeList": true})
+
+# ── 剧情/故事字段 ──
+plotOverview: 宗门大比日，林逸对阵首席弟子。战斗关键时刻沉睡的剑魂觉醒，一道青芒震惊全场
+sceneTurningPoint: 林逸濒危之际剑魂觉醒——此为该场景的转折点
+props: ''                  # 场景道具清单
+appearance: ''             # 人物外貌描述
+foreshadowUse: ''          # 伏笔使用说明
+
+# ── 情色场景专属字段（type=情色小说时填写，否则留空）──
+# intensity: 3            # 情色浓度 1-5
+# selectedKinks:          # 玩法标签
+#   - 标签1
+#   - 标签2
+# opening:                # 开场阶段描写要点
+#   - 要点1
+# climax:                 # 高潮阶段描写要点
+#   - 要点1
+# aftermath:              # 余韵阶段描写要点
+#   - 要点1
+# soundDensity: 中        # 声音密度: 低|中|高|极高
+# moanStyle: ''           # 呻吟风格描述
+# degradeLangs: []        # 羞辱语言清单
+# bodyFluidFocus: []      # 体液描写重点
+# bodyPartFocus: []       # 身体部位描写重点
+# tactileFocus: []        # 触觉描写重点
+# sensoryAnchors: ''      # 感官锚点描述
+# dominantEmotion: ''     # 主导情绪
+# consentDynamic: ''      # 同意动态
+# aftercareDetail: ''     # 事后安抚细节

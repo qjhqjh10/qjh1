@@ -1,0 +1,3 @@
+{"timestamp":1780641405859,"sessionId":"ant_mq0jx21v_vaer","event":"session:start","data":{}}
+{"timestamp":1780641409110,"sessionId":"ant_mq0jx21v_vaer","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"34 个匹配"}}
+{"timestamp":1780641412337,"sessionId":"ant_mq0jx21v_vaer","event":"tool:result","data":{"toolName":"create_project","status":"success","summary":"已创建项目: 1"}}

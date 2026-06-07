@@ -30,7 +30,7 @@ const CONFIG = {
   model: process.env.AI_MODEL || 'deepseek-v4-flash',
   protocol: process.env.AI_PROTOCOL || 'anthropic',
   maxIters: parseInt(process.env.AI_MAX_ITERS || '60'),
-  timeout: parseInt(process.env.AI_TIMEOUT || '120000'),
+  timeout: parseInt(process.env.AI_TIMEOUT || '240000'),
   keep: process.argv.includes('--keep'),
   verbose: process.argv.includes('--verbose'),
 }

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { V4SecurityFence } from '../V4SecurityFence'
-import { buildSystemPrompt, CORE_SYSTEM_PROMPT, STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE } from '../V4SystemPrompt'
+import { buildSystemPrompt, CORE_SYSTEM_PROMPT } from '../V4SystemPrompt'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import { contextAssembler, ContextAssembler } from '../context/ContextAssembler'
@@ -98,12 +98,11 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(names).toContain('create_file')
   })
 
-  // ── 6. 系统提示词 ──
-  it('系统提示词: 核心+风格/场景工具均已包含', () => {
-    const prompt = buildSystemPrompt([STYLE_DOMAIN_MODULE, SCENE_DOMAIN_MODULE], '项目1', '')
+  // ── 6. 系统提示词 (v10.2.0: Skill-First) ──
+  it('系统提示词 v11.0: 核心+写作规范手册+项目占位符均已包含', () => {
+    const prompt = buildSystemPrompt('项目1', '')
     expect(prompt).toContain('青剑')
-    expect(prompt).toContain('create_style_template')
-    expect(prompt).toContain('create_scene_template')
+    expect(prompt).toContain('写作规范手册')
     expect(prompt).toContain('list_directory')
     expect(prompt).toContain('项目1')
   })

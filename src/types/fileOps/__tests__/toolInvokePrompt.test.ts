@@ -8,9 +8,9 @@ describe('buildToolInvokePrompt', () => {
     expect(prompt.length).toBeGreaterThan(100)
   })
 
-  it('contains invoke_skill and core tools', () => {
+  it('contains core tools (v11.3: no invoke_skill)', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('invoke_skill')
+    expect(prompt).not.toContain('invoke_skill')
     expect(prompt).toContain('read_file')
   })
 
@@ -75,15 +75,16 @@ describe('buildToolInvokePrompt', () => {
 
   it('contains tool and skill guidance', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('invoke_skill')
+    expect(prompt).not.toContain('invoke_skill')
     expect(prompt).toContain('read_file')
     expect(prompt).toContain('edit_file')
     expect(prompt).toContain('create_file')
   })
 
-  it('emphasizes invoke_skill before complex operations', () => {
+  it('emphasizes direct tool use without invoke_skill (v11.3)', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('必须先调用 invoke_skill')
+    expect(prompt).not.toContain('invoke_skill')
+    expect(prompt).toContain('直接使用工具')
   })
 
   it('has sufficient length for tool descriptions', () => {

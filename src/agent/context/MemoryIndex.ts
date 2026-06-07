@@ -13,7 +13,8 @@ let _globalIndexCache: { index: string; tokenCount: number } | null = null
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', '.ai_backups', 'out', '.stats'])
 // 跳过代码/构建目录，其余全部自动纳入（用户新增目录无需改代码）
 const SKIP_ROOT_DIRS = new Set([...SKIP_DIRS, 'src', 'electron', 'scripts', 'tests', 'docs', '__pycache__', 'vendor'])
-const SKIP_PREFIXES = ['.']
+// v11.5: 不隐藏 .aiharness/（包含 templates/rules/learnings 等AI需要的资源）
+const SKIP_PREFIXES = ['.git', '.stats', '.appdata']
 const MAX_DEPTH = 5
 const MAX_FILES_PER_DIR = 30
 
@@ -152,6 +153,7 @@ function getDirDescription(relPath: string): string {
     'agent-sessions': ' — AI 对话会话记录',
     '.aiharness': ' — Agent 配置和规则',
     '.aiharness/rules': ' — 规则文件',
+    '.aiharness/templates': ' — 文件格式模板（创建/编辑前参考）',
     'src': ' — 源代码',
     'electron': ' — Electron 主进程',
     'docs': ' — 技术文档',

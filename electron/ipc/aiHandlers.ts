@@ -394,8 +394,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
             }))
           }
           if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
-          // v3.1: Strip reasoning_content — never re-send to API (wastes 1K-5K tokens)
-          // if ((m as Record<string, unknown>).reasoning_content) msg.reasoning_content = ...
+          // v11.4: Preserve reasoning_content for DeepSeek V4 thinking mode
+          // Required for multi-turn tool calling — model expects reasoning in history
+          if ((m as Record<string, unknown>).reasoning_content) {
+            msg.reasoning_content = (m as Record<string, unknown>).reasoning_content
+          }
           // v3.1: Mark first system message for prefix caching (DeepSeek supports cache_control)
           if (i === 0 && m.role === 'system') {
             msg.cache_control = { type: 'ephemeral' }
@@ -422,21 +425,37 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       let hardTimeout: ReturnType<typeof setTimeout> | null = null
 
       try {
+        // v11.4: Enable DeepSeek V4 thinking mode (configurable in settings)
+        const isDeepSeek = /deepseek/i.test(config.model)
+        const useThinking = isDeepSeek && /v4/i.test(config.model) && (config as any).enableThinking !== false
+        // Agent tool calling: lower temperature for reliable tool selection
+        const agentTemperature = tools && tools.length > 0
+          ? Math.min(config.temperature, 0.3)  // tool mode: max 0.3
+          : config.temperature
+
         const params: Record<string, unknown> = {
           model: config.model,
           messages: apiMessages,
-          temperature: config.temperature,
           max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
+        }
+        if (!useThinking) {
+          params.temperature = agentTemperature
+        }
+
+        if (useThinking) {
+          params.extra_body = { thinking: { type: 'enabled' } }
+          ;(params as any).reasoning_effort = (config as any).reasoningEffort || 'max'
         }
 
         if (tools && tools.length > 0) {
-          // v3.2: Cache tool definitions too — mark last tool for prefix caching
           const cachedTools = tools.map((t: any, i: number) => {
             if (i === tools.length - 1) return { ...t, cache_control: { type: 'ephemeral' } }
             return t
           })
           params.tools = cachedTools
-          params.tool_choice = 'auto'
+          if (!useThinking) {
+            params.tool_choice = 'auto'
+          }
         }
 
         hardTimeout = setTimeout(() => {
@@ -620,7 +639,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
   // ── Execute file tools on main process ──
   // #9: Backend enforcement — dangerous tools must be confirmed by frontend
-  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'edit_file', 'delete_file', 'restore_backup', 'rename_file', 'create_project', 'delete_project'])
+  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file', 'create_project', 'delete_project'])
   ipcMain.handle('ai:execute-file-tool',
     async (_event, calls: ToolCallArgs[]) => {
       if (!projectsPath) throw new Error('Projects path not configured')

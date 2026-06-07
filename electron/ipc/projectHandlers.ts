@@ -33,9 +33,15 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     for (const dir of PROJECT_DIRS) {
       await fs.mkdir(path.join(projectPath, dir), { recursive: true })
     }
-    // Plain text files (no JSON wrapper) — AI can edit directly
-    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.json'), '', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'plot.json'), '', 'utf-8')
+    // Create all 8 outline tab files with proper initial content
+    await fs.writeFile(path.join(projectPath, 'outline', 'plot.md'), '# 故事剧情\n\n> 梗概\n\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.md'), '# 世界观\n\n> 类型·基调\n\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'items.yaml'), 'items:\n  # - id: example\n  #   name: 示例道具\n  #   type: 武器\n  #   grade: 凡品\n  #   owner: 角色名\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'locations.yaml'), 'locations:\n  # - id: example\n  #   name: 示例地点\n  #   description: 描述\n  #   type: 宗门\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'factions.yaml'), 'factions:\n  # - id: example\n  #   name: 示例势力\n  #   description: 描述\n  #   type: 宗门内斗势力\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'power_system.yaml'), 'name: 修炼体系\nlevels:\n  # - name: 示例境界\n  #   description: 描述\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'outline_meta.yaml'), 'foreshadowing:\n  # - id: f1\n  #   description: 伏笔描述\n  #   chapterIntroduced: 1\n  #   chapterResolved: \'\'\nplotThreads:\n  # - id: t1\n  #   name: 主线\n  #   description: 描述\n', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'emotion.yaml'), 'segments:\n  # - chapterStart: 1\n  #   chapterEnd: 3\n  #   dominantEmotion: 情绪\n', 'utf-8')
     // Persist project type metadata
     const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
     await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType, novelCategory: 'general' }), 'utf-8')

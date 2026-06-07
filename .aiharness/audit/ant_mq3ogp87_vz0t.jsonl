@@ -1,0 +1,4 @@
+{"timestamp":1780830439351,"sessionId":"ant_mq3ogp87_vz0t","event":"session:start","data":{}}
+{"timestamp":1780830442560,"sessionId":"ant_mq3ogp87_vz0t","event":"tool:result","data":{"toolName":"list_notes","status":"success","summary":"19 个草稿"}}
+{"timestamp":1780830457337,"sessionId":"ant_mq3ogp87_vz0t","event":"tool:result","data":{"toolName":"create_file","status":"error","summary":"路径不在项目目录内"}}
+{"timestamp":1780830458779,"sessionId":"ant_mq3ogp87_vz0t","event":"tool:result","data":{"toolName":"write_note","status":"success","summary":"已写入草稿: 新草稿.md (15 字符)"}}

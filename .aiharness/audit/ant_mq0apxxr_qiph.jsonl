@@ -1,0 +1,2 @@
+{"timestamp":1780625957391,"sessionId":"ant_mq0apxxr_qiph","event":"session:start","data":{}}
+{"timestamp":1780626029326,"sessionId":"ant_mq0apxxr_qiph","event":"tool:result","data":{"toolName":"generate_image","status":"error","summary":"图片生成失败: Error invoking remote method 'ai:generateImage': Error: [API_ERROR] Connection error."}}

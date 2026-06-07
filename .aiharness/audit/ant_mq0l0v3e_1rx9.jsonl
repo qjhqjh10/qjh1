@@ -1,0 +1,16 @@
+{"timestamp":1780643263082,"sessionId":"ant_mq0l0v3e_1rx9","event":"session:start","data":{}}
+{"timestamp":1780643265250,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780643266640,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780643267829,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780643268875,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780643270160,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"42 个匹配"}}
+{"timestamp":1780643271203,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780643272687,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"find_files","status":"success","summary":"找到 6 个匹配 \"*.yaml\" 的文件"}}
+{"timestamp":1780643275599,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/emotion.yaml"}}
+{"timestamp":1780643275599,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/items.yaml"}}
+{"timestamp":1780643275600,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/locations.yaml"}}
+{"timestamp":1780643275601,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/outline_meta.yaml"}}
+{"timestamp":1780643275602,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/factions.yaml"}}
+{"timestamp":1780643275603,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/plot.md"}}
+{"timestamp":1780643275603,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/power_system.yaml"}}
+{"timestamp":1780643275604,"sessionId":"ant_mq0l0v3e_1rx9","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/outline/worldbuilding.md"}}

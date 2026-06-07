@@ -19,8 +19,8 @@ memory/           — 持久化记忆（跨会话 Agent 上下文）
 
 ## 数据格式
 
-- **角色**: `characters/{中文名}.json` — 16 字段平铺(文件名用中文名如 林语晴.json, id字段用拼音保证唯一), role 标准化为 男主/女主/男配/女配/反派/其他
-- **细纲**: `detailed_outline/{章节id}.json` — 每章一个 JSON
+- **角色**: `characters/{中文名}.yaml` — 16 字段纯 YAML(文件名用中文名如 林语晴.yaml, id字段用拼音保证唯一), role 标准化为 男主/女主/男配/女配/反派/其他
+- **细纲**: `detailed_outline/{章节id}.yaml` — 每章一个 YAML
 - **大纲**: `outline/plot.md` — 故事剧情 Markdown
 - **世界观**: `outline/worldbuilding.md` — Markdown
 - **章节正文**: `chapters/{章节id}.txt`
@@ -68,7 +68,7 @@ TipTap编辑器 + AI生成/续写/审稿/摘要 + 批量生成 + 版本对比
 
 ## 关键设计
 
-- **数据格式**: characters/detailed_outline 为 JSON，向后兼容旧 TXT
+- **数据格式**: characters/detailed_outline/outline_tabs 为 YAML，向后兼容旧 JSON
 - **IPC分层**: 每功能一个 handler 文件，main.ts 仅初始化
 - **双视图**: library(项目列表) + detail(工作台) 模式复用
 - **提取去重**: 已提取章节 `extractedAt` 标记，自动跳过

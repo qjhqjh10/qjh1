@@ -7,13 +7,12 @@ import { ContractExecutor } from '../context/ContractExecutor'
 import { applyActionPrompts } from './ToolActionPrompter'
 import type { ToolExecutorFn } from './RuntimeTypes'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
-import type { ActiveSkillContext } from '../skills/types'
 import type { AgentEventEmitter } from './AgentEventEmitter'
 
 /** Tools that write — executed sequentially. */
 export const WRITE_TOOLS = new Set([
   'create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
-  'create_style_template','create_scene_template','kb_create_file','kb_append_file','write_note','append_note','delete_note',
+  'create_style_template','create_scene_template','kb_append_file',
   'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
@@ -43,7 +42,7 @@ export interface ToolExecContext {
   toolsUsed: string[]
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   emitter: AgentEventEmitter
-  activeSkill: ActiveSkillContext | null
+  activeSkill: unknown  // v11.3: no longer typed
   _consecutiveReads: number
   iteration: number
   /** v9.5.5: Store for tool progress tracking */
@@ -129,10 +128,6 @@ export async function executeSingleTool(
 
   // Filter result for API context (ContractExecutor: strip verbose detail)
   const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
-  // v9.5.3: I5 截断阈值 2000，对齐 ContextCompressor Stage 1
-  if (ctx.iteration > 1 && resultForApi.detail && resultForApi.detail.length > 2000) {
-    resultForApi.detail = resultForApi.detail.slice(0, 2000) + '…(已截断)'
-  }
   const finalResult = note ? { ...resultForApi, note } : resultForApi
   ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
 }

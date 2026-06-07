@@ -143,8 +143,7 @@ class NodeFSToolExecutor {
         if (!target) return { status: 'error', summary: '请先选择项目' }
         try {
           const content = await fsp.readFile(target, 'utf-8')
-          const truncated = content.length > 10000 ? content.slice(0, 10000) + '\n...(截断)' : content
-          return { status: 'success', summary: `${content.length} 字符`, detail: truncated }
+          return { status: 'success', summary: `${content.length} 字符`, detail: content }
         } catch { return { status: 'error', summary: `文件不存在: ${args.file_path}` } }
       }
 
@@ -166,7 +165,7 @@ class NodeFSToolExecutor {
                   const lines = content.split('\n')
                   for (let i = 0; i < lines.length; i++) {
                     if (lines[i].includes(pattern)) {
-                      results.push(`${path.relative(target, full)}:${i + 1}: ${lines[i].trim().slice(0, 150)}`)
+                      results.push(`${path.relative(target, full)}:${i + 1}: ${lines[i].trim()}`)
                     }
                   }
                 } catch {}
@@ -174,7 +173,7 @@ class NodeFSToolExecutor {
             }
           }
           await walk(target)
-          return { status: 'success', summary: `${results.length} 处匹配`, detail: results.slice(0, 50).join('\n') || '未找到' }
+          return { status: 'success', summary: `${results.length} 处匹配`, detail: results.join('\n') || '未找到' }
         } catch { return { status: 'error', summary: '搜索失败' } }
       }
 
@@ -192,7 +191,7 @@ class NodeFSToolExecutor {
               if (e.name.startsWith('.')) continue
               const full = path.join(d, e.name)
               if (e.name.toLowerCase().includes(keyword)) results.push(path.relative(target, full).replace(/\\/g, '/'))
-              if (e.isDirectory() && results.length < 100) await walk(full)
+              if (e.isDirectory()) await walk(full)
             }
           }
           await walk(target)
@@ -204,7 +203,7 @@ class NodeFSToolExecutor {
               }
             } catch {}
           }
-          return { status: 'success', summary: `${results.length} 个匹配`, detail: results.slice(0, 50).join('\n') || '未找到' }
+          return { status: 'success', summary: `${results.length} 个匹配`, detail: results.join('\n') || '未找到' }
         } catch { return { status: 'error', summary: '搜索失败' } }
       }
 
@@ -215,7 +214,9 @@ class NodeFSToolExecutor {
         await fsp.mkdir(path.dirname(target), { recursive: true })
         const content = String(args.content || '')
         await fsp.writeFile(target, content, 'utf-8')
-        return { status: 'success', summary: `已创建 (${content.length} 字符)` }
+        // v11.2: 返回前500字让模型验证写入内容
+        const preview = content.length > 500 ? content.slice(0, 500) + '…' : content
+        return { status: 'success', summary: `已创建 (${content.length} 字符)`, detail: preview }
       }
 
       case 'edit_file': {
@@ -227,7 +228,8 @@ class NodeFSToolExecutor {
           const newStr = String(args.new_string || '')
           if (oldStr === '__FULL_REPLACE__') {
             await fsp.writeFile(target, newStr, 'utf-8')
-            return { status: 'success', summary: `已全量替换 (${newStr.length} 字符)` }
+            const preview = newStr.length > 500 ? newStr.slice(0, 500) + '…' : newStr
+            return { status: 'success', summary: `已全量替换 (${newStr.length} 字符)`, detail: preview }
           }
           if (!content.includes(oldStr)) {
             const trimmed = oldStr.trim()
@@ -245,6 +247,30 @@ class NodeFSToolExecutor {
           const newContent = args.replace_all ? content.replaceAll(oldStr, newStr) : content.replace(oldStr, newStr)
           await fsp.writeFile(target, newContent, 'utf-8')
           return { status: 'success', summary: '已替换' }
+        } catch { return { status: 'error', summary: `文件不存在: ${args.file_path}` } }
+      }
+
+      case 'batch_replace': {
+        const target = fp('file_path')
+        if (!target) return { status: 'error', summary: '请先选择项目' }
+        const replacements = args.replacements as Array<{ old_string: string; new_string: string }> | undefined
+        if (!replacements || !Array.isArray(replacements) || replacements.length === 0) {
+          return { status: 'error', summary: 'replacements 必须是非空数组' }
+        }
+        try {
+          let content = await fsp.readFile(target, 'utf-8')
+          if (content.length > 10_000_000) return { status: 'error', summary: '文件过大（>10MB）' }
+          let modified = content; let applied = 0
+          for (let i = 0; i < replacements.length; i++) {
+            const { old_string, new_string } = replacements[i]
+            if (old_string === '__FULL_REPLACE__') { modified = new_string; applied++; break }
+            if (!modified.includes(old_string)) {
+              return { status: 'error', summary: `第 ${i+1}/${replacements.length} 个替换失败: 未找到匹配文本` }
+            }
+            modified = modified.replace(old_string, new_string); applied++
+          }
+          await fsp.writeFile(target, modified, 'utf-8')
+          return { status: 'success', summary: `批量替换成功 (${applied}/${replacements.length})` }
         } catch { return { status: 'error', summary: `文件不存在: ${args.file_path}` } }
       }
 
@@ -270,8 +296,16 @@ class NodeFSToolExecutor {
         for (const d of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
           await fsp.mkdir(path.join(pp, d), { recursive: true })
         }
-        await fsp.writeFile(path.join(pp, 'outline', 'plot.md'), '', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.md'), '', 'utf-8')
+        // v11.4: 创建全部 8 个 Tab 文件 (对齐 projectHandlers.ts 修复)
+        const outlineDir = path.join(pp, 'outline')
+        await fsp.writeFile(path.join(outlineDir, 'plot.md'), '# 故事剧情\n\n> 梗概\n\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'worldbuilding.md'), '# 世界观\n\n> 类型·基调\n\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'items.yaml'), 'items:\n  # - id: example\n  #   name: 示例道具\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'locations.yaml'), 'locations:\n  # - id: example\n  #   name: 示例地点\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'factions.yaml'), 'factions:\n  # - id: example\n  #   name: 示例势力\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'power_system.yaml'), 'name: 修炼体系\nlevels:\n  # - name: 示例境界\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'outline_meta.yaml'), 'foreshadowing: []\nplotThreads: []\n', 'utf-8')
+        await fsp.writeFile(path.join(outlineDir, 'emotion.yaml'), 'segments: []\n', 'utf-8')
         await fsp.writeFile(path.join(pp, 'project.json'), JSON.stringify({ type: 'writing', novelCategory: 'general' }), 'utf-8')
         return { status: 'success', summary: `已创建项目: ${name}` }
       }
@@ -284,43 +318,7 @@ class NodeFSToolExecutor {
         return { status: 'success', summary: `已删除项目: ${name}` }
       }
 
-      // 笔记
-      case 'list_notes': {
-        const notesDir = path.join(this.rootDir, 'notes')
-        try {
-          const files = await fsp.readdir(notesDir)
-          const md = files.filter(f => f.endsWith('.md'))
-          return { status: 'success', summary: `${md.length} 个笔记`, detail: md.join('\n') || '(无)' }
-        } catch { return { status: 'success', summary: '0 个笔记' } }
-      }
-
-      case 'read_note':
-      case 'write_note':
-      case 'append_note':
-      case 'delete_note': {
-        const notesDir = path.join(this.rootDir, 'notes')
-        await fsp.mkdir(notesDir, { recursive: true })
-        const noteName = String(args.note_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        if (!noteName) return { status: 'error', summary: '笔记名无效' }
-        const np = path.join(notesDir, noteName)
-        if (toolName === 'read_note') {
-          try { const c = await fsp.readFile(np, 'utf-8'); return { status: 'success', summary: noteName, detail: c } }
-          catch { return { status: 'error', summary: `不存在: ${noteName}` } }
-        }
-        if (toolName === 'write_note') {
-          await fsp.writeFile(np, String(args.content || ''), 'utf-8')
-          return { status: 'success', summary: `已写入: ${noteName}` }
-        }
-        if (toolName === 'append_note') {
-          let ex = ''; try { ex = await fsp.readFile(np, 'utf-8') } catch {}
-          await fsp.writeFile(np, ex ? ex + '\n\n' + String(args.content || '') : String(args.content || ''), 'utf-8')
-          return { status: 'success', summary: `已追加: ${noteName}` }
-        }
-        if (toolName === 'delete_note') {
-          try { await fsp.unlink(np); return { status: 'success', summary: `已删除: ${noteName}` } } catch { return { status: 'error', summary: '删除失败' } }
-        }
-        return { status: 'error', summary: '未知操作' }
-      }
+      // v11.5: Note CRUD removed — use create_file("notes/xxx.md") / read_file / edit_file / delete_file
 
       // 模板（简化版）
       case 'create_style_template': {
@@ -352,24 +350,11 @@ class NodeFSToolExecutor {
         return { status: 'success', summary: `已创建场景模板: ${tmpl.name}`, detail: `scene_templates/${fname}` }
       }
 
-      // KB 操作（简化版）
-      case 'kb_list': {
-        const kbDir = path.join(this.rootDir, 'knowledge_base', 'files')
-        try {
-          const files = await fsp.readdir(kbDir)
-          return { status: 'success', summary: `${files.length} 个文件`, detail: files.join('\n') || '(无)' }
-        } catch { return { status: 'success', summary: '0 个文件' } }
-      }
-      case 'kb_create_file': {
-        const kbDir = path.join(this.rootDir, 'knowledge_base', 'files')
-        await fsp.mkdir(kbDir, { recursive: true })
-        const fn = String(args.file_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
-        await fsp.writeFile(path.join(kbDir, fn), String(args.content || ''), 'utf-8')
-        return { status: 'success', summary: `KB 已创建: ${fn}` }
-      }
+      // v11.5: kb_list/kb_create_file removed — use list_directory("knowledge_base/files") / create_file
       case 'kb_append_file': {
         const kbDir = path.join(this.rootDir, 'knowledge_base', 'files')
-        const fn = String(args.file_name || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+        const fn = String(args.file_id || '').replace(/\.\./g, '').replace(/[\\/]/g, '')
+        if (!fn) return { status: 'error', summary: '缺少 file_id 参数' }
         let ex = ''; try { ex = await fsp.readFile(path.join(kbDir, fn), 'utf-8') } catch {}
         await fsp.writeFile(path.join(kbDir, fn), ex ? ex + '\n\n' + String(args.content || '') : String(args.content || ''), 'utf-8')
         return { status: 'success', summary: `KB 已追加: ${fn}` }
@@ -439,20 +424,16 @@ async function main() {
   const { AnthropicAdapter } = await import('@/agent/runtime/adapters/AnthropicAdapter')
   const { V4SecurityFence } = await import('@/agent/V4SecurityFence')
   const { toolRegistry } = await import('@/agent/skills/ToolRegistry')
-  const { skillRegistry } = await import('@/agent/skills/SkillRegistry')
   const { contextAssembler } = await import('@/agent/context/ContextAssembler')
   const { ALL_TOOLS } = await import('@/agent/skills/tools')
   const { ALL_PROVIDERS } = await import('@/agent/context/providers')
-  const { buildSystemPromptWithSkills, selectDomainModules, getSkillSystemMessage } = await import('@/agent/V4SystemPrompt')
+  const { buildSystemPromptWithSkills } = await import('@/agent/V4SystemPrompt')
   const { estimateTokens } = await import('@/agent/utils/tokenEstimation')
   const { isComplexTask } = await import('@/agent/utils/taskDetection')
   const { diagnosticLogger } = await import('@/agent/diagnostics/DiagnosticLogger')
 
   // 初始化（和 ChatBridge 逻辑一致）
   toolRegistry.registerAll(ALL_TOOLS as any)
-  // v9.5.3: 必须在 matchBest 之前注册技能，否则首次消息 Skill 匹配为空
-  const { initSkills } = await import('@/agent/skills')
-  initSkills()
   for (const p of ALL_PROVIDERS as any[]) {
     if (!contextAssembler.getProviders().some((ex: any) => ex.domain === p.domain)) {
       contextAssembler.register(p)
@@ -499,7 +480,7 @@ async function main() {
   console.log(`\x1b[36m╠══════════════════════════════════════╣\x1b[0m`)
   console.log(`\x1b[36m║  Runtime:  V4UnifiedRuntime (GUI同款) ║\x1b[0m`)
   console.log(`\x1b[36m║  工具注册: ToolRegistry (${toolRegistry.count()} 工具)  ║\x1b[0m`)
-  console.log(`\x1b[36m║  Skill:    SkillRegistry (${skillRegistry.count()} 技能) ║\x1b[0m`)
+  // v11.3: Skill system removed
   console.log(`\x1b[36m║  协议:     ${args.protocol.padEnd(22)}║\x1b[0m`)
   console.log(`\x1b[36m║  模型:     ${args.model.padEnd(22)}║\x1b[0m`)
   console.log(`\x1b[36m║  项目:     ${(args.project || '(无)').padEnd(22)}║\x1b[0m`)
@@ -514,53 +495,30 @@ async function main() {
     diagnosticLogger.clearRecent()
 
     // ════════════════════════════════════════════════════════════
-    // ① Skill 工具裁剪（对齐 GUI Bridge）
+    // ① 工具裁剪（对齐 GUI ChatBridge v10.1.1）
     // ════════════════════════════════════════════════════════════
     const allTools = toolRegistry.getAllSchemas()
-    const skillMatch = skillRegistry.matchBest(userMessage, 0.3)
-
-    // v9.5.5: SKILL 模式判断 — 使用加权评分
-    const allMatches = skillRegistry.match(userMessage).filter((m: any) => m.confidence >= 0.3)
-    const isMultiSkill = allMatches.length >= 2
-    const isComplexSkill = skillMatch && skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
     const isMultiFile = isComplexTask(userMessage)
-
-    const READ   = new Set(['read_file','list_directory','search_content'])
+    const READ   = new Set(['read_file','list_directory','search_content','find_files'])
+    const ALWAYS = new Set(['think'])
     const WRITE  = new Set(['create_file','edit_file','batch_replace'])
-    const DANGER = new Set(['delete_file','rename_file'])
-    const NOTE   = new Set(['list_notes','read_note','write_note','append_note'])
-    const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
+    const DANGER = new Set(['delete_file','rename_file','delete_project'])
+    const NOTE   = new Set(['search_notes'])
+    const KB     = new Set(['kb_append_file','kb_index_file'])
     const TMPL   = new Set(['create_style_template','create_scene_template'])
+    const PROJ   = new Set(['create_project'])
 
-    let scopedCore: any[], scopedExtended: any[]
+    // v11.3: Skill system removed — model knows formats from system prompt
     let activeSkillCtx: any = null
 
-    if (isMultiFile || isComplexSkill || isMultiSkill) {
-      const neededTools = new Set(skillMatch.skill.workflow.steps.map((s: any) => s.tool))
-      neededTools.add('read_file'); neededTools.add('list_directory'); neededTools.add('search_content')
-      scopedCore = allTools.filter((t: any) => neededTools.has(t.function.name))
-      scopedExtended = []
-      activeSkillCtx = {
-        skillId: skillMatch.skill.id, currentStep: 1, completedSteps: new Set(),
-        extractedFields: skillMatch.extractedFields, retryCount: 0,
-        missingFiles: new Set(),
-      }
-      diagnosticLogger.recordInfo(`Agent2: task=skill:${skillMatch.skill.id} core=${scopedCore.length} ext=0`)
-    } else {
-      scopedCore = allTools.filter((t: any) =>
-        READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name))
-      scopedExtended = allTools.filter((t: any) =>
-        DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
-      diagnosticLogger.recordInfo(`Agent2: task=default core=${scopedCore.length} ext=${scopedExtended.length}`)
-    }
+    const scopedCore = allTools.filter((t: any) =>
+      READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
+    const scopedExtended = allTools.filter((t: any) =>
+      DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
+    diagnosticLogger.recordInfo(`Agent2: task=default core=${scopedCore.length} ext=${scopedExtended.length}`)
 
-    // planInstruction: 复杂任务 → 注入执行指引
-    const isComplex = skillMatch
-      ? skillMatch.skill.workflow.steps.filter((s: any) => !s.optional).length >= 3
-      : /写|创建|修改|删除|编辑|生成|续写/.test(userMessage)
-    const planInstruction = isComplex
-      ? `\n## 执行方案\n这是一个${skillMatch ? `"${skillMatch.skill.name}"` : '多步骤'}任务。第一轮列出步骤清单，然后立即执行第一步。每轮只做一步，用最精准的工具。全部完成后一句话汇报，不要展开。`
-      : ''
+    // planInstruction: 复杂任务 → 逐个完成（对齐 GUI: '逐个文件完成。'）
+    const planInstruction = isMultiFile ? '逐个文件完成。' : ''
 
     // ════════════════════════════════════════════════════════════
     // ② 创建 Runtime（Mock 或真实协议）
@@ -652,7 +610,7 @@ async function main() {
       runtime = new V4UnifiedRuntime({
         configId: 'cli-mock', projectId: args.project,
         maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000, skipAnalyze: true,
+        contextWindow: 128_000,
       }, mockAdapter)
     } else if (protocol === 'anthropic') {
       // v9.6.0: Anthropic adapter — wraps fetch+SSE, replaces V4AnthropicRuntime + setAIService
@@ -677,7 +635,7 @@ async function main() {
                 return block
               }),
             })),
-            max_tokens: 4096,
+            max_tokens: 16384,
             stream: true,
           }
           if (args.temperature !== undefined) body.temperature = args.temperature
@@ -752,7 +710,7 @@ async function main() {
       runtime = new V4UnifiedRuntime({
         configId: 'cli-anthropic', projectId: args.project,
         maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000, skipAnalyze: true,
+        contextWindow: 128_000,
       }, anthropicAdapter)
     } else {
       // OpenAI 协议（默认）— v9.6.0: OpenAIAdapter wraps openai SDK, replaces V4AgentRuntime + setAIService
@@ -786,16 +744,14 @@ async function main() {
       runtime = new V4UnifiedRuntime({
         configId: 'cli-openai', projectId: args.project,
         maxIterations: args.maxIterations, abortSignal: abortController.signal,
-        contextWindow: 128_000, skipAnalyze: true,
+        contextWindow: 128_000,
       }, openaiAdapter)
     }
 
     // ════════════════════════════════════════════════════════════
     // ④ ContextAssembler（对齐 GUI: [0]core [1]index [2]provider [3]dynamic）
     // ════════════════════════════════════════════════════════════
-    const selectedModules = selectDomainModules(userMessage)
-    const coreDomainModules = selectedModules.length > 0 ? selectedModules : []
-    const CORE_PROMPT = await buildSystemPromptWithSkills(coreDomainModules, '', '', userMessage)
+    const CORE_PROMPT = buildSystemPromptWithSkills('', '')
     const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
     const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -822,15 +778,11 @@ async function main() {
         ? `⬇️ 以下是软件完整文件索引。已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
         : ''
 
-      // v9.6.1: Skill 注入 — 独立 system 消息，权重最高
-      const skillSysMsg = getSkillSystemMessage(msg)
-
       const systemMessages = [
-        coreSystemMsg,                                          // [0] 核心提示词 — 不变
+        coreSystemMsg,                                          // [0] 核心提示词 — 不变 (含 Skill Catalog)
         ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []), // [1] 索引
         ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []), // [2] Provider
         ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态
-        ...(skillSysMsg ? [skillSysMsg] : []),                  // [4] Skill 工作流
       ]
 
       const globalIndexTokens = estimateTokens(globalIndex || '')
@@ -901,14 +853,11 @@ async function main() {
     })
 
     // ════════════════════════════════════════════════════════════
-    // ⑥ 工具 + Skill 上下文（对齐 GUI，Anthropic 无渐进披露）
+    // ⑥ 工具 + Skill 上下文（对齐 GUI: Anthropic 全工具，OpenAI 渐进披露）
     // ════════════════════════════════════════════════════════════
     if (protocol === 'anthropic') {
-      // Anthropic: 模型自然选择，不需要渐进披露
-      const anthropicTools = isMultiFile || isComplexSkill || isMultiSkill
-        ? scopedCore
-        : [...scopedCore, ...scopedExtended]
-      runtime.setTools(anthropicTools)
+      // Anthropic: 全工具可用（对齐 V4AnthropicChatBridge:333）
+      runtime.setTools(allTools)
     } else {
       runtime.setTools(scopedCore)
       runtime.setExtendedTools(scopedExtended)

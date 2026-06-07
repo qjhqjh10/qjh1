@@ -88,7 +88,7 @@ export const FILE_TOOLS = [
       description:
         '在项目文件中搜索包含指定文本的行。\n' +
         '【何时用】需要查找某个角色名在哪些文件中出现、某个关键词的使用位置等。\n' +
-        '【何时不用】查找文件名用 search_files。需要查看完整文件内容用 read_file。',
+        '【何时不用】查找文件名用 find_files。需要查看完整文件内容用 read_file。',
       parameters: {
         type: 'object',
         properties: {
@@ -220,42 +220,12 @@ export const FILE_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'kb_list',
-      description:
-        '列出知识库中所有文件的名称、ID和类型。\n' +
-        '【何时用】保存前查看已有文件、决定是追加已有文件还是新建。每次保存到知识库前应先调用此工具。\n' +
-        '【返回】文件名列表，含 id（用于 kb_append_file）和类型。',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'kb_create_file',
-      description:
-        '在知识库中创建新的 .md 文件保存资料。\n' +
-        '【何时用】收集到新素材、研究成果、写作灵感等需要长期保存的内容。\n' +
-        '【何时不用】已有相关文件时优先用 kb_append_file 追加而非新建。\n' +
-        '【注意】创建后文件即保存成功，无需再验证。可用 kb_index_file 建立语义搜索索引。',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: '文件名（建议含中文描述，如"古风服饰描写.md"）' },
-          content: { type: 'string', description: '文件内容（Markdown格式，支持标题、列表等）' },
-        },
-        required: ['name', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
       name: 'kb_append_file',
       description:
         '向知识库已有文件末尾追加内容。保留原有内容，新内容以分隔线隔开。\n' +
         '【何时用】用户已有相关素材文件，需要往里面添加更多信息时。\n' +
-        '【流程】先 kb_list 查看文件列表 → 找到相关文件的 id → kb_append_file 追加。\n' +
-        '【何时不用】没有相关文件时用 kb_create_file 新建。',
+        '【流程】先 list_directory("knowledge_base/files") 查看文件 → 找到目标文件的 id → kb_append_file 追加。\n' +
+        '【何时不用】没有相关文件时用 create_file("knowledge_base/files/xxx.md", content) 新建。',
       parameters: {
         type: 'object',
         properties: {
@@ -281,76 +251,7 @@ export const FILE_TOOLS = [
     },
   },
 
-  // ═══════════════════════════════════════════
-  // 草稿笔记（作用于项目 notes/ 目录）
-  // ═══════════════════════════════════════════
-
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_notes',
-      description: '列出当前项目 notes/ 目录下的所有草稿笔记。',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'read_note',
-      description: '读取指定草稿笔记的完整内容。',
-      parameters: {
-        type: 'object',
-        properties: {
-          note_name: { type: 'string', description: '草稿文件名，如 "灵感记录.md"' },
-        },
-        required: ['note_name'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'write_note',
-      description: '创建或覆写草稿笔记。适合记录灵感、暂存分析结果。',
-      parameters: {
-        type: 'object',
-        properties: {
-          note_name: { type: 'string', description: '草稿文件名，如 "角色想法.md"' },
-          content: { type: 'string', description: '完整内容（Markdown）' },
-        },
-        required: ['note_name', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'append_note',
-      description: '向草稿笔记末尾追加内容。文件不存在则自动创建。适合向已有笔记补充新想法。',
-      parameters: {
-        type: 'object',
-        properties: {
-          note_name: { type: 'string', description: '草稿文件名' },
-          content: { type: 'string', description: '要追加的内容' },
-        },
-        required: ['note_name', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'delete_note',
-      description: '删除 notes/ 目录下的草稿笔记文件。',
-      parameters: {
-        type: 'object',
-        properties: {
-          note_name: { type: 'string', description: '要删除的草稿文件名' },
-        },
-        required: ['note_name'],
-      },
-    },
-  },
+  // v11.5: 草稿笔记工具已删除 — 使用 create_file("notes/xxx.md") / read_file / edit_file / delete_file
 
   // ═══════════════════════════════════════════
   // 图片搜索（严格限制使用场景）

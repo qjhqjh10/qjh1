@@ -378,14 +378,11 @@ describe('API Error Handling', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Max Iterations & Empty Response', () => {
-  it('injects iteration hints at iteration 5+ (v10.0.3: 简单任务5轮后才提示)', async () => {
+  it('v11.0: no iteration hints — model works freely, stops when done', async () => {
     const responses = [
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
-      { text: '', toolCalls: [makeToolCall('c3', 'read_file', { file_path: 'c' })] },
-      { text: '', toolCalls: [makeToolCall('c4', 'read_file', { file_path: 'd' })] },
-      { text: '', toolCalls: [makeToolCall('c5', 'read_file', { file_path: 'e' })] },
-      { text: '全部完成。' },
+      { text: '完成。' },
     ]
 
     const { svc, calls } = makeMockAI(responses)
@@ -396,17 +393,13 @@ describe('Max Iterations & Empty Response', () => {
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
-    await runtime.run({ userMessage: '批量读取', attachments: [] })
-
-    // v10.0.3: 简单任务5轮后才注入提示
-    const iter5Msgs = calls[4] // 0-indexed, fifth call (iteration 5)
-    const hasHint = iter5Msgs.some(m =>
-      m.role === 'system' && typeof m.content === 'string' && m.content.includes('提示')
-    )
-    expect(hasHint).toBe(true)
+    const result = await runtime.run({ userMessage: '批量读取', attachments: [] })
+    expect(result.success).toBe(true)
+    expect(result.toolCalls).toBe(2)
+    expect(result.iterationCount).toBe(3)
   })
 
-  it('injects "last round" hint on final iteration', async () => {
+  it('v11.0: no "last round" hint — clean stop on final iteration', async () => {
     const { svc, calls } = makeMockAI([
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
       { text: '', toolCalls: [makeToolCall('c2', 'read_file', { file_path: 'b' })] },
@@ -419,14 +412,9 @@ describe('Max Iterations & Empty Response', () => {
     runtime.setToolExecutor(executor)
     runtime.setTools(toolRegistry.getAllSchemas())
 
-    await runtime.run({ userMessage: '读文件', attachments: [] })
-
-    // The last (3rd) call should have "最后轮次" hint
-    const lastCallMsgs = calls[2]
-    const hasLastRound = lastCallMsgs.some(m =>
-      m.role === 'system' && typeof m.content === 'string' && m.content.includes('最后轮次')
-    )
-    expect(hasLastRound).toBe(true)
+    const result = await runtime.run({ userMessage: '读文件', attachments: [] })
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(3)
   })
 
   it('falls back to user prompt when model returns empty text + no tools (H5)', async () => {

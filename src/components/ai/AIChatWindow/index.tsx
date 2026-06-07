@@ -326,10 +326,11 @@ export default function AIChatWindow() {
     return firstUser ? firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '') : '新对话'
   }
 
-  // Build history messages for the bridge: include user/assistant, and strip tool_calls without matching tool results
+  // Build history messages for the bridge. Preserves tool context from the last
+  // assistant turn so the model knows what it already explored when user says "继续".
   function buildHistoryMessages(msgs: Message[]) {
-    // Exclude welcome message, compression summaries, and display-only messages
-    // displayOnly: 软件功能/能力自述 → 仅显示，不入 AI 上下文
+    // Exclude welcome message, compression summaries, display-only, and tool messages
+    // (tool messages need tool_call_id which is stripped → use toolCallSteps summary instead)
     let filtered = msgs.filter(m =>
       (m.role === 'user' || m.role === 'assistant')
       && !String(m.id).startsWith('welcome')
@@ -342,13 +343,30 @@ export default function AIChatWindow() {
       filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
       if (userIndices.length > 20) filtered = filtered.slice(userIndices[userIndices.length - 20])
     }
-    // If an assistant message has tool_calls, strip them (tool results are not in history)
-    return filtered.map(m => {
-      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-        return { role: m.role, content: m.content }
+    // Build history: for assistant messages that had tool calls, inject tool summary
+    // from toolCallSteps (set by onComplete) so model knows what it already did
+    const result: Array<{ role: string; content: string }> = []
+    for (const m of filtered) {
+      if (m.role === 'assistant') {
+        const steps = (m as any).toolCallSteps as Array<{ tool: string; status: string; summary: string }> | undefined
+        if (steps && steps.length > 0) {
+          const doneList = steps.map(s =>
+            `${s.status === 'success' ? '✓' : '✗'} ${s.tool}: ${s.summary}`,
+          ).join('\n')
+          const toolSummary = `[上轮已完成 ${steps.length} 个操作，无需重复——直接基于结果继续]\n${doneList}`
+          result.push({ role: 'assistant', content: toolSummary + '\n\n' + (m.content || '') })
+          continue
+        }
+        const tools = (m as any).toolsUsed as string[] | undefined
+        if (tools && tools.length > 0) {
+          const toolSummary = `[上轮已调用: ${tools.join('、')}，已完成——直接基于结果继续下一步]`
+          result.push({ role: 'assistant', content: toolSummary + '\n\n' + (m.content || '') })
+          continue
+        }
       }
-      return { role: m.role, content: m.content }
-    })
+      result.push({ role: m.role, content: m.content })
+    }
+    return result
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
@@ -467,7 +485,7 @@ export default function AIChatWindow() {
         try {
           await fileService.ensureDir(`${base}/uploads/files`)
           await fileService.write(filePath, attachment.content)
-          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 uploads/files/${attachment.name}。请用 read_file 读取内容后分析。`
+          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 ../../uploads/files/${attachment.name}。请用 read_file("../../uploads/files/${attachment.name}") 读取内容后分析。`
         } catch {
           attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
         }

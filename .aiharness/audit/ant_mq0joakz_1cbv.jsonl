@@ -1,0 +1,6 @@
+{"timestamp":1780640997011,"sessionId":"ant_mq0joakz_1cbv","event":"session:start","data":{}}
+{"timestamp":1780640999168,"sessionId":"ant_mq0joakz_1cbv","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780641001261,"sessionId":"ant_mq0joakz_1cbv","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780641003261,"sessionId":"ant_mq0joakz_1cbv","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"44 字符"}}
+{"timestamp":1780641005121,"sessionId":"ant_mq0joakz_1cbv","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
+{"timestamp":1780641005121,"sessionId":"ant_mq0joakz_1cbv","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}

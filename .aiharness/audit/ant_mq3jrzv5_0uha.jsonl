@@ -1,0 +1,12 @@
+{"timestamp":1780822568273,"sessionId":"ant_mq3jrzv5_0uha","event":"session:start","data":{}}
+{"timestamp":1780822570069,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"10 个匹配"}}
+{"timestamp":1780822573534,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"78 字符"}}
+{"timestamp":1780822573535,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"90 字符"}}
+{"timestamp":1780822573535,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"168 字符"}}
+{"timestamp":1780822573535,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"83 字符"}}
+{"timestamp":1780822573535,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"86 字符"}}
+{"timestamp":1780822573535,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"14 字符"}}
+{"timestamp":1780822573538,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"58 字符"}}
+{"timestamp":1780822573538,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"16 字符"}}
+{"timestamp":1780822573538,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
+{"timestamp":1780822573538,"sessionId":"ant_mq3jrzv5_0uha","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}

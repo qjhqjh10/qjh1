@@ -52,7 +52,7 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
     errors.push({
       field: foundNested.join(', '),
       message: `使用了嵌套对象格式（${foundNested.join('、')}），角色JSON必须是16个平铺字段。`,
-      fix: `read_file("characters/zhangming.json") 查看正确格式，然后用 __FULL_REPLACE__ 重写为平铺结构。`,
+      fix: `read_file("characters/zhangming.yaml") 查看正确格式，然后用 __FULL_REPLACE__ 重写为平铺结构。`,
     })
     return { valid: false, errors }
   }
@@ -126,7 +126,7 @@ function validateDetailedOutline(obj: Record<string, unknown>): ValidationResult
 
   for (const field of DETAILED_OUTLINE_FIELDS) {
     if (field.required && !(field.key in obj)) {
-      errors.push({ field: field.key, message: `缺少必填字段: ${field.key}。参考格式: read_file("detailed_outline/chapter1.json")` })
+      errors.push({ field: field.key, message: `缺少必填字段: ${field.key}。参考格式: read_file("detailed_outline/chapter1.yaml")` })
       continue
     }
     const val = obj[field.key]
@@ -146,8 +146,8 @@ function validateDetailedOutline(obj: Record<string, unknown>): ValidationResult
   if (!obj.id || !obj.title || typeof obj.order !== 'number') {
     errors.push({
       field: '(整体)',
-      message: '细纲必须是 JSON 格式（.json），禁止创建 .md 文件',
-      fix: 'read_file("detailed_outline/chapter1.json") 查看正确格式，用 create_file 创建 .json 文件',
+      message: '细纲必须是 JSON 或 YAML 格式（.json / .yaml），禁止创建 .md / .txt 文件',
+      fix: 'read_file("detailed_outline/chapter1.yaml") 查看正确格式，用 create_file 创建 .yaml 文件',
     })
   }
 
@@ -312,28 +312,21 @@ export function validateFileContent(filePath: string, content: string): Validati
     return validateDetailedOutline(record)
   }
 
-  if (normalized === 'outline/items.json' || normalized.endsWith('/outline/items.json')) {
-    return validateListJson(record, 'items', ['id', 'name', 'type'])
-  }
-
-  if (normalized === 'outline/locations.json' || normalized.endsWith('/outline/locations.json')) {
-    return validateListJson(record, 'locations', ['id', 'name', 'description'])
-  }
-
-  if (normalized === 'outline/factions.json' || normalized.endsWith('/outline/factions.json')) {
-    return validateListJson(record, 'factions', ['id', 'name'])
-  }
-
-  if (normalized === 'outline/power_system.json' || normalized.endsWith('/outline/power_system.json')) {
-    return validatePowerSystem(record)
-  }
-
-  if (normalized === 'outline/outline_meta.json' || normalized.endsWith('/outline/outline_meta.json')) {
-    return validateOutlineMeta(record)
-  }
-
-  if (normalized === 'outline/emotion.json' || normalized.endsWith('/outline/emotion.json')) {
-    return validateEmotion(record)
+  const OUTLINE_TAB_FILES = ['items', 'locations', 'factions', 'power_system', 'outline_meta', 'emotion']
+  for (const tab of OUTLINE_TAB_FILES) {
+    const matchJson = normalized === `outline/${tab}.json` || normalized.endsWith(`/outline/${tab}.json`)
+    const matchYaml = normalized === `outline/${tab}.yaml` || normalized.endsWith(`/outline/${tab}.yaml`)
+    const matchYml  = normalized === `outline/${tab}.yml` || normalized.endsWith(`/outline/${tab}.yml`)
+    if (matchJson || matchYaml || matchYml) {
+      switch (tab) {
+        case 'items':      return validateListJson(record, 'items', ['id', 'name', 'type'])
+        case 'locations':  return validateListJson(record, 'locations', ['id', 'name', 'description'])
+        case 'factions':   return validateListJson(record, 'factions', ['id', 'name'])
+        case 'power_system': return validatePowerSystem(record)
+        case 'outline_meta': return validateOutlineMeta(record)
+        case 'emotion':    return validateEmotion(record)
+      }
+    }
   }
 
   // Unknown file type — accept as-is

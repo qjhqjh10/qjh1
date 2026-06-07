@@ -178,10 +178,17 @@ export function registerAnthropicHandlers(
               return b
             }),
           })),
-          max_tokens: config.maxTokens > 0 ? config.maxTokens : 4096,
+          max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,
           stream: true,
         }
-        if (config.temperature !== undefined) body.temperature = config.temperature
+        // v11.4: Enable extended thinking for DeepSeek V4 (Anthropic protocol, configurable)
+        const isDeepSeekV4 = /deepseek.*v4/i.test(config.model) && (config as any).enableThinking !== false
+        if (isDeepSeekV4) {
+          body.thinking = { type: 'enabled', budget_tokens: 8192 }
+        }
+        if (!isDeepSeekV4 && config.temperature !== undefined) {
+          body.temperature = config.temperature
+        }
         if (params.tools && params.tools.length > 0) {
           body.tools = params.tools
         }

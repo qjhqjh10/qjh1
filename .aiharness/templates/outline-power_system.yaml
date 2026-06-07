@@ -1,0 +1,23 @@
+# 等级体系 — 纯YAML格式
+name: 修仙九境
+description: |
+  修仙者以灵气淬体，从凡人之躯蜕变为真仙之体。
+  前三境（炼气-筑基-金丹）为修真界主流战力，
+  中三境（元婴-化神-炼虚）已属宗门长老级别，
+  后三境（合体-大乘-真仙）修真界千年难出一人。
+levels:
+  - name: 炼气期
+    description: 引天地灵气入体，淬炼肉身经脉。可施展基础法术，寿元一百五十载
+    breakthroughCondition: 灵力充盈全身经脉，自感天地
+
+  - name: 筑基期
+    description: 灵力化为真元，根基稳固。可御剑飞行，神识覆盖百步，寿元三百载
+    breakthroughCondition: 真元凝聚成海，引天雷淬体
+
+  - name: 金丹期
+    description: 真元凝聚为金丹，寿元八百载。可施展本命法宝，战力质的飞跃
+    breakthroughCondition: 丹成九转，心魔劫过
+
+  - name: 元婴期
+    description: 金丹破碎、元婴出。肉身毁灭元婴可遁逃夺舍。神识覆盖千里
+    breakthroughCondition: 金丹碎裂，元神化婴，渡六九天劫

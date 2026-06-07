@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
 import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
-import { buildSystemPrompt, selectDomainModules, CORE_SYSTEM_PROMPT, CHARACTER_DOMAIN_MODULE, CHAPTER_DOMAIN_MODULE, STYLE_DOMAIN_MODULE } from '../V4SystemPrompt'
+import { buildSystemPrompt, selectDomainModules, CORE_SYSTEM_PROMPT, AI_CAPABILITIES_MODULE } from '../V4SystemPrompt'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import type { Message, ToolCallRequest } from '../state/types'
@@ -51,19 +51,17 @@ describe('V4 System Prompt', () => {
     expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
-  it('selectDomainModules picks relevant modules', () => {
-    expect(selectDomainModules('创建角色张三')).toContain(CHARACTER_DOMAIN_MODULE)
-    expect(selectDomainModules('写第3章正文')).toContain(CHAPTER_DOMAIN_MODULE)
-    expect(selectDomainModules('分析风格')).toContain(STYLE_DOMAIN_MODULE)
+  it('selectDomainModules v10.2.0: only AI self-intro for 你能做什么 questions', () => {
+    expect(selectDomainModules('创建角色张三')).toEqual([])
+    expect(selectDomainModules('写第3章正文')).toEqual([])
+    expect(selectDomainModules('你能做什么')).toContain(AI_CAPABILITIES_MODULE)
     expect(selectDomainModules('你好')).toEqual([])
   })
 
-  it('buildSystemPrompt combines core + modules', () => {
-    const prompt = buildSystemPrompt([
-      CHARACTER_DOMAIN_MODULE,
-    ], '测试项目', '测试上下文')
+  it('buildSystemPrompt v11.0: core + 写作规范手册 (no invoke_skill dependency)', () => {
+    const prompt = buildSystemPrompt('测试项目', '测试上下文')
     expect(prompt).toContain('青剑')
-    expect(prompt).toContain('角色')
+    expect(prompt).toContain('写作规范手册')
     expect(prompt).toContain('测试项目')
     expect(prompt).toContain('测试上下文')
   })

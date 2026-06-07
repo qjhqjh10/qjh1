@@ -1,0 +1,4 @@
+{"timestamp":1780797856727,"sessionId":"ant_mq352cbb_ug0z","event":"session:start","data":{}}
+{"timestamp":1780797858689,"sessionId":"ant_mq352cbb_ug0z","event":"tool:result","data":{"toolName":"list_prompts","status":"success","summary":"11 个提示词模板"}}
+{"timestamp":1780797858693,"sessionId":"ant_mq352cbb_ug0z","event":"tool:result","data":{"toolName":"list_audit","status":"success","summary":"0 条记录"}}
+{"timestamp":1780797858694,"sessionId":"ant_mq352cbb_ug0z","event":"tool:result","data":{"toolName":"list_rules","status":"success","summary":"3 条规则"}}

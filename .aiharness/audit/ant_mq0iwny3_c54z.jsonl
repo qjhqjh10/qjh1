@@ -1,0 +1,16 @@
+{"timestamp":1780639707963,"sessionId":"ant_mq0iwny3_c54z","event":"session:start","data":{}}
+{"timestamp":1780639710092,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639711796,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639714022,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639715423,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"36 个匹配"}}
+{"timestamp":1780639716916,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639718697,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"36 个匹配"}}
+{"timestamp":1780639720383,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639723331,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"shell_exec","status":"error","summary":"命令 \"ls\" 不在允许列表中（仅允许: node, python, python3, git, npm, npx）"}}
+{"timestamp":1780639724817,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"find_files","status":"success","summary":"找到 1 个匹配 \"project.json\" 的文件"}}
+{"timestamp":1780639726334,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639727926,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"read_file","status":"error","summary":"文件不存在: projects/1/project.json"}}
+{"timestamp":1780639729470,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"find_files","status":"success","summary":"找到 200+ 个匹配 \"*\" 的文件（已达上限）"}}
+{"timestamp":1780639732719,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"44 字符"}}
+{"timestamp":1780639734956,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
+{"timestamp":1780639734956,"sessionId":"ant_mq0iwny3_c54z","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}

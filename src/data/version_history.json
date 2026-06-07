@@ -1,7 +1,33 @@
 {
-  "currentVersion": "10.1.0",
-  "currentDate": "2026-06-06",
+  "currentVersion": "11.5.0",
+  "currentDate": "2026-06-07",
   "history": [
+    {
+      "version": "11.5.0",
+      "date": "2026-06-07",
+      "features": [
+        "工具合并 42→34: 删除冗余note/kb工具8个(list_notes/read_note/write_note/edit_note/append_note/delete_note/kb_list/kb_create_file),统一使用create_file/edit_file/read_file",
+        "create_file/edit_file路径统一: 支持notes/knowledge_base/style_templates/scene_templates/uploads等全局目录",
+        "DeepSeek V4 thinking模式: OpenAI+Anthropic双协议启用深度推理,设置页可配置enableThinking/reasoningEffort",
+        "API智能参数: temperature 0.8→0.3(tool模式), max_tokens 4096→16384(Anthropic), reasoning_content回传修复",
+        "模板系统v2: 14个文件格式模板(.aiharness/templates/), 系统提示词~3500→~2758tokens, 26维风格模板+40+字段场景模板",
+        "目录可见性修复: MemoryIndex开放.aiharness/, list_directory全局扫描增加.aiharness/templates",
+        "完成/继续正则精简: 删除先/然后/以上是/以上就是等过匹配字符",
+        "nudge优化: 知识问答(_isChatQuestion)跳过探索推送, 只读死锁检测从第3轮提前到第1轮",
+        "text分析功能修复: invoke_skill残留清除, 附件路径../../前缀, 分支A等用户选择保护",
+        "笔记edit_note添加后删除(工具合并), 草稿笔记章节提示词更新",
+        "batch_replace后端bug修复: appRoot未定义ReferenceError→resolvePath('file_path')",
+        "confirmed:true补全: edit_file/batch_replace executor + backend batch_replace加入DANGEROUS_TOOL_NAMES",
+        "死代码清理: invoke_skill/search_files/restore_backup + CLI agent死note/KB handler删除",
+        "风格模板26维完整性: 系统提示词+tool schema+executor强制校验11通用维度",
+        "kb_append_file参数修复: projectId→configId + CLI args.name→args.file_id",
+        "buildHistoryMessages: 注入toolCallSteps摘要,继续时模型不重复探索"
+      ]
+    },
+    {
+      "version": "10.1.0",
+      "date": "2026-06-06",
+      "features": [
     {
       "version": "10.1.0",
       "date": "2026-06-06",

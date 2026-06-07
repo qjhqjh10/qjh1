@@ -1,0 +1,39 @@
+# 大纲元数据 — 伏笔追踪和剧情线程管理
+foreshadowing:
+  - id: f1
+    description: 青冥古剑的真正来历——上古剑仙的佩剑，封印着不为人知的秘密
+    chapterIntroduced: 1
+    chapterResolved: ''
+    status: pending
+    relatedCharacters:
+      - 林逸
+
+  - id: f2
+    description: 陈长老与魔道的秘密交易——每次禁地开启都暗送魔道弟子混入
+    chapterIntroduced: 1
+    chapterResolved: ''
+    status: developing
+    relatedCharacters:
+      - 陈长老
+      - 陈啸天
+
+  - id: f3
+    description: 苏婉清身世之谜——并非青云宗本土弟子，实为某位大能转世
+    chapterIntroduced: 3
+    chapterResolved: ''
+    status: planted
+
+plotThreads:
+  - id: t1
+    name: 主线
+    description: 少年剑修林逸逆天改命，从宗门弃徒成长为仙界至尊
+
+  - id: t2
+    name: 宗门内斗
+    description: 陈长老一脉与宗主一脉的权力角力，林逸卷入其中
+
+  - id: t3
+    name: 感情线
+    description: 林逸与苏婉清、冷月两女之间的情感纠葛
+
+updatedAt: '2026-06-07'

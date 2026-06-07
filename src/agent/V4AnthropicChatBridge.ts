@@ -15,10 +15,7 @@ import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 import { V4SecurityFence } from './V4SecurityFence'
 import {
   buildSystemPromptWithSkills,
-  selectDomainModules,
-  getSkillSystemMessage,
 } from './V4SystemPrompt'
-import { skillRegistry } from './skills/SkillRegistry'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './skills/ToolRegistry'
@@ -151,11 +148,8 @@ export class V4AnthropicChatBridge {
       const isMultiFile = isComplexTask(userMessage)  // 用于 planInstruction
 
       // ── 3. 注入 Context Assembler ──
-      // V5.1: Domain Modules 已恢复 — 格式规范对模板/角色/大纲创建至关重要
-      const selectedModules = selectDomainModules(userMessage)
-      const coreDomainModules = selectedModules.length > 0 ? selectedModules : []
-
-      const CORE_PROMPT = await buildSystemPromptWithSkills(coreDomainModules, '', '', userMessage)
+      // v10.2.0: Skill-First — 所有格式知识通过 invoke_skill 获取。
+      const CORE_PROMPT = buildSystemPromptWithSkills('', '')
       const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
       const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -224,16 +218,12 @@ export class V4AnthropicChatBridge {
           planInstruction,  // v9.5.3: 已精简
         ].filter(Boolean).join('\n\n')
 
-        // v9.6.1: Skill 注入作为最后一个 system 消息（紧贴 user，最大化权重）
-        const skillSysMsg = getSkillSystemMessage(msg)
-
         const systemMessages = [
           coreSystemMsg,
           ...(globalIndex
             ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }]
             : []),
           { role: 'system' as const, content: dynamicContent },
-          ...(skillSysMsg ? [skillSysMsg] : []),  // Skill 工作流 — 最后权重最高
         ]
 
         return {
@@ -313,7 +303,7 @@ export class V4AnthropicChatBridge {
             ])
             for (const d of domains) ctxAssembler.invalidateProvider(this.projectId, d)
           } else if (
-            /^(write_note|delete_note|kb_create_file|kb_append_file|create_project|delete_project)$/.test(
+            /^(kb_append_file|create_project|delete_project)$/.test(
               ctx.toolName,
             )
           ) {
@@ -324,7 +314,7 @@ export class V4AnthropicChatBridge {
         // 通知 GUI 文件变更 → 触发 UI 刷新
         if (
           result.status === 'success' &&
-          /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|write_note|delete_note|kb_create_file|kb_append_file)$/.test(ctx.toolName)
+          /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|kb_append_file)$/.test(ctx.toolName)
         ) {
           const { useStore } = await import('@/store')
           useStore.getState().bumpFileVersion()
@@ -339,7 +329,7 @@ export class V4AnthropicChatBridge {
       this.runtime.setToolExecutor(toolExecutor)
 
       // ── 5. 工具注入 (v9.6.1: 全工具可用，模型通过 invoke_skill 主动选择 Skill) ──
-      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
+      let activeSkillCtx: unknown = null
       this.runtime.setTools(allTools)
 
       // ── 6. 注入历史 ──

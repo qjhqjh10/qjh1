@@ -1,0 +1,10 @@
+{"timestamp":1780643050997,"sessionId":"ant_mq0kwbg5_jdwz","event":"session:start","data":{}}
+{"timestamp":1780643054646,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"44 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"30 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"34 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"9 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"13 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"12 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"47 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"35 字符"}}
+{"timestamp":1780643054647,"sessionId":"ant_mq0kwbg5_jdwz","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"12 字符"}}

@@ -75,6 +75,7 @@ function ModelCard({
   provider, onProvider, protocol, onProtocol,
   showMainFields, apiUrlHint, providerPresets,
   configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
+  thinkingEnabled, onThinkingChange, reasoningEffort, onReasoningEffort,
   children,
 }: {
   icon: string; title: string; desc: string
@@ -91,11 +92,13 @@ function ModelCard({
   provider?: string; onProvider?: (v: string) => void
   protocol?: string; onProtocol?: (v: string) => void
   showMainFields?: boolean
-  apiUrlHint?: string  // 自定义 API URL 提示文本
-  providerPresets?: ProviderPreset[]  // 自定义服务商列表（图片模型用 IMAGE_PROVIDER_PRESETS）
+  apiUrlHint?: string
+  providerPresets?: ProviderPreset[]
   configId: string
   onRefreshModels: () => void; loadingModels: boolean
   modelList: string[]; showDropdown: boolean; setShowDropdown: (v: boolean) => void
+  thinkingEnabled?: boolean; onThinkingChange?: (v: boolean) => void
+  reasoningEffort?: string; onReasoningEffort?: (v: string) => void
   children?: React.ReactNode
 }) {
   const sym = currency === 'CNY' ? '¥' : '$'
@@ -204,6 +207,27 @@ function ModelCard({
               <span style={{ fontSize: 9, color: '#9b8e84' }}>2</span>
             </div>
           </div>
+          {/* v11.4: 深度推理开关 — 仅 Main 模型显示 */}
+          {onThinkingChange && onReasoningEffort && (
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <label style={fieldLabel}>🧠 深度推理 {thinkingEnabled ? 'ON' : 'OFF'}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button onClick={() => onThinkingChange(!thinkingEnabled)} style={{
+                  padding: '3px 10px', borderRadius: 8, fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  border: thinkingEnabled ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.08)',
+                  background: thinkingEnabled ? 'rgba(124,58,237,0.08)' : '#fff',
+                  color: thinkingEnabled ? '#7c3aed' : '#9b8e84', fontFamily: 'inherit',
+                }}>{thinkingEnabled ? '⚡ 已启用' : '关闭'}</button>
+                {thinkingEnabled && (
+                  <select value={reasoningEffort} onChange={e => onReasoningEffort(e.target.value)}
+                    style={{ padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 9, fontFamily: 'inherit', color: '#6b5e54' }}>
+                    <option value="max">max 最强</option>
+                    <option value="high">high 均衡</option>
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
           {/* 最大输出 */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <label style={fieldLabel}>最大输出 Max Tokens</label>
@@ -479,6 +503,8 @@ export function ModelSettingsTab() {
               showMainFields={true}
               configId={activeConfig.id} onRefreshModels={() => handleRefreshModels('main')} loadingModels={loadingMainModels}
               modelList={mainModelList} showDropdown={activeDropdown === 'main'} setShowDropdown={(v) => setActiveDropdown(v ? 'main' : null)}
+              thinkingEnabled={activeConfig.enableThinking !== false} onThinkingChange={v => u({ enableThinking: v })}
+              reasoningEffort={activeConfig.reasoningEffort || 'max'} onReasoningEffort={v => u({ reasoningEffort: v as 'high' | 'max' })}
             />
 
             {/* ── 🎨 Image ── */}

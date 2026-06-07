@@ -14,11 +14,11 @@ export const templateTools: ToolDefinition[] = [
       name: 'create_style_template',
       description:
         '创建风格模板并保存到模板库。使用前必须先 read_file 读取原文内容，逐段分析后提取各维度特征。dimensions 必须使用精确的英文维度key（见下方分层清单），每个维度含 description(100-300字)/examples(>=3个原文摘录)/writingRules(>=3条)/vocabularyList(>=10词)。原文有信号->必须详填；无信号->跳过不填。\n\n' +
-        '【维度分层清单-仅用这些key】\n' +
-        '必填: narrativeTone sentenceStyle vocabularyStyle rhetoricStyle rhythmStyle dialogueStyle moodStyle perspectiveStyle bodyLanguageStyle sensoryStyle descriptionPattern\n' +
-        '有证据则填: tensionStyle compoundWordPattern onomatopoeiaSystem\n' +
-        '情色专属(情色小说必填): corruptionArc degradationRitual narrativeVoice shameVoyeurLoop sensoryPackFormula bodyMindBetrayal humiliationTemplate\n' +
-        '类型专属: socialRealism cultivationCombat romanceArc archaicStyle suspensePacing',
+        '【维度分层清单-共26维，仅用这些key】\n' +
+        '11通用(任何小说必填): narrativeTone sentenceStyle vocabularyStyle rhetoricStyle rhythmStyle dialogueStyle moodStyle perspectiveStyle bodyLanguageStyle sensoryStyle descriptionPattern\n' +
+        '3可选(原文有证据≥2处则填): tensionStyle compoundWordPattern onomatopoeiaSystem\n' +
+        '7情色专属(情色小说必填): corruptionArc degradationRitual narrativeVoice shameVoyeurLoop sensoryPackFormula bodyMindBetrayal humiliationTemplate\n' +
+        '5类型专属: socialRealism cultivationCombat romanceArc archaicStyle suspensePacing',
       parameters: {
         type: 'object',
         properties: {
@@ -55,6 +55,15 @@ export const templateTools: ToolDefinition[] = [
             status: 'error',
             summary:
               'dimensions 必须是一个对象。格式: {"维度key":{"description":"...","examples":[...],"writingRules":[...],"vocabularyList":[...]}}',
+          }
+        }
+        // v11.5: Validate 11 mandatory dimensions are present
+        const MANDATORY_DIMS = ['narrativeTone','sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','descriptionPattern']
+        const missingDims = MANDATORY_DIMS.filter(d => !(d in (dims as object)))
+        if (missingDims.length > 0) {
+          return {
+            status: 'error',
+            summary: `缺少 ${missingDims.length} 个必填维度: ${missingDims.join(', ')}。全部26维清单见 .aiharness/templates/style-template.yaml`,
           }
         }
         // Validate each dimension has the required sub-fields

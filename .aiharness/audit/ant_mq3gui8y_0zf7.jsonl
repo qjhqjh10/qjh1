@@ -1,0 +1,3 @@
+{"timestamp":1780817646562,"sessionId":"ant_mq3gui8y_0zf7","event":"session:start","data":{}}
+{"timestamp":1780817649308,"sessionId":"ant_mq3gui8y_0zf7","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"9 个匹配"}}
+{"timestamp":1780817649311,"sessionId":"ant_mq3gui8y_0zf7","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"43 字符"}}

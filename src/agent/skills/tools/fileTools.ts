@@ -30,10 +30,11 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'list_directory',
       description:
-        '列出软件内全部文件，支持 Glob 模式过滤。直接并行扫描全局资源(风格/场景/KB/上传/笔记)+所有项目目录。不填 pattern 列出全部。若找电脑其他位置设 broad=true(需批准)。',
+        '列出软件内全部文件。不填任何参数 → 全局扫描(风格/场景/KB/项目)。填 dir_path → 只扫描指定目录(如"1"看项目1，"1/outline"看大纲tab，"../../style_templates"看风格模板)。填 pattern → Glob过滤。broad=true → 搜索电脑。',
       parameters: {
         type: 'object',
         properties: {
+          dir_path: { type: 'string', description: '指定目录路径。项目内如"1""1/outline""1/characters"。全局如"../../style_templates""../../notes"' },
           pattern: { type: 'string', description: 'Glob 模式过滤文件名，如 "*.json" "chapter*.txt"。不填则列出全部' },
           broad: { type: 'boolean', description: '搜索电脑桌面/文档/下载(需批准)' },
         },
@@ -121,7 +122,17 @@ export const fileTools: ToolDefinition[] = [
     permission: 'AUTO',
     category: 'file',
     availableInPlanMode: false,
-    executor: async (args, ctx) => ipcExecute('edit_file', args, ctx),
+    executor: async (args, ctx) => {
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([
+          { callId: ctx.callId, toolName: 'edit_file', args, confirmed: true },
+        ])
+        return results[0] || { status: 'error', summary: '无响应' }
+      } catch (e) {
+        return { status: 'error', summary: `编辑文件失败: ${e instanceof Error ? e.message : '未知错误'}` }
+      }
+    },
   },
 
   // ── Batch replace tool ──
@@ -154,7 +165,17 @@ export const fileTools: ToolDefinition[] = [
     permission: 'AUTO',
     category: 'file',
     availableInPlanMode: false,
-    executor: async (args, ctx) => ipcExecute('batch_replace', args, ctx),
+    executor: async (args, ctx) => {
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const results = await aiService.executeFileTools([
+          { callId: ctx.callId, toolName: 'batch_replace', args, confirmed: true },
+        ])
+        return results[0] || { status: 'error', summary: '无响应' }
+      } catch (e) {
+        return { status: 'error', summary: `批量替换失败: ${e instanceof Error ? e.message : '未知错误'}` }
+      }
+    },
   },
 
   // ── Dangerous tools ──

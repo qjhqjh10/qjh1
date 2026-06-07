@@ -22,12 +22,12 @@ export const PROJECTS_DIR = path.join(APP_ROOT, 'projects')
 const OUTLINE_TEMPLATES = {
   'plot.md':            '# 故事剧情\n\n> 一句话梗概\n\n## 第1章\n\n（待填写）',
   'worldbuilding.md':   '# 世界观设定\n\n> 类型·基调\n\n## 一、核心规则\n\n（待填写）',
-  'items.yaml':         'items: []',
-  'locations.yaml':     'locations: []',
-  'factions.yaml':      'factions: []',
-  'power_system.yaml':  "name: ''\nlevels: []\ndescription: ''",
-  'outline_meta.yaml':  'foreshadowing: []\nplotThreads: []\nupdatedAt: ""',
-  'emotion.yaml':       'segments: []',
+  'items.yaml':         'items: []\n',
+  'locations.yaml':     'locations: []\n',
+  'factions.yaml':      'factions: []\n',
+  'power_system.yaml':  'name: \'\'\nlevels: []\ndescription: \'\'\n',
+  'outline_meta.yaml':  'foreshadowing: []\nplotThreads: []\n',
+  'emotion.yaml':       'segments: []\n',
 }
 
 /**

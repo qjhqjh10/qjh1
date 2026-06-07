@@ -1,0 +1,30 @@
+# 情绪曲线 — 按章节段落追踪主导情绪
+segments:
+  - chapterStart: 1
+    chapterEnd: 3
+    dominantEmotion: 紧张期待
+    description: 开篇建立世界观和人物关系，大比和禁地试炼带来紧张感，觉醒带来期待
+
+  - chapterStart: 4
+    chapterEnd: 6
+    dominantEmotion: 压抑愤怒
+    description: 陈长老一脉公然打压林逸，主角隐忍不发但内心愤怒积累
+
+  - chapterStart: 7
+    chapterEnd: 9
+    dominantEmotion: 热血激昂
+    description: 宗门遭魔道突袭，林逸挺身而出力挽狂澜，剑魂初展神威
+
+  - chapterStart: 10
+    chapterEnd: 12
+    dominantEmotion: 悲伤
+    description: 师父为保护林逸陨落，主角陷入低谷，情感爆发
+
+intensityCurve:
+  - chapter: 1
+    intensity: 4
+  - chapter: 2
+    intensity: 6
+  - chapter: 3
+    intensity: 5
+updatedAt: '2026-06-07'

@@ -1,0 +1,21 @@
+# 地点列表 — 纯YAML格式
+locations:
+  - id: cloud_sect
+    name: 青云宗
+    description: 修仙界七大正道宗门之一，以剑修闻名于世。坐落于九座灵峰之间，宗门大阵覆盖方圆百里
+    type: 宗门
+
+  - id: forbidden_grounds
+    name: 禁地
+    description: 青云宗后山的禁忌之地，传闻封印着上古魔物。每百年开启一次
+    type: 秘境
+
+  - id: martial_arena
+    name: 演武场
+    description: 青云宗内门演武场，可容纳三千弟子同时比武。地面以青玄石铺就
+    type: 建筑
+
+  - id: black_market
+    name: 黑市
+    description: 东荒与西荒交界处的灰色地带，正道魔道均在此交易，无人管辖
+    type: 城镇

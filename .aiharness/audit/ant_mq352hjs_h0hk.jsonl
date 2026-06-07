@@ -1,0 +1,4 @@
+{"timestamp":1780797863512,"sessionId":"ant_mq352hjs_h0hk","event":"session:start","data":{}}
+{"timestamp":1780797872399,"sessionId":"ant_mq352hjs_h0hk","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"487 字符"}}
+{"timestamp":1780797872413,"sessionId":"ant_mq352hjs_h0hk","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780797872432,"sessionId":"ant_mq352hjs_h0hk","event":"tool:result","data":{"toolName":"search_content","status":"success","summary":"0 处匹配"}}

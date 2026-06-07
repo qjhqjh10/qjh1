@@ -21,9 +21,6 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   read_file:      ['status', 'summary', 'detail'],
   list_directory: ['status', 'summary', 'detail'],
   search_content: ['status', 'summary', 'detail'],
-  list_notes:     ['status', 'summary', 'detail'],
-  read_note:      ['status', 'summary', 'detail'],
-  kb_list:        ['status', 'summary', 'detail'],
   kb_index_file:  ['status', 'summary', 'detail'],
   // ── Template tools: strip detail (template JSON) to stay lean ──
   create_style_template: ['status', 'summary'],
@@ -34,11 +31,7 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   batch_replace:  ['status', 'summary'],  // v9.5.3: write tool
   delete_file:    ['status', 'summary'],
   rename_file:    ['status', 'summary'],
-  kb_create_file: ['status', 'summary'],
   kb_append_file: ['status', 'summary'],
-  write_note:     ['status', 'summary'],
-  append_note:    ['status', 'summary'],
-  delete_note:    ['status', 'summary'],
   // ── Search tools ──
   find_files:     ['status', 'summary', 'detail'],  // v9.5.3: read/search
   search_notes:   ['status', 'summary', 'detail'],  // v9.5.3: read
@@ -87,10 +80,6 @@ export class ContractExecutor {
     for (const field of allFields) {
       if (contract.includes(field) || errorFields.includes(field)) {
         kept[field] = resultObj[field]
-        // 截断错误 detail 防止上下文膨胀
-        if (isError && field === 'detail' && typeof kept[field] === 'string' && (kept[field] as string).length > 1000) {
-          kept[field] = (kept[field] as string).slice(0, 1000) + '…(已截断)'
-        }
       } else {
         stripped.push(field)
       }

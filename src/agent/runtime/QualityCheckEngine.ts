@@ -46,7 +46,7 @@ export function isQualityCheckApplicable(checkId: string, toolName: string): boo
   // 大纲/追加内容检查 → edit_file 或 create_file
   if (/^(content-length|old-string-exact|append-not-overwrite)$/.test(checkId)) return toolName === 'edit_file' || toolName === 'create_file'
   // KB/其他检查
-  if (/^(list-before-create|remind-index|chinese-name)$/.test(checkId)) return toolName === 'kb_create_file'
+  if (/^(remind-index|chinese-name)$/.test(checkId)) return toolName === 'create_file'
   // 通用格式检查 — 行为约束类 → 代码无法检测，不在此处拦截
   if (/^(yaml-format|plot-length|analyze-first|wait-confirm|offer-options|confirm-type|read-before-edit)$/.test(checkId)) {
     return false

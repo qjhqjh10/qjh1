@@ -73,23 +73,29 @@ async function safeResolve(
     }
   }
 
-  // Project-relative path: strip ../ for safety and join with projectPath
+  // ── Determine base path (v11.4: global dirs resolve against appRoot) ──
+  const GLOBAL_DIRS = new Set(['notes', 'knowledge_base', 'style_templates', 'scene_templates', 'uploads', 'agent-sessions'])
+  const appRoot = path.dirname(projectPath)
+  const firstSegment = clean.split('/')[0].split('\\')[0]
+  const isGlobalPath = GLOBAL_DIRS.has(firstSegment)
+  // Global paths → resolve against appRoot; project paths → resolve against projectPath
+  const basePath = isGlobalPath ? appRoot : projectPath
+
+  // Strip ../ for safety and join with basePath
   let prev = ''
   while (prev !== clean) {
     prev = clean
     clean = clean.replace(/\.\.\//g, '')
   }
-  // Strip bare ".." at boundaries
   clean = clean.replace(/\/\.\.$/, '').replace(/^\.\.$/, '')
-  // Normalize projectPath via realpath to handle Windows short names (RUNNER~1 → runneradmin)
-  let realProjectPath = projectPath
-  try { realProjectPath = await fsp.realpath(projectPath) } catch {}
-  const joined = path.join(realProjectPath, clean)
-  if (!isSafePath(joined, realProjectPath)) return null
+  const joined = path.join(basePath, clean)
+  // Safety: must be within basePath (appRoot for global, projectPath for project)
+  const realBasePath = (await fsp.realpath(basePath).catch(() => basePath))
+  if (!isSafePath(joined, realBasePath)) return null
   // Resolve symlinks to get real path, then re-check (Issue #5)
   try {
     const real = await fsp.realpath(joined)
-    if (!isSafePath(real, realProjectPath)) return null
+    if (!isSafePath(real, realBasePath)) return null
     return real
   } catch {
     // File doesn't exist yet (e.g., create_file) — return joined path as-is
@@ -326,11 +332,27 @@ export async function executeFileTool(
           return result
         }
 
+        // ── Fast path: dir_path specified → scan that directory directly ──
+        if (rawPath && !isGlobal) {
+          // Resolve: project-relative path like "1/" or "1/outline"
+          const resolved = path.join(projectPath, rawPath)
+          try {
+            await fsp.access(resolved)
+            const items = await scanDir(resolved, rawPath)
+            const detail = items.length > 0
+              ? items.join('\n')
+              : `(目录 "${rawPath}" 为空。使用 list_directory 不填参数可查看全部文件)`
+            return { callId, toolName, status: 'success', summary: `${items.length} 个匹配`, detail }
+          } catch {
+            return { callId, toolName, status: 'success', summary: '0 个匹配', detail: `目录 "${rawPath}" 不存在。使用 list_directory 不填参数可查看全部项目。` }
+          }
+        }
+
         // ── Build scan targets: always scan the entire software folder in parallel ──
         const targets: Array<{ path: string; label: string }> = []
 
         // All global resource dirs
-        const globalDirs = ['style_templates', 'scene_templates', 'knowledge_base/files', 'uploads/files', 'uploads/images', 'notes']
+        const globalDirs = ['style_templates', 'scene_templates', 'knowledge_base/files', 'uploads/files', 'uploads/images', 'notes', '.aiharness/templates']
         for (const d of globalDirs) {
           const p = path.join(appRoot, d)
           try { await fsp.access(p); targets.push({ path: p, label: d.replace('knowledge_base/', 'KB:').replace('uploads/', '上传:') }) } catch {}
@@ -922,7 +944,7 @@ export async function executeFileTool(
         if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return deny(callId, toolName, '无效的项目名称')
         const pp = path.join(projectPath, name)
         try { await fsp.access(pp); return { callId, toolName, status: 'error', summary: `项目已存在: ${name}` } } catch { /* ok */ }
-        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
+        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images', 'summaries']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
         // 初始模板文件（YAML，匹配当前系统提示词）
@@ -1064,7 +1086,7 @@ export async function executeFileTool(
         if (!replacements || !Array.isArray(replacements) || replacements.length === 0) {
           return { callId, toolName, status: 'error', summary: 'replacements 必须是非空数组' }
         }
-        const fp = resolvePath(String(args.file_path || ''), projectPath, appRoot)
+        const fp = resolvePath('file_path')
         if (!fp) return { callId, toolName, status: 'error', summary: `路径无效` }
 
         let content: string
@@ -1115,8 +1137,8 @@ function deny(callId: string, toolName: string, reason: string): ToolCallResult 
 function pathHint(requestedPath: string): string {
   const dirs = [
     'outline/         — plot.md, worldbuilding.md（大纲和世界观为 .md 格式）',
-    'characters/      — {中文名}.json (每个角色一个文件，如 林语晴.json)',
-    'detailed_outline/— {章节id}.json (每章一个细纲)',
+    'characters/      — {中文名}.yaml (每个角色一个文件，如 林语晴.yaml)',
+    'detailed_outline/— {章节id}.yaml (每章一个细纲)',
     'chapters/        — {章节id}.txt (章节正文)',
     'summaries/       — {章节id}.md (每章摘要，Markdown 格式)',
     'notes/           — 草稿笔记 (.md)',

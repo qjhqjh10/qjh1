@@ -1,0 +1,8 @@
+{"timestamp":1780639692988,"sessionId":"ant_mq0iwce4_yzao","event":"session:start","data":{}}
+{"timestamp":1780639694900,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639696381,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639697855,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
+{"timestamp":1780639699192,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"36 个匹配"}}
+{"timestamp":1780639701399,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"44 字符"}}
+{"timestamp":1780639703533,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
+{"timestamp":1780639703534,"sessionId":"ant_mq0iwce4_yzao","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}

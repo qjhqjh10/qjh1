@@ -83,17 +83,13 @@ export class ContextCompressor {
         const compressed: Record<string, unknown> = {}
         if (parsed.status) compressed.status = parsed.status
         if (parsed.summary) compressed.summary = parsed.summary
-        // Preserve detail for read tools (ContractExecutor already strips detail for write tools
-        // before they enter context). Truncate if excessively long to stay within budget.
         if (parsed.detail && typeof parsed.detail === 'string') {
-          compressed.detail = parsed.detail.length > 2000
-            ? parsed.detail.slice(0, 2000) + '\n…(压缩截断)'
-            : parsed.detail
+          compressed.detail = parsed.detail
         }
         if (parsed.note) compressed.note = parsed.note
         return { ...m, content: JSON.stringify(compressed) }
       } catch {
-        return { ...m, content: m.content.slice(0, 500) + '…' }
+        return m  // Keep original if not valid JSON
       }
     })
   }

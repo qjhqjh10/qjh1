@@ -434,7 +434,7 @@ describe('Agent 功能全景验证', () => {
   // ── 上下文组装 ──
   it('功能11: ContextAssembler — 系统提示词注入', async () => {
     const { buildSystemPrompt, CORE_SYSTEM_PROMPT } = await import('../V4SystemPrompt')
-    const p = buildSystemPrompt([], 'project-structure', 'project-context')
+    const p = buildSystemPrompt('project-structure', 'project-context')
     expect(p).toContain('青剑')
     expect(p).toContain('list_directory')
     expect(p).toContain('__FULL_REPLACE__')

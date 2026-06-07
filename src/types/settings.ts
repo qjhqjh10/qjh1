@@ -16,6 +16,8 @@ export interface ModelConfig {
   maxTokens: number               // 0=使用模型默认最大值
   contextWindow?: number          // 上下文窗口大小 (如 128000)
   protocol?: 'openai' | 'anthropic'  // API 协议：openai (默认) 或 anthropic (流式 content blocks)
+  enableThinking?: boolean          // v11.4: 启用 DeepSeek V4 深度推理 (thinking mode)
+  reasoningEffort?: 'high' | 'max'  // v11.4: 推理强度 (默认 max，简单对话可降为 high)
   mainProvider?: string
   mainApiUrl?: string
   mainApiKey?: string
@@ -62,10 +64,12 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   apiKey: '',
   // Main
   model: 'gpt-4o',
-  temperature: 0.8,
+  temperature: 0.3,  // v11.4: lowered from 0.8 — agent tool calling needs deterministic output
   maxTokens: 0,
   contextWindow: 128000,
   protocol: 'openai' as const,
+  enableThinking: true,             // v11.4: 默认启用深度推理
+  reasoningEffort: 'max' as const,  // v11.4: 默认最大推理强度
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,

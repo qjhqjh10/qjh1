@@ -7,8 +7,7 @@
 import { V4UnifiedRuntime } from './runtime/V4UnifiedRuntime'
 import { OpenAIAdapter } from './runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from './V4SecurityFence'
-import { buildSystemPromptWithSkills, selectDomainModules, getSkillSystemMessage } from './V4SystemPrompt'
-import { skillRegistry } from './skills/SkillRegistry'
+import { buildSystemPromptWithSkills } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './skills/ToolRegistry'
@@ -173,12 +172,12 @@ export class V4AgentChatBridge {
       const allTools = toolRegistry.getAllSchemas()
       const msg = userMessage
 
-      const READ   = new Set(['read_file','list_directory','search_content','find_files','search_files'])
-      const ALWAYS = new Set(['think','invoke_skill'])
+      const READ   = new Set(['read_file','list_directory','search_content','find_files'])
+      const ALWAYS = new Set(['think'])
       const WRITE  = new Set(['create_file','edit_file','batch_replace'])
       const DANGER = new Set(['delete_file','rename_file','delete_project'])
-      const NOTE   = new Set(['list_notes','read_note','write_note','append_note','delete_note','search_notes'])
-      const KB     = new Set(['kb_list','kb_create_file','kb_index_file','kb_append_file'])
+      const NOTE   = new Set(['search_notes'])
+      const KB     = new Set(['kb_append_file','kb_index_file'])
       const TMPL   = new Set(['create_style_template','create_scene_template'])
       const PROJ   = new Set(['create_project'])
 
@@ -195,20 +194,12 @@ export class V4AgentChatBridge {
       diagnosticLogger.recordInfo(`Agent2: task=default core=${scopedCore.length} ext=${scopedExtended.length}`)
 
       // v9.6.1: activeSkillCtx 不再预设置 — 当模型调用 invoke_skill 时由 Runtime 设置
-      let activeSkillCtx: import('./skills/types').ActiveSkillContext | null = null
+      let activeSkillCtx: unknown = null
 
       // ── 3. Wire Context Assembler ──
-      // v4: Split System Prompt — core (locked, cached) + dynamic (index + providers)
-      // Core never changes → DeepSeek prefix caching → 10% billing
-      // Dynamic rebuilt per message → fresh global index + relevant providers
-      //
-      // V5.1: Domain Modules 已恢复 — 格式规范对模板/角色/大纲创建至关重要
-      const selectedModules = selectDomainModules(userMessage)
-      const coreDomainModules = selectedModules.length > 0 ? selectedModules : []
-      // V5: Learning entries are applied via self-optimization (modifying prompts/tools),
-      // NOT injected at runtime. The user triggers "应用此经验" from the Learning page.
-      // V9.5.2: planInstruction moved to dynamicContent to keep CORE_PROMPT stable for cache
-      const CORE_PROMPT = await buildSystemPromptWithSkills(coreDomainModules, '', '', userMessage)
+      // v10.2.0: Skill-First — 所有格式知识通过 invoke_skill 获取。
+      // 仅注入 Skill Catalog（元数据），不含 Domain Modules。
+      const CORE_PROMPT = buildSystemPromptWithSkills('', '')
       const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
       const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -293,15 +284,11 @@ export class V4AgentChatBridge {
         const providerContent = base.systemMessages.map(m => m.content).filter(Boolean).join('\n\n')
         const dynamicContent = [searchContext, toolInvokePrompt, planInstruction, planPrompt].filter(Boolean).join('\n\n')
 
-        // v9.6.1: Skill 注入作为最后一个 system 消息（紧贴 user，最大化权重）
-        const skillSysMsg = getSkillSystemMessage(msg)
-
         const systemMessages = [
-          coreSystemMsg,                                          // [0] 核心提示词 — cached
+          coreSystemMsg,                                          // [0] 核心提示词 — cached (含 Skill Catalog)
           ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []),  // [1] 索引
           ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []),  // [2] Provider — stable
           ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态内容
-          ...(skillSysMsg ? [skillSysMsg] : []),                  // [4] Skill 工作流 — 最后权重最高
         ]
 
         return {
@@ -379,14 +366,14 @@ export class V4AgentChatBridge {
               ...ContextAssembler.domainsForPath(newPath),
             ])
             for (const d of domains) contextAssembler.invalidateProvider(this.projectId, d)
-          } else if (/^(write_note|delete_note|kb_create_file|kb_append_file|create_project|delete_project)$/.test(ctx.toolName)) {
+          } else if (/^(kb_append_file|create_project|delete_project)$/.test(ctx.toolName)) {
             // Global/structural changes → invalidate index
             invalidateMemoryIndexCache()
           }
         }
 
         // File change notification → 触发 UI 刷新
-        if (result.status === 'success' && /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|write_note|delete_note|kb_create_file|kb_append_file)$/.test(ctx.toolName)) {
+        if (result.status === 'success' && /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|kb_append_file)$/.test(ctx.toolName)) {
           const { useStore } = await import('@/store')
           useStore.getState().bumpFileVersion()
           useStore.getState().setFileEditNotify({
