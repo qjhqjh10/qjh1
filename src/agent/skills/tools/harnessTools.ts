@@ -195,7 +195,7 @@ export const harnessTools: ToolDefinition[] = [
     schema: {
       name: 'list_audit',
       description:
-        '查询 Agent 自身的操作审计日志，用于自观测和调试。可查看最近的工具调用、状态变更和错误记录。',
+        '查询 Agent 的反馈记录和会话分析报告（存储在 .aiharness/feedback/）。用于自观测和调试。可查看最近的操作反馈、PostSession 分析和改进建议。',
       parameters: {
         type: 'object',
         properties: {

@@ -1,5 +1,6 @@
 // ── Phase Manager (v11.0: simplified stub) ──
 // v11.0: Phase machine removed. All execution goes directly.
+// @deprecated v11.5.1: Zero references in src/ — kept for potential electron/script consumers.
 // Kept as stub for backward compatibility.
 
 import type { AgentPhase } from '../state/types'

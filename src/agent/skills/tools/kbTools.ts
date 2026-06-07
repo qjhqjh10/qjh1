@@ -11,7 +11,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_append_file',
       description:
-        '向知识库已有文件末尾追加内容。先 list_directory("knowledge_base/files") 查看文件列表。file_id 从 kb 元数据获取。内容以分隔线隔开。追加后需调用 kb_index_file 建立索引。',
+        '向知识库已有文件末尾追加内容。file_id 是 KB 文件的 UUID。⚠️ 新建 KB 文件：用 create_file("../../knowledge_base/files/文件名.md", content)。追加已有文件：用此工具 + file_id。追加后必须调用 kb_index_file 建立语义搜索索引。',
       parameters: {
         type: 'object',
         properties: {
@@ -39,7 +39,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_index_file',
       description:
-        '对知识库文件建立语义搜索索引。创建或追加知识库文件内容后必须调用此工具，使内容可被语义搜索检索。',
+        '对知识库文件建立语义搜索索引。kb_append_file 追加内容后必须调用此工具。file_id 是 KB 文件的 UUID。建索引后内容可被语义搜索检索。',
       parameters: {
         type: 'object',
         properties: {

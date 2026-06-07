@@ -86,9 +86,9 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 38个工具，含风格/场景/图片/学习', () => {
+  it('工具注册: 34个工具 (v11.5 42→34)，含风格/场景/图片/学习', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(38)
+    expect(names.length).toBeGreaterThanOrEqual(34)
     expect(names).toContain('create_style_template')
     expect(names).toContain('create_scene_template')
     expect(names).toContain('generate_image')

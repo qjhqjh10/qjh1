@@ -112,8 +112,14 @@ function messagesToAnthropic(msgs: Message[]): Array<{
       if (m.content && typeof m.content === 'string' && m.content.trim()) {
         content.push({ type: 'text', text: m.content })
       }
-      // v9.5.5: Preserve thinking/signature blocks for extended thinking support
-      if ((m as any).thinking) {
+      // v11.5.1: Preserve thinking/signature blocks for extended thinking support
+      const thinkingBlocks = (m as any).thinkingBlocks
+      if (thinkingBlocks && Array.isArray(thinkingBlocks)) {
+        for (const tb of thinkingBlocks) {
+          content.push({ type: 'thinking' as any, thinking: tb.thinking, signature: tb.signature || '' })
+        }
+      } else if ((m as any).thinking) {
+        // Backward compat: old single thinking field
         content.push({ type: 'thinking' as any, thinking: (m as any).thinking, signature: (m as any).signature || '' })
       }
       for (const tc of (m as any).tool_calls) {
@@ -189,6 +195,7 @@ export class AnthropicAdapter implements ProtocolAdapter {
     })
 
     // 4. Normalize to canonical format
+    // v11.5.1: Preserve thinkingBlocks + cacheHitTokens
     return {
       text: streamResult.text || '',
       toolCalls: (streamResult.toolUses || []).map(tu => ({
@@ -201,8 +208,11 @@ export class AnthropicAdapter implements ProtocolAdapter {
         inputTokens: streamResult.usage?.input_tokens || 0,
         outputTokens: streamResult.usage?.output_tokens || 0,
         totalTokens: (streamResult.usage?.input_tokens || 0) + (streamResult.usage?.output_tokens || 0),
+        cacheHitTokens: (streamResult.usage?.cache_creation_input_tokens || 0) + (streamResult.usage?.cache_read_input_tokens || 0),
+        cost: (streamResult.usage as any)?.cost,
       },
-      reasoningContent: streamResult.thinking,
+      reasoningContent: streamResult.thinkingBlocks?.map(b => b.thinking).join('\n') || streamResult.thinking,
+      thinkingBlocks: streamResult.thinkingBlocks,
     }
   }
 

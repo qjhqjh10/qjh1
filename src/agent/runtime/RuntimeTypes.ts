@@ -36,6 +36,10 @@ export interface V4AgentRunResult {
   totalTokens: number
   promptTokens: number
   completionTokens: number
+  /** v11.5.1: Cache hit tokens from API (DeepSeek prompt caching) */
+  cacheHitTokens: number
+  /** v11.5.1: Total cost in USD/CNY */
+  cost: number
   phase: AgentPhase
   toolsUsed: string[]
   toolCallSteps: Array<{

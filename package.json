@@ -1,6 +1,6 @@
 {
   "name": "ai-writing-qingjian",
-  "version": "11.5.0",
+  "version": "11.6.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -65,6 +65,7 @@
     "jsdom": "^29.1.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vitest": "^4.1.6"
   }

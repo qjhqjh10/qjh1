@@ -24,7 +24,6 @@ import ImageLightbox from '@/components/common/ImageLightbox'
 
 import { makeConversation, parsePopupCommand } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
-import { V4AgentChatBridge } from '@/agent/V4AgentChatBridge'
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
 import { ContextCompressor } from '@/agent/context/ContextCompressor'
@@ -184,6 +183,7 @@ export default function AIChatWindow() {
   // V2-4: Read cumulative tokens from AgentStore (single source of truth)
   // Local state for token tracking — incremented per message, reset on conversation switch
   const [cumulativeTokens, setCumulativeTokens] = useState(0)
+  const [currentContextTokens, setCurrentContextTokens] = useState(0)  // v11.5.1: 当前消息的上下文用量（非累计）
   const [tokenBreakdown, setTokenBreakdown] = useState<{ label: string; chars: number }[]>([])
 
   const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
@@ -370,9 +370,9 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
-  const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
-  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
+  const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
+  const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
 
   // Dismiss context menu on click outside
@@ -589,13 +589,14 @@ export default function AIChatWindow() {
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
             : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
           // Token breakdown — initial context only (first API call).
-          // Cumulative total = promptTokens across all iterations (includes tool results + assistant msgs)
           if (runResult.contextBreakdown && runResult.contextBreakdown.length > 0) {
             setTokenBreakdown([
               ...runResult.contextBreakdown.map(b => ({ label: b.domain, chars: b.tokens })),
               { label: `API输入 (${runResult.iterationCount || 1}轮)`, chars: runResult.promptTokens || 0 },
             ])
           }
+          // v11.5.1: 上下文用量 = 实际输入+输出（API返回，包含全部历史+工具结果+输出）
+          setCurrentContextTokens((runResult.promptTokens || 0) + (runResult.completionTokens || 0))
 
           const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: b.domain, chars: b.tokens * 2 })) || []
           // Show context composition + API-reported actuals (not double-counted)
@@ -614,7 +615,7 @@ export default function AIChatWindow() {
             breakdown: inputBreakdown,
             outputBreakdown,
             iterationCount: runResult.iterationCount || 1,
-            usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: 0 } : undefined,
+            usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: runResult.cost || 0, cacheHitTokens: runResult.cacheHitTokens || 0 } : undefined,
             totalIterations: runResult.iterationCount || 1,
           }])
         },
@@ -871,7 +872,7 @@ export default function AIChatWindow() {
           </div>
 
           <ContextUsageBar
-            usedTokens={cumulativeTokens}
+            usedTokens={currentContextTokens}
             contextWindow={activeConfig?.contextWindow ?? 128000}
             breakdown={tokenBreakdown}
             onCompress={() => {
@@ -1126,14 +1127,9 @@ export default function AIChatWindow() {
 
                 {/* Usage footer — only on assistant messages */}
                 {msg.role === 'assistant' && msg.usage && (
-                  <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84' }}>
-                    <span>入 {msg.usage.prompt_tokens?.toLocaleString()} | 出 {msg.usage.completion_tokens?.toLocaleString()} | 合计 {msg.usage.total_tokens?.toLocaleString()}</span>
-                    {(msg.usage as any).cacheHitTokens > 0 && (
-                      <span style={{ color: '#16a34a', fontWeight: 600 }}>
-                        🟢 缓存命中 {(msg.usage as any).cacheHitTokens.toLocaleString()} tok
-                      </span>
-                    )}
-                    {msg.usage.cost > 0 && <span>花费 {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
+                  <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span>入 {(msg.usage.prompt_tokens || 0).toLocaleString()} | 出 {(msg.usage.completion_tokens || 0).toLocaleString()} | 合计 {(msg.usage.total_tokens || 0).toLocaleString()}</span>
+                    {msg.usage.cost > 0 && <span> {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
                   </div>
                 )}
                 {/* Tool usage summary — shows which tools were called in this response */}

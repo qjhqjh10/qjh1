@@ -42,7 +42,6 @@ export interface ToolExecContext {
   toolsUsed: string[]
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   emitter: AgentEventEmitter
-  activeSkill: unknown  // v11.3: no longer typed
   _consecutiveReads: number
   iteration: number
   /** v9.5.5: Store for tool progress tracking */
@@ -120,7 +119,6 @@ export async function executeSingleTool(
   // ── v9.5.5: Skill orchestration (delegated to ToolActionPrompter) ──
   const newReads = applyActionPrompts({
     messagesForApi: ctx.messagesForApi,
-    activeSkill: ctx.activeSkill,
     _consecutiveReads: ctx._consecutiveReads,
     tc, result, args,
   })

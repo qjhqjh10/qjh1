@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v11.5.0
+# AI写作软件—青剑 v11.6.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
 
@@ -6,7 +6,7 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / G6 + Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v11.5.0)
+## 当前架构 (v11.6.0)
 
 ### 工具统一 (42→34)
 - 删除冗余的 note/kb 专用工具（8个），统一使用 create_file/edit_file/read_file/list_directory/delete_file

@@ -13,19 +13,16 @@ import { V4UnifiedRuntime } from './runtime/V4UnifiedRuntime'
 import { AnthropicAdapter } from './runtime/adapters/AnthropicAdapter'
 import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 import { V4SecurityFence } from './V4SecurityFence'
-import {
-  buildSystemPromptWithSkills,
-} from './V4SystemPrompt'
+import { buildSystemPrompt } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
 import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './skills/ToolRegistry'
-import { contextAssembler, ContextAssembler } from './context/ContextAssembler'
+import { BridgeContextBuilder } from './context/BridgeContextBuilder'
+import { invalidateAfterTool } from './context/CacheInvalidator'
+import { contextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
-import { ALL_PROVIDERS } from './context/providers'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
-import { estimateTokens } from './utils/tokenEstimation'
-import { isComplexTask } from './utils/taskDetection'
 import type { Message } from './state/types'
 import type {
   BridgeOptions,
@@ -36,21 +33,13 @@ import type {
 // ── Init ──
 
 let toolsRegistered = false
-let providersRegistered = false
 
 function ensureInitialized() {
   if (!toolsRegistered) {
     toolRegistry.registerAll(ALL_TOOLS as any)
     toolsRegistered = true
   }
-  if (!providersRegistered) {
-    for (const p of ALL_PROVIDERS) {
-      if (!contextAssembler.getProviders().some(ex => ex.domain === p.domain)) {
-        contextAssembler.register(p)
-      }
-    }
-    providersRegistered = true
-  }
+  // v11.5.1: Provider registration removed — ALL_PROVIDERS=[] (system retired)
 }
 
 // ── Bridge ──
@@ -64,7 +53,7 @@ export class V4AnthropicChatBridge {
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 60  // v10.0.3: 12→60，不限制复杂任务迭代
+  private maxIterations = 30  // v11.5.1: 60→30，nudge上限+写优先已消除死锁，30足够
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
@@ -143,101 +132,22 @@ export class V4AnthropicChatBridge {
         contextWindow: this.contextWindow,
       }, adapter)
 
-      // ── 2.5. 工具准备 (v9.6.1: 全工具可用 — 模型通过 invoke_skill 主动选择 Skill) ──
+      // ── 2.5. 工具准备 ──
       const allTools = toolRegistry.getAllSchemas()
-      const isMultiFile = isComplexTask(userMessage)  // 用于 planInstruction
 
-      // ── 3. 注入 Context Assembler ──
-      // v10.2.0: Skill-First — 所有格式知识通过 invoke_skill 获取。
-      const CORE_PROMPT = buildSystemPromptWithSkills('', '')
-      const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
-      const coreTokens = estimateTokens(CORE_PROMPT)
+      // ── 3. 注入 Context Assembler (v11.5.1: BridgeContextBuilder 共享模块) ──
+      const CORE_PROMPT = buildSystemPrompt('', '')
+      const contextBuilder = new BridgeContextBuilder({
+        projectId: this.projectId,
+        kbEnabled: !!options.kbEnabled,
+        webSearchEnabled: !!options.webSearchEnabled,
+        selectedKbFileIds: options.selectedKbFileIds,
+        planMode: !!options.planMode,         // v11.5.1: 补齐 Anthropic planMode 支持
+        enableThinkingPlan: false,            // Anthropic: 简单规划指令（不需要 ThinkingEngine）
+      })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        // 闲聊/简单消息 → 跳过全局索引和 Provider，节省 ~6k+ tokens
-        const isChatOnly = /^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye|早上好|晚上好|下午好|晚安|早|在吗|在不在|你是谁|你叫什么|你能做什么|你有什么功能)[!！。.，,～~]*$/i.test(msg.trim())
-        const hasTaskKeywords = /角色|人物|大纲|剧情|章节|写|创作|生成|续写|风格|文风|分析|模板|知识库|搜索|查找|创建|删除|编辑|导入|保存|整理|修改|改|图片|图|插图|搜|画|草稿|笔记|项目|世界|细纲|仿写/i.test(msg)
-
-        // 动态内容（每轮刷新）
-        let globalIndex = ''
-        if (hasTaskKeywords || hist.length > 0) {
-          try {
-            const { buildGlobalIndex } = await import('./context/MemoryIndex')
-            globalIndex = await buildGlobalIndex(pid)
-          } catch { /* unavailable */ }
-        }
-
-        let searchContext = ''
-        if (options.kbEnabled && this.projectId) {
-          try {
-            const { kbService } = await import('@/services/fileService')
-            const results = await kbService.search(
-              msg, this.projectId, this.configId, 3, options.selectedKbFileIds,
-            )
-            if (Array.isArray(results) && results.length > 0) {
-              searchContext += '\n[知识库]\n' +
-                results.map((r: any) => r.content || '').join('\n---\n')
-            }
-          } catch { /* unavailable */ }
-        }
-        if (options.webSearchEnabled) {
-          try {
-            const { kbService } = await import('@/services/fileService')
-            const results = await kbService.webSearch(msg.slice(0, 500), 3)
-            if (Array.isArray(results) && results.length > 0) {
-              searchContext += '\n[网络搜索]\n' +
-                results.map((r: any) => r.snippet || r.title || '').join('\n---\n')
-            }
-          } catch { /* unavailable */ }
-        }
-
-        // 闲聊消息跳过 Provider 内容（节省 ~10k+ tokens）
-        const base = isChatOnly
-          ? { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
-          : await contextAssembler.assemble(msg, hist, pid)
-        const { buildToolInvokePrompt } = await import('@/types/fileOps')
-        const toolInvokePrompt = isChatOnly ? '' : buildToolInvokePrompt()
-
-        // ── v9.6.1: 复杂任务规划指引 ──
-        const msgIsMultiFile = isComplexTask(msg)
-        const planInstruction = (msgIsMultiFile && !options.planMode) ? '逐个文件完成。' : ''
-
-        const searchTokens = searchContext ? estimateTokens(searchContext) : 0
-        const globalIndexTokens = estimateTokens(globalIndex || '')
-        const historyTokens = hist.reduce(
-          (s, m) => s + estimateTokens(m.content || '') + 4, 0,
-        )
-        const fullTotal =
-          coreTokens + base.totalTokens + searchTokens + globalIndexTokens +
-          historyTokens + estimateTokens(msg)
-
-        const dynamicContent = [
-          ...base.systemMessages.map(m => m.content),
-          searchContext,
-          toolInvokePrompt,
-          planInstruction,  // v9.5.3: 已精简
-        ].filter(Boolean).join('\n\n')
-
-        const systemMessages = [
-          coreSystemMsg,
-          ...(globalIndex
-            ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }]
-            : []),
-          { role: 'system' as const, content: dynamicContent },
-        ]
-
-        return {
-          systemMessages,
-          totalTokens: fullTotal,
-          domains: ['core-prompt', ...base.domains],
-          breakdown: [
-            { domain: '核心法则(缓存)', tokens: coreTokens },
-            { domain: 'Provider+索引', tokens: globalIndexTokens + (base.totalTokens || 0) },
-            ...(searchContext ? [{ domain: '知识库', tokens: searchTokens }] : []),
-            { domain: '对话历史', tokens: historyTokens },
-            { domain: '当前消息', tokens: estimateTokens(msg) },
-          ],
-        }
+        return await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
       })
 
       // ── 4. 注入 Tool Executor（SecurityFence → execute → audit → cache） ──
@@ -265,62 +175,17 @@ export class V4AnthropicChatBridge {
         const result = await toolRegistry.execute(ctx.toolName, args, ctx)
         this.auditTrail.recordToolResult(ctx.toolName, result.status, result.summary)
 
-        // 驱动缓存失效（与 OpenAI Bridge 相同逻辑）
+        // v11.5.1: 使用共享 CacheInvalidator 模块（替代内联 ~60 行重复代码）
         if (result.status === 'success') {
-          const fp = String(args.file_path || args.path || '')
-          const ctxAssembler = (await import('./context/ContextAssembler')).contextAssembler
-          const [mi, fc] = await Promise.all([
-            import('./context/MemoryIndex'),
-            import('./context/FileCache'),
-          ])
-
-          if (/^(create_style_template|create_scene_template)$/.test(ctx.toolName)) {
-            mi.invalidateMemoryIndexCache()
-            const domain = ctx.toolName === 'create_style_template' ? 'style' : 'scene'
-            ctxAssembler.invalidateProvider(this.projectId, domain)
-          } else if (ctx.toolName === 'edit_file') {
-            fc.invalidateFile(fp)
-            const domains = ContextAssembler.domainsForPath(fp)
-            for (const d of domains) ctxAssembler.invalidateProvider(this.projectId, d)
-          } else if (
-            ctx.toolName === 'create_file' || ctx.toolName === 'delete_file'
-          ) {
-            mi.invalidateMemoryIndexCache()
-            fc.invalidateFile(fp)
-            const dir = fp.replace(/\/[^/]+$/, '')
-            const { invalidateDir } = fc
-            invalidateDir(dir)
-            const domains = ContextAssembler.domainsForPath(fp)
-            for (const d of domains) ctxAssembler.invalidateProvider(this.projectId, d)
-          } else if (ctx.toolName === 'rename_file') {
-            mi.invalidateMemoryIndexCache()
-            const newPath = String(args.new_path || '')
-            fc.invalidateFile(fp)
-            if (newPath) fc.invalidateFile(newPath)
-            const domains = new Set([
-              ...ContextAssembler.domainsForPath(fp),
-              ...ContextAssembler.domainsForPath(newPath),
-            ])
-            for (const d of domains) ctxAssembler.invalidateProvider(this.projectId, d)
-          } else if (
-            /^(kb_append_file|create_project|delete_project)$/.test(
-              ctx.toolName,
-            )
-          ) {
-            mi.invalidateMemoryIndexCache()
-          }
-        }
-
-        // 通知 GUI 文件变更 → 触发 UI 刷新
-        if (
-          result.status === 'success' &&
-          /^(create_file|edit_file|delete_file|rename_file|create_project|delete_project|kb_append_file)$/.test(ctx.toolName)
-        ) {
-          const { useStore } = await import('@/store')
-          useStore.getState().bumpFileVersion()
-          useStore.getState().setFileEditNotify({
-            filePath: String(args.file_path || ''),
-            newContent: '__AI_EDITED__',
+          await invalidateAfterTool(ctx.toolName, args, this.projectId, {
+            onFileChanged: async (filePath) => {
+              const { useStore } = await import('@/store')
+              useStore.getState().bumpFileVersion()
+              useStore.getState().setFileEditNotify({
+                filePath,
+                newContent: '__AI_EDITED__',
+              })
+            },
           })
         }
 
@@ -328,13 +193,11 @@ export class V4AnthropicChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 5. 工具注入 (v9.6.1: 全工具可用，模型通过 invoke_skill 主动选择 Skill) ──
-      let activeSkillCtx: unknown = null
+      // ── 5. 工具注入 ──
       this.runtime.setTools(allTools)
 
       // ── 6. 注入历史 ──
       this.runtime.setHistory(this.history)
-      this.runtime.setActiveSkill(activeSkillCtx)
 
       // ── 7. 事件监听 ──
       const emitter = this.runtime.getEmitter()
@@ -403,6 +266,7 @@ export class V4AnthropicChatBridge {
         toolsUsed: result.toolsUsed,
         toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
+        cacheHitTokens: result.cacheHitTokens || 0,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

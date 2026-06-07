@@ -1,6 +1,6 @@
 // ── Image Tools (2 tools) ──
 // Self-contained for skill system. Uses aiService from @/services/fileService
-// for Unsplash image search and AI image generation.
+// for Pexels image search and AI image generation.
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
 

@@ -18,8 +18,10 @@ export interface NormalizedModelResponse {
   text: string
   toolCalls: ToolCallRequest[]
   finishReason: string
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number }
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number; cacheHitTokens?: number; cost?: number }
   reasoningContent?: string
+  /** v11.5.1: Anthropic extended thinking blocks — populated for Anthropic protocol, undefined for OpenAI */
+  thinkingBlocks?: Array<{ thinking: string; signature: string }>
 }
 
 /** Protocol adapter — one implementation per API protocol. */

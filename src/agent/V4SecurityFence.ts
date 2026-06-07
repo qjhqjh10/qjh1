@@ -1,9 +1,10 @@
 // ── V4 Security Fence ──
 //
-// Three-layer security:
+// Four-layer security:
 //   Layer 1: Hard blocks — system dirs, network paths, env variables (NEVER allowed)
-//   Layer 2: External path approval — paths outside app root require user confirmation
-//   Layer 3: Dangerous tool gate — DANGEROUS_ASK / PROJECT_ASK tools require confirmation
+//   Layer 2: Format Validation — JSON/YAML schema validation for create_file/edit_file
+//   Layer 3: External path approval — paths outside app root require user confirmation
+//   Layer 4: Dangerous tool gate — DANGEROUS_ASK / PROJECT_ASK tools require confirmation
 //
 // Key insight: don't hard-block .. or absolute paths — escalate to approval instead.
 
@@ -36,7 +37,7 @@ export class V4SecurityFence {
     const extCheck = this.checkExternalPath(toolName, args)
     if (extCheck.needsApproval) return extCheck
 
-    // ── Layer 5: Dangerous tool → approval ──
+    // ── Layer 4: Dangerous tool → approval ──
     if (toolRegistry.needsApproval(toolName)) {
       const perm = toolRegistry.getPermissionLevel(toolName)
       const label = perm === 'PROJECT_ASK' ? '项目操作' : '危险操作'

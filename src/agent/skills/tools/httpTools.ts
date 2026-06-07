@@ -40,7 +40,7 @@ export const httpTools: ToolDefinition[] = [
     schema: {
       name: 'http_fetch',
       description:
-        '发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。用于调用外部 API、提交数据。需要用户确认。禁止访问内网地址。',
+        '发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。用于调用外部 API、提交数据。禁止访问内网地址。自动执行（无需用户确认）。',
       parameters: {
         type: 'object',
         properties: {

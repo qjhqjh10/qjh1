@@ -648,7 +648,9 @@ export async function executeFileTool(
 
         await fsp.mkdir(path.dirname(fp), { recursive: true })
         await fsp.writeFile(fp, content, 'utf-8')
-        return { callId, toolName, status: 'success', summary: `已创建 (${content.length} 字符)`, detail: `文件路径: ${args.file_path}` }
+        // v11.5.1: 返回前500字让模型验证写入内容
+        const preview = content.length > 500 ? content.slice(0, 500) + '…' : content
+        return { callId, toolName, status: 'success', summary: `已创建 (${content.length} 字符)`, detail: preview }
       }
 
       case 'edit_file': {

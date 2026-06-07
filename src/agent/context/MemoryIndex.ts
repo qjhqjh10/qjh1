@@ -26,7 +26,8 @@ export async function buildGlobalIndex(projectId?: string | null): Promise<strin
     const lines: string[] = []
 
     lines.push('## 📁 软件文件索引')
-    lines.push('> 跳过代码目录，其余全部自动列出。需要时用 list_directory 搜索。')
+    lines.push('> 以下列出全部文件的完整路径。直接 read_file 即可读取，不需要 list_directory 确认。')
+    lines.push('> 需要按文件名搜索子目录 → 用 find_files。需要搜索文件内容 → 用 search_content。')
     lines.push('> 路径: ../../ = 软件根目录。项目路径: 项目名/子路径（如 剑道长生/outline/plot.md）。')
     lines.push('')
 

@@ -30,23 +30,18 @@ coverage/
 # Test fixtures kept in repo
 
 
-# Integration test scripts (contain API keys for local testing only)
-tests/integration/*.test.mjs
-tests/integration/real-prompt.mjs
+# Audit & stats (runtime data)
+.aiharness/audit/
+.stats/
 
-# CLI test scripts (contain API keys for local testing only)
-scripts/v4-test.mjs
-scripts/v4-full-test.mjs
-scripts/v4-smart-test.mjs
-scripts/v4-chat-test.mjs
-scripts/v4-mixed-test.mjs
-scripts/v4-compress-test.mjs
-scripts/v4-deep-test.mjs
-scripts/v4-real-test.mjs
+# Style/scene templates (user-generated)
+style_templates/
+scene_templates/
+
+# Temp files
 scripts/.tmp/
+scripts/.tmp_msg_*
 _auto_*
 _test_workflow_*
 scripts/autotest-log-*
 scripts/workflow-log-*
-scripts/.tmp_msg_*
-style_templates/create_style_template_mpz*

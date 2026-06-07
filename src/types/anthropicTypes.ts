@@ -60,6 +60,8 @@ export interface AnthropicStreamResult {
   }>
   stopReason: string
   thinking?: string
+  /** v11.5.1: Extended thinking blocks — preserved for multi-turn conversation */
+  thinkingBlocks?: Array<{ thinking: string; signature: string }>
   usage?: {
     input_tokens: number
     output_tokens: number

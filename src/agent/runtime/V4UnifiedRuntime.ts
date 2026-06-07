@@ -8,6 +8,7 @@ import { ContextCompressor } from '../context/ContextCompressor'
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
 import { executeSingleTool, classifyToolCalls } from './ToolExecutor'
+import { isKnowledgeOnly } from '../utils/taskDetection'
 import type {
   V4AgentConfig,
   V4AgentRunInput,
@@ -38,6 +39,7 @@ export class V4UnifiedRuntime {
   private compressedAt = 0
   private lastCompressLength = 0
   private _consecutiveReads = 0
+  private _nudgeCount = 0       // v11.5.1: prevent infinite nudge loop
   private _userMessage = ''
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
@@ -93,11 +95,14 @@ export class V4UnifiedRuntime {
     // ── ① Assemble context ──
     let totalPromptTokens = 0
     let totalCompletionTokens = 0
+    let totalCacheHitTokens = 0  // v11.5.1: track cache hits
+    let totalCost = 0            // v11.5.1: track cost
     let toolCallsCount = 0
     let collectedText = ''
     this.toolsUsed = []
     this.toolCallSteps = []
     this._consecutiveReads = 0
+    this._nudgeCount = 0      // reset per run
     this._userMessage = input.userMessage
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
@@ -186,6 +191,8 @@ export class V4UnifiedRuntime {
       store.recordApiSuccess()
       totalPromptTokens += response.usage.inputTokens
       totalCompletionTokens += response.usage.outputTokens
+      totalCacheHitTokens += response.usage.cacheHitTokens || 0
+      totalCost += response.usage.cost || 0
       store.addTokens(response.usage.totalTokens)
       diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
 
@@ -198,6 +205,8 @@ export class V4UnifiedRuntime {
       // ── No tool calls → model is speaking. Trust what it says. ──
       if (response.toolCalls.length === 0) {
         collectedText = response.text || ''
+
+        // H5: Empty response fallback
         if (!collectedText.trim()) {
           this.messagesForApi.push({
             role: 'user',
@@ -206,24 +215,22 @@ export class V4UnifiedRuntime {
           continue
         }
 
-        // Model says it's done → accept
-        if (/[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成/.test(collectedText)) {
+        // ── Done detection (v11.5.1: expanded to cover natural completions) ──
+        if (/[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[了！。]?|已处理|上述.*完成|综上/.test(collectedText)) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
           break
         }
 
-        // Model says it's continuing → trust it
-        // ⚠️ "先"/"然后" removed: filler words, NOT intent to continue work
-        if (/继续|接下来|下一步|接着|还要|剩下|未完|首先|开始|逐个|逐一/.test(collectedText)) {
+        // ── Continuing detection (v11.5.1: removed "首先"/"开始" — too many false positives) ──
+        if (/继续|接下来|下一步|接着|还要|剩下|未完|逐个|逐一/.test(collectedText)) {
           continue
         }
 
-        // Never used tools and it's early → nudge (skip for pure chat/knowledge questions)
+        // ── No tools used at all → early nudge to explore (skip for knowledge questions) ──
         if (this.toolsUsed.length === 0) {
-          if (iteration <= 2 && !_isChatQuestion(this._userMessage)) {
-            // Not a chat question → nudge to explore project state
+          if (iteration <= 2 && !isKnowledgeOnly(this._userMessage)) {
             this.messagesForApi.push({
               role: 'user',
               content: '请先使用 read_file 或 list_directory 了解项目状态。',
@@ -234,23 +241,50 @@ export class V4UnifiedRuntime {
           break
         }
 
-        // Model stopped talking after using tools → push to continue, escalate if stuck in explore loop
-        const _WRITE_OR_DANGER = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file|create_style_template|create_scene_template)$/
-        if (this.toolsUsed.some(t => _WRITE_OR_DANGER.test(t))) _hasWriteCall = true
-        // Branch A of text analysis: model is asking user a question → let it wait
-        const _isAskingUser = /[？?]/.test(collectedText) && /(?:选择|想怎么|要怎么|如何处理|哪种|哪个|是否|要不要)/.test(collectedText)
+        // ── Model used tools, now speaking text ──
+
+        // Track write tool usage across iterations
+        const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file|create_style_template|create_scene_template)$/
+        if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
+
+        // ── Substantial text after using tools → accept (v11.5.1: prevent infinite nudge loop) ──
+        if (collectedText.length > 200) {
+          this.emitter.emit('response:streaming', {
+            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+          })
+          break
+        }
+
+        // ── Nudge limit: max 2 nudges after tools used (v11.5.1) ──
+        if (this._nudgeCount >= 2) {
+          // Accept what the model said rather than looping forever
+          this.emitter.emit('response:streaming', {
+            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+          })
+          break
+        }
+
+        // Branch A: model is asking user a question → let it wait (v11.5.1: expanded patterns)
+        const _isAskingUser = /[？?]/.test(collectedText) &&
+          /(?:选择|想怎么|要怎么|如何处理|哪种|哪个|是否|要不要|需要我|你想|我可以|要我|你希望|让我|要不要我|你想怎么|你打算|你来决定)/.test(collectedText)
+
         if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser) {
-          // Read-only turn, not asking user → push to write immediately
-          const msg = iteration <= 2
-            ? '已读取完毕。现在请**立即**用 edit_file 或 create_file 写入内容。不要再 list_directory 或 read_file。'
-            : '你已经用 list_directory/read_file 探索多轮了。请**立即**用 edit_file 或 create_file 写入内容。'
+          // Read-only → push to write with user's original request as context
+          const userReq = this._userMessage.length > 200
+            ? this._userMessage.slice(0, 200) + '…'
+            : this._userMessage
+          const msg = this._nudgeCount === 0
+            ? `已读取完毕。用户的原始请求是：「${userReq}」。请**立即**用 edit_file 或 create_file 执行用户的具体要求。不要再说"我先看看"或继续读文件。`
+            : `⚠️ 最后提醒：用户的请求是「${userReq}」。你现在必须用 edit_file 或 create_file 写入内容。如果确实不需要写入，请直接回复"已完成"并说明原因。`
           this.messagesForApi.push({ role: 'user', content: msg })
         } else {
+          // Has write calls OR asking user → soft continue
           this.messagesForApi.push({
             role: 'user',
             content: '还有需要处理的文件吗？请继续。',
           })
         }
+        this._nudgeCount++
         continue
       }
 
@@ -266,6 +300,7 @@ export class V4UnifiedRuntime {
           id: tc.id,
           function: { name: tc.name, arguments: tc.arguments },
         })),
+        thinkingBlocks: response.thinkingBlocks,  // v11.5.1: preserve for multi-turn
       } as Message
       if (response.reasoningContent) store.setStreamingText(response.reasoningContent)
       this.messagesForApi.push(assistantMsg)
@@ -282,7 +317,6 @@ export class V4UnifiedRuntime {
         toolsUsed: this.toolsUsed,
         toolCallSteps: this.toolCallSteps,
         emitter: this.emitter,
-        activeSkill: null,
         _consecutiveReads: this._consecutiveReads,
         iteration,
         store: {
@@ -323,7 +357,7 @@ export class V4UnifiedRuntime {
       const toolsSummary = this.toolCallSteps.slice(-3).map(s => s.summary).filter(Boolean)
       if (toolsSummary.length > 0) {
         // Knowledge/chat question that triggered exploration → guide model to actually answer
-        if (_isChatQuestion(this._userMessage)) {
+        if (isKnowledgeOnly(this._userMessage)) {
           collectedText = `已查看项目状态。请问你需要什么帮助？`
         } else {
           collectedText = `操作完成：${toolsSummary.reverse().join('；')}。`
@@ -340,6 +374,8 @@ export class V4UnifiedRuntime {
       totalTokens: totalPromptTokens + totalCompletionTokens,
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
+      cacheHitTokens: totalCacheHitTokens,
+      cost: totalCost,
       phase: this.config.abortSignal.aborted ? 'ABORTED' : 'DONE',
       toolsUsed: this.toolsUsed,
       toolCallSteps: this.toolCallSteps,
@@ -349,19 +385,4 @@ export class V4UnifiedRuntime {
   }
 }
 
-// ── Message classification helpers ──
-
-/**
- * 纯知识问答/闲聊 — 不需要操作项目文件。
- * 条件: ① 以聊天/知识询问模式开头 ② 不含创作操作关键词。
- * 条件②防止 "你了解XX吗，请帮我写大纲" 被误判为闲聊。
- */
-function _isChatQuestion(msg: string): boolean {
-  const m = msg.trim()
-  // Must start with a chat/knowledge query prefix
-  const chatPrefix = /^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye|早上好|晚上好|下午好|晚安|早|在吗|在不在|你是谁|你叫什么|你能做什么|你有什么功能|你了解|你知道|介绍一下|什么是|是什么意思|怎么[样么]|告诉我|解释一下|说明一下|有没有|检查.*(?:一下|自己|限制)|查一下)/i
-  if (!chatPrefix.test(m)) return false
-  // Must NOT contain creation operation keywords
-  const hasCreationOp = /帮我.*(?:写|创建|生成|修改|填充|填|导入|续写|仿写)|写第|创建.*[角色项目模板]|生成.*[章节细纲]|修改.*[大纲角色]|填充.*tab|导入到|填写.*[大纲项目]|润色|续写|仿写|[创编]写.*[章节小说文]|[生创]成.*[章节角色]/.test(m)
-  return !hasCreationOp
-}
+// v11.5.1: _isChatQuestion removed — use isKnowledgeOnly from taskDetection.ts

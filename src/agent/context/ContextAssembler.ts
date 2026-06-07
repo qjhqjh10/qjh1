@@ -1,5 +1,3 @@
-import { isTaskMessage } from '../utils/taskDetection'
-
 // ── Context Provider Interface ──
 
 export interface ContextBlock {
@@ -34,7 +32,7 @@ interface CachedBlock {
 export class ContextAssembler {
   private providers: ContextProvider[] = []
   private relevanceThreshold = 0.4  // V1-3: raised from 0.3 to filter out weakly-relevant providers
-  private maxContextTokens = 500000  // V4: raised for 1M context window
+  private maxContextTokens = 128000  // v11.5.1: match 128K context window
 
   // v4.1: Change-driven provider cache — invalidated by file modifications
   private providerCache = new Map<string, CachedBlock>()
@@ -80,6 +78,7 @@ export class ContextAssembler {
   /**
    * Map a modified file path to the affected provider domains.
    * Returns the list of provider domain names to invalidate.
+   * @deprecated v11.5.1: ALL_PROVIDERS=[] — this is a no-op but kept for bridge compat.
    */
   static domainsForPath(filePath: string): string[] {
     const fp = filePath.replace(/\\/g, '/')
@@ -156,10 +155,7 @@ export class ContextAssembler {
     }
   }
 
-  // Quick check: does the input look like it needs any tools?
-  isTaskOriented(userMessage: string): boolean {
-    return isTaskMessage(userMessage)
-  }
+  // @deprecated v11.5.1: removed — use isTaskMessage() from taskDetection.ts directly
 }
 
 // ── Global assembler ──

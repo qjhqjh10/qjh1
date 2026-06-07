@@ -30,13 +30,20 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'list_directory',
       description:
-        '列出软件内全部文件。不填任何参数 → 全局扫描(风格/场景/KB/项目)。填 dir_path → 只扫描指定目录(如"1"看项目1，"1/outline"看大纲tab，"../../style_templates"看风格模板)。填 pattern → Glob过滤。broad=true → 搜索电脑。',
+        '列出单个目录的内容（单层，不递归子目录）。\n\n' +
+        '⚠️ 索引已列出全部文件的完整路径，大多数情况下**不需要**调用此工具——直接 read_file 已知路径即可。\n\n' +
+        '仅在以下场景使用：\n' +
+        '① 不知道有哪些项目 → list_directory("projects/") 查看项目列表\n' +
+        '② 文件操作后确认目录状态（如创建/删除后验证）\n' +
+        '③ 索引因错误未构建时的降级方案\n\n' +
+        '⚠️ 按文件名模式搜索 → 用 find_files（递归搜索所有子目录）。搜索文件内容 → 用 search_content。\n' +
+        '填 pattern → Glob 过滤。支持 ** 做一层子目录匹配。broad=true → 搜索电脑目录（需审批）。',
       parameters: {
         type: 'object',
         properties: {
-          dir_path: { type: 'string', description: '指定目录路径。项目内如"1""1/outline""1/characters"。全局如"../../style_templates""../../notes"' },
-          pattern: { type: 'string', description: 'Glob 模式过滤文件名，如 "*.json" "chapter*.txt"。不填则列出全部' },
-          broad: { type: 'boolean', description: '搜索电脑桌面/文档/下载(需批准)' },
+          dir_path: { type: 'string', description: '目录路径。如"projects/"看项目列表，"1/characters"看角色，"../../style_templates"看模板。不填则列出项目+全局资源目录。' },
+          pattern: { type: 'string', description: 'Glob 过滤文件名，如 "*.json"。不填列出全部。支持 ** 做一层子目录匹配。' },
+          broad: { type: 'boolean', description: '搜索电脑桌面/文档/下载目录（需审批）' },
         },
         required: [],
       },
@@ -51,7 +58,10 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'read_file',
       description:
-        '读取文件完整内容。何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。项目文件路径: 项目名/子路径（如 1/outline/plot.md）。全局文件路径: ../../前缀（如 ../../style_templates/模板名.yaml、../../knowledge_base/files/文件名.md）。不确定时用 list_directory 查找。返回内容在 detail 字段。',
+        '读取文件完整内容。文件路径从索引中获取——索引已列出全部文件的完整路径，直接复制使用即可。\n' +
+        '何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。\n' +
+        '路径格式：项目内 → "项目名/子路径"（如 1/outline/plot.md）。全局 → "../../前缀"（如 ../../style_templates/模板名.yaml）。\n' +
+        '不确定文件路径时 → 用 find_files 搜索。返回内容在 detail 字段。',
       parameters: {
         type: 'object',
         properties: {
@@ -184,7 +194,7 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'create_file',
       description:
-        '创建新文件并写入内容。何时使用：创建新角色YAML、新章节正文、新细纲YAML、新摘要文件。项目内路径: 项目名/子路径（如 1/characters/林语晴.yaml）。KB文件路径: ../../knowledge_base/files/文件名.md。创建前先 read_file 参考已有同类型文件格式。自动创建不存在的父目录。需要用户确认。',
+        '创建新文件并写入内容。何时使用：创建新角色YAML、新章节正文、新细纲YAML、新摘要文件。项目内路径: 项目名/子路径（如 1/characters/林语晴.yaml）。KB文件路径: ../../knowledge_base/files/文件名.md。创建前先 read_file 参考已有同类型文件格式。自动创建不存在的父目录。自动执行（无需用户确认）。',
       parameters: {
         type: 'object',
         properties: {
@@ -246,7 +256,7 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'rename_file',
       description:
-        '重命名或移动文件。何时使用：用户要求改名或调整文件位置时。new_path 可以是新文件名（同一目录）或新路径（移动到其他目录）。需要用户确认。',
+        '重命名或移动文件。何时使用：用户要求改名或调整文件位置时。new_path 可以是新文件名（同一目录）或新路径（移动到其他目录）。⚠️ 危险操作，需要用户确认。',
       parameters: {
         type: 'object',
         properties: {
@@ -256,7 +266,7 @@ export const fileTools: ToolDefinition[] = [
         required: ['file_path', 'new_path'],
       },
     },
-    permission: 'AUTO',
+    permission: 'DANGEROUS_ASK',
     category: 'file',
     availableInPlanMode: false,
     executor: async (args, ctx) => {
@@ -278,17 +288,20 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'find_files',
       description:
-        '按文件名模式递归搜索文件。支持 Glob 模式（如 "*.json" "chapter*" "林*"）。' +
-        'scope="project"（默认）：搜索项目+全局资源目录。' +
-        'scope="computer"：搜索用户主目录下的常见文件夹（需用户审批）。' +
-        '最多返回 200 条，递归深度限制 5 层。跳过 node_modules/.git/AppData 等系统目录。',
+        '按文件名模式递归搜索所有子目录（深度5层）。\n\n' +
+        '⚠️ 索引已列出全部文件的完整路径——已知文件名时直接 read_file 即可，不需要 find_files。\n\n' +
+        '何时使用：需要按模式批量查找文件（如"所有 .yaml 文件""所有 chapter* 文件"）→ find_files。\n\n' +
+        'pattern 必填（Glob 模式，如 "*.yaml" "chapter*" "林*"），大小写不敏感。\n' +
+        'scope="project"（默认）：从软件根目录开始递归搜索，跳过 node_modules/.git/AppData 等系统目录。\n' +
+        'scope="computer"：搜索用户主目录下的桌面/文档/下载 + 常见写作目录（需用户审批）。\n' +
+        '最多返回 200 条结果。',
       parameters: {
         type: 'object',
         properties: {
-          pattern: { type: 'string', description: 'Glob 模式匹配文件名，如 "*.yaml" "chapter*" "林*"' },
-          scope: { type: 'string', description: '搜索范围: "project"(默认) 或 "computer"(需审批)' },
-          dir_path: { type: 'string', description: '指定起始目录（scope=computer时可选）' },
-          max_depth: { type: 'number', description: '最大递归深度（默认 5，最大 10）' },
+          pattern: { type: 'string', description: 'Glob 模式匹配文件名（必填），如 "*.yaml" "chapter*" "林*"。大小写不敏感。' },
+          scope: { type: 'string', description: '搜索范围: "project"(默认，整个软件目录) 或 "computer"(电脑用户目录，需审批)' },
+          dir_path: { type: 'string', description: '额外搜索目录（scope=computer时可选）' },
+          max_depth: { type: 'number', description: '最大递归深度（默认5，最大10）' },
         },
         required: ['pattern'],
       },

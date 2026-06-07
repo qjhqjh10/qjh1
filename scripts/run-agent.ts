@@ -99,15 +99,21 @@ class NodeFSToolExecutor {
       while (clean.startsWith('../')) clean = clean.slice(3)
       return path.join(this.rootDir, clean)
     }
+    // v11.5.1: 全局目录名 → 始终解析到软件根目录
+    const GLOBAL_PREFIXES = ['.aiharness/', 'style_templates/', 'scene_templates/', 'knowledge_base/', 'notes/', 'uploads/', 'projects/']
+    const isGlobal = GLOBAL_PREFIXES.some(p => clean.startsWith(p))
     // 模型可能根据系统提示词拼接了项目名前缀（如 _test_dpc/outline/plot.md）
     // 剥掉这个前缀，避免 projectPath 与模型路径双重嵌套
+    // 也处理项目名本身（如 "_cli_test" 不带子路径的情况）
     if (this.activeProject) {
       const prefix = this.activeProject + '/'
       if (clean.startsWith(prefix)) {
         clean = clean.slice(prefix.length)
+      } else if (clean === this.activeProject) {
+        clean = ''  // 整个路径就是项目名 → 解析到项目根目录
       }
     }
-    return path.join(projectPath, clean)
+    return path.join(isGlobal ? this.rootDir : projectPath, clean)
   }
 
   async execute(toolName: string, args: Record<string, unknown>, projectPath: string | null): Promise<{ status: 'success' | 'error'; summary: string; detail?: string }> {
@@ -142,6 +148,8 @@ class NodeFSToolExecutor {
         const target = fp('file_path')
         if (!target) return { status: 'error', summary: '请先选择项目' }
         try {
+          const stat = await fsp.stat(target)
+          if (stat.isDirectory()) return { status: 'error', summary: `路径是目录，不是文件: ${args.file_path}。请用 list_directory 浏览目录。` }
           const content = await fsp.readFile(target, 'utf-8')
           return { status: 'success', summary: `${content.length} 字符`, detail: content }
         } catch { return { status: 'error', summary: `文件不存在: ${args.file_path}` } }
@@ -150,14 +158,15 @@ class NodeFSToolExecutor {
       case 'search_content': {
         const pattern = String(args.pattern || '')
         if (!pattern) return { status: 'error', summary: '缺少搜索内容' }
-        const target = args.dir_path ? fp('dir_path') : dir
+        // v11.5.1: 始终从项目根目录搜索，忽略模型可能传入的无效 dir_path
+        const target = dir
         if (!target) return { status: 'error', summary: '请先选择项目' }
         const results: string[] = []
         try {
           const walk = async (d: string) => {
             const entries = await fsp.readdir(d, { withFileTypes: true })
             for (const e of entries) {
-              if (e.name.startsWith('.')) continue
+              if (e.name.startsWith('.') || e.name === 'node_modules') continue
               const full = path.join(d, e.name)
               if (!e.isDirectory()) {
                 try {
@@ -174,7 +183,7 @@ class NodeFSToolExecutor {
           }
           await walk(target)
           return { status: 'success', summary: `${results.length} 处匹配`, detail: results.join('\n') || '未找到' }
-        } catch { return { status: 'error', summary: '搜索失败' } }
+        } catch (e: any) { return { status: 'error', summary: `搜索失败: ${e.message || '未知'}`, detail: `target=${target}` } }
       }
 
       case 'find_files':
@@ -211,10 +220,13 @@ class NodeFSToolExecutor {
         const target = fp('file_path')
         if (!target) return { status: 'error', summary: '请先选择项目' }
         try { await fsp.access(target); return { status: 'error', summary: '文件已存在' } } catch {}
-        await fsp.mkdir(path.dirname(target), { recursive: true })
         const content = String(args.content || '')
+        // v11.5.1: 大小限制（对齐后端 MAX_WRITE_CHARS）
+        if (content.length > 500_000) {
+          return { status: 'error', summary: `内容过大 (${content.length} 字符，上限 500000 字符)` }
+        }
+        await fsp.mkdir(path.dirname(target), { recursive: true })
         await fsp.writeFile(target, content, 'utf-8')
-        // v11.2: 返回前500字让模型验证写入内容
         const preview = content.length > 500 ? content.slice(0, 500) + '…' : content
         return { status: 'success', summary: `已创建 (${content.length} 字符)`, detail: preview }
       }
@@ -426,19 +438,14 @@ async function main() {
   const { toolRegistry } = await import('@/agent/skills/ToolRegistry')
   const { contextAssembler } = await import('@/agent/context/ContextAssembler')
   const { ALL_TOOLS } = await import('@/agent/skills/tools')
-  const { ALL_PROVIDERS } = await import('@/agent/context/providers')
-  const { buildSystemPromptWithSkills } = await import('@/agent/V4SystemPrompt')
+  const { buildSystemPrompt } = await import('@/agent/V4SystemPrompt')
   const { estimateTokens } = await import('@/agent/utils/tokenEstimation')
   const { isComplexTask } = await import('@/agent/utils/taskDetection')
   const { diagnosticLogger } = await import('@/agent/diagnostics/DiagnosticLogger')
 
-  // 初始化（和 ChatBridge 逻辑一致）
+  // 初始化工具注册
   toolRegistry.registerAll(ALL_TOOLS as any)
-  for (const p of ALL_PROVIDERS as any[]) {
-    if (!contextAssembler.getProviders().some((ex: any) => ex.domain === p.domain)) {
-      contextAssembler.register(p)
-    }
-  }
+  // v11.5.1: ALL_PROVIDERS=[] — Provider system retired, skip registration
 
   // ══════════════════════════════════════════════════════════════
   const args = parseArgs()
@@ -508,9 +515,7 @@ async function main() {
     const TMPL   = new Set(['create_style_template','create_scene_template'])
     const PROJ   = new Set(['create_project'])
 
-    // v11.3: Skill system removed — model knows formats from system prompt
-    let activeSkillCtx: any = null
-
+    // v11.5.1: Skill system removed — model knows formats from system prompt
     const scopedCore = allTools.filter((t: any) =>
       READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
     const scopedExtended = allTools.filter((t: any) =>
@@ -751,7 +756,7 @@ async function main() {
     // ════════════════════════════════════════════════════════════
     // ④ ContextAssembler（对齐 GUI: [0]core [1]index [2]provider [3]dynamic）
     // ════════════════════════════════════════════════════════════
-    const CORE_PROMPT = buildSystemPromptWithSkills('', '')
+    const CORE_PROMPT = buildSystemPrompt('', '')
     const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
     const coreTokens = estimateTokens(CORE_PROMPT)
 
@@ -843,7 +848,7 @@ async function main() {
             fc.invalidateFile(fp); if (np) fc.invalidateFile(np)
             const domains = new Set([...ContextAssembler.domainsForPath(fp), ...ContextAssembler.domainsForPath(np)])
             for (const d of domains) contextAssembler.invalidateProvider(args.project, d)
-          } else if (/^(write_note|delete_note|kb_create_file|kb_append_file|create_project|delete_project)$/.test(ctx.toolName)) {
+          } else if (/^(kb_append_file|create_project|delete_project|batch_replace)$/.test(ctx.toolName)) {
             mi.invalidateMemoryIndexCache()
           }
         } catch { /* cache invalidation best-effort */ }
@@ -862,7 +867,7 @@ async function main() {
       runtime.setTools(scopedCore)
       runtime.setExtendedTools(scopedExtended)
     }
-    runtime.setActiveSkill(activeSkillCtx)
+    // v11.5.1: setActiveSkill removed — no-op stub
 
     // ════════════════════════════════════════════════════════════
     // ⑦ 事件监听

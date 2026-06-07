@@ -5,7 +5,6 @@ import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 
 export interface ActionPromptContext {
   messagesForApi: Message[]
-  activeSkill: unknown  // kept for type compatibility
   _consecutiveReads: number
   tc: ToolCallRequest
   result: ToolResult

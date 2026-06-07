@@ -16,6 +16,8 @@ export interface Message {
   tool_calls?: unknown[]
   tool_call_id?: string
   reasoning_content?: string
+  /** v11.5.1: Anthropic extended thinking blocks — must be preserved across multi-turn conversations */
+  thinkingBlocks?: Array<{ thinking: string; signature: string }>
 }
 
 // ── Tool Calls ──
@@ -88,4 +90,4 @@ export interface AgentError {
   timestamp: number
 }
 
-export const DEFAULT_MAX_ITERATIONS = 60
+export const DEFAULT_MAX_ITERATIONS = 30  // v11.5.1: 60→30

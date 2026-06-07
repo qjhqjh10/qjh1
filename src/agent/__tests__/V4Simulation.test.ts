@@ -301,11 +301,10 @@ describe('Token 效率', () => {
 
     await runtime.run({ userMessage: '查看大纲', attachments: [] })
 
-    // 2轮API调用：第1轮有工具，第2轮文本回复
-    expect(callLog.length).toBe(2)
+    // v11.5.1: nudge logic pushes "write now" after read-only tool use, causing extra iterations
+    expect(callLog.length).toBeGreaterThanOrEqual(2)
     // 工具始终在非最后迭代中发送（模型需要看到工具列表才能决策）
     expect(callLog[0].tools?.length || 0).toBeGreaterThan(0)
-    // 确认只有2轮API调用完成（没有多余的"探索"轮次）
   })
 
   it('不会在同一次任务中重复读已读文件', async () => {
@@ -399,15 +398,16 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具注册 ──
-  it('功能08: ToolRegistry — 38个工具全部可用', () => {
+  it('功能08: ToolRegistry — 34个工具全部可用 (v11.5: 42→34)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(30)
+    expect(names.length).toBeGreaterThanOrEqual(34)
     expect(names).toContain('read_file')
     expect(names).toContain('create_file')
     expect(names).toContain('edit_file')
     expect(names).toContain('delete_file')
-    expect(names).toContain('kb_list')
-    expect(names).toContain('write_note')
+    // v11.5: kb_list and write_note removed — use create_file + list_directory instead
+    expect(names).toContain('kb_append_file')
+    expect(names).toContain('search_notes')
   })
 
   it('功能09: ToolRegistry — 全量Schema可获取', () => {

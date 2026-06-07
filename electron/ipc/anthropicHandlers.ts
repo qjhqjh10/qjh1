@@ -243,6 +243,8 @@ export function registerAnthropicHandlers(
           name?: string
           input?: Record<string, unknown>
           inputJson?: string  // 累积的 JSON 片段
+          thinking?: string   // v11.5.1: extended thinking
+          signature?: string  // v11.5.1: extended thinking
         }> = []
         const toolUses: Array<{
           id: string
@@ -282,6 +284,11 @@ export function registerAnthropicHandlers(
                   cb.inputJson = ''
                 }
                 if (block.type === 'text') cb.text = block.text || ''
+                // v11.5.1: Capture initial thinking/signature for extended thinking support
+                if (block.type === 'thinking') {
+                  cb.thinking = block.thinking || ''
+                  cb.signature = block.signature || ''
+                }
                 contentBlocks.push(cb)
               }
               break
@@ -308,8 +315,12 @@ export function registerAnthropicHandlers(
                   cb.input = JSON.parse(cb.inputJson)
                 } catch { /* 部分 JSON，继续累积 */ }
               }
+              // v11.5.1: Fix thinking/signature accumulation for multi-turn support
               if (delta?.type === 'thinking_delta' && delta.thinking) {
-                // thinking content — 静默累积（不发给 UI）
+                cb.thinking = (cb.thinking || '') + delta.thinking
+              }
+              if (delta?.type === 'signature_delta' && delta.signature) {
+                cb.signature = delta.signature
               }
               break
             }
@@ -348,6 +359,11 @@ export function registerAnthropicHandlers(
             }
           }
         }
+
+        // v11.5.1: Extract thinking blocks from SSE content blocks for multi-turn support
+        const thinkingBlocks = contentBlocks
+          .filter((cb: any) => cb.type === 'thinking' && cb.thinking)
+          .map((cb: any) => ({ thinking: cb.thinking, signature: cb.signature || '' }))
 
         // 6. 记录 token 用量
         // ── DEBUG: 保存响应摘要 ──
@@ -407,6 +423,7 @@ export function registerAnthropicHandlers(
           text: fullText,
           toolUses,
           stopReason,
+          thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
           usage: {
             input_tokens: inputTokens,
             output_tokens: outputTokens,
