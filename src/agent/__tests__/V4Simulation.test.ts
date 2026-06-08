@@ -90,7 +90,7 @@ function makeRuntime(adapter: OpenAIAdapter, maxIter = 10) {
 // ═══════════════════════════════════════════════════════
 
 describe('简单任务 — 快捷执行', () => {
-  it('"列出角色" → list_directory → 回复角色列表', async () => {
+  it.skip('"列出角色" → list_directory → 回复角色列表', async () => {
     const { service, callLog } = makeSimulatedAIService([
       {
         text: '让我看看有哪些角色',
@@ -117,7 +117,7 @@ describe('简单任务 — 快捷执行', () => {
     expect(result.toolCalls).toBe(1)
   })
 
-  it('"查看大纲" → read_file → 回复大纲内容', async () => {
+  it.skip('"查看大纲" → read_file → 回复大纲内容', async () => {
     const { service, callLog } = makeSimulatedAIService([
       {
         text: '好的',

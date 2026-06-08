@@ -23,7 +23,10 @@ beforeEach(async () => {
     occupation: '战士', background: '出身贫寒', appearance: '高大威猛', personality: '勇敢坚毅',
     abilities: '剑术精通', weaknesses: '冲动', relationships: '', relationshipTags: [], arc: '成长', importance: 80,
   }), 'utf-8')
-  await fsp.writeFile(path.join(projectPath, 'notes', '灵感.md'), '一些草稿内容', 'utf-8')
+  // v11.8.0: notes is a global dir, create at appRoot level for correct resolution
+  const appRoot = path.dirname(projectPath)
+  await fsp.mkdir(path.join(appRoot, 'notes'), { recursive: true })
+  await fsp.writeFile(path.join(appRoot, 'notes', '灵感.md'), '一些草稿内容', 'utf-8')
 })
 
 afterEach(async () => {
@@ -211,7 +214,8 @@ describe('edit_file', () => {
     }), projectPath)
     expect(result.status).toBe('success')
     expect(result.summary).toContain('全量替换')
-    const content = await fsp.readFile(path.join(projectPath, 'notes', '灵感.md'), 'utf-8')
+    const appRoot = path.dirname(projectPath)
+    const content = await fsp.readFile(path.join(appRoot, 'notes', '灵感.md'), 'utf-8')
     expect(content).toBe('完全新的草稿内容')
   })
 

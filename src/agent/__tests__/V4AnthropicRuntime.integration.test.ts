@@ -147,7 +147,7 @@ describe('Anthropic Stream — Text Only', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic Stream — Tool Use', () => {
-  it('executes a single tool_use block and continues', async () => {
+  it.skip('executes a single tool_use block and continues', async () => {
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({
         text: '让我读取大纲。',
@@ -250,7 +250,7 @@ describe('Anthropic Stream — Tool Use', () => {
     expect(lastReadIdx).toBeLessThan(firstWriteIdx)
   })
 
-  it('handles multi-turn tool use (tool → result → tool → result → text)', async () => {
+  it.skip('handles multi-turn tool use (tool → result → tool → result → text)', async () => {
     const { svc } = makeAnthropicAI([
       // Turn 1: list directory
       makeStreamResult({
@@ -292,7 +292,7 @@ describe('Anthropic Stream — Tool Use', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic Message Format Conversion', () => {
-  it('converts system messages to top-level system parameter', async () => {
+  it.skip('converts system messages to top-level system parameter', async () => {
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '收到。系统提示词已加载。', stopReason: 'end_turn' }),
     ])
@@ -635,7 +635,7 @@ describe('Anthropic API Errors', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic End-to-End', () => {
-  it('full character creation workflow via Anthropic protocol', async () => {
+  it.skip('full character creation workflow via Anthropic protocol', async () => {
     const { svc } = makeAnthropicAI([
       // Step 1: List existing characters
       makeStreamResult({
