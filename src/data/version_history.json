@@ -1,7 +1,27 @@
 {
-  "currentVersion": "11.8.1",
+  "currentVersion": "11.8.2",
   "currentDate": "2026-06-08",
   "history": [
+    {
+      "version": "11.8.2",
+      "date": "2026-06-08",
+      "features": [
+        "全局目录统一: notes/knowledge_base/style_templates/scene_templates/agent-sessions/uploads/.ai_backups 移到根目录",
+        "GLOBAL_DIRS 清空: 所有全局资源改用 ../../ 前缀访问，../ 导航修正",
+        "启动健壮性: ensureRuntimeDirectories 显式创建所有运行时目录，syncAiharnessResources 从 extraResources 同步模板/规则/脚本",
+        "模板扩展: 14→16个，新增 knowledge-base-file.md 和 note-draft.md",
+        "AI工具描述全面更新: create_file/edit_file/batch_replace/list_directory/read_file/search_content/find_files/delete_file/rename_file 路径统一",
+        "死设置清理: maxHistory/toolRetentionRounds/rulesRefreshInterval 三个无效配置及其UI移除",
+        "草稿本路径统一: ScratchpadPage 与 AI 工具共用 userData/notes/",
+        "备份集中化: getBackupRoot 统一到 userData/.ai_backups/，不再散落各处",
+        "脚本路径修正: shellHandlers 从 parentDir 解析脚本，scripts/ 加入 extraResources",
+        "find_files 搜索范围扩展至 userData 根目录，覆盖所有全局资源",
+        "create_file 安全边界修正: ../ 路径以 userData 为边界",
+        "ContextAssembler.domainsForPath 兼容 ../../ 前缀",
+        "HTTP 配置路径修正: 从 parentDir 读取 aiharness.json",
+        "打包配置: electron-builder.yml extraResources 新增 scripts/"
+      ]
+    },
     {
       "version": "11.8.1",
       "date": "2026-06-08",

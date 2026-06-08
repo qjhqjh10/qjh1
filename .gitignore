@@ -30,6 +30,9 @@ coverage/
 # Test fixtures kept in repo
 
 
+# Test fixtures
+测试/
+
 # Audit & stats (runtime data)
 .aiharness/audit/
 .stats/

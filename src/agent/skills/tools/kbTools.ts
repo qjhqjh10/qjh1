@@ -1,7 +1,7 @@
 // ── Knowledge Base Tools (2 tools) ──
 // v11.5: kb_list/kb_create_file REMOVED.
-// Use universal tools instead: list_directory("knowledge_base/files") /
-//   create_file("knowledge_base/files/xxx.md", content)
+// Use universal tools instead: list_directory("../../knowledge_base/files") /
+//   create_file("../../knowledge_base/files/xxx.md", content)
 // Kept: kb_append_file (uses file_id, not path) and kb_index_file (triggers embedding)
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'

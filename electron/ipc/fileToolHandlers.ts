@@ -55,18 +55,25 @@ async function safeResolve(
   // Decode percent-encoded path traversal attempts (%2e%2e%2f = ../)
   clean = clean.replace(/%2e%2e%2f/gi, '').replace(/%2e%2e/gi, '')
 
-  // ── Handle ../ prefix: resolve against appRoot (parent of projects/) instead of projectPath ──
+  // ── Handle ../ prefix: each ../ navigates up one directory from projectPath ──
   if (clean.startsWith('../')) {
-    const appRoot = path.dirname(projectPath)
-    while (clean.startsWith('../')) clean = clean.slice(3)
-    const resolved = path.join(appRoot, clean)
+    let base = projectPath
+    while (clean.startsWith('../')) {
+      clean = clean.slice(3)
+      base = path.dirname(base)
+    }
+    const resolved = path.join(base, clean)
     // Block system directories only
     const lowered = resolved.toLowerCase()
     if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
+    // Safety: must be within the app data root (parentDir), not below projectPath
+    const appRoot = path.dirname(projectPath)
+    const userDataRoot = path.dirname(appRoot)  // = parentDir (userData in prod, app root in dev)
+    if (!isSafePath(resolved, userDataRoot)) return null
     // Verify with realpath if file exists
     try {
       const real = await fsp.realpath(resolved)
-      if (!isSafePath(real, appRoot)) return null
+      if (!isSafePath(real, userDataRoot)) return null
       return real
     } catch {
       return resolved // File doesn't exist yet
@@ -74,7 +81,7 @@ async function safeResolve(
   }
 
   // ── Determine base path (v11.4: global dirs resolve against appRoot) ──
-  const GLOBAL_DIRS = new Set(['notes', 'knowledge_base', 'style_templates', 'scene_templates', 'uploads', 'agent-sessions'])
+  const GLOBAL_DIRS: Set<string> = new Set()
   const appRoot = path.dirname(projectPath)
   const firstSegment = clean.split('/')[0].split('\\')[0]
   const isGlobalPath = GLOBAL_DIRS.has(firstSegment)
@@ -112,11 +119,14 @@ function resolveArgNoRealpath(
   const raw = args[key]
   if (typeof raw !== 'string' || raw.length === 0) return null
   let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
-  // If path starts with ../ → resolve against app root (global dirs)
+  // If path starts with ../ → each ../ navigates up one directory from projectPath
   if (clean.startsWith('../')) {
-    const appRoot = path.dirname(projectPath)
-    while (clean.startsWith('../')) clean = clean.slice(3)
-    const resolved = path.join(appRoot, clean)
+    let base = projectPath
+    while (clean.startsWith('../')) {
+      clean = clean.slice(3)
+      base = path.dirname(base)
+    }
+    const resolved = path.join(base, clean)
     // Block system dirs only
     const lowered = resolved.toLowerCase()
     if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
@@ -162,7 +172,7 @@ async function listBackupsForFile(
   originalFilePath: string,
   projectPath: string,
 ): Promise<BackupEntry[]> {
-  const backupDir = path.join(projectPath, BACKUP_DIR)
+  const backupDir = path.join(getBackupRoot(projectPath), BACKUP_DIR)
   const originalName = path.basename(originalFilePath)
   const results: BackupEntry[] = []
 
@@ -186,9 +196,15 @@ async function listBackupsForFile(
   return results
 }
 
+/** Unified global backup root: app data root (not per-project) */
+function getBackupRoot(projectPath: string): string {
+  // From userData/projects/{name} → userData
+  return path.dirname(path.dirname(projectPath))
+}
+
 /**
  * Smart backup with dedup, retention, and file-level locking (Issues #7 #12).
- * Creates a timestamped backup of the given file in .ai_backups/ directory.
+ * Creates a timestamped backup in the global .ai_backups/ directory (app root).
  * Returns the backup's relative path, or '' if backup is skipped/failed.
  */
 async function backupFile(filePath: string, projectPath: string): Promise<string> {
@@ -208,7 +224,7 @@ async function backupFile(filePath: string, projectPath: string): Promise<string
 
   const backupPromise = (async () => {
     try {
-      const backupDir = path.join(projectPath, BACKUP_DIR)
+      const backupDir = path.join(getBackupRoot(projectPath), BACKUP_DIR)
       await fsp.mkdir(backupDir, { recursive: true })
 
       const originalName = path.basename(filePath)
@@ -351,10 +367,11 @@ export async function executeFileTool(
         // ── Build scan targets: always scan the entire software folder in parallel ──
         const targets: Array<{ path: string; label: string }> = []
 
-        // All global resource dirs
+        // All global resource dirs — now at parentDir (app data root), not appRoot (projects/)
         const globalDirs = ['style_templates', 'scene_templates', 'knowledge_base/files', 'uploads/files', 'uploads/images', 'notes', '.aiharness/templates']
+        const parentDir = path.dirname(appRoot)  // appRoot = projects/, parentDir = userData/
         for (const d of globalDirs) {
-          const p = path.join(appRoot, d)
+          const p = path.join(parentDir, d)
           try { await fsp.access(p); targets.push({ path: p, label: d.replace('knowledge_base/', 'KB:').replace('uploads/', '上传:') }) } catch {}
         }
 
@@ -569,7 +586,7 @@ export async function executeFileTool(
 
       case 'list_backups': {
         const targetFile = args.file_path as string | undefined
-        const backupDir = path.join(projectPath, BACKUP_DIR)
+        const backupDir = path.join(getBackupRoot(projectPath), BACKUP_DIR)
 
         if (targetFile) {
           const fp = resolvePath('file_path')
@@ -624,10 +641,10 @@ export async function executeFileTool(
 
       case 'create_file': {
         const fp = resolvePath('file_path')
-        // ../ paths resolve against appRoot (parent of projects/) — check against appRoot, not projectPath
+        // ../ paths resolve to parentDir (userData) — safety boundary must cover that
         const rawPath = String(args.file_path || '')
         const isGlobalPath = rawPath.startsWith('../')
-        const safetyBase = isGlobalPath ? path.dirname(projectPath) : projectPath
+        const safetyBase = isGlobalPath ? path.dirname(path.dirname(projectPath)) : projectPath
         if (!fp || !isSafePath(fp, safetyBase)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(rawPath) }
         const content = args.content as string
         // Issue #12: Size limit for writes
@@ -661,7 +678,7 @@ export async function executeFileTool(
         const resolveNotePath = async (): Promise<string | null> => {
           const notesPath = (args.file_path as string || '').replace(/\\/g, '/')
           if (!notesPath.startsWith('notes/')) return null
-          const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
+          const globalNotesDir = path.join(path.dirname(path.dirname(projectPath)), 'notes')
           // Strip 'notes/' prefix since globalNotesDir already is the notes root
           const cleanPath = notesPath.replace(/^notes\//, '')
           return await safeResolve('file_path', { ...args, file_path: cleanPath }, globalNotesDir)
@@ -703,9 +720,7 @@ export async function executeFileTool(
               return { callId, toolName, status: 'error', summary: '全量替换后的格式不正确', detail: `文件: ${args.file_path}\n\n${errorDetail}` }
             }
           }
-          const globalNotesDir2 = path.join(path.dirname(projectPath), 'notes')
-          const backupBase2 = fp.startsWith(globalNotesDir2) ? globalNotesDir2 : projectPath
-          await backupFile(fp, backupBase2)
+          await backupFile(fp, projectPath)
           await fsp.writeFile(fp, newStr, 'utf-8')
           return { callId, toolName, status: 'success', summary: `已全量替换 (${newStr.length} 字符)`, detail: `文件: ${args.file_path}` }
         }
@@ -856,9 +871,7 @@ export async function executeFileTool(
           }
         }
 
-        const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
-        const backupBase = fp.startsWith(globalNotesDir) ? globalNotesDir : projectPath
-        await backupFile(fp, backupBase)
+        await backupFile(fp, projectPath)
         await fsp.writeFile(fp, newContent, 'utf-8')
         const replaced = replaceAll ? occurrenceCount : 1
         return {
@@ -1040,7 +1053,7 @@ export async function executeFileTool(
         const pattern = String(args.pattern || '')
         const scope = String(args.scope || 'project')
         const maxDepth = Math.min(Number(args.max_depth) || 5, 10)
-        const appRoot = path.dirname(projectPath)
+        const appRoot = path.dirname(path.dirname(projectPath))  // userData level (includes global dirs)
 
         const skipDirs = new Set(['node_modules', '.git', '.svn', 'AppData', 'Library', '.cache', '__pycache__', 'dist', '.next'])
         const results: string[] = []

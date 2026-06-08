@@ -100,7 +100,7 @@ class NodeFSToolExecutor {
       return path.join(this.rootDir, clean)
     }
     // v11.5.1: 全局目录名 → 始终解析到软件根目录
-    const GLOBAL_PREFIXES = ['.aiharness/', 'style_templates/', 'scene_templates/', 'knowledge_base/', 'notes/', 'uploads/', 'projects/']
+    const GLOBAL_PREFIXES = ['.aiharness/', 'uploads/', 'projects/', 'style_templates/', 'scene_templates/', 'knowledge_base/', 'notes/', 'agent-sessions/']
     const isGlobal = GLOBAL_PREFIXES.some(p => clean.startsWith(p))
     // 模型可能根据系统提示词拼接了项目名前缀（如 _test_dpc/outline/plot.md）
     // 剥掉这个前缀，避免 projectPath 与模型路径双重嵌套

@@ -30,14 +30,14 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'list_directory',
       description:
-        '列出单个目录的内容（单层，不递归子目录）。\n\n' +
-        '⚠️ 索引已列出全部文件的完整路径，大多数情况下**不需要**调用此工具——直接 read_file 已知路径即可。\n\n' +
-        '仅在以下场景使用：\n' +
-        '① 不知道有哪些项目 → list_directory("projects/") 查看项目列表\n' +
-        '② 文件操作后确认目录状态（如创建/删除后验证）\n' +
-        '③ 索引因错误未构建时的降级方案\n\n' +
-        '⚠️ 按文件名模式搜索 → 用 find_files（递归搜索所有子目录）。搜索文件内容 → 用 search_content。\n' +
-        '填 pattern → Glob 过滤。支持 ** 做一层子目录匹配。broad=true → 搜索电脑目录（需审批）。',
+        '列出指定目录内容（单层，不递归子目录）。\n\n' +
+        '📁 支持目录:\n' +
+        '- 项目内: {项目名}/ / characters/ / chapters/ / outline/ / detailed_outline/ / summaries/\n' +
+        '- 全局: ../../notes/ / ../../knowledge_base/files/ / ../../style_templates/ / ../../scene_templates/ / ../../uploads/\n' +
+        '- 项目列表: projects/\n' +
+        '- 用户任意指定目录\n\n' +
+        '💡 已知路径时直接 read_file 即可，不必先 list_directory。确认目录状态、探索未知目录时使用。\n' +
+        'pattern → Glob 过滤（如 "*.yaml"）。broad=true → 搜索电脑目录（需审批）。',
       parameters: {
         type: 'object',
         properties: {
@@ -58,10 +58,12 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'read_file',
       description:
-        '读取文件完整内容。文件路径从索引中获取——索引已列出全部文件的完整路径，直接复制使用即可。\n' +
-        '何时使用：读角色/大纲/章节/细纲等。修改前必须先 read_file 确认原文。\n' +
-        '路径格式：项目内 → "项目名/子路径"（如 1/outline/plot.md）。全局 → "../../前缀"（如 ../../style_templates/模板名.yaml）。\n' +
-        '不确定文件路径时 → 用 find_files 搜索。返回内容在 detail 字段。',
+        '读取文件完整内容。支持所有文件类型和路径：\n' +
+        '📁 项目内: {项目}/characters/*.yaml / chapters/*.txt / outline/*.md / outline/*.yaml / detailed_outline/*.yaml / summaries/*.md / 任意用户文件\n' +
+        '📁 全局: ../../notes/*.md / ../../knowledge_base/files/*.md / ../../style_templates/* / ../../scene_templates/* / ../../uploads/*\n' +
+        '📁 模板: ../../.aiharness/templates/* (16个格式模板)\n' +
+        '📁 规则: ../../.aiharness/rules/*\n\n' +
+        '💡 不确定文件路径 → 用 find_files。修改前必须 read_file 确认原文再 edit_file。',
       parameters: {
         type: 'object',
         properties: {
@@ -85,8 +87,9 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'search_content',
       description:
-        '在项目文件中搜索指定文本内容。默认子串匹配。设 regex=true 启用正则。设 context_around 获取匹配行前后上下文。file_pattern 支持 glob（如 "**/*.json"）。最多返回 500 条。' +
-        '⚠️ 仅搜索项目目录。要在电脑全局搜索某文件内的文字→先用 find_files(scope="computer") 定位文件，再 read_file 查看内容。',
+        '按文本内容搜索文件。默认子串匹配。\n' +
+        '📁 搜索范围: 默认项目目录。dir_path="../../" → 全局（notes/knowledge_base/style_templates/scene_templates/uploads）。\n' +
+        '💡 regex=true → 正则 / context_around → 上下文行 / file_pattern → Glob过滤 / multiline → 跨行 / 最多500条。',
       parameters: {
         type: 'object',
         properties: {
@@ -117,7 +120,15 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'edit_file',
       description:
-        '精确字符串替换编辑已有文件。何时使用：修改文件部分内容（改角色属性、追加大纲段落、修正错字）。小幅修改优先于全量替换。必须先 read_file 确认原文——old_string 必须与文件逐字精确匹配（含换行和空格）。old_string 匹配失败时可用 "__FULL_REPLACE__" 做全量替换。replace_all=true 替换所有匹配处。',
+        '精确字符串替换编辑。支持所有文件类型，路径与 create_file 相同：\n' +
+        '项目内: {项目}/characters/*.yaml / chapters/*.txt / detailed_outline/*.yaml / summaries/*.md / outline/*.md / outline/*.yaml / 任意用户文件\n' +
+        '全局: ../../knowledge_base/files/*.md / ../../notes/*.md / ../../style_templates/*.yaml / ../../scene_templates/*.yaml / 任意全局路径\n' +
+        '\n规则:\n' +
+        '- 必须先 read_file 确认原文 — old_string 必须逐字精确匹配（含换行和空格）\n' +
+        '- old_string 设为 "__FULL_REPLACE__" 可全量替换（空文件或需要完全重写时用）\n' +
+        '- replace_all: true 替换所有匹配处\n' +
+        '- 小幅精准修改优先于全量替换\n' +
+        '- 自动创建备份（.ai_backups/），可 restore_backup 恢复',
       parameters: {
         type: 'object',
         properties: {
@@ -151,7 +162,11 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'batch_replace',
       description:
-        '在单个文件中执行多个精确字符串替换，按顺序依次应用。比多次调用 edit_file 更高效（减少工具调用轮次），且保证替换顺序。何时使用：需要同时修改文件中多处不相邻内容时（如批量修正错别字、多处追加内容、格式化调整）。必须先 read_file 确认原文——每个 old_string 必须与文件逐字精确匹配。任一替换失败则停止后续替换并报错。',
+        '在单个文件中执行多个精确字符串替换，按数组顺序依次应用。\n' +
+        '比多次调用 edit_file 更高效（减少工具调用轮次），且保证替换顺序。\n' +
+        '适用: 批量修正错别字、多处追加大纲/世界观、格式化调整、同时改多个角色属性。\n' +
+        '适用路径: 与 edit_file 相同（项目内/全局/任意用户文件）。\n' +
+        '规则: 必须先 read_file 确认原文。每个 old_string 必须逐字精确匹配。任一替换失败则停止后续替换并报错。',
       parameters: {
         type: 'object',
         properties: {
@@ -194,7 +209,22 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'create_file',
       description:
-        '创建新文件并写入内容。何时使用：创建新角色YAML、新章节正文、新细纲YAML、新摘要文件。项目内路径: 项目名/子路径（如 1/characters/林语晴.yaml）。KB文件路径: ../../knowledge_base/files/文件名.md。创建前先 read_file 参考已有同类型文件格式。自动创建不存在的父目录。自动执行（无需用户确认）。',
+        '创建新文件并写入内容。自动创建不存在的父目录。\n' +
+        '\n📁 项目内预设路径:\n' +
+        '- 角色: {项目名}/characters/{中文名}.yaml（先读 ../../.aiharness/templates/character.yaml）\n' +
+        '- 章节: {项目名}/chapters/chapter{N}.txt（先读 ../../.aiharness/templates/chapter-body.txt）\n' +
+        '- 细纲: {项目名}/detailed_outline/chapter{N}.yaml（先读 ../../.aiharness/templates/detailed-outline.yaml）\n' +
+        '- 摘要: {项目名}/summaries/chapter{N}.md（先读 ../../.aiharness/templates/chapter-summary.md）\n' +
+        '\n📁 全局预设路径:\n' +
+        '- 知识库: ../../knowledge_base/files/文件名.md（先读 ../../.aiharness/templates/knowledge-base-file.md）\n' +
+        '- 笔记: ../../notes/文件名.md（先读 ../../.aiharness/templates/note-draft.md）\n' +
+        '- 风格模板: ../../style_templates/模板名.yaml（先读 ../../.aiharness/templates/style-template.yaml）\n' +
+        '- 场景模板: ../../scene_templates/模板名.yaml（先读 ../../.aiharness/templates/scene-template.yaml）\n' +
+        '\n📁 用户自定义路径（用户说放哪就放哪）:\n' +
+        '- 项目根目录: {项目名}/文件名.md — 简介、写作计划、灵感、修订记录等\n' +
+        '- 全局目录: ../../文件名.md — 跨项目共享的写作素材、技巧笔记\n' +
+        '- 任意子目录: 系统自动创建不存在的父目录，支持嵌套路径\n' +
+        '\n⚠️ 已有模板的用模板格式。无模板的自由内容用 Markdown（# 标题 + ## 段落）。',
       parameters: {
         type: 'object',
         properties: {
@@ -227,7 +257,8 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'delete_file',
       description:
-        '删除项目文件。不可恢复。何时使用：仅当用户明确要求删除文件时。删除前向用户确认文件名是否正确。需要用户确认。',
+        '删除文件（不可恢复，自动备份到 .ai_backups/）。\n' +
+        '📁 支持: 项目内/全局/任意用户文件。⚠️ DANGEROUS — 需用户确认。删除前向用户确认文件名。',
       parameters: {
         type: 'object',
         properties: {
@@ -256,7 +287,8 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'rename_file',
       description:
-        '重命名或移动文件。何时使用：用户要求改名或调整文件位置时。new_path 可以是新文件名（同一目录）或新路径（移动到其他目录）。⚠️ 危险操作，需要用户确认。',
+        '重命名或移动文件。支持所有路径（项目内/全局/任意）。\n' +
+        '💡 new_path 可以是新文件名（同一目录）或新路径（移到其他目录）。⚠️ DANGEROUS — 需用户确认。',
       parameters: {
         type: 'object',
         properties: {
@@ -288,13 +320,11 @@ export const fileTools: ToolDefinition[] = [
     schema: {
       name: 'find_files',
       description:
-        '按文件名模式递归搜索所有子目录（深度5层）。\n\n' +
-        '⚠️ 索引已列出全部文件的完整路径——已知文件名时直接 read_file 即可，不需要 find_files。\n\n' +
-        '何时使用：需要按模式批量查找文件（如"所有 .yaml 文件""所有 chapter* 文件"）→ find_files。\n\n' +
-        'pattern 必填（Glob 模式，如 "*.yaml" "chapter*" "林*"），大小写不敏感。\n' +
-        'scope="project"（默认）：从软件根目录开始递归搜索，跳过 node_modules/.git/AppData 等系统目录。\n' +
-        'scope="computer"：搜索用户主目录下的桌面/文档/下载 + 常见写作目录（需用户审批）。\n' +
-        '最多返回 200 条结果。',
+        '按文件名 Glob 模式递归搜索（深度5层，最多200条）。\n' +
+        '📁 搜索范围: 整个软件目录（项目+全局+模板+规则），跳过 node_modules/.git。\n' +
+        '💡 pattern 必填（如 "*.yaml" "chapter*" "林*"），大小写不敏感。\n' +
+        'scope="project"(默认) → 软件目录 / scope="computer" → 电脑用户目录（需审批）。\n' +
+        '已知路径直接用 read_file，不确定时用 find_files 探索。',
       parameters: {
         type: 'object',
         properties: {

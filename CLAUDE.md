@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v11.8.1
+# AI写作软件—青剑 v11.8.2
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
 
@@ -19,7 +19,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - reasoning_content 回传修复，支持多轮工具调用
 
 ### 模板系统
-- `.aiharness/templates/` 目录，14 个文件格式模板
+- `.aiharness/templates/` 目录，16 个文件格式模板
 - 系统提示词从 ~3,500 tokens 压缩到 ~2,758 tokens
 - AI 通过 read_file 按需查看格式，不再从提示词中读取
 
@@ -47,7 +47,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | — | PhaseManager 已在 v11.7.0 移除 |
 | 协议适配器 | `src/agent/runtime/adapters/` |
-| 格式模板 | `.aiharness/templates/` (14 个模板文件) |
+| 格式模板 | `.aiharness/templates/` (16 个模板文件) |
 | 版本历史 | `src/data/version_history.json` (当前 v10.1.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `.aiharness/scripts/` (3 个) |

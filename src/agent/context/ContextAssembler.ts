@@ -15,7 +15,7 @@ export class ContextAssembler {
    * Used by CacheInvalidator after file modifications.
    */
   static domainsForPath(filePath: string): string[] {
-    const fp = filePath.replace(/\\/g, '/')
+    const fp = filePath.replace(/\\/g, '/').replace(/^(\.\.\/)+/, '')  // strip ../../ prefix
     const domains: string[] = []
     if (fp.startsWith('characters/'))    domains.push('characters')
     else if (fp.startsWith('outline/'))  domains.push('outline')

@@ -128,18 +128,44 @@ describe('打包安全验证', () => {
     expect(exists).toBe(true)
   })
 
-  // ── 1. extraResources 必须为空 ──
-  it('1. extraResources 必须为空 — 禁止将用户数据目录打包', () => {
+  // ── 1. extraResources 只能包含 AI 运行时必需的静态资源 ──
+  it('1. extraResources 仅含 .aiharness 静态资源 — 禁止用户数据目录', () => {
     const config = loadElectronBuilder()
     expect(config).not.toBeNull()
 
     const extra = config?.extraResources
-    if (Array.isArray(extra)) {
-      expect(extra.length).toBe(0)
-    } else {
-      // If extraResources is undefined or null, that's also fine
-      expect(extra === undefined || extra === null || (Array.isArray(extra) && extra.length === 0)).toBe(true)
+    // extraResources 可以包含 from/to 对象或字符串
+    const items = Array.isArray(extra) ? extra : []
+
+    // 安全的 extraResource 路径（仅限 .aiharness 下的静态资源）
+    const SAFE_RESOURCES = [
+      '.aiharness/templates',
+      '.aiharness/rules',
+      '.aiharness/scripts',
+      '.aiharness/aiharness.json',
+      '.aiharness/AGENTS.md',
+    ]
+
+    // 禁止的用户数据目录
+    const FORBIDDEN = [
+      'projects', 'knowledge_base', 'uploads', 'notes',
+      'agent-sessions', 'continuation_projects', 'style_projects',
+      '.appdata', '.ai_backups', 'coverage', '测试',
+    ]
+
+    for (const item of items) {
+      // item can be string or { from, to }
+      const path = typeof item === 'string' ? item : (item.from || item.to || '')
+      // Must be in safe list
+      const isSafe = SAFE_RESOURCES.some(s => path === s || path.startsWith(s + '/'))
+      // Must not be in forbidden list
+      const hasForbidden = FORBIDDEN.some(f => path.includes(f))
+
+      expect(isSafe).toBe(true)
+      expect(hasForbidden).toBe(false)
     }
+    // Ensure we have the expected 4 resources
+    expect(items.length).toBe(5)
   })
 
   // ── 2. files 只包含构建产物 ──

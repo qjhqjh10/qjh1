@@ -40,7 +40,8 @@ function resolveScriptPath(scriptName: string, projectRoot: string): string {
   return join(projectRoot || '.', '.aiharness', 'scripts', clean)
 }
 
-export function registerShellHandlers(ipcMain: IpcMain, projectRoot?: string) {
+export function registerShellHandlers(ipcMain: IpcMain, projectRoot?: string, appRoot?: string) {
+  const scriptsBase = appRoot || projectRoot  // scripts at root, CWD at projects
   ipcMain.handle('shell:exec', async (_event, command: string, cwd?: string) => {
     const check = isCommandSafe(String(command || ''))
     if (!check.safe) {
@@ -73,7 +74,7 @@ export function registerShellHandlers(ipcMain: IpcMain, projectRoot?: string) {
   })
 
   ipcMain.handle('shell:run-script', async (_event, scriptName: string) => {
-    const scriptPath = resolveScriptPath(String(scriptName || ''), projectRoot || '.')
+    const scriptPath = resolveScriptPath(String(scriptName || ''), scriptsBase || '.')
     try {
       const { stdout, stderr } = await execFileAsync('node', [scriptPath], {
         cwd: projectRoot || '.',

@@ -26,6 +26,7 @@ export default function ScratchpadPage() {
 
   const notesDir = useMemo(() => {
     if (!projectsBasePath) return ''
+    // notes 是全局的，放在 userData/notes/（与 AI 工具 + notes:search 统一）
     return projectsBasePath.replace(/[/\\]projects[/\\]?$/, '/notes').replace(/\\/g, '/')
   }, [projectsBasePath])
 

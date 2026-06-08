@@ -27,7 +27,7 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作对话助手
 项目名/outline/plot.md worldbuilding.md items.yaml locations.yaml factions.yaml power_system.yaml outline_meta.yaml emotion.yaml
 角色: 项目名/characters/中文名.yaml  章节: 项目名/chapters/chapterN.txt  细纲: 项目名/detailed_outline/chapterN.yaml
 KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔记: ../../notes/
-上传: ../../uploads/files/文件名  格式模板: ../../.aiharness/templates/  不知道项目名→list_directory("projects/")
+上传: ../../uploads/files/文件名  格式模板: ../../.aiharness/templates/ (14→16个，含kb/笔记)  不知道项目名→list_directory("projects/")
 
 ## 任务排序
 
@@ -36,7 +36,7 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 - 批量操作 → 逐个完成，汇报进度
 
 ## ━━━ 写作规范手册 ━━━
-> 以下流程是**高质量输出的标准操作**。格式模板(.aiharness/templates/)的 read_file 不计入铁律#4的读取次数。
+> 以下流程是**高质量输出的标准操作**。格式模板(../../.aiharness/templates/)的 read_file 不计入铁律#4的读取次数。
 > 关键原则：读完该读的→立即写。不要在"读"和"写"之间插入文字描述。
 
 ### 1. 大纲创作
@@ -108,7 +108,7 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 - 剧情→read plot.md→edit_file追加(空用FULL_REPLACE)
 - 设定→read worldbuilding.md→edit_file追加
 - 角色→read参考→create_file 16字段
-- 灵感→create_file("notes/灵感记录.md", content)
+- 灵感→create_file("../../notes/灵感记录.md", content)
 - 不确定类型→先问用户
 
 ### 7. 风格模板
@@ -129,12 +129,17 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 **触发**: 知识库/保存参考/素材/设定保存/kb
 
 1. list_directory("../../knowledge_base/files/") 查看已有文件 → read_file 读取
-2. 不存在→create_file("../../knowledge_base/files/中文名.md", content)
-3. 存在→kb_append_file(file_id, content) 追加内容
-4. kb_index_file(file_id) → 建立搜索索引（必须手动调用）
+2. **格式**: read_file("../../.aiharness/templates/knowledge-base-file.md") 查看格式模板
+3. 不存在→create_file("../../knowledge_base/files/中文名.md", content) — 按模板含标题、来源、日期、标签
+4. 存在→kb_append_file(file_id, content) 追加内容
+5. kb_index_file(file_id) → 建立搜索索引（必须手动调用，否则搜不到）
 
 ### 10. 草稿笔记
-**触发**: 记笔记/存草稿/记录灵感 → 路径 notes/文件名.md（CRUD 同核心原则）。语义搜索: search_notes(query="关键词")。与知识库区别: 草稿=临时笔记, 知识库=长期参考。
+**触发**: 记笔记/存草稿/记录灵感 → 路径 ../../notes/文件名.md（全局，非项目内）
+- **格式**: read_file("../../.aiharness/templates/note-draft.md") 查看格式（含日期、类型标记）
+- 语义搜索: search_notes(query="关键词")
+- CRUD 同核心原则（read_file/list_directory/create_file/edit_file/delete_file），所有操作加 ../../notes/ 前缀
+- 与知识库区别: 草稿=临时笔记, 知识库=长期参考
 
 ### 11. 多任务编排
 **触发**: 编号列表(1.2.3.)/多件事/先...再...然后/帮我做X件事
@@ -142,7 +147,22 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 1. 分析所有子任务→列出清单→确认顺序
 2. 逐个执行→每完成一个汇报"✅任务X/Y完成"
 3. 子任务失败→报告原因→继续下一个
-4. 全部完成→总结`
+4. 全部完成→总结
+
+### 12. 自由文件创建
+**触发**: 用户自定义路径 / 项目根目录 / 全局素材
+
+create_file 支持任意路径，用户指定放哪就放哪。常见场景：
+
+- **项目简介**: {项目名}/简介.md — 作品梗概、创作思路、读者定位
+- **写作计划**: {项目名}/写作计划.md — 章节排期、发布计划、目标进度
+- **灵感记录**: {项目名}/灵感.md — 碎片灵感、随笔记、对话片段
+- **修订日志**: {项目名}/修订记录.md — 每次修改的日期、范围、原因
+- **角色关系**: {项目名}/角色关系.md — 角色互动、感情线、冲突梳理
+- **全局素材**: ../../素材/xxx.md — 跨项目共享的写作素材、技巧
+- **用户指定**: 用户说"帮我创建 xxx 放到 yyy"→直接用 create_file 创建
+
+无模板的文件用 Markdown 格式: # 标题、## 段落。有模板的（角色/章节/细纲等）按模板格式。`
 
 // ═══════════════════════════════════════════════════════════
 // 轻量导出（无 Skill Catalog，无 invoke_skill 依赖）

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, safeStorage, shell, Menu } from 'electron'
-import { join, dirname } from 'path'
-import { mkdir, appendFile } from 'fs/promises'
+import { join, dirname, resolve } from 'path'
+import { mkdir, appendFile, cp } from 'fs/promises'
 import { registerFileHandlers, setupFileWatcher } from './ipc/fileHandlers'
 import { registerProjectHandlers } from './ipc/projectHandlers'
 import { registerExportHandlers } from './ipc/exportHandlers'
@@ -33,6 +33,73 @@ function getProjectsBasePath(): string {
     return join(app.getAppPath(), 'projects')
   }
   return join(app.getPath('userData'), 'projects')
+}
+
+/** Ensure all runtime directories exist before handlers start */
+async function ensureRuntimeDirectories(parentDir: string, projectsPath: string) {
+  // All global dirs now unified at parentDir level (userData in prod)
+  // AI accesses via ../../ prefix with corrected ../ navigation
+  const globalDirs = [
+    join(parentDir, 'notes'),
+    join(parentDir, 'style_templates'),
+    join(parentDir, 'scene_templates'),
+    join(parentDir, 'knowledge_base'),
+    join(parentDir, 'agent-sessions'),
+    join(parentDir, 'uploads', 'files'),
+    join(parentDir, 'uploads', 'images'),
+  ]
+  // fileHandlers root-level dirs
+  const fileHandlerDirs = [
+    join(parentDir, '.appdata'),
+    join(parentDir, '.aiharness'),
+    join(parentDir, '.ai_backups'),
+  ]
+
+  for (const d of [...globalDirs, ...fileHandlerDirs]) {
+    await mkdir(d, { recursive: true }).catch(() => {})
+  }
+}
+
+/**
+ * Sync .aiharness/ resources (templates, rules, config) from app package
+ * to the runtime locations. In dev, copies from project root to projectsPath.
+ * In production, copies from extraResources (process.resourcesPath) to parentDir.
+ * Only copies static resources — never audit/ or learnings.json (runtime data).
+ */
+async function syncAiharnessResources(parentDir: string, projectsPath: string) {
+  const isDev = !app.isPackaged
+  const srcBase = isDev
+    ? join(app.getAppPath(), '.aiharness')
+    : join(process.resourcesPath, '.aiharness')
+
+  // Single destination: app root (parentDir). AI accesses via ../../.aiharness/
+  const destBases = [parentDir]
+
+  // Static resources to sync (NOT audit/, learnings.json, design/, hooks/)
+  const toCopy = [
+    { src: 'templates', dest: 'templates' },
+    { src: 'rules', dest: 'rules' },
+    { src: 'scripts', dest: 'scripts' },
+    { src: 'aiharness.json', dest: 'aiharness.json' },
+    { src: 'AGENTS.md', dest: 'AGENTS.md' },
+  ]
+
+  for (const destBase of destBases) {
+    for (const { src, dest } of toCopy) {
+      try {
+        const srcPath = join(srcBase, src)
+        const destPath = join(destBase, '.aiharness', dest)
+        // Skip if source and destination are the same (dev mode: root .aiharness → root .aiharness)
+        if (resolve(srcPath) === resolve(destPath)) continue
+        await mkdir(dirname(destPath), { recursive: true }).catch(() => {})
+        await cp(srcPath, destPath, { recursive: true, force: true })
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') {
+          console.warn('[syncAiharness] 同步失败:', src, '→', destBase, e?.message || e)
+        }
+      }
+    }
+  }
 }
 
 async function createWindow() {
@@ -127,6 +194,13 @@ app.on('activate', () => {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   const projectsPath = getProjectsBasePath()
+  const parentDir = dirname(projectsPath)
+
+  // Ensure all runtime directories exist (notes, uploads, .appdata, .aiharness)
+  await ensureRuntimeDirectories(parentDir, projectsPath)
+
+  // Sync .aiharness/ templates & rules from app package → runtime location
+  await syncAiharnessResources(parentDir, projectsPath)
 
   registerFileHandlers(ipcMain, undefined, projectsPath)
   registerProjectHandlers(ipcMain, projectsPath)
@@ -136,7 +210,6 @@ app.whenReady().then(async () => {
   registerKbHandlers(ipcMain, projectsPath, () => mainWindow, safeStorage)
   registerStatsHandlers(ipcMain, projectsPath)
 
-  const parentDir = dirname(projectsPath)
   const styleProjectsPath = join(parentDir, 'style_projects')
   registerStyleHandlers(ipcMain, styleProjectsPath)
 
@@ -150,17 +223,17 @@ app.whenReady().then(async () => {
   registerStoryHandlers(ipcMain)
   registerRewriteHandlers(ipcMain)
   registerAgentHandlers(ipcMain, projectsPath)
-  // Load HTTP config from aiharness.json (if present)
+  // Load HTTP config from aiharness.json (synced from extraResources at startup)
   let httpConfig = { allowPrivateIPs: false }
   try {
-    const configPath = join(app.getAppPath(), '.aiharness', 'aiharness.json')
+    const configPath = join(parentDir, '.aiharness', 'aiharness.json')
     const configRaw = await import('fs/promises').then(fs => fs.readFile(configPath, 'utf-8'))
     const config = JSON.parse(configRaw)
     if (config.http?.allowPrivateIPs) httpConfig.allowPrivateIPs = true
   } catch { /* use defaults */ }
   registerHttpHandlers(ipcMain, httpConfig)
   registerBrowserHandlers(ipcMain, httpConfig)
-  registerShellHandlers(ipcMain, projectsPath)
+  registerShellHandlers(ipcMain, projectsPath, parentDir)
   registerMCPHandlers(ipcMain)
   registerLSPHandlers(ipcMain)
 

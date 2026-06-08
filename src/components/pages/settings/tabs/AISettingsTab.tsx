@@ -136,41 +136,7 @@ export function AISettingsTab() {
           </div>
         </div>
 
-        {/* Conversation History */}
-        <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>对话上下文</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <FormField label={`对话历史保留条数 (${aiSettings.maxHistory ?? 100})`}>
-              <input type="range" min={10} max={500} step={10}
-                value={aiSettings.maxHistory ?? 100}
-                onChange={e => update('maxHistory', parseInt(e.target.value))}
-                style={{ width: '100%' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9b8e84', marginTop: 2 }}>
-                <span>10</span><span>500</span>
-              </div>
-            </FormField>
-            <FormField label={`工具结果保留轮数 (${aiSettings.toolRetentionRounds ?? 3})`}>
-              <input type="range" min={0} max={10} step={1}
-                value={aiSettings.toolRetentionRounds ?? 3}
-                onChange={e => update('toolRetentionRounds', parseInt(e.target.value))}
-                style={{ width: '100%' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9b8e84', marginTop: 2 }}>
-                <span>0 (不保留)</span><span>10</span>
-              </div>
-            </FormField>
-            <FormField label={`核心规则复述间隔 (${aiSettings.rulesRefreshInterval ?? 31})`}>
-              <input type="range" min={0} max={100} step={5}
-                value={aiSettings.rulesRefreshInterval ?? 31}
-                onChange={e => update('rulesRefreshInterval', parseInt(e.target.value))}
-                style={{ width: '100%' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9b8e84', marginTop: 2 }}>
-                <span>0 (不重复)</span><span>100</span>
-              </div>
-            </FormField>
-          </div>
-        </div>
-
-        {/* Context Priority */}
+        {/* Context Priority — 信息调用优先级在上下文压缩中自动管理 */}
         <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>信息调用优先级</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

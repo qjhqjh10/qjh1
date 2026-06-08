@@ -88,9 +88,9 @@ describe('read_file', () => {
     expect(result.status).toBe('error')
   })
 
-  it('reads notes file from global notes path', async () => {
-    // Notes are in the project's notes/ directory
-    const result = await executeFileTool(makeCall('read_file', { file_path: 'notes/灵感.md' }), projectPath)
+  it('reads notes file from global notes path via ../', async () => {
+    // Notes are global at appRoot/notes/ (1 level up from projectPath in test, 2 in prod)
+    const result = await executeFileTool(makeCall('read_file', { file_path: '../notes/灵感.md' }), projectPath)
     expect(result.status).toBe('success')
     expect(result.detail).toContain('草稿内容')
   })
@@ -208,7 +208,7 @@ describe('edit_file', () => {
 
   it('full replace with __FULL_REPLACE__ sentinel', async () => {
     const result = await executeFileTool(makeCall('edit_file', {
-      file_path: 'notes/灵感.md',
+      file_path: '../notes/灵感.md',
       old_string: '__FULL_REPLACE__',
       new_string: '完全新的草稿内容',
     }), projectPath)
