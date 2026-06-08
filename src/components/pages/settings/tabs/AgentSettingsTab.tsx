@@ -1,20 +1,16 @@
 import { useState } from 'react'
-import { FeedbackSection } from './agent/FeedbackSection'
 import { ReliabilitySection } from './agent/ReliabilitySection'
 import { MCPSection } from './agent/MCPSection'
-import { LearningSection } from './agent/LearningSection'
 
-type AgentSubTab = 'feedback' | 'reliability' | 'mcp' | 'learning'
+type AgentSubTab = 'reliability' | 'mcp'
 
 const SUB_TABS: [AgentSubTab, string, string][] = [
-  ['feedback', '自我优化', '🔧'],
   ['reliability', '可靠性', '🛡️'],
-  ['learning', '学习', '📝'],
   ['mcp', 'MCP', '🔌'],
 ]
 
 export function AgentSettingsTab() {
-  const [activeSubTab, setActiveSubTab] = useState<AgentSubTab>('feedback')
+  const [activeSubTab, setActiveSubTab] = useState<AgentSubTab>('reliability')
 
   return (
     <div style={{
@@ -68,10 +64,8 @@ export function AgentSettingsTab() {
 
       {/* Content */}
       <div style={{ flex: 1, overflow: 'hidden', animation: 'fadeInUp 0.25s ease-out' }} className="custom-scrollbar" key={activeSubTab}>
-        {activeSubTab === 'feedback' && <FeedbackSection />}
         {activeSubTab === 'reliability' && <ReliabilitySection />}
         {activeSubTab === 'mcp' && <MCPSection />}
-        {activeSubTab === 'learning' && <LearningSection />}
       </div>
     </div>
   )

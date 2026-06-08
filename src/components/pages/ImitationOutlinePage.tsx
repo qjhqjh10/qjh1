@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { loadExtraction, saveDimResult, loadOutlineResults } from '@/services/imitationService'
 import { buildGenerateCharactersPrompt, buildGenerateWorldbuildingPrompt } from '@/services/extractionService'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -86,7 +87,7 @@ export default function ImitationOutlinePage() {
           break
         }
       }
-      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user' as const, content: prompt }], activeConfigId)
       if (['characters', 'foreshadowing', 'emotionCurve'].includes(dimKey)) {
         try { const m = reply.match(/\[[\s\S]*\]/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply }
       } else {

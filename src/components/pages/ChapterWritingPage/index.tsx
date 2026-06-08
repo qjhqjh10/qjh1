@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { loadCharacters } from '@/services/characterService'
 import { sceneService } from '@/services/sceneService'
 import type { ChapterSceneConfig } from '@/types/story'
@@ -273,7 +274,7 @@ export default function ChapterWritingPage() {
       const messages = [
         { role: 'user' as const, content: `${templatePrompt}\n\n章节标题: ${detailedChapter.title}\n\n章节内容:\n${content}` },
       ]
-      const summary = await aiService.chat(messages, activeConfigId)
+      const summary = await chatAI(messages, activeConfigId)
       setSummaryContent(summary)
       setChapterSummary(detailedChapter.id, summary)
       if (projectPath) await saveSummary(projectPath, detailedChapter.id, summary).catch(() => {})

@@ -9,21 +9,15 @@ import { OpenAIAdapter } from './runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from './V4SecurityFence'
 import { buildSystemPrompt } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
-import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './skills/ToolRegistry'
 import { BridgeContextBuilder } from './context/BridgeContextBuilder'
-import { invalidateAfterTool } from './context/CacheInvalidator'
+import { createToolExecutor } from './bridge/toolExecutorFactory'
 import { contextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
-// v11.6.1: isTaskMessage 暂时停用
-// 参考 Claude 架构：无代码级工具路由，tool_choice:auto 让模型自己判断
-// 联网确认：Claude Code 的哲学是 "No Router, No Classifier — The Model Decides Everything"
-// 如需恢复：取消下面这行注释，并取消 if/else 块的注释
-// import { isTaskMessage } from './utils/taskDetection'
 import type { Message } from './state/types'
-import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
+import type { V4AgentRunResult } from './runtime/RuntimeTypes'
 
 // ── Init ──
 
@@ -66,6 +60,12 @@ export interface BridgeSendResult {
   toolsUsed: string[]
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
+  /** v11.7.0: prompt caching 命中的 tokens 数 */
+  cacheHitTokens?: number
+  /** v11.7.0: cache 创建 tokens（首轮，仍计费但显示为缓存） */
+  cacheCreationTokens?: number
+  /** v11.7.0: API 调用成本 */
+  cost?: number
 }
 
 // ── Bridge ──
@@ -74,7 +74,6 @@ export class V4AgentChatBridge {
   private runtime: V4UnifiedRuntime | null = null
   private securityFence: V4SecurityFence
   private auditTrail = new AuditTrail()
-  private learningEngine = new LearningEngine()
 
   private initialized = false
   private configId = ''
@@ -85,6 +84,8 @@ export class V4AgentChatBridge {
   private abortController = new AbortController()
   private runId = ''
   private _toolCache: { key: string; tools: any[] } | null = null  // v4: reuse identical tool arrays for caching
+  // v11.7.1: 首条消息全量注入跟踪
+  private _fullPromptSent = false
 
   constructor(projectId: string | null) {
     this.securityFence = new V4SecurityFence(projectId)
@@ -98,6 +99,7 @@ export class V4AgentChatBridge {
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
+    this._fullPromptSent = false
     this.initialized = true
   }
 
@@ -107,6 +109,7 @@ export class V4AgentChatBridge {
       import('./context/FileCache').then(m => m.invalidateProjectFilesReexport(this.projectId!))
     }
     this.projectId = projectId
+    // 索引是全局的（含所有项目），切换项目无需重发
     this.securityFence = new V4SecurityFence(projectId)
   }
 
@@ -130,7 +133,6 @@ export class V4AgentChatBridge {
     const store = useAgentStore.getState()
 
     this.auditTrail.startSession(this.runId)
-    await this.learningEngine.load()
     diagnosticLogger.clearRecent()  // 🔧 Clear stale diagnostic events from previous runs
 
     // Collect emitter unsubscribe functions for cleanup
@@ -163,70 +165,38 @@ export class V4AgentChatBridge {
         contextWindow: this.contextWindow,
       }, adapter)
 
-      // ── 2. 全部工具，第1条消息就发、就缓存 ──
-      const allTools = toolRegistry.getAllSchemas()
-      this.runtime.setTools(allTools)
-      diagnosticLogger.recordInfo(`Agent2: ${allTools.length} tools`)
+      // ── 2. 工具: 首条全量，后续核心7个（含tool_search按需发现）──
+      const { CORE_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      const schemas = toolRegistry.getAllSchemas()
+      const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
+      this.runtime.setTools(this._fullPromptSent ? coreTools : schemas)
+      diagnosticLogger.recordInfo(`Agent2: ${this._fullPromptSent ? coreTools.length : schemas.length} tools (full=${!this._fullPromptSent})`)
 
-      // ── 3. Wire Context Assembler (v11.5.1: BridgeContextBuilder 共享模块) ──
-      const CORE_PROMPT = buildSystemPrompt('', '')
+      // ── 3. Wire Context Assembler ──
+      const CORE_PROMPT = buildSystemPrompt()
+      const isFirst = !this._fullPromptSent
       const contextBuilder = new BridgeContextBuilder({
         projectId: this.projectId,
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,
         planMode: !!options.planMode,
-        enableThinkingPlan: true,           // OpenAI: 使用 ThinkingEngine 生成详细规划提示
+        enableThinkingPlan: true,
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        return await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
+        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT, isFirst)
+        return result
       })
 
       // ── 5. Wire Tool Executor (SecurityFence → execute → audit → learning) ──
-      const toolExecutor: ToolExecutorFn = async (args, ctx) => {
-        // Security fence check
-        const secCheck = this.securityFence.check(ctx.toolName, args)
-        if (!secCheck.allowed) {
-          this.auditTrail.recordToolResult(ctx.toolName, 'blocked', secCheck.reason || '')
-          return { status: 'error', summary: secCheck.reason || '操作被安全围栏拦截' }
-        }
-
-        // Dangerous tool → user confirmation
-        if (secCheck.needsApproval && options.onApprovalRequired) {
-          const timeoutMs = 180_000
-          const timeoutPromise = new Promise<boolean>(r => setTimeout(() => r(false), timeoutMs))
-          const approved = await Promise.race([
-            options.onApprovalRequired([{ name: ctx.toolName, args }]),
-            timeoutPromise,
-          ])
-          if (!approved) {
-            return { status: 'error', summary: '用户拒绝了此操作' }
-          }
-        }
-
-        // Execute
-        const result = await toolRegistry.execute(ctx.toolName, args, ctx)
-
-        // Audit
-        this.auditTrail.recordToolResult(ctx.toolName, result.status, result.summary)
-
-        // v11.5.1: 使用共享 CacheInvalidator 模块（替代内联 ~60 行重复代码）
-        if (result.status === 'success') {
-          await invalidateAfterTool(ctx.toolName, args, this.projectId, {
-            onFileChanged: async (filePath) => {
-              const { useStore } = await import('@/store')
-              useStore.getState().bumpFileVersion()
-              useStore.getState().setFileEditNotify({
-                filePath,
-                newContent: '__AI_EDITED__',
-              })
-            },
-          })
-        }
-
-        return result
-      }
+      // ── 5. Wire Tool Executor (shared factory: SecurityFence → Approval → Execute → Audit → Cache)
+      const toolExecutor = createToolExecutor({
+        securityFence: this.securityFence,
+        auditTrail: this.auditTrail,
+        projectId: this.projectId,
+        onApprovalRequired: options.onApprovalRequired,
+      })
       this.runtime.setToolExecutor(toolExecutor)
 
       // ── 6. Set history ──
@@ -266,7 +236,9 @@ export class V4AgentChatBridge {
 
       store.setIsStreaming(false)
       options.onComplete?.(result)
+      store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
+      this._fullPromptSent = true  // v11.7.1: 首条已发，后续用精简版
       // V9.5.2: 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 

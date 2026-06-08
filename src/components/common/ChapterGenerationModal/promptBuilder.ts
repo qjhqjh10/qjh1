@@ -200,13 +200,97 @@ export function buildPrompt(opts: BuildPromptOptions): string {
     selectedKbFileIds, selectedScene, selectedStyleTemplateId,
     selectedStyleTemplate, styleStrength, chapterPrompt, wordTarget, replaceMode } = opts
 
-  const parts: string[] = []
+  const styleParts: string[] = []   // 第1层: 风格要求（语言层面必须遵循）
+  const plotParts: string[] = []    // 第2层: 本章核心剧情（必须覆盖的大方向）
+  const sceneParts: string[] = []   // 第3层: 场景描写指导（帮助写好具体场景）
+  const refParts: string[] = []     // 第4层: 背景参考（仅供参考，不需要复述）
+
+  // ════════════════════════════════════════════════════════════════
+  // 第1层: 风格模板（语言层面必须遵循，最高优先级）
+  // ════════════════════════════════════════════════════════════════
+  if (selectedStyleTemplateId && selectedStyleTemplate) {
+    try {
+      const stylePrompt = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
+      if (stylePrompt) {
+        const intensityLabel = styleStrength === 'strong' ? '⚠️ 必须严格执行，违反视为生成失败' :
+          styleStrength === 'light' ? '参考以下风格倾向' : '必须遵守，优先级高于其他设定'
+        styleParts.push(`━━━ 第1层：语言风格（${intensityLabel}）━━━`)
+        styleParts.push(stylePrompt)
+
+        if (styleStrength === 'strong' || styleStrength === 'normal') {
+          const dims = selectedStyleTemplate.dimensions || {}
+          const recapLines: string[] = []
+          recapLines.push('【输出前逐条确认以下风格约束】')
+          const recaps: { key: string; label: string }[] = [
+            { key: 'dialogueStyle', label: '对话风格' },
+            { key: 'narrativeTone', label: '叙事基调' },
+            { key: 'sentenceStyle', label: '句式风格' },
+            { key: 'bodyLanguageStyle', label: '身体描写' },
+            { key: 'moodStyle', label: '情绪氛围' },
+            { key: 'rhetoricStyle', label: '修辞手法' },
+          ]
+          recaps.forEach(r => {
+            if (dims[r.key]?.description) {
+              recapLines.push(`• ${r.label}: ${(dims[r.key].description || '').slice(0, 100)}`)
+            }
+          })
+          recapLines.push('• 角色对白必须有明显差异（语气词/句式/礼貌度）')
+          recapLines.push('• 确认以上全部满足后再输出正文')
+          styleParts.push(recapLines.join('\n'))
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 第2层: 本章核心剧情（必须覆盖的大方向）
+  // ════════════════════════════════════════════════════════════════
+  plotParts.push('━━━ 第2层：本章核心剧情（必须覆盖的大方向）━━━')
+
+  if (detailedOutlineFields.plotOverview && currentChapter?.plotOverview) {
+    plotParts.push(currentChapter.plotOverview)
+  }
+  if (detailedOutlineFields.keyEvents && currentChapter?.keyEvents) {
+    plotParts.push(currentChapter.keyEvents)
+  }
+  if (detailedOutlineFields.eroticContent && currentChapter?.eroticContent) {
+    plotParts.push(currentChapter.eroticContent)
+  }
+  // Chapter characters belong to the outline layer (they define who must appear)
+  if (detailedOutlineFields.chapterCharacters && currentChapter?.characters) {
+    plotParts.push(`【出场角色】${currentChapter.characters}`)
+  }
+  if (detailedOutlineFields.location && currentChapter?.location) {
+    plotParts.push(`【场景地点】${currentChapter.location}`)
+  }
+  // Fallback: no detailed outline → use a brief description from the chapter
+  if (plotParts.length === 1) {
+    if (currentChapter?.description) {
+      plotParts.push(currentChapter.description)
+    } else {
+      plotParts.push('（无细纲，请根据参考材料自由创作）')
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 第3层: 场景模板（帮助描写具体场景，小的方面）
+  // ════════════════════════════════════════════════════════════════
+  if (selectedScene) {
+    const scenePrompt = buildScenePrompt(selectedScene)
+    sceneParts.push('━━━ 第3层：场景描写指导（帮助写好具体场景）━━━')
+    sceneParts.push(scenePrompt)
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 第4层: 背景参考（仅供参考，不需要复述，不需要在正文中解释）
+  // ════════════════════════════════════════════════════════════════
+  refParts.push('━━━ 参考材料（仅供参考，不需要复述或解释设定）━━━')
 
   if (outlineTabs.plot && outlineContent) {
-    parts.push(`【故事剧情】\n${outlineContent.slice(0, 15000)}\n`)
+    refParts.push(`【故事剧情】${outlineContent.slice(0, 15000)}`)
   }
   if (outlineTabs.worldbuilding && worldbuildingContent) {
-    parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}\n`)
+    refParts.push(`【世界观设定】${worldbuildingContent.slice(0, 30000)}`)
   }
   if (outlineTabs.characters && selectedCharacterIds.size > 0) {
     const chapterCharNames: string[] = []
@@ -223,105 +307,65 @@ export function buildPrompt(opts: BuildPromptOptions): string {
     if (inChapter.length > 0) {
       const charDescs = inChapter.map(c => {
         const fields = [c.name, c.role, c.gender, c.age, c.occupation, c.personality, c.appearance, c.abilities, c.relationships].filter(Boolean)
-        return fields.join('，')
+        return `${fields.join('，')}`
       })
-      parts.push(`【本章出场角色】\n${charDescs.join('\n\n')}\n`)
-      parts.push('请根据以上角色的性格特点，写出符合各自设定的对白、行为和心理活动。')
+      refParts.push(`【出场角色设定】\n${charDescs.join('\n')}\n（行为和对白要符合角色性格，但不能直接复述角色设定）`)
     }
     if (notInChapter.length > 0) {
-      parts.push(`【本章未出场角色 — 其本人不会出现在本章场景中，但可以被出场角色提及名字、回忆事迹、夸赞、辱骂、讨论其影响、揣测其意图等】\n${notInChapter.map(c => c.name).join('、')}`)
+      refParts.push(`【未出场角色（可被提及）】${notInChapter.map(c => c.name).join('、')}`)
     }
   }
 
   if (loadedDims) {
-    if (loadedDims.items) parts.push(loadedDims.items)
-    if (loadedDims.locations) parts.push(loadedDims.locations)
-    if (loadedDims.factions) parts.push(loadedDims.factions)
-    if (loadedDims.powerSystem) parts.push(loadedDims.powerSystem)
-    if (loadedDims.emotion) parts.push(loadedDims.emotion)
-    if (loadedDims.foreshadowing) parts.push(loadedDims.foreshadowing)
-    if (loadedDims.plotThreads) parts.push(loadedDims.plotThreads)
-  }
-
-  if (detailedOutlineFields.plotOverview && currentChapter?.plotOverview) {
-    parts.push(`【本章剧情概述】\n${currentChapter.plotOverview}\n`)
-  }
-  if (detailedOutlineFields.chapterCharacters && currentChapter?.characters) {
-    parts.push(`【本章出场角色列表】\n${currentChapter.characters}\n`)
-  }
-  if (detailedOutlineFields.location && currentChapter?.location) {
-    parts.push(`【场景地点】\n${currentChapter.location}\n`)
-  }
-  if (detailedOutlineFields.keyEvents && currentChapter?.keyEvents) {
-    parts.push(`【关键事件】\n${currentChapter.keyEvents}\n`)
-  }
-  if (detailedOutlineFields.eroticContent && currentChapter?.eroticContent) {
-    parts.push(`【情色剧情要求】\n${currentChapter.eroticContent}\n`)
+    if (loadedDims.items) refParts.push(loadedDims.items)
+    if (loadedDims.locations) refParts.push(loadedDims.locations)
+    if (loadedDims.factions) refParts.push(loadedDims.factions)
+    if (loadedDims.powerSystem) refParts.push(loadedDims.powerSystem)
+    if (loadedDims.emotion) refParts.push(loadedDims.emotion)
+    if (loadedDims.foreshadowing) refParts.push(loadedDims.foreshadowing)
+    if (loadedDims.plotThreads) refParts.push(loadedDims.plotThreads)
   }
 
   if (selectedSummaryIds.size > 0) {
-    const summaries = prevChapters.filter(c => selectedSummaryIds.has(c.id)).map(c => `第${c.order + 1}章 ${c.title}: ${chapterSummaryMap[c.id] || '无摘要'}`)
-    parts.push(`【前文章节摘要】\n${summaries.join('\n')}\n`)
+    const summaries = prevChapters.filter(c => selectedSummaryIds.has(c.id)).map(c =>
+      `第${c.order + 1}章 ${c.title}: ${chapterSummaryMap[c.id] || '无摘要'}`
+    )
+    refParts.push(`【前文章节摘要】\n${summaries.join('\n')}`)
   }
   if (selectedKbFileIds.size > 0) {
-    parts.push(`【知识库参考】\n以下知识库内容可供参考：\n`)
+    refParts.push(`【知识库参考】以下知识库内容可供参考（注入在下方）`)
   }
 
-  if (selectedScene) {
-    const scenePrompt = buildScenePrompt(selectedScene)
-    parts.push('【场景模板注入】\n' + scenePrompt)
+  // ════════════════════════════════════════════════════════════════
+  // 组装: 风格 → 剧情 → 场景 → 参考 → 硬约束
+  // ════════════════════════════════════════════════════════════════
+  const result: string[] = []
+
+  if (styleParts.length > 0) {
+    result.push(`═══════════════════════════════════════\n${styleParts.join('\n\n')}\n═══════════════════════════════════════`)
   }
 
-  if (selectedStyleTemplateId && selectedStyleTemplate) {
-    try {
-      const stylePrompt = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
-      if (stylePrompt) {
-        const strengthHeader = styleStrength === 'light' ? '' :
-          styleStrength === 'strong'
-            ? '【⚠️ 以下风格要求必须严格执行，优先级高于所有其他设定。违反任何一条都视为生成失败。】\n'
-            : '【以下风格要求必须遵守，优先级高于其他设定。】\n'
-        parts.unshift('---\n' + strengthHeader + stylePrompt + '\n---')
+  result.push(`═══════════════════════════════════════\n${plotParts.join('\n\n')}\n═══════════════════════════════════════`)
 
-        if (styleStrength === 'strong' || styleStrength === 'normal') {
-          const dims = selectedStyleTemplate.dimensions || {}
-          const recapLines: string[] = []
-          recapLines.push('【风格约束复述 — 输出前请逐条确认】')
-          const recaps: { key: string; label: string }[] = [
-            { key: 'dialogueStyle', label: '对话风格' },
-            { key: 'narrativeTone', label: '叙事基调' },
-            { key: 'sentenceStyle', label: '句式风格' },
-            { key: 'bodyLanguageStyle', label: '身体描写' },
-            { key: 'moodStyle', label: '情绪氛围' },
-            { key: 'rhetoricStyle', label: '修辞手法' },
-          ]
-          recaps.forEach(r => {
-            if (dims[r.key]?.description) {
-              recapLines.push(`• ${r.label}: ${(dims[r.key].description || '').slice(0, 100)}`)
-            }
-          })
-          recapLines.push('• 角色对白必须有明显差异（语气词/句式/礼貌度）')
-          recapLines.push(`• 输出前再次确认: 以上风格约束是否全部满足？`)
-          parts.push(recapLines.join('\n'))
-        }
-      }
-    } catch { /* skip */ }
+  if (sceneParts.length > 0) {
+    result.push(`${sceneParts.join('\n\n')}`)
   }
 
-  const template = chapterPrompt?.content || '根据以上设定和细纲，写出一章完整的小说正文。正文用空行分隔自然段，禁止全文一堆到底。'
+  result.push(refParts.join('\n\n'))
 
-  // Build unified word target instruction — the modal's wordTarget is the MASTER total.
-  // Scene template's wordTarget is a SUBSET hint, not additive.
+  // ── 硬约束 ──
+  const template = chapterPrompt?.content || '根据以上核心剧情和风格要求，写出一章完整的小说正文。'
   const sceneWordTarget = (selectedScene?.config as any)?.wordTarget || 0
-  let wordTargetText = `【总字数目标】${wordTarget}字（这是本章正文的总字数要求，必须严格遵守）`
+  let wordTargetText = `【总字数目标】${wordTarget}字（必须严格遵守）`
   if (sceneWordTarget > 0) {
     if (sceneWordTarget > wordTarget) {
-      wordTargetText += `\n场景模板内容约占本章主要篇幅（场景模板自身要求${sceneWordTarget}字，但本章总字数仍控制在${wordTarget}字左右，场景内容为本章主体）`
+      wordTargetText += `\n场景模板内容约占本章主要篇幅`
     } else {
       wordTargetText += `\n其中场景模板描述的内容约占${sceneWordTarget}字`
     }
   }
 
-  parts.push(`【创作要求】\n${template}\n\n${wordTargetText}\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}\n\n重要格式要求:\n- 每个自然段之间必须用空行分隔（即两个换行），不得所有文字连成一片\n- 对话密集处适当分段，同一角色的连续对白可合为一段，角色切换或场景转换必须另起一段\n- 段落不宜过长，一般3-8行为宜，避免超过15行的超大段落`)
+  result.push(`【创作要求】\n${template}\n\n${wordTargetText}\n输出模式: ${replaceMode ? '替换当前正文' : '追加到正文末尾'}\n\n重要格式要求:\n- 每个自然段之间用空行分隔（两个换行），不得所有文字连成一片\n- 对话密集处适当分段，角色切换或场景转换必须另起一段\n- 段落不宜过长，一般3-8行为宜，避免超过15行的超大段落`)
 
-  return parts.join('\n\n---\n\n')
+  return result.join('\n\n')
 }

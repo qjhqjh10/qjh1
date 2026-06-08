@@ -26,39 +26,18 @@ function safe(v: number | undefined, fallback = 0): number {
 // ── API Key with eye toggle ──
 function ApiKeyField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [show, setShow] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const isMasked = value === '••••••••'
-
-  const startEditing = () => {
-    if (isMasked) { setEditing(true); setDraft('') }
-  }
-
-  const commitOrCancel = () => {
-    if (!editing) return
-    // 只有用户确实输入了新内容才保存，否则恢复
-    if (draft.trim()) onChange(draft.trim())
-    setEditing(false)
-    setDraft('')
-  }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 4 }}>
-        <input type={show ? 'text' : 'password'}
-          value={editing ? draft : (isMasked ? '' : value)}
-          onChange={e => { setDraft(e.target.value); if (!editing) setEditing(true) }}
-          onFocus={startEditing}
-          onBlur={commitOrCancel}
-          onKeyDown={e => { if (e.key === 'Enter') commitOrCancel() }}
-          className="focus-ring" style={{ ...inputBase, flex: 1 }}
-          placeholder={isMasked && !editing ? '•••••••• (已加密存储)' : 'sk-...'} />
-        <button onClick={() => setShow(!show)} title={show ? '隐藏' : '查看'}
-          style={{ background: 'none', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#9b8e84', flexShrink: 0 }}>
-          {show ? <EyeSlashIcon style={{ width: 18, height: 18 }} /> : <EyeIcon style={{ width: 18, height: 18 }} />}
-        </button>
-      </div>
-      {isMasked && <div style={{ fontSize: 9, color: '#16a34a', marginTop: 2 }}>✅ 已加密存储。如需更换，直接输入新密钥即可。</div>}
+    <div style={{ display: 'flex', gap: 4 }}>
+      <input type={show ? 'text' : 'password'}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="focus-ring" style={{ ...inputBase, flex: 1 }}
+        placeholder="sk-..." />
+      <button onClick={() => setShow(!show)} title={show ? '隐藏' : '查看'}
+        style={{ background: 'none', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#9b8e84', flexShrink: 0 }}>
+        {show ? <EyeSlashIcon style={{ width: 18, height: 18 }} /> : <EyeIcon style={{ width: 18, height: 18 }} />}
+      </button>
     </div>
   )
 }

@@ -23,6 +23,8 @@ import type { Step } from './constants';
 import { stepLabels, resultCard, resultCardHeader, resultCardBody, dimItem, dimEmpty } from './constants';
 import { DimensionSelectDialog } from './dialogs/DimensionSelectDialog';
 
+import { chatAI } from '@/utils/chatAI'
+
 export default function ContinuationWorkspacePage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
@@ -161,7 +163,7 @@ export default function ContinuationWorkspacePage() {
     setAnalyzingChapter(idx)
     try {
       const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const json = safeJsonParseAs<Record<string, any>>(reply)
       if (json) {
         const chars: any[] = json.charactersAppeared || []
@@ -226,7 +228,7 @@ export default function ContinuationWorkspacePage() {
     setAnalyzingChapter(idx)
     try {
       const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const json = safeJsonParseAs<Record<string, any>>(reply)
       if (json) {
         const chars: any[] = json.charactersAppeared || []
@@ -276,7 +278,7 @@ export default function ContinuationWorkspacePage() {
         setAggregationProgress('直接聚合中...')
         const summaries = analyzed.map(c => `第${c.chapterNumber}章: ${c.analysis!.plotEvents.join('; ')}`)
         const prompt = cs.buildAggregationPrompt(summaries, totalChapters)
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         const su = parseReply(reply) as StoryUnderstanding | null
         if (su) {
           su.powerSystemFinal = su.powerSystemFinal || { name: '', levels: '', description: '' }
@@ -303,7 +305,7 @@ export default function ContinuationWorkspacePage() {
           setAggregationProgress(`阶段聚合 (${b + 1}/${totalBatches}) 第${firstChapter}-${lastChapter}章`)
           const summaries = batch.map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('; ')}`)
           const prompt = cs.buildBatchSummaryPrompt(summaries, b + 1, totalBatches, firstChapter, lastChapter, prevEndingState)
-          const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+          const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
           const parsed = parseReply(reply) as Record<string, any> | null
           if (parsed) {
             batchResults.push(JSON.stringify(parsed))
@@ -321,7 +323,7 @@ export default function ContinuationWorkspacePage() {
           `第${c.chapterNumber}章 ${c.title}: 事件${c.analysis!.plotEvents.join('；')} | 角色${c.analysis!.charactersAppeared.map(a => a.name).join('、')} | 伏笔${c.analysis!.foreshadowingPlanted.concat(c.analysis!.foreshadowingResolved).join('、')}`
         )
         const prompt = cs.buildGlobalAggregationPrompt(batchResults, last20Summaries.join('\n\n'), totalChapters)
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         const su = parseReply(reply) as StoryUnderstanding | null
         if (su) {
           su.powerSystemFinal = su.powerSystemFinal || { name: '', levels: '', description: '' }
@@ -347,7 +349,7 @@ export default function ContinuationWorkspacePage() {
         `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('；')} | 角色:${c.analysis!.charactersAppeared.map(a => `${a.name}(${a.role})`).join('、')}`
       ).join('\n\n')
       const prompt = cs.buildPlotDirectionPrompt(JSON.stringify(storyUnderstand), lastDetail)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const seg: PlotDirectionSegment = { id: 'pd_' + Date.now(), content: reply, label: '首次生成', generatedAt: new Date().toISOString() }
       setPlotDirection([seg])
       await save({ plotDirection: [seg], status: 'outlining' })
@@ -361,7 +363,7 @@ export default function ContinuationWorkspacePage() {
     const fullPlot = plotDirection.map(s => s.content).join('\n\n')
     try {
       const prompt = cs.buildOutlineMergePrompt(fullPlot, JSON.stringify(storyUnderstand))
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const om = safeJsonParseAs<OutlineMergeData>(reply)
       if (om) {
         setOutlineMerge(om)
@@ -380,7 +382,7 @@ export default function ContinuationWorkspacePage() {
     try {
       const mergeJson = outlineMerge ? JSON.stringify(outlineMerge) : '{}'
       const prompt = cs.buildContinuationPlanPrompt(JSON.stringify(storyUnderstand), mergeJson, estimatedChapters)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const cp = safeJsonParseAs<ContinuationPlan>(reply)
       if (cp) { setContinuationPlan(cp); await save({ continuationPlan: cp, status: 'planned' }) }
     } catch (err) { logError('计划生成失败', err); setWorkspaceError('续写计划生成失败，请重试'); setTimeout(() => setWorkspaceError(''), 8000) }
@@ -437,7 +439,7 @@ export default function ContinuationWorkspacePage() {
     try {
       const prompt = cs.buildContinuationWritingPrompt(
         { ...plan, characterFocus: charFocus }, prevSummary, chars, rules, plan.relativeChapterNumber, constraints.join('\n'), styleInjection, sceneInjection)
-      const result = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const result = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       setWritingContent(result)
       setWritingChapter({ chapterNumber: plan.relativeChapterNumber, title: plan.tentativeTitle, content: result, plan, generatedAt: new Date().toISOString() })
     } catch (err) { logError('续写失败', err); setWorkspaceError(`续写失败: ${err instanceof Error ? err.message : '未知错误'}`); setTimeout(() => setWorkspaceError(''), 8000) }

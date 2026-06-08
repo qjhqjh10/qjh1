@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { loadCharacters, saveCharacter, parseCharacterFromAI, normalizeRole } from '@/services/characterService'
 import { loadWorldbuildingContent } from '@/services/outlineService'
 import { nanoid } from 'nanoid'
@@ -148,7 +149,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         role: 'user' as const,
         content: `${rolePromptContent ? `[提示词模板]\n${rolePromptContent}\n\n` : ''}[格式要求]\n${AI_FORMAT_INSTRUCTION}\n\n[用户需求]\n请根据以下描述生成角色：\n${aiGenDesc}`,
       }]
-      const reply = await aiService.chat(messages, genConfigId, activeProjectId || undefined)
+      const reply = await chatAI(messages, genConfigId, activeProjectId || undefined)
       const parsed = parseCharacterFromAI(reply)
       const imagePromptMatch = reply.match(/形象图描述[:：]\s*(.+)/)
       const imagePrompt = imagePromptMatch?.[1]?.trim() || ''

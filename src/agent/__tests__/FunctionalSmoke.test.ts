@@ -8,7 +8,6 @@ import { buildSystemPrompt, CORE_SYSTEM_PROMPT } from '../V4SystemPrompt'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import { contextAssembler, ContextAssembler } from '../context/ContextAssembler'
-import { LearningEngine } from '../learning/LearningEngine'
 
 beforeAll(() => {
   toolRegistry.registerAll(ALL_TOOLS)
@@ -88,43 +87,28 @@ describe('功能冒烟测试 (项目"1")', () => {
   // ── 5. 工具注册 ──
   it('工具注册: 33个工具 (模板工具合并为analyze_text_style)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(33)
+    expect(names.length).toBeGreaterThanOrEqual(31)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
-    expect(names).toContain('write_learning')
     expect(names).toContain('read_file')
     expect(names).toContain('edit_file')
     expect(names).toContain('create_file')
   })
 
   // ── 6. 系统提示词 (v10.2.0: Skill-First) ──
-  it('系统提示词 v11.0: 核心+写作规范手册+项目占位符均已包含', () => {
-    const prompt = buildSystemPrompt('项目1', '')
+  it('系统提示词 v11.7.1: 核心+写作规范手册', () => {
+    const prompt = buildSystemPrompt()
     expect(prompt).toContain('青剑')
     expect(prompt).toContain('写作规范手册')
     expect(prompt).toContain('list_directory')
-    expect(prompt).toContain('项目1')
+    expect(prompt).toContain('大纲创作')
   })
 
-  // ── 7. 学习引擎 ──
-  it('学习引擎: 写入→禁用不注入→启用注入', () => {
-    const engine = new LearningEngine()
-    const entry = engine.addEntry('JSON字段名缺少双引号', '先read_file参考已有JSON格式', 'file')
-    expect(entry.problem).toContain('双引号')
-    expect(entry.enabled).toBe(false)
-
-    const ctx = engine.getContextInject()
-    expect(ctx).toBe('')
-
-    engine.toggleEnabled(entry.id)
-    const ctx2 = engine.getContextInject()
-    expect(ctx2).toContain('双引号')
-    expect(ctx2).toContain('read_file')
-  })
-
-  // ── 8. Context Provider ──
-  it('ContextAssembler: Provider系统已退役(0个Provider)', () => {
-    expect(contextAssembler.getProviders().length).toBe(0)
+  // ── 8. Context Assembler ──
+  it('ContextAssembler: Provider系统已退役(v11.7.1)', () => {
+    expect(contextAssembler).toBeDefined()
+    expect(typeof contextAssembler.assemble).toBe('function')
+    expect(typeof ContextAssembler.domainsForPath).toBe('function')
   })
 
   // ── 9. 缓存域映射 ──
@@ -134,15 +118,6 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(ContextAssembler.domainsForPath('chapters/chapter3.txt')).toContain('chapter-writing')
     expect(ContextAssembler.domainsForPath('outline/plot.md')).toContain('outline')
     expect(ContextAssembler.domainsForPath('summaries/chapter1.md')).toContain('chapter-writing')
-  })
-
-  // ── 10. write_learning 工具 ──
-  it('write_learning: 已注册+AUTO+必填字段完整', () => {
-    const wl = toolRegistry.get('write_learning')
-    expect(wl).toBeDefined()
-    expect(wl!.permission).toBe('AUTO')
-    expect(wl!.schema.parameters.required).toContain('problem')
-    expect(wl!.schema.parameters.required).toContain('solution')
   })
 
   // ── 11. ContextCompressor ──

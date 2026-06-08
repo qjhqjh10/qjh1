@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useStore, useSettingsStore } from "@/store";
-import { aiService, kbService, fileService, templateService, styleTemplateService } from "@/services/fileService";
+import { aiService, kbService, fileService, templateService, styleTemplateService, settingsService } from "@/services/fileService";
+import { chatAIWithUsage, chatAIStream } from "@/utils/chatAI";
 import { loadOutlineDimensions } from "@/utils/outlineData";
 import { loadAllSummaries } from "@/services/summaryService";
 import type { OutlineTabToggles, DetailedOutlineToggles } from "@/types/settings";
@@ -220,11 +221,10 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         onGenStart?.()
         onClose()
         // Stream & write each chunk to editor immediately
-        const streamHandle = aiService.chatStream(
+        const streamHandle = chatAIStream(
           messages, genConfigId, activeProjectId || undefined,
           (data) => {
             setStreamContent(data.accumulated); setStreamChars(data.accumulated.length)
-            // Write to editor in real-time
             const liveContent = replaceMode ? data.accumulated : (currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated)
             onApply(liveContent)
             onGenChunk?.({ accumulated: data.accumulated, charCount: data.accumulated.length })
@@ -234,7 +234,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             if (externalAbortRef) externalAbortRef.current = null
             setStreamDone(true)
             setStreamUsage(data.usage)
-            // Normalize paragraph breaks in final result
             const normalized = normalizeParagraphs(data.text)
             const finalContent = replaceMode ? normalized : (currentContent ? currentContent + '\n\n' + normalized : normalized)
             onApply(finalContent)
@@ -247,14 +246,13 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             onGenDone?.()
           },
           (err) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setError(err.message); setLoading(false); onGenError?.(err.message) },
-          (data) => { abortRef.current = null; if (externalAbortRef) externalAbortRef.current = null; setLoading(false); onGenError?.(data.message) },
         )
         abortRef.current = streamHandle.abort
         if (externalAbortRef) externalAbortRef.current = streamHandle.abort
       } else {
         // Abort any previous stream, switch to traditional mode
         abortRef.current?.()
-        const { text: reply, usage: genUsage } = await aiService.chatWithUsage(messages, genConfigId, activeProjectId || undefined)
+        const { text: reply, usage: genUsage } = await chatAIWithUsage(messages, genConfigId, activeProjectId || undefined)
         const normalized = normalizeParagraphs(reply)
         const finalContent = replaceMode ? normalized : (currentContent ? currentContent + '\n\n' + normalized : normalized)
         onApply(finalContent)
@@ -636,6 +634,27 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', maxWidth: 200 }}>
               {configs.map(c => <option key={c.id} value={c.id}>{c.name} ({c.model})</option>)}
             </select>
+            <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
+            {/* Temperature */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              title="温度越高回复越随机/有创意，越低越确定/保守">
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>温度</span>
+              <button onClick={async () => {
+                const config = configs.find(c => c.id === genConfigId); if (!config) return
+                const newTemp = Math.max(0, +(config.temperature || 0.8).toFixed(1) - 0.1)
+                useSettingsStore.getState().updateConfig(config.id, { temperature: newTemp })
+                await settingsService.saveConfigs(useSettingsStore.getState().configs)
+              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
+              <span style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', minWidth: 28, textAlign: 'center' }}>
+                {(configs.find(c => c.id === genConfigId)?.temperature ?? 0.8).toFixed(1)}°C
+              </span>
+              <button onClick={async () => {
+                const config = configs.find(c => c.id === genConfigId); if (!config) return
+                const newTemp = Math.min(2, +(config.temperature || 0.8).toFixed(1) + 0.1)
+                useSettingsStore.getState().updateConfig(config.id, { temperature: newTemp })
+                await settingsService.saveConfigs(useSettingsStore.getState().configs)
+              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
+            </div>
           </div>
           {streamMode && <div style={{ marginTop: 6, fontSize: 10, color: '#16a34a' }}>流式输出已启用 — 内容将逐字输出到编辑器</div>}
         </div>

@@ -1,7 +1,32 @@
 {
-  "currentVersion": "11.7.0",
+  "currentVersion": "11.8.0",
   "currentDate": "2026-06-08",
   "history": [
+    {
+      "version": "11.8.0",
+      "date": "2026-06-08",
+      "features": [
+        "双协议全局路由: 新建chatAI.ts共享模块, 修复20+文件35+处aiService.chat→chatAI, 仿写/续写/风格/章节生成全功能Anthropic可用",
+        "章节生成双协议: chatAIStream+chatAIWithUsage路由, Anthropic流式/非流式均支持",
+        "Prompt缓存: Anthropic加cache_control标记, OpenAI透传cached_tokens, 固定开销仅剩~540tokens/轮",
+        "首条全量注入: 核心规则首条2,758tokens→后续仅40tokens精简提醒, 工具首条35个→后续核心7个(含tool_search按需发现)",
+        "索引移除: 全局文件索引不再注入, 模型用list_directory/find_files/search_content动态探索",
+        "AI生成提示词重构: 四层结构(风格→剧情→场景→参考), 层级清晰, 参考材料标注'仅供参考'",
+        "AI生成加温度条: 与设置页双向同步, 直接修改electron-store, IPC即时生效",
+        "死代码清理: 删除MemoryIndex/contentExtractor/QualityCheckEngine(~300行), isTaskMessage函数及测试",
+        "语音功能移除: 删除VoiceButton/SpeakButton/TTS设置面板",
+        "学习系统移除: 删除LearningEngine/FeedbackSection/LearningSection/write_learning/learn_rule(~1,200行)",
+        "Bridge去重: 抽取toolExecutorFactory共享工厂, 两个Bridge各删~40行重复代码",
+        "ContextAssembler精简: Provider机制移除, 仅保留domainsForPath+空壳assemble",
+        "API密钥明文存储: 移除safeStorage加密, saveConfigs/loadConfigs直接读写明文, 眼睛按钮正常可用",
+        "AuditTrail持久化加错误日志, ContractExecutor未知工具加warn, peakPromptTokens修复",
+        "AnthropicAdapter: tool_result加is_error标记, thinking类型断言消除, 导入统一",
+        "SystemPrompt: 删除占位符/selectDomainModules死代码, 第10节精简, buildSystemPrompt无参化",
+        "工具调整: 35→32(删learn_rule/write_learning), harness 5→3, 加tool_search",
+        "Agent设置精简: 自我优化+学习两个标签移除, 仅保留可靠性+MCP",
+        "上下文压缩阈值恢复70%(不改动), 缓存命中和花费显示修正"
+      ]
+    },
     {
       "version": "11.7.0",
       "date": "2026-06-08",

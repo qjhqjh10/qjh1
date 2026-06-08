@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService, appService, extractionService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
@@ -127,7 +128,7 @@ export default function StoryMapPage() {
         if (!content) { results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: '' }); continue }
         const prompt = continuationService.buildChapterAnalysisPrompt(ch.title, content, ch.order + 1)
         try {
-          const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+          const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
           let snaps: any = null
           const p = safeJsonParseAs<{ characterSnapshots?: any[]; itemSnapshots?: any[]; factionSnapshots?: any[]; locationSnapshots?: any[] }>(reply); if (p) { snaps = { characterSnapshots: p.characterSnapshots || [], itemSnapshots: p.itemSnapshots || [], factionSnapshots: p.factionSnapshots || [], locationSnapshots: p.locationSnapshots || [] } }
           results.push({ chapterOrder: ch.order + 1, chapterTitle: ch.title, analysis: reply, snapshots: snaps })
@@ -155,7 +156,7 @@ export default function StoryMapPage() {
       const summaries = valid.map(c => `第${c.chapterOrder}章 ${c.chapterTitle}:\n${c.analysis}`)
       const hardResult = hardConflicts.length > 0 ? `已由硬规则引擎检测到以下冲突:\n${hardConflicts.map(c => `- ${c.summary}`).join('\n')}\n\n请检测除此之外的软规则冲突:` : ''
       const prompt = continuationService.buildConflictDetectionPrompt(summaries, sortedChapters.length) + '\n' + hardResult
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const data = safeJsonParseAs<{ conflicts: any[]; summary: string }>(reply)
       if (data) {
         aiConflicts = data.conflicts || []

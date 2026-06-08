@@ -84,7 +84,8 @@ export const aiCapability = {
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
       messages.push({ role: 'user', content: prompt })
 
-      const reply = await aiService.chat(messages, options.configId, options.projectId)
+      const { chatAI } = await import('@/utils/chatAI')
+      const reply = await chatAI(messages, options.configId)
       return { success: true, content: reply }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '未知错误'

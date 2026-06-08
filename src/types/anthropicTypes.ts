@@ -17,6 +17,8 @@ export type AnthropicContentBlock =
 export interface AnthropicTextBlock {
   type: 'text'
   text: string
+  /** v11.7.0: Anthropic prompt caching — marks this block as cacheable */
+  cache_control?: { type: 'ephemeral' }
 }
 
 export interface AnthropicToolUseBlock {
@@ -48,6 +50,8 @@ export interface AnthropicToolDef {
     properties: Record<string, unknown>
     required?: string[]
   }
+  /** v11.7.0: Anthropic prompt caching — marks this tool def as cacheable */
+  cache_control?: { type: 'ephemeral' }
 }
 
 /** 流式响应的累积结果 */

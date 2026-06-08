@@ -55,6 +55,8 @@ import StyleDimensionDialog from '../dialogs/StyleDimensionDialog'
 import ImportCharactersModal from '../dialogs/ImportCharactersModal'
 import { safeItemName } from '../utils'
 
+import { chatAI } from '@/utils/chatAI'
+
 interface ImitationHandlersDeps {
   // State setters
   setExtraction: Dispatch<SetStateAction<NovelExtraction | null>>
@@ -242,7 +244,7 @@ export function useImitationHandlers(d: ImitationHandlersDeps) {
         const prompt = novelType === 'erotic' && dims.includes('erotic')
           ? buildEroticExtractionPrompt(ch.chapterTitle, ch.chapterContent, dims)
           : buildExtractionPrompt(ch.chapterTitle, ch.chapterContent, dims.filter(d => d !== 'erotic'))
-        const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user' as const, content: prompt }], activeConfigId)
         const chType = ch.chapterType || 'chapter'
         const parsed = novelType === 'erotic'
           ? parseExtractionReplyWithErotic(reply, ch.chapterId, ch.chapterNumber, ch.chapterTitle, ch.chapterContent, chType)
@@ -297,7 +299,7 @@ export function useImitationHandlers(d: ImitationHandlersDeps) {
       while (stylePausedRef.current) { await new Promise(r => setTimeout(r, 200)) }
       setStyleProgress(`风格: ${i + 1}/${chs.length}`)
       try {
-        const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(dims, novelType)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
+        const reply = await chatAI([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(dims, novelType)}\n\n[${chs[i].chapterTitle}]\n${chs[i].chapterContent.slice(0, 15000)}` }], activeConfigId)
         const a = parseStyleAnalysisReply(reply, dims)
         chapterAnalyses.push({ chapterNum: chs[i].chapterNumber, analysis: a })
       } catch (err) { logError(`风格分析失败 第${chs[i].chapterNumber}章`, err) }
@@ -331,7 +333,7 @@ ${summaryParts.join('\n')}
   "features": { "sentenceStyle": "...", "vocabularyStyle": "...", ... }
 }`
 
-      const summaryReply = await aiService.chat([{ role: 'user' as const, content: summaryPrompt }], activeConfigId)
+      const summaryReply = await chatAI([{ role: 'user' as const, content: summaryPrompt }], activeConfigId)
       const m = summaryReply.match(/\{[\s\S]*\}/)
       if (m) {
         profile = JSON.parse(m[0])
@@ -434,7 +436,7 @@ ${summaryParts.join('\n')}
         }
           break
       }
-      const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user' as const, content: prompt }], activeConfigId)
       if (['characters', 'foreshadowing', 'emotionCurve'].includes(dimKey)) {
         try { const m = reply.match(/\[[\s\S]*\]/); result = m ? JSON.stringify(JSON.parse(m[0]), null, 2) : reply } catch { result = reply }
       } else {
@@ -513,7 +515,7 @@ ${summaryParts.join('\n')}
       parts.push(`\n要求: 为新书第${ch.chapterNumber}章生成细纲JSON:\n{"chapterNumber":${ch.chapterNumber},"title":"","summary":"150-300字","charactersAppearing":["角色(身份)"],"levelChange":"","itemsUsed":[],"location":"","foreshadowingOps":[],"keyEvents":[],"emotionalTone":"","eroticScene":"详细情色剧情设计(200-400字)，包含: ①参与角色及其身体状态/dom-sub定位 ②性爱流程(前戏→渐进→主戏→高潮→收尾)每阶段具体动作与身体反应 ③权力关系在性爱中的展现 ④关键对话与心理活动 ⑤体液/触感/声音密度。如原作本章无情色内容则填''"}\n角色从新列表中选, 道具/等级/世界观使用新设定中的名称, 剧情原创。${ch.erotic ? '原作本章有情色内容，请为新书对应章设计完整的情色场景(eroticScene字段)，参考原作的情色角色/流程/技法参数，使用新角色的情色属性。' : ''}只输出JSON。`)
 
       try {
-        const reply = await aiService.chat([{ role: 'user' as const, content: parts.join('\n') }], activeConfigId)
+        const reply = await chatAI([{ role: 'user' as const, content: parts.join('\n') }], activeConfigId)
         const m = reply.match(/\{[\s\S]*\}/)
         if (m) {
           const parsed = JSON.parse(m[0])

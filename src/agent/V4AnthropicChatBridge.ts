@@ -15,16 +15,13 @@ import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 import { V4SecurityFence } from './V4SecurityFence'
 import { buildSystemPrompt } from './V4SystemPrompt'
 import { AuditTrail } from './audit/AuditTrail'
-import { LearningEngine } from './learning/LearningEngine'
 import { toolRegistry } from './skills/ToolRegistry'
 import { BridgeContextBuilder } from './context/BridgeContextBuilder'
-import { invalidateAfterTool } from './context/CacheInvalidator'
+import { createToolExecutor } from './bridge/toolExecutorFactory'
 import { contextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
-// v11.6.1: isTaskMessage 暂时停用 — 参考 Claude 架构 tool_choice:auto
-// import { isTaskMessage } from './utils/taskDetection'
 import type { Message } from './state/types'
 import type {
   BridgeOptions,
@@ -49,16 +46,17 @@ export class V4AnthropicChatBridge {
   private runtime: V4UnifiedRuntime | null = null
   private securityFence: V4SecurityFence
   private auditTrail = new AuditTrail()
-  private learningEngine = new LearningEngine()
 
   private initialized = false
   private configId = ''
   private projectId: string | null = null
-  private maxIterations = 30  // v11.5.1: 60→30，nudge上限+写优先已消除死锁，30足够
+  private maxIterations = 30
   private contextWindow = 128_000
   private history: Message[] = []
   private abortController = new AbortController()
   private runId = ''
+  // v11.7.1: 首条消息全量注入跟踪
+  private _fullPromptSent = false
 
   constructor(projectId: string | null) {
     this.securityFence = new V4SecurityFence(projectId)
@@ -72,7 +70,12 @@ export class V4AnthropicChatBridge {
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
+    this._fullPromptSent = false
     this.initialized = true
+  }
+
+  resetFullPromptState(): void {
+    this._fullPromptSent = false
   }
 
   updateProject(projectId: string | null): void {
@@ -84,6 +87,7 @@ export class V4AnthropicChatBridge {
     }
     this.projectId = projectId
     this.securityFence = new V4SecurityFence(projectId)
+    // 索引是全局的（含所有项目），切换项目无需重发
   }
 
   updateHistory(messages: Message[]): void {
@@ -110,7 +114,6 @@ export class V4AnthropicChatBridge {
     const store = useAgentStore.getState()
 
     this.auditTrail.startSession(this.runId)
-    await this.learningEngine.load()
     diagnosticLogger.clearRecent()
 
     const unsubscribes: Array<() => void> = []
@@ -134,66 +137,37 @@ export class V4AnthropicChatBridge {
       }, adapter)
 
       // ── 2.5. 工具准备 ──
-      // v11.6.1: isTaskMessage 停用，工具始终发送，模型自己判断
-      const allTools = toolRegistry.getAllSchemas()
-      this.runtime.setTools(allTools)
+      // v11.7.1: 首条发全量，后续只发核心7个（含tool_search按需发现扩展工具）
+      const { CORE_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      const schemas = toolRegistry.getAllSchemas()
+      const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
+      this.runtime.setTools(this._fullPromptSent ? coreTools : schemas)
 
-      // ── 3. 注入 Context Assembler (v11.5.1: BridgeContextBuilder 共享模块) ──
-      const CORE_PROMPT = buildSystemPrompt('', '')
+      // ── 3. 注入 Context Assembler ──
+      const CORE_PROMPT = buildSystemPrompt()
+      const isFirst = !this._fullPromptSent
       const contextBuilder = new BridgeContextBuilder({
         projectId: this.projectId,
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,
-        planMode: !!options.planMode,         // v11.5.1: 补齐 Anthropic planMode 支持
-        enableThinkingPlan: false,            // Anthropic: 简单规划指令（不需要 ThinkingEngine）
+        planMode: !!options.planMode,
+        enableThinkingPlan: false,
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        return await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
+        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT, isFirst)
+        return result
       })
 
-      // ── 4. 注入 Tool Executor（SecurityFence → execute → audit → cache） ──
-      const toolExecutor: ToolExecutorFn = async (args, ctx) => {
-        const secCheck = this.securityFence.check(ctx.toolName, args)
-        if (!secCheck.allowed) {
-          this.auditTrail.recordToolResult(ctx.toolName, 'blocked', secCheck.reason || '')
-          return { status: 'error', summary: secCheck.reason || '操作被安全围栏拦截' }
-        }
-
-        if (secCheck.needsApproval && options.onApprovalRequired) {
-          const timeoutMs = 180_000
-          const timeoutPromise = new Promise<boolean>(r =>
-            setTimeout(() => r(false), timeoutMs),
-          )
-          const approved = await Promise.race([
-            options.onApprovalRequired([{ name: ctx.toolName, args }]),
-            timeoutPromise,
-          ])
-          if (!approved) {
-            return { status: 'error', summary: '用户拒绝了此操作' }
-          }
-        }
-
-        const result = await toolRegistry.execute(ctx.toolName, args, ctx)
-        this.auditTrail.recordToolResult(ctx.toolName, result.status, result.summary)
-
-        // v11.5.1: 使用共享 CacheInvalidator 模块（替代内联 ~60 行重复代码）
-        if (result.status === 'success') {
-          await invalidateAfterTool(ctx.toolName, args, this.projectId, {
-            onFileChanged: async (filePath) => {
-              const { useStore } = await import('@/store')
-              useStore.getState().bumpFileVersion()
-              useStore.getState().setFileEditNotify({
-                filePath,
-                newContent: '__AI_EDITED__',
-              })
-            },
-          })
-        }
-
-        return result
-      }
+      // ── 4. 注入 Tool Executor（共享工厂：SecurityFence → Approval → Execute → Audit → Cache）──
+      const toolExecutor = createToolExecutor({
+        securityFence: this.securityFence,
+        auditTrail: this.auditTrail,
+        projectId: this.projectId,
+        approvalTimeoutMs: 180_000,
+        onApprovalRequired: options.onApprovalRequired,
+      })
       this.runtime.setToolExecutor(toolExecutor)
 
       // ── 5. 注入历史 ──
@@ -254,7 +228,9 @@ export class V4AnthropicChatBridge {
 
       store.setIsStreaming(false)
       options.onComplete?.(result)
+      store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
+      this._fullPromptSent = true  // v11.7.1: 首条已发，后续用精简版
       this.auditTrail.persist().catch(() => {})
 
       return {
@@ -267,6 +243,7 @@ export class V4AnthropicChatBridge {
         toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
         cacheHitTokens: result.cacheHitTokens || 0,
+        cacheCreationTokens: result.cacheCreationTokens || 0,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

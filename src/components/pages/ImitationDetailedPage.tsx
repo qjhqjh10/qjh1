@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { loadExtraction, loadDetailResults, saveDetailResults } from '@/services/imitationService'
 import { saveDetailedChapter, loadDetailedChapters } from '@/services/chapterService'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -52,7 +53,7 @@ export default function ImitationDetailedPage() {
       const results: DetailGenResult[] = []
       for (const ch of extraction.chapters) {
         const prompt = `请为以下章节生成细纲（150字内的剧情概要）:\n第${ch.chapterNumber}章: ${ch.chapterTitle}\n内容摘要: ${ch.chapterContent.slice(0, 1000)}\n\n输出JSON: {"chapterNumber":${ch.chapterNumber},"title":"${ch.chapterTitle}","summary":"剧情概要","characters":["角色1"],"keyEvents":["事件1"],"emotionalTone":"情绪"}`
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         const d = safeJsonParseAs<{ chapterNumber: number; title: string; summary: string; keyEvents?: string[]; plotPoints?: string[]; charactersAppearing?: string[]; characters?: string[]; levelChange?: string; itemsUsed?: string[]; location?: string; foreshadowingOps?: string[]; emotionalTone?: string; eroticScene?: string }>(reply)
         if (d) {
           results.push({ chapterNumber: ch.chapterNumber, title: ch.chapterTitle, summary: d.summary || '', keyEvents: d.keyEvents || d.plotPoints || [], charactersAppearing: d.charactersAppearing || d.characters || [], levelChange: d.levelChange || '', itemsUsed: d.itemsUsed || [], location: d.location || '', foreshadowingOps: d.foreshadowingOps || [], emotionalTone: d.emotionalTone || '', eroticScene: d.eroticScene || '' })

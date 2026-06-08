@@ -38,6 +38,8 @@ export interface V4AgentRunResult {
   completionTokens: number
   /** v11.5.1: Cache hit tokens from API (DeepSeek prompt caching) */
   cacheHitTokens: number
+  /** v11.7.0: Cache creation tokens (first round — still charged, at creation price) */
+  cacheCreationTokens: number
   /** v11.5.1: Total cost in USD/CNY */
   cost: number
   phase: AgentPhase

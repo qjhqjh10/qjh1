@@ -4,14 +4,15 @@
 // Internal message storage is OpenAI format; this adapter converts at the API boundary.
 
 import type { Message, ToolCallRequest } from '../../state/types'
-import type { AnthropicToolDef, AnthropicStreamResult } from '@/types/anthropicTypes'
+import type { AnthropicToolDef, AnthropicStreamResult, AnthropicTextBlock, AnthropicContentBlock } from '@/types/anthropicTypes'
 import type { ProtocolAdapter, ProtocolCapabilities, NormalizedModelResponse } from './ProtocolAdapter'
+import type { AnthropicSystemBlock } from '@/services/anthropicService'
 
 // ── Anthropic AIService interface ──
 
 export interface AnthropicAIService {
   chatAnthropicStream(params: {
-    system: string[]
+    system: AnthropicSystemBlock[]
     messages: Array<{
       role: string
       content: Array<{
@@ -55,56 +56,29 @@ function toAnthropicTools(openaiTools: unknown[]): AnthropicToolDef[] {
 
 // ── Message format conversion ──
 
-function messagesToAnthropic(msgs: Message[]): Array<{
-  role: string
-  content: Array<{
-    type: string
-    text?: string
-    tool_use_id?: string
-    id?: string
-    name?: string
-    input?: Record<string, unknown>
-    content?: string
-    thinking?: string
-    signature?: string
-  }>
-}> {
-  const result: Array<{
-    role: string
-    content: Array<{
-      type: string
-      text?: string
-      tool_use_id?: string
-      id?: string
-      name?: string
-      input?: Record<string, unknown>
-      content?: string
-      thinking?: string
-      signature?: string
-    }>
-  }> = []
+// v11.7.1: 统一使用 AnthropicContentBlock 类型，消除 as any 断言
+function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: AnthropicContentBlock[] }> {
+  const result: Array<{ role: string; content: AnthropicContentBlock[] }> = []
 
   for (const m of msgs) {
     if (m.role === 'system') continue // system as top-level parameter
 
-    const content: Array<{
-      type: string
-      text?: string
-      tool_use_id?: string
-      id?: string
-      name?: string
-      input?: Record<string, unknown>
-      content?: string
-      thinking?: string
-      signature?: string
-    }> = []
+    const content: AnthropicContentBlock[] = []
 
     if (m.role === 'tool') {
       // Tool result → user message (Anthropic requirement)
+      // v11.7.0: parse status to set is_error — model needs this to self-correct
+      const contentStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+      let isError = false
+      try {
+        const parsed = JSON.parse(contentStr)
+        isError = parsed.status === 'error'
+      } catch { /* not valid JSON, keep isError=false */ }
       content.push({
         type: 'tool_result',
         tool_use_id: (m as any).tool_call_id || '',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        content: contentStr,
+        ...(isError ? { is_error: true } : {}),
       })
       result.push({ role: 'user', content })
     } else if (m.role === 'assistant' && (m as any).tool_calls) {
@@ -113,10 +87,10 @@ function messagesToAnthropic(msgs: Message[]): Array<{
         content.push({ type: 'text', text: m.content })
       }
       // v11.5.1: Preserve thinking/signature blocks for extended thinking support
-      const thinkingBlocks = (m as any).thinkingBlocks
+      const thinkingBlocks = m.thinkingBlocks
       if (thinkingBlocks && Array.isArray(thinkingBlocks)) {
         for (const tb of thinkingBlocks) {
-          content.push({ type: 'thinking' as any, thinking: tb.thinking, signature: tb.signature || '' })
+          content.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature || '' })
         }
       } else if ((m as any).thinking) {
         // Backward compat: old single thinking field
@@ -171,23 +145,39 @@ export class AnthropicAdapter implements ProtocolAdapter {
     signal: AbortSignal
   }): Promise<NormalizedModelResponse> {
     // 1. Extract system messages to top-level parameter
-    const systemTexts: string[] = []
+    // v11.7.0: Convert to AnthropicSystemBlock with cache_control on last block
+    // so the API caches static system content (core prompt + index)
+    const systemBlocks: AnthropicSystemBlock[] = []
     const nonSystemMsgs: Message[] = []
     for (const m of params.messages) {
       if (m.role === 'system') {
-        systemTexts.push(typeof m.content === 'string' ? m.content : '')
+        systemBlocks.push(typeof m.content === 'string' ? m.content : '')
       } else {
         nonSystemMsgs.push(m)
       }
+    }
+    // v11.7.0: Mark the last system block with cache_control → caches ALL system blocks
+    // Anthropic caches everything from the beginning up to the ephemeral breakpoint
+    if (systemBlocks.length > 0) {
+      const last = systemBlocks[systemBlocks.length - 1]
+      systemBlocks[systemBlocks.length - 1] = typeof last === 'string'
+        ? { type: 'text' as const, text: last, cache_control: { type: 'ephemeral' as const } }
+        : { ...last, cache_control: { type: 'ephemeral' as const } }
     }
 
     // 2. Convert messages & tools to Anthropic format
     const anthropicMessages = messagesToAnthropic(nonSystemMsgs)
     const anthropicTools = toAnthropicTools(params.tools)
 
+    // v11.7.0: Mark tools with cache_control — caches all tool definitions on first call
+    if (anthropicTools.length > 0) {
+      const lastTool = anthropicTools[anthropicTools.length - 1]
+      lastTool.cache_control = { type: 'ephemeral' }
+    }
+
     // 3. Call Anthropic streaming API
     const streamResult = await this.service.chatAnthropicStream({
-      system: systemTexts,
+      system: systemBlocks,
       messages: anthropicMessages,
       configId: params.configId,
       projectId: params.projectId,
@@ -195,7 +185,9 @@ export class AnthropicAdapter implements ProtocolAdapter {
     })
 
     // 4. Normalize to canonical format
-    // v11.5.1: Preserve thinkingBlocks + cacheHitTokens
+    // v11.7.0: 拆分 cacheCreation vs cacheRead — 首轮 creation 不计入 display 扣除
+    const cacheCreation = streamResult.usage?.cache_creation_input_tokens || 0
+    const cacheRead = streamResult.usage?.cache_read_input_tokens || 0
     return {
       text: streamResult.text || '',
       toolCalls: (streamResult.toolUses || []).map(tu => ({
@@ -208,7 +200,10 @@ export class AnthropicAdapter implements ProtocolAdapter {
         inputTokens: streamResult.usage?.input_tokens || 0,
         outputTokens: streamResult.usage?.output_tokens || 0,
         totalTokens: (streamResult.usage?.input_tokens || 0) + (streamResult.usage?.output_tokens || 0),
-        cacheHitTokens: (streamResult.usage?.cache_creation_input_tokens || 0) + (streamResult.usage?.cache_read_input_tokens || 0),
+        // v11.7.0: 分开记录 creation 和 read。display 只扣 read（首轮 creation 是实际输入）
+        cacheHitTokens: cacheRead,
+        cacheCreationTokens: cacheCreation,
+        cacheReadTokens: cacheRead,
         cost: (streamResult.usage as any)?.cost,
       },
       reasoningContent: streamResult.thinkingBlocks?.map(b => b.thinking).join('\n') || streamResult.thinking,

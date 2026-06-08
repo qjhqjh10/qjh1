@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Character, RelationshipGraph } from '@/types/character'
 import { fileService, aiService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { logError } from '@/utils/logger'
 
 interface UseRelationshipGraphProps {
@@ -111,7 +112,7 @@ ${JSON.stringify(charList, null, 2)}
       }
 
       const messages = [{ role: 'user' as const, content: prompt }]
-      const reply = await aiService.chat(messages, genConfigId, activeProjectId || undefined)
+      const reply = await chatAI(messages, genConfigId, activeProjectId || undefined)
 
       let jsonStr = reply
       const jsonMatch = reply.match(/\{[\s\S]*"relationships"[\s\S]*\}/)

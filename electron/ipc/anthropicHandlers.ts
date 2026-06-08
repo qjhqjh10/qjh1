@@ -7,9 +7,17 @@
 //   ai:abort-anthropic     → ipcMain.on（中止流式请求）
 
 import { IpcMain, SafeStorage } from 'electron'
-import { decryptKey, getConfigStore } from './utils'
+import { getConfigStore } from './utils'
 import type { StoredConfig } from './utils'
 import { logTokenUsage } from './statsHandlers'
+
+// ── v11.7.0: system block 类型（与 anthropicService.ts 同步） ──
+
+interface SystemContentBlock {
+  type: 'text'
+  text: string
+  cache_control?: { type: 'ephemeral' }
+}
 
 // ── 费用计算（与 aiHandlers.ts 中相同逻辑） ──
 
@@ -98,7 +106,8 @@ export function registerAnthropicHandlers(
     async (
       event,
       params: {
-        system: string[]
+        // v11.7.0: system 支持 string 或 content block（含 cache_control）
+        system: Array<string | SystemContentBlock>
         messages: Array<{
           role: string
           content: Array<{
@@ -131,7 +140,7 @@ export function registerAnthropicHandlers(
         return JSON.stringify({ text: '', toolUses: [], stopReason: 'error', error: 'Config not found' })
       }
 
-      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      const apiKey = config.apiKey
       const apiUrl = buildAnthropicUrl(config.apiUrl)
 
       // 2. AbortController
@@ -153,10 +162,16 @@ export function registerAnthropicHandlers(
       let fullText = ''
       try {
         // 3. 构建 Anthropic 请求体
+        // v11.7.0: 将 system 统一为 content block 格式，透传 cache_control
+        const systemContentBlocks = params.system.map(s => {
+          if (typeof s === 'string') return { type: 'text' as const, text: s }
+          const block: Record<string, unknown> = { type: s.type, text: s.text }
+          if (s.cache_control) block.cache_control = s.cache_control
+          return block
+        })
         const body: Record<string, unknown> = {
           model: config.model,
-          // DeepSeek 要求 system 为 content block 数组格式
-          system: params.system.map(s => ({ type: 'text', text: s })),
+          system: systemContentBlocks,
           messages: params.messages.map(m => ({
             role: m.role,
             content: m.content.map(block => {
@@ -190,7 +205,16 @@ export function registerAnthropicHandlers(
           body.temperature = config.temperature
         }
         if (params.tools && params.tools.length > 0) {
-          body.tools = params.tools
+          // v11.7.0: 透传 cache_control in tool definitions
+          body.tools = params.tools.map((t: any) => {
+            const tool: Record<string, unknown> = {
+              name: t.name,
+              description: t.description,
+              input_schema: t.input_schema,
+            }
+            if (t.cache_control) tool.cache_control = t.cache_control
+            return tool
+          })
         }
 
         // 4. 发起请求
@@ -205,8 +229,8 @@ export function registerAnthropicHandlers(
             time: new Date().toISOString(),
             url: apiUrl,
             model: config.model,
-            systemLen: params.system?.join('').length || 0,
-            systemPreview: (params.system?.[0] || '').slice(0, 300),
+            systemLen: params.system?.reduce((sum: number, s) => sum + (typeof s === 'string' ? s.length : s.text.length), 0) || 0,
+            systemPreview: (() => { const s0 = params.system?.[0]; return (typeof s0 === 'string' ? s0 : s0?.text || '').slice(0, 300) })(),
             msgCount: params.messages?.length || 0,
             toolCount: params.tools?.length || 0,
           }, null, 2))

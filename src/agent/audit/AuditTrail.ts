@@ -93,6 +93,6 @@ export class AuditTrail {
       const { fileService } = await import('@/services/fileService')
       await fileService.ensureDir('.aiharness/audit')
       await fileService.write(`.aiharness/audit/${this.sessionId}.jsonl`, this.toJSONL())
-    } catch { /* persistence is best-effort */ }
+    } catch (err) { console.warn('[AuditTrail] 持久化失败:', err) }
   }
 }

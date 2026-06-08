@@ -76,6 +76,7 @@ export class V4UnifiedRuntime {
         success: false, text: '工具执行器未配置',
         toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0,
         phase: 'ERROR', toolsUsed: [], toolCallSteps: [], iterationCount: 0,
+        cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0,
       }
     }
 
@@ -86,6 +87,7 @@ export class V4UnifiedRuntime {
         success: false, text: circuitCheck.reason || '服务暂时不可用',
         toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0,
         phase: 'ERROR', toolsUsed: [], toolCallSteps: [], iterationCount: 0,
+        cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0,
       }
     }
 
@@ -95,7 +97,8 @@ export class V4UnifiedRuntime {
     // ── ① Assemble context ──
     let totalPromptTokens = 0
     let totalCompletionTokens = 0
-    let totalCacheHitTokens = 0  // v11.5.1: track cache hits
+    let totalCacheHitTokens = 0  // v11.5.1: track cache read hits
+    let totalCacheCreationTokens = 0  // v11.7.0: track cache creation (still charged)
     let totalCost = 0            // v11.5.1: track cost
     let toolCallsCount = 0
     let collectedText = ''
@@ -123,6 +126,14 @@ export class V4UnifiedRuntime {
       if (this.config.abortSignal.aborted) break
       if (Date.now() - runStartTime > RUN_TIMEOUT) {
         collectedText = collectedText || '运行超时'
+        // v11.7.1: 清理最后一条不完整的 assistant 消息（有 tool_calls 但缺 tool_result）
+        for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
+          const m = this.messagesForApi[i]
+          if (m.role === 'assistant' && m.tool_calls && (m.tool_calls as unknown[]).length > 0) {
+            this.messagesForApi.splice(i, 1)
+            break
+          }
+        }
         break
       }
 
@@ -192,6 +203,7 @@ export class V4UnifiedRuntime {
       totalPromptTokens += response.usage.inputTokens
       totalCompletionTokens += response.usage.outputTokens
       totalCacheHitTokens += response.usage.cacheHitTokens || 0
+      totalCacheCreationTokens += (response.usage as any).cacheCreationTokens || 0
       totalCost += response.usage.cost || 0
       store.addTokens(response.usage.totalTokens)
       diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
@@ -368,6 +380,7 @@ export class V4UnifiedRuntime {
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       cacheHitTokens: totalCacheHitTokens,
+      cacheCreationTokens: totalCacheCreationTokens,
       cost: totalCost,
       phase: this.config.abortSignal.aborted ? 'ABORTED' : 'DONE',
       toolsUsed: this.toolsUsed,

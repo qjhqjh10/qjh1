@@ -11,11 +11,8 @@ const TASK_KEYWORDS = /创建|新建|修改|编辑|删除|生成|写入|添加|�
 
 /**
  * Returns true if the message is task-oriented (should enable tools).
- * Returns false for pure chat messages (no tools needed, saves ~5000 tokens/round).
+ * Returns false for pure chat messages (no tools needed).
  */
-export function isTaskMessage(message: string): boolean {
-  return TASK_KEYWORDS.test(message)
-}
 
 // ═══════════════════════════════════════════════════════════════
 //  v9.5.5: 任务复杂度评分 — 替代二元 isMultiFile 正则

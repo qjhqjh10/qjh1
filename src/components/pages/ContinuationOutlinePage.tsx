@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { continuationService, aiService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import * as cs from '@/services/continuationService'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
@@ -63,7 +64,7 @@ export default function ContinuationOutlinePage() {
       if (analyzed.length <= BATCH_SIZE) {
         const summaries = analyzed.map(c => `第${c.chapterNumber}章: ${c.analysis!.plotEvents.join('; ')}`)
         const prompt = cs.buildAggregationPrompt(summaries, project.sourceChapters.length)
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         su = parseReply(reply) as StoryUnderstanding | null
       } else {
         const totalBatches = Math.ceil(analyzed.length / BATCH_SIZE)
@@ -74,14 +75,14 @@ export default function ContinuationOutlinePage() {
           const batch = analyzed.slice(start, end)
           const summaries = batch.map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('; ')}`)
           const prompt = cs.buildBatchSummaryPrompt(summaries, b + 1, totalBatches, batch[0].chapterNumber, batch[batch.length - 1].chapterNumber, prevEndingState)
-          const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+          const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
           const parsed = parseReply(reply) as Record<string, any> | null
           if (parsed) { batchResults.push(JSON.stringify(parsed)); if (parsed.endingCharacterStates) prevEndingState = JSON.stringify(parsed.endingCharacterStates) }
         }
         const lastStart = Math.max(0, analyzed.length - 20)
         const lastDetail = analyzed.slice(lastStart).map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('；')}`).join('\n\n')
         const prompt = cs.buildGlobalAggregationPrompt(batchResults, lastDetail, project.sourceChapters.length)
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         su = parseReply(reply) as StoryUnderstanding | null
       }
       if (su) {
@@ -104,7 +105,7 @@ export default function ContinuationOutlinePage() {
       const lastStart = Math.max(0, analyzed.length - 20)
       const lastDetail = analyzed.slice(lastStart).map(c => `第${c.chapterNumber}章 ${c.title}: ${c.analysis!.plotEvents.join('；')} | 角色:${c.analysis!.charactersAppeared.map(a => `${a.name}(${a.role})`).join('、')}`).join('\n\n')
       const prompt = cs.buildPlotDirectionPrompt(JSON.stringify(project.storyUnderstanding), lastDetail)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const seg: PlotDirectionSegment = { id: 'pd_' + Date.now(), content: reply, label: '首次生成', generatedAt: new Date().toISOString() }
       const segments = [...(project.plotDirection || []), seg]
       await save({ plotDirection: segments, status: 'outlining' })
@@ -122,7 +123,7 @@ export default function ContinuationOutlinePage() {
       const existingPlot = project.plotDirection.map(s => s.content).join('\n\n')
       const label = `后续剧情${project.plotDirection.length}`
       const prompt = cs.buildContinuationPlotPrompt(JSON.stringify(project.storyUnderstanding), existingPlot, lastDetail)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const seg: PlotDirectionSegment = { id: 'pd_' + Date.now(), content: reply, label, generatedAt: new Date().toISOString() }
       await save({ plotDirection: [...project.plotDirection, seg] })
     } catch (err) { logError('后续剧情生成失败', err) }
@@ -137,7 +138,7 @@ export default function ContinuationOutlinePage() {
     try {
       const fullPlot = project.plotDirection.map(s => s.content).join('\n\n')
       const prompt = cs.buildOutlineMergePrompt(fullPlot, JSON.stringify(project.storyUnderstanding))
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const om = safeJsonParseAs<OutlineMergeData>(reply)
       if (om) {
         await save({ outlineMerge: om, status: 'merged' })

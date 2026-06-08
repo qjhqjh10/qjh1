@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, rewriteService, extractionService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 // 注意: rewriteService 和 extractionService 来自 @/services/fileService 封装层，不是 window.electron 直接调用。
 // Service 层提供了完整的类型安全和错误处理，请勿改为 (window as any).electron?.xxx 的访问方式。
 import { splitChaptersByHeadings } from '@/utils/textUtils'
@@ -146,7 +147,7 @@ export default function RewritePage() {
       if (ans[ch.id]) continue
       try {
         const prompt = buildRewriteAnalysisPrompt(ch.title, ch.content, ch.chapterNumber)
-        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
         const data = safeJsonParseAs<ChapterAnalysis>(reply)
         if (data) {
           ans[ch.id] = data

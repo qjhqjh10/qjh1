@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { continuationService, aiService, fileService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import { saveDetailedChapter, loadDetailedChapters } from '@/services/chapterService'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
@@ -50,7 +51,7 @@ export default function ContinuationDetailedPage() {
     try {
       const content = segments[selectedSegIdx].content
       const prompt = cs.buildSegmentChapterPlansPrompt(content, 10)
-      const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId)
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
       const data = safeJsonParseAs<{ chapters: any[] }>(reply)
       if (!data) { setGenerating(false); return }
       const plans: any[] = data.chapters || []

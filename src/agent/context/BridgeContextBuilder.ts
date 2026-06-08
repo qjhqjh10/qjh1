@@ -1,19 +1,11 @@
-// ── Bridge Context Builder (v11.5.1) ──
-// Shared context assembly logic extracted from V4AgentChatBridge and V4AnthropicChatBridge.
-// Eliminates ~150 lines of duplicated code across the two bridges.
+// ── Bridge Context Builder (v11.7.2) ──
+// Shared context assembly logic.
 //
-// Features:
-//   - Message classification via shared taskDetection utils
-//   - Global index building (with MemoryIndex cache)
-//   - KB search / Web search injection
-//   - Provider assembly (backward compat — currently ALL_PROVIDERS=[])
-//   - planMode support (OpenAI: ThinkingEngine, Anthropic: simple instruction)
-//   - planInstruction for complex multi-file tasks
-//   - Token estimation + breakdown
+// v11.7.2: 去掉全局文件索引 — 模型用 list_directory/find_files/search_content 动态探索
+// v11.7.1: 首条全量规则，后续精简提醒。工具分层（核心+tool_search）
 
-import { contextAssembler } from './ContextAssembler'
 import { estimateTokens } from '../utils/tokenEstimation'
-import { isPureGreeting, hasTaskKeywords, isComplexTask } from '../utils/taskDetection'
+import { isPureGreeting, isComplexTask } from '../utils/taskDetection'
 import type { Message } from '../state/types'
 
 // ── Types ──
@@ -23,9 +15,7 @@ export interface ContextBuilderOptions {
   kbEnabled: boolean
   webSearchEnabled: boolean
   selectedKbFileIds?: string[]
-  /** Enable plan-first prompting. OpenAI uses ThinkingEngine; Anthropic uses simple instruction. */
   planMode?: boolean
-  /** Only OpenAI: call ThinkingEngine.generatePlanPrompt() for detailed plan injection. */
   enableThinkingPlan?: boolean
 }
 
@@ -46,18 +36,16 @@ export class BridgeContextBuilder {
     hist: Message[],
     pid: string | null,
     corePrompt: string,
+    /** v11.7.1: 是否首条消息（首条发全量规则，后续精简） */
+    isFirstMessage: boolean,
   ): Promise<ContextBuilderResult> {
-    // ── 1. Message classification ──
     const isGreeting = isPureGreeting(msg)
 
-    // ── 2. Global index — 始终构建，第1条就缓存（v9.8.9原始设计）──
-    let globalIndex = ''
-    try {
-      const { buildGlobalIndex } = await import('./MemoryIndex')
-      globalIndex = await buildGlobalIndex(pid)
-    } catch { /* unavailable */ }
+    // ── 1. 确定是否发全量规则 ──
+    const sendFullRules = isFirstMessage
+    const effectivePrompt = sendFullRules ? corePrompt : (await import('../V4SystemPrompt')).MINIMAL_SYSTEM_PROMPT
 
-    // ── 3. KB search + Web search ──
+    // ── 2. KB search + Web search（始终执行，动态内容）──
     let searchContext = ''
     if (this.opts.kbEnabled && this.opts.projectId) {
       try {
@@ -82,54 +70,39 @@ export class BridgeContextBuilder {
       } catch { /* unavailable */ }
     }
 
-    // ── 4. Provider assembly (backward compat — currently ALL_PROVIDERS=[]) ──
-    const base = isGreeting
-      ? { systemMessages: [] as Array<{ role: 'system'; content: string }>, totalTokens: 0, domains: [] as string[], breakdown: [] as Array<{ domain: string; tokens: number }> }
-      : await contextAssembler.assemble(msg, hist, pid)
-
-    // ── 5. planMode injection (dual protocol) ──
+    // ── 4. planMode injection ──
     let planPrompt = ''
     if (this.opts.planMode && !isGreeting) {
       if (this.opts.enableThinkingPlan) {
-        // OpenAI: use ThinkingEngine for detailed plan prompt
         try {
           const { ThinkingEngine } = await import('../thinking/ThinkingEngine')
           planPrompt = new ThinkingEngine().generatePlanPrompt()
-        } catch { /* planPrompt stays empty */ }
+        } catch { /* */ }
       } else {
-        // Anthropic: simple plan instruction (no ThinkingEngine dependency)
         planPrompt = '[Plan Mode] 先分析任务→列出步骤→确认→逐步执行。不要直接操作文件。'
       }
     }
 
-    // ── 6. planInstruction (complex multi-file guidance) ──
+    // ── 5. planInstruction ──
     const msgIsMultiFile = isComplexTask(msg)
     const planInstruction = (msgIsMultiFile && !this.opts.planMode) ? '逐个文件完成。' : ''
 
-    // ── 7. Token estimation ──
-    const coreTokens = estimateTokens(corePrompt)
+    // ── 6. Token estimation ──
+    const coreTokens = estimateTokens(effectivePrompt)
     const searchTokens = searchContext ? estimateTokens(searchContext) : 0
-    const globalIndexTokens = estimateTokens(globalIndex || '')
     const historyTokens = hist.reduce(
       (s, m) => s + estimateTokens(m.content || '') + 4, 0,
     )
-    const fullTotal =
-      coreTokens + base.totalTokens + searchTokens + globalIndexTokens +
-      historyTokens + estimateTokens(msg)
+    const fullTotal = coreTokens + searchTokens + historyTokens + estimateTokens(msg)
 
-    // ── 9. Assemble system messages ──
-    // v11.6.1: 固定2条 system 消息 [0]核心规则 [1]索引
-    // 工具定义在 tools 参数中，不在此处重复
-    const coreSystemMsg: Message = { role: 'system', content: corePrompt }
+    // ── 7. Assemble system messages — 只有核心规则（索引不用了，模型用工具探索）──
     const systemMessages: Array<{ role: 'system'; content: string }> = [
-      coreSystemMsg as { role: 'system'; content: string },
-      ...(globalIndex ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }] : []),
+      { role: 'system', content: effectivePrompt },
     ]
 
-    // ── 10. Build breakdown ──
+    // ── 8. Breakdown ──
     const breakdown: Array<{ domain: string; tokens: number }> = [
-      { domain: '核心法则(缓存)', tokens: coreTokens },
-      { domain: 'Provider+索引', tokens: globalIndexTokens + (base.totalTokens || 0) },
+      { domain: sendFullRules ? '核心规则(全量)' : '核心规则(精简)', tokens: coreTokens },
       ...(searchContext ? [{ domain: '知识库/网络搜索', tokens: searchTokens }] : []),
       { domain: '对话历史', tokens: historyTokens },
       { domain: '当前消息', tokens: estimateTokens(msg) },
@@ -138,7 +111,7 @@ export class BridgeContextBuilder {
     return {
       systemMessages,
       totalTokens: fullTotal,
-      domains: ['core-prompt', ...base.domains],
+      domains: ['core-prompt'],
       breakdown,
     }
   }

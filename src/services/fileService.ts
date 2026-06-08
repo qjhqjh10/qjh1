@@ -11,14 +11,6 @@ function e() {
   return window.electron
 }
 
-/** Invalidate MemoryIndex when structural file changes occur (GUI operations) */
-async function invalidateIndexOnChange() {
-  try {
-    const { invalidateMemoryIndexCache } = await import('@/agent/context/MemoryIndex')
-    invalidateMemoryIndexCache()
-  } catch { /* agent may not be loaded */ }
-}
-
 export const fileService = {
   /** Read file with shared cache — GUI and AI reads share the same cache layer */
   read: async (path: string) => {
@@ -32,19 +24,16 @@ export const fileService = {
   write: async (path: string, content: string) => {
     await e().files.write(path, content)
     setFileCache(path, content)
-    invalidateIndexOnChange()
   },
   listDir: (dirPath: string) => e().files.listDir(dirPath),
   ensureDir: (dirPath: string) => e().files.ensureDir(dirPath),
   deleteFile: async (path: string) => {
     await e().files.deleteFile(path)
     invalidateFileCache(path)
-    invalidateIndexOnChange()
   },
   deleteDir: async (dirPath: string) => {
     await e().files.deleteDir(dirPath)
     invalidateDirCache(dirPath)
-    invalidateIndexOnChange()
   },
   readBinary: (filePath: string) => e().files.readBinary(filePath),
   writeBinary: (filePath: string, base64: string) => e().files.writeBinary(filePath, base64),
@@ -56,12 +45,10 @@ export const fileService = {
 export const projectService = {
   create: async (name: string, basePath: string, type?: string) => {
     const result = e().project.create(name, basePath, type)
-    invalidateIndexOnChange()
     return result
   },
   delete: async (projectPath: string) => {
     const result = e().project.delete(projectPath)
-    invalidateIndexOnChange()
     return result
   },
   getMeta: (projectPath: string) => e().project.getMeta(projectPath),

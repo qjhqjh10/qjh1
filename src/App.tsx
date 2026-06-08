@@ -109,7 +109,7 @@ export default function App() {
     let unsub: (() => void) | undefined
     try {
       unsub = fileService.onExternalChange(() => {
-        import('@/agent/context/MemoryIndex').then(m => m.invalidateMemoryIndexCache()).catch(() => {})
+        // v11.7.2: MemoryIndex removed — model uses tools to explore files
       })
     } catch { /* not in Electron */ }
     return () => { if (unsub) unsub() }

@@ -16,7 +16,7 @@ function localISOString(): string {
     pad(off % 60)
 }
 import { logTokenUsage } from './statsHandlers'
-import { decryptKey, encryptKey, MASKED_KEY, getOpenAI, getConfigStore } from './utils'
+import { getOpenAI, getConfigStore } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
@@ -82,7 +82,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const config = configs.find(c => c.id === configId)
     if (!config) throw new Error('Model config not found')
 
-    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiKey = config.apiKey
 
     const OpenAI = await getOpenAI()
     const client = new OpenAI({
@@ -155,7 +155,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       return
     }
 
-    const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+    const apiKey = config.apiKey
     const OpenAI = await getOpenAI()
     const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
 
@@ -252,21 +252,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const config = configs.find(c => c.id === configId)
     if (!config || !config.apiUrl) return []
 
-    // ── scope='image': 使用图片专用 API 配置（如果用户填写了独立的图片提供商） ──
-    // 未填写图片 API 配置时回退到 Main 配置，支持多模态模型（如 GPT-4o 同时输出文本和图片）
     let apiKey: string
     let apiUrl: string
     if (scope === 'image' && config.imageApiUrl && config.imageApiKey) {
-      const imageKey = decryptKey(config.imageApiKey, config.imageEncrypted ?? false, safeStorage)
-      if (imageKey) {
-        apiKey = imageKey
-        apiUrl = config.imageApiUrl
-      } else {
-        apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
-        apiUrl = config.apiUrl
-      }
+      apiKey = config.imageApiKey
+      apiUrl = config.imageApiUrl
     } else {
-      apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      apiKey = config.apiKey
       // Anthropic 协议的地址含 /anthropic，/models 端点不存在于此路径
       // 自动回退到供应商的 OpenAI 兼容基础地址
       const protocol = (config as any).protocol
@@ -312,28 +304,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
   // Save configs from renderer (encrypt keys, preserve existing keys for masked placeholders)
   ipcMain.handle('settings:saveConfigs', async (_event, configs: ModelConfig[]) => {
     const store = await getConfigStore()
-    const existingConfigs = store.get('configs', []) as StoredConfig[]
-    const existingMap = new Map(existingConfigs.map(c => [c.id, c]))
-
-    const encryptionAvailable = safeStorage.isEncryptionAvailable()
-
-    const toStore = configs.map(c => {
-      // Preserve existing key if: masked placeholder OR empty (user clicked away without typing)
-      if ((c.apiKey === MASKED_KEY || !c.apiKey) && existingMap.has(c.id)) {
-        const existing = existingMap.get(c.id)!
-        return { ...c, apiKey: existing.apiKey, encrypted: existing.encrypted }
-      }
-      // New or changed key - encrypt it
-      const { key, encrypted } = encryptKey(c.apiKey, safeStorage)
-      return { ...c, apiKey: key, encrypted }
-    })
+    const toStore = configs.map(c => ({ ...c, encrypted: false }))
 
     store.set('configs', toStore)
-
-    // Warn renderer if platform doesn't support encryption
-    if (!encryptionAvailable && configs.some(c => c.apiKey && c.apiKey !== MASKED_KEY)) {
-      return { warning: '当前系统不支持安全加密存储，API 密钥将以明文方式保存。建议使用 Windows 或 macOS 以保证密钥安全。' }
-    }
     return {}
   })
 
@@ -342,7 +315,6 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const configs = store.get('configs', []) as StoredConfig[]
     return configs.map(c => ({
       ...c,
-      apiKey: c.apiKey ? MASKED_KEY : '',
       inputPricePerM: c.inputPricePerM ?? 2.50,
       outputPricePerM: c.outputPricePerM ?? 10.00,
       cacheHitPricePerM: c.cacheHitPricePerM ?? 1.25,
@@ -364,7 +336,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const config = configs.find(c => c.id === configId)
       if (!config) throw new Error('Model config not found')
 
-      const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
+      const apiKey = config.apiKey
       const OpenAI = await getOpenAI()
       const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
 
@@ -547,9 +519,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       if (!config) throw new Error('Model config not found')
 
       // Image model: use image-specific config, fall back to main config
-      const imageApiKey = config.imageApiKey || config.apiKey
-      const imageEncrypted = config.imageEncrypted ?? config.encrypted
-      const apiKey = decryptKey(imageApiKey, imageEncrypted, safeStorage)
+      const apiKey = config.imageApiKey || config.apiKey
       const OpenAI = await getOpenAI()
       const client = new OpenAI({
         apiKey,

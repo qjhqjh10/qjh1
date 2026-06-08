@@ -56,10 +56,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Harness tools ──
   think:          ['status', 'summary', 'detail'],  // v9.5.3: thought content
   list_rules:     ['status', 'summary', 'detail'],
-  learn_rule:     ['status', 'summary'],
   list_audit:     ['status', 'summary', 'detail'],
-  write_learning: ['status', 'summary'],
-  update_config:  ['status', 'summary'],  // v9.5.3: harness write
+  update_config:  ['status', 'summary'],
 }
 
 export class ContractExecutor {
@@ -94,7 +92,12 @@ export class ContractExecutor {
     _plan?: ThinkingPlan | null,
     _planStep?: ThinkingStep,
   ): string[] | null {
-    return DEFAULT_CONTRACTS[toolName] || null
+    const contract = DEFAULT_CONTRACTS[toolName]
+    if (!contract) {
+      console.warn(`[ContractExecutor] 未知工具 "${toolName}" 无结果契约，完整返回原始结果`)
+      return null
+    }
+    return contract
   }
 
   static filterForContext(

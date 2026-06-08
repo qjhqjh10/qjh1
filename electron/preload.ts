@@ -88,7 +88,8 @@ const api = {
       ipcRenderer.invoke('ai:execute-file-tool', calls),
     // ── Anthropic 协议（流式 content blocks，独立通道） ──
     chatAnthropicStream: (params: {
-      system: string[]
+      // v11.7.0: system 支持 string 或 content block（含 cache_control）
+      system: Array<string | { type: string; text: string; cache_control?: { type: string } }>
       messages: Array<{
         role: string
         content: Array<{

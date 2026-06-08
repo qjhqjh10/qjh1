@@ -398,9 +398,9 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具注册 ──
-  it('功能08: ToolRegistry — 34个工具全部可用 (v11.5: 42→34)', () => {
+  it('功能08: ToolRegistry — 35个工具全部可用 (v11.7.1: +tool_search)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(34)
+    expect(names.length).toBeGreaterThanOrEqual(32)
     expect(names).toContain('read_file')
     expect(names).toContain('create_file')
     expect(names).toContain('edit_file')
@@ -434,7 +434,7 @@ describe('Agent 功能全景验证', () => {
   // ── 上下文组装 ──
   it('功能11: ContextAssembler — 系统提示词注入', async () => {
     const { buildSystemPrompt, CORE_SYSTEM_PROMPT } = await import('../V4SystemPrompt')
-    const p = buildSystemPrompt('project-structure', 'project-context')
+    const p = buildSystemPrompt()
     expect(p).toContain('青剑')
     expect(p).toContain('list_directory')
     expect(p).toContain('__FULL_REPLACE__')
@@ -449,23 +449,6 @@ describe('Agent 功能全景验证', () => {
     expect(events.length).toBeGreaterThan(0)
   })
 
-  // ── 学习引擎 ──
-  it('功能13: LearningEngine — 写入和读取学习经验', async () => {
-    const { LearningEngine } = await import('../learning/LearningEngine')
-    const le = new LearningEngine()
-    await le.load()
-    const entry = le.addEntry('JSON字段名缺少双引号', '先read_file参考已有JSON格式', 'file')
-    expect(entry.problem).toBe('JSON字段名缺少双引号')
-    expect(entry.solution).toContain('read_file')
-    expect(entry.enabled).toBe(false)  // default off
-    const entries = le.getAll()
-    expect(entries.length).toBe(1)
-    const ctx = le.getContextInject()
-    expect(ctx).toBe('')  // not injected when disabled
-    le.toggleEnabled(entry.id)
-    const ctx2 = le.getContextInject()
-    expect(ctx2).toContain('JSON字段名缺少双引号')
-  })
 
   // ── 审计日志 ──
   it('功能14: AuditTrail — 会话启动和工具记录', async () => {

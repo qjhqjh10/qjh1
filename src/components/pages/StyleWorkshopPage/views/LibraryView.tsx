@@ -12,6 +12,7 @@ import { FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, pre
 import EmptyState from '@/components/common/EmptyState';
 import type { DimAnalysis, StyleProject } from '@/types/story';
 import { styleProjectService, aiService } from '@/services/fileService';
+import { chatAI } from '@/utils/chatAI';
 import { useSettingsStore } from '@/store';
 import { logError } from '@/utils/logger'
 import { safeJsonParseAs } from '@/utils/safeJsonParse';
@@ -523,7 +524,7 @@ ${tieredList}
 }
 
 只输出JSON，不要markdown，不要尾逗号。`
-                        const reply = await aiService.chat([{ role: 'user', content: prompt }], activeConfigId!)
+                        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId!)
                         const json = safeJsonParseAs<{ fullDescription?: string; tone?: any; dimensions?: any }>(reply)
                         if (json) {
                           ws.setEditTemplate((prev: any) => prev ? {

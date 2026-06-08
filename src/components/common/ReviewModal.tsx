@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService, kbService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import Modal from './Modal'
 import Button from './Button'
 import { SparklesIcon } from '@heroicons/react/24/outline'
@@ -51,7 +52,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
     setSaved(false)
     try {
       const msg = `${promptContent}\n\n---\n章节标题: ${chapterTitle}\n\n章节正文:\n${chapterContent.slice(0, 50000)}`
-      const reply = await aiService.chat([{ role: 'user', content: msg }], configId, projectId || undefined)
+      const reply = await chatAI([{ role: 'user', content: msg }], configId, projectId || undefined)
       setResult(reply)
       // Save review as KB file
       if (projectId && projectsBasePath) {

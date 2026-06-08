@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { styleProjectService, aiService, styleTemplateService } from '@/services/fileService'
+import { chatAI } from '@/utils/chatAI'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import { getTemplateDims } from '@/types/styleTemplate'
 import type { DimAnalysis } from '@/types/story'
@@ -279,7 +280,7 @@ export function useStyleWorkshop() {
         for (let idx = 0; idx < sample.length; idx++) {
           try {
             const ch = sample[idx]
-            const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+            const reply = await chatAI([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
             updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
             batchSaveProject()
           } catch (err) { logError(`分析章节失败: ${sample[idx].title}`, err) }
@@ -292,7 +293,7 @@ export function useStyleWorkshop() {
           setAnalyzeProgress(`全量分析: ${i + 1}/${batches.length} 批...`)
           for (const ch of batches[i]) {
             try {
-              const reply = await aiService.chat([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
+              const reply = await chatAI([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
               updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
               batchSaveProject()
             } catch (err) { logError(`分析章节失败: ${ch.title}`, err) }
@@ -362,7 +363,7 @@ export function useStyleWorkshop() {
       if (dimSummaryParts.length > 0) {
         const dimSummary = dimSummaryParts.join('\n\n')
         const prompt = buildSummarizePrompt(analyzedChapters.length, dimSummary, selectedProject.novelType || '通用')
-        const reply = await aiService.chat([{ role: 'user' as const, content: prompt }], activeConfigId)
+        const reply = await chatAI([{ role: 'user' as const, content: prompt }], activeConfigId)
         const analysisResult = parseStyleAnalysisReply(reply, enabledDimensions)
         if (analysisResult.dimAnalyses) {
           for (const [dk, da] of Object.entries(analysisResult.dimAnalyses)) {

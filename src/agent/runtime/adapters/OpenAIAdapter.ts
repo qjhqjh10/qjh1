@@ -63,6 +63,9 @@ export class OpenAIAdapter implements ProtocolAdapter {
         inputTokens: result.usage?.prompt_tokens || 0,
         outputTokens: result.usage?.completion_tokens || 0,
         totalTokens: result.usage?.total_tokens || 0,
+        // v11.7.1: DeepSeek OpenAI 端点自动缓存前缀 — 透传 cached_tokens
+        cacheHitTokens: (result.usage as any)?.cached_tokens || 0,
+        cost: (result.usage as any)?.cost,
       },
       reasoningContent: result.reasoning_content,
     }

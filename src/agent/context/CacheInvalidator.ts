@@ -1,9 +1,6 @@
-// ── Cache Invalidator (v11.5.1) ──
-// Shared cache invalidation logic extracted from V4AgentChatBridge and V4AnthropicChatBridge.
-// Eliminates ~60 lines of duplicated code across the two bridges.
-//
-// Covers: MemoryIndex, FileCache, ContextAssembler providers, and UI change notification
-// for all file-modifying tools.
+// ── Cache Invalidator (v11.7.2) ──
+// Shared cache invalidation logic. Covers FileCache + ContextAssembler providers + UI notification.
+// (MemoryIndex removed in v11.7.2 — index no longer injected)
 
 import { contextAssembler, ContextAssembler } from './ContextAssembler'
 
@@ -26,7 +23,6 @@ export async function invalidateAfterTool(
   callbacks: CacheInvalidationCallbacks,
 ): Promise<void> {
   const fp = String(args.file_path || args.path || '')
-  const { invalidateMemoryIndexCache } = await import('./MemoryIndex')
   const { invalidateFile, invalidateDir } = await import('./FileCache')
 
   if (toolName === 'edit_file' || toolName === 'batch_replace') {
@@ -36,15 +32,12 @@ export async function invalidateAfterTool(
     for (const d of domains) contextAssembler.invalidateProvider(projectId, d)
   } else if (toolName === 'create_file' || toolName === 'delete_file') {
     // Structural change → invalidate index + directory cache + provider domain
-    invalidateMemoryIndexCache()
     invalidateFile(fp)
     const dir = fp.replace(/\/[^/]+$/, '')
     invalidateDir(dir)
     const domains = ContextAssembler.domainsForPath(fp)
     for (const d of domains) contextAssembler.invalidateProvider(projectId, d)
   } else if (toolName === 'rename_file') {
-    // Both old and new paths affected → invalidate index
-    invalidateMemoryIndexCache()
     const newPath = String(args.new_path || '')
     invalidateFile(fp)
     if (newPath) invalidateFile(newPath)
@@ -54,8 +47,7 @@ export async function invalidateAfterTool(
     ])
     for (const d of domains) contextAssembler.invalidateProvider(projectId, d)
   } else if (/^(kb_append_file|create_project|delete_project)$/.test(toolName)) {
-    // Global/structural changes → invalidate index
-    invalidateMemoryIndexCache()
+    // Global/structural changes (no index to invalidate in v11.7.2)
   }
 
   // Notify GUI of file changes

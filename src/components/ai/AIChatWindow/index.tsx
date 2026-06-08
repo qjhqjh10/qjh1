@@ -16,8 +16,6 @@ import { parseAiErrorMessage } from '@/utils/textUtils'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import { useToast } from '@/components/common/Toast'
-import VoiceButton from './components/VoiceButton'
-import SpeakButton from './components/SpeakButton'
 import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
@@ -252,7 +250,7 @@ export default function AIChatWindow() {
   const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set())
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
-  const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number } | null>(null)
+  const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number; cacheHitTokens?: number; cacheCreationTokens?: number } | null>(null)
   const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
@@ -454,7 +452,7 @@ export default function AIChatWindow() {
   }, [])
 
   // V9.5.2 P0-5: 软件功能/能力自述 — 本地回复，零API调用
-  // Patterns matching "软件功能" or "AI 能力" queries (same as selectDomainModules in V4SystemPrompt)
+  // Patterns matching "软件功能" or "AI 能力" queries (本地回复，零 API 调用)
   const DISPLAY_ONLY_PATTERN = /你能做什么|你会什么|你有什么能力|AI助手能做什么|AI能做什么|软件有什么功能|软件说明|功能介绍|软件能做什么|这个软件是什么|软件功能/
   const isDisplayOnlyQuery = (msg: string) => DISPLAY_ONLY_PATTERN.test(msg)
 
@@ -615,7 +613,15 @@ export default function AIChatWindow() {
             breakdown: inputBreakdown,
             outputBreakdown,
             iterationCount: runResult.iterationCount || 1,
-            usage: runResult.totalTokens > 0 ? { prompt_tokens: runResult.promptTokens || 0, completion_tokens: runResult.completionTokens || 0, total_tokens: runResult.totalTokens, cost: runResult.cost || 0, cacheHitTokens: runResult.cacheHitTokens || 0 } : undefined,
+            // usage: 入/出/合计 为本次消息的原始值，缓存另显
+            usage: runResult.totalTokens > 0 ? {
+              prompt_tokens: runResult.promptTokens || 0,
+              completion_tokens: runResult.completionTokens || 0,
+              total_tokens: runResult.totalTokens,
+              cost: runResult.cost || 0,
+              cacheHitTokens: runResult.cacheHitTokens || 0,
+              cacheCreationTokens: (runResult as any).cacheCreationTokens || 0,
+            } : undefined,
             totalIterations: runResult.iterationCount || 1,
           }])
         },
@@ -626,13 +632,14 @@ export default function AIChatWindow() {
           })
         },
       })
-      // C1: Use functional updater to avoid stale closure on cumulativeTokens
+      // C1: 累计 tokens（预算统计）用实际计费值（总 - cacheRead）
+      const billedTokens = Math.max(0, (result.totalTokens || 0) - (result.cacheHitTokens || 0))
       setCumulativeTokens(prev => {
-        const newTotal = prev + (result.totalTokens || 0)
+        const newTotal = prev + billedTokens
         setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
         return newTotal
       })
-      useAgentStore.getState().addTokens(result.totalTokens)
+      useAgentStore.getState().addTokens(billedTokens)
     } catch (err) {
       setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
     } finally {
@@ -1129,6 +1136,12 @@ export default function AIChatWindow() {
                 {msg.role === 'assistant' && msg.usage && (
                   <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap', alignItems: 'center' }}>
                     <span>入 {(msg.usage.prompt_tokens || 0).toLocaleString()} | 出 {(msg.usage.completion_tokens || 0).toLocaleString()} | 合计 {(msg.usage.total_tokens || 0).toLocaleString()}</span>
+                    {(msg.usage as any).cacheCreationTokens > 0 && (
+                      <span style={{ color: '#d97706', fontWeight: 600 }}>📥 已缓存 {((msg.usage as any).cacheCreationTokens || 0).toLocaleString()}</span>
+                    )}
+                    {(msg.usage.cacheHitTokens || 0) > 0 && (
+                      <span style={{ color: '#16a34a', fontWeight: 600 }}>📦 缓存命中 {(msg.usage.cacheHitTokens || 0).toLocaleString()}</span>
+                    )}
                     {msg.usage.cost > 0 && <span> {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
                   </div>
                 )}
@@ -1185,13 +1198,6 @@ export default function AIChatWindow() {
                         <ClipboardIcon style={{ width: 12, height: 12 }} /> 复制
                       </button>
                     </div>
-                  </div>
-                )}
-
-                {/* Speak button for assistant messages */}
-                {msg.role === 'assistant' && msg.id !== 'welcome' && msg.content.length > 5 && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10, paddingLeft: 36 }}>
-                    <SpeakButton text={msg.content} />
                   </div>
                 )}
 
@@ -1279,10 +1285,6 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
-              <VoiceButton
-                onTextChange={(text) => setInput(text)}
-                onFinalText={(text) => { setInput(text); setTimeout(() => handleSend(), 100) }}
-              />
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
@@ -1474,6 +1476,19 @@ export default function AIChatWindow() {
                     </div>
                   )}
                 </div>
+                {/* v11.7.0: prompt caching info */}
+                {(breakdownModal.cacheCreationTokens || 0) > 0 && (
+                  <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.12)', fontSize: 11 }}>
+                    <span style={{ color: '#d97706', fontWeight: 600 }}>📥 已缓存 {(breakdownModal.cacheCreationTokens || 0).toLocaleString()} tokens</span>
+                    <span style={{ color: '#9b8e84', marginLeft: 6 }}>首轮建立缓存（仍按创建价计费），后续轮次自动命中</span>
+                  </div>
+                )}
+                {(breakdownModal.cacheHitTokens || 0) > 0 && (
+                  <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, background: 'rgba(22,163,74,0.06)', border: '1px solid rgba(22,163,74,0.12)', fontSize: 11 }}>
+                    <span style={{ color: '#16a34a', fontWeight: 600 }}>📦 缓存命中 {(breakdownModal.cacheHitTokens || 0).toLocaleString()} tokens</span>
+                    <span style={{ color: '#9b8e84', marginLeft: 6 }}>从缓存读取，仅收 ~10% 读取费</span>
+                  </div>
+                )}
                 <div style={{ marginTop: 6, fontSize: 9, color: '#9b8e84' }}>
                   换算: 中~1.5字符/token, 英~4字符/token。本轮输入字符: {breakdownModal.inputBreakdown.reduce((s, b) => s + b.chars, 0).toLocaleString()}
                 </div>
@@ -1501,7 +1516,7 @@ export default function AIChatWindow() {
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.breakdown) {
-            return <button onClick={() => { setBreakdownModal({ inputBreakdown: (msg as any).breakdown || [], outputBreakdown: (msg as any).outputBreakdown || [], totalPromptTokens: msg.usage?.prompt_tokens, totalCompletionTokens: msg.usage?.completion_tokens, totalTokens: msg.usage?.total_tokens }); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setBreakdownModal({ inputBreakdown: (msg as any).breakdown || [], outputBreakdown: (msg as any).outputBreakdown || [], totalPromptTokens: msg.usage?.prompt_tokens, totalCompletionTokens: msg.usage?.completion_tokens, totalTokens: msg.usage?.total_tokens, cacheHitTokens: msg.usage?.cacheHitTokens, cacheCreationTokens: (msg.usage as any)?.cacheCreationTokens }); setContextMenu(null) }} style={ctxMenuBtn}>
               <MagnifyingGlassIcon style={{ width: 13, height: 13 }} /> 查看Token分解
             </button>
           }

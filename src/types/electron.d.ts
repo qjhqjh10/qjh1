@@ -61,7 +61,7 @@ export interface AIAPI {
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
   // ── Anthropic 协议 ──
   chatAnthropicStream: (params: {
-    system: string[]
+    system: Array<string | { type: string; text: string; cache_control?: { type: string } }>
     messages: Array<{
       role: string
       content: Array<{

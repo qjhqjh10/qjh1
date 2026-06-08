@@ -19,7 +19,7 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作对话助手
 
 - 新建: create_file 直接创建，不需要先读（文件还不存在）
 - 修改: 先 read_file 确认原文，再 edit_file
-- 索引已含全部文件路径 → 直接 read_file，不需要 list_directory 探索
+- 不确定文件路径 → list_directory 探索目录 / find_files 搜索 / search_content 搜内容
 - 空文件用 old_string="__FULL_REPLACE__" 全量覆写
 
 ## 路径速查
@@ -128,22 +128,13 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 ### 9. 知识库
 **触发**: 知识库/保存参考/素材/设定保存/kb
 
-1. 索引已列出 knowledge_base/files/ 下的文件 → 直接 read_file 查看
-2. 不存在→create_file("knowledge_base/files/中文名.md", content)
+1. list_directory("../../knowledge_base/files/") 查看已有文件 → read_file 读取
+2. 不存在→create_file("../../knowledge_base/files/中文名.md", content)
 3. 存在→kb_append_file(file_id, content) 追加内容
 4. kb_index_file(file_id) → 建立搜索索引（必须手动调用）
 
 ### 10. 草稿笔记
-**触发**: 记笔记/存草稿/记录灵感/保存想法/新建草稿/整理素材
-
-**与知识库的区别**: 草稿是临时性的个人笔记；知识库是长期积累的参考资料。
-
-⚠️ 推荐直接用 create_file/edit_file 操作笔记（路径: notes/文件名.md）：
-- **新建**: create_file("notes/灵感记录.md", content)
-- **编辑**: edit_file("notes/灵感记录.md", old_string, new_string) — 先 read_file 确认原文
-- **读取**: read_file("notes/灵感记录.md") — 路径从索引中查找
-- **删除**: delete_file("notes/灵感记录.md")
-- **语义搜索**: search_notes(query="关键词")
+**触发**: 记笔记/存草稿/记录灵感 → 路径 notes/文件名.md（CRUD 同核心原则）。语义搜索: search_notes(query="关键词")。与知识库区别: 草稿=临时笔记, 知识库=长期参考。
 
 ### 11. 多任务编排
 **触发**: 编号列表(1.2.3.)/多件事/先...再...然后/帮我做X件事
@@ -151,30 +142,17 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 1. 分析所有子任务→列出清单→确认顺序
 2. 逐个执行→每完成一个汇报"✅任务X/Y完成"
 3. 子任务失败→报告原因→继续下一个
-4. 全部完成→总结
-
-项目: __PROJECT_STRUCTURE__ __PROJECT_CONTEXT__`
+4. 全部完成→总结`
 
 // ═══════════════════════════════════════════════════════════
 // 轻量导出（无 Skill Catalog，无 invoke_skill 依赖）
 // ═══════════════════════════════════════════════════════════
 
-// AI能力/软件功能自述（仅用于"你能做什么"类闲聊）
-export const AI_CAPABILITIES_MODULE = `我是青剑内置的AI写作助手。能直接操作项目文件完成：文件操作/角色管理/大纲创作/细纲创作/章节生成/小说仿写/续写/改写/风格场景模板/知识库管理/图片搜索。`
-export const SOFTWARE_FEATURES_MODULE = `青剑是AI辅助小说创作桌面软件。功能：项目管理/AI写作助手/大纲/角色/章节写作/仿写/续写/风格场景工坊/故事脉络/知识库/EPUB导出。`
+// v11.7.1: 精简版 — 后续消息用，提醒模型参照首条规则
+export const MINIMAL_SYSTEM_PROMPT = `你是青剑，小说创作对话助手。严格遵循本会话首条消息中注入的核心规则和写作规范手册执行。
+需要查看文件时用 list_directory/find_files/search_content 探索，工具定义不变。`
 
-export function selectDomainModules(userMessage: string): string[] {
-  const m: string[] = []
-  if (/你能做什么|功能|介绍/.test(userMessage)) { m.push(AI_CAPABILITIES_MODULE); m.push(SOFTWARE_FEATURES_MODULE) }
-  if (/你会什么|能力/.test(userMessage) && !/软件/.test(userMessage)) { m.push(AI_CAPABILITIES_MODULE) }
-  return m
-}
-
-export function buildSystemPrompt(projectStructure?: string, projectContext?: string): string {
+// v11.7.1: 占位符已移除，直接返回常量（无需每次做无用替换）
+export function buildSystemPrompt(): string {
   return CORE_SYSTEM_PROMPT
-    .replace('__PROJECT_STRUCTURE__', projectStructure || '')
-    .replace('__PROJECT_CONTEXT__', projectContext || '')
 }
-
-// @deprecated v11.5.1: use buildSystemPrompt directly
-export const buildSystemPromptWithSkills = buildSystemPrompt

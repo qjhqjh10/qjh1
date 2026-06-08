@@ -34,13 +34,13 @@ export const templateTools: ToolDefinition[] = [
 
       try {
         const { buildStyleAnalyzePrompt, parseStyleAnalysisReply } = await import('@/services/extractionService')
-        const { aiService } = await import('@/services/fileService')
         const { useSettingsStore } = await import('@/store')
         const configId = useSettingsStore.getState().activeConfigId
         if (!configId) return { status: 'error', summary: '未配置AI' }
 
         const prompt = buildStyleAnalyzePrompt(dims, String(args.novelType || '') || undefined)
-        const reply = await aiService.chat([{ role: 'user', content: `${prompt}\n\n[原文]\n${content}` }], configId)
+        const { chatAI } = await import('@/utils/chatAI')
+        const reply = await chatAI([{ role: 'user', content: `${prompt}\n\n[原文]\n${content}` }], configId)
         const result = parseStyleAnalysisReply(reply, dims)
         const dims2 = result.dimAnalyses || {}
         const keys = Object.keys(dims2)
