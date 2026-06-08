@@ -54,7 +54,7 @@ describe('功能冒烟测试 (项目"1")', () => {
   it('工具裁剪: 风格→3核心, 章节→5核心, 图片→2核心', () => {
     const allTools = toolRegistry.getAllSchemas()
     const READ = new Set(['read_file','list_directory','search_content'])
-    const TMPL = new Set(['create_style_template','create_scene_template'])
+    const TMPL = new Set(['analyze_text_style'])
     const WRITE = new Set(['create_file','edit_file'])
     const IMG = new Set(['search_images','generate_image'])
 
@@ -65,11 +65,11 @@ describe('功能冒烟测试 (项目"1")', () => {
     const imageCore = allTools.filter((t: any) =>
       IMG.has(t.function.name))
 
-    expect(styleCore.length).toBe(3)
-    expect(chapterCore.length).toBe(5)  // READ(3) + WRITE(2) = 5 (search_files removed)
+    expect(styleCore.length).toBe(2)
+    expect(chapterCore.length).toBe(5)
     expect(imageCore.length).toBe(2)
     expect(styleCore.map((t: any) => t.function.name).sort())
-      .toEqual(['create_scene_template','create_style_template','read_file'])
+      .toEqual(['analyze_text_style','read_file'])
   })
 
   // ── 4. 安全围栏 ──
@@ -86,11 +86,10 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 34个工具 (v11.5 42→34)，含风格/场景/图片/学习', () => {
+  it('工具注册: 33个工具 (模板工具合并为analyze_text_style)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(34)
-    expect(names).toContain('create_style_template')
-    expect(names).toContain('create_scene_template')
+    expect(names.length).toBeGreaterThanOrEqual(33)
+    expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('write_learning')
     expect(names).toContain('read_file')
@@ -124,14 +123,8 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 8. Context Provider ──
-  it('ContextAssembler: ALL_PROVIDERS 包含10个Provider', async () => {
-    const { ALL_PROVIDERS } = await import('../context/providers/index')
-    for (const p of ALL_PROVIDERS) {
-      if (!contextAssembler.getProviders().some(ex => ex.domain === p.domain)) {
-        contextAssembler.register(p)
-      }
-    }
-    expect(contextAssembler.getProviders().length).toBeGreaterThanOrEqual(0)
+  it('ContextAssembler: Provider系统已退役(0个Provider)', () => {
+    expect(contextAssembler.getProviders().length).toBe(0)
   })
 
   // ── 9. 缓存域映射 ──

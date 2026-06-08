@@ -17,7 +17,11 @@ import { contextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
-import { isComplexTask } from './utils/taskDetection'
+// v11.6.1: isTaskMessage 暂时停用
+// 参考 Claude 架构：无代码级工具路由，tool_choice:auto 让模型自己判断
+// 联网确认：Claude Code 的哲学是 "No Router, No Classifier — The Model Decides Everything"
+// 如需恢复：取消下面这行注释，并取消 if/else 块的注释
+// import { isTaskMessage } from './utils/taskDetection'
 import type { Message } from './state/types'
 import type { V4AgentRunResult, ToolExecutorFn } from './runtime/RuntimeTypes'
 
@@ -30,7 +34,6 @@ function ensureInitialized() {
     toolRegistry.registerAll(ALL_TOOLS as any)
     toolsRegistered = true
   }
-  // v11.5.1: Provider registration removed — ALL_PROVIDERS=[] (system retired)
 }
 
 // ── Types ──
@@ -160,25 +163,10 @@ export class V4AgentChatBridge {
         contextWindow: this.contextWindow,
       }, adapter)
 
-      // ── 2. Tool scoping (progressive disclosure: core → extended at iteration 3+) ──
+      // ── 2. 全部工具，第1条消息就发、就缓存 ──
       const allTools = toolRegistry.getAllSchemas()
-      const msg = userMessage
-
-      const READ   = new Set(['read_file','list_directory','search_content','find_files'])
-      const ALWAYS = new Set(['think'])
-      const WRITE  = new Set(['create_file','edit_file','batch_replace'])
-      const DANGER = new Set(['delete_file','rename_file','delete_project'])
-      const NOTE   = new Set(['search_notes'])
-      const KB     = new Set(['kb_append_file','kb_index_file'])
-      const TMPL   = new Set(['create_style_template','create_scene_template'])
-      const PROJ   = new Set(['create_project'])
-
-      const scopedCore = allTools.filter((t: any) =>
-        READ.has(t.function.name) || WRITE.has(t.function.name) || TMPL.has(t.function.name) || PROJ.has(t.function.name) || ALWAYS.has(t.function.name))
-      const scopedExtended = allTools.filter((t: any) =>
-        DANGER.has(t.function.name) || NOTE.has(t.function.name) || KB.has(t.function.name))
-
-      diagnosticLogger.recordInfo(`Agent2: task=default core=${scopedCore.length} ext=${scopedExtended.length}`)
+      this.runtime.setTools(allTools)
+      diagnosticLogger.recordInfo(`Agent2: ${allTools.length} tools`)
 
       // ── 3. Wire Context Assembler (v11.5.1: BridgeContextBuilder 共享模块) ──
       const CORE_PROMPT = buildSystemPrompt('', '')
@@ -241,11 +229,7 @@ export class V4AgentChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 6. Set core + extended tools (v4.1 progressive disclosure) ──
-      this.runtime.setTools(scopedCore)
-      this.runtime.setExtendedTools(scopedExtended)
-
-      // ── 7. Set history ──
+      // ── 6. Set history ──
       this.runtime.setHistory(this.history)
 
       // ── 8. Wire events to store ──

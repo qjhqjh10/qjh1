@@ -12,7 +12,7 @@ import type { AgentEventEmitter } from './AgentEventEmitter'
 /** Tools that write — executed sequentially. */
 export const WRITE_TOOLS = new Set([
   'create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
-  'create_style_template','create_scene_template','kb_append_file',
+  'kb_append_file',
   'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
@@ -80,10 +80,10 @@ export async function executeSingleTool(
     return
   }
 
-  // Execute (with 60s timeout)
+  // Execute (120s — analyze_text_style calls AI, needs >60s)
   const t0 = Date.now()
   let result: ToolResult
-  const TOOL_TIMEOUT = 60_000
+  const TOOL_TIMEOUT = 120_000
   const execPromise = ctx.toolExecutor(args, {
     projectId: ctx.projectId,
     configId: ctx.configId,

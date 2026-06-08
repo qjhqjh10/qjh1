@@ -17,7 +17,7 @@ export interface CacheInvalidationCallbacks {
  * Invalidate caches after a tool successfully modified state.
  * Handles: create_file, edit_file, delete_file, rename_file, batch_replace,
  *   create_project, delete_project, kb_append_file,
- *   create_style_template, create_scene_template
+ *   (template tools removed in v11.6.1)
  */
 export async function invalidateAfterTool(
   toolName: string,
@@ -29,12 +29,7 @@ export async function invalidateAfterTool(
   const { invalidateMemoryIndexCache } = await import('./MemoryIndex')
   const { invalidateFile, invalidateDir } = await import('./FileCache')
 
-  if (/^(create_style_template|create_scene_template)$/.test(toolName)) {
-    // Template created → invalidate index + provider domain
-    invalidateMemoryIndexCache()
-    const domain = toolName === 'create_style_template' ? 'style' : 'scene'
-    contextAssembler.invalidateProvider(projectId, domain)
-  } else if (toolName === 'edit_file' || toolName === 'batch_replace') {
+  if (toolName === 'edit_file' || toolName === 'batch_replace') {
     // Content edit → invalidate ONLY that file + its provider domain
     invalidateFile(fp)
     const domains = ContextAssembler.domainsForPath(fp)

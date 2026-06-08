@@ -23,6 +23,8 @@ import { contextAssembler } from './context/ContextAssembler'
 import { ALL_TOOLS } from './skills/tools'
 import { useAgentStore } from './store/AgentStore'
 import { diagnosticLogger } from './diagnostics/DiagnosticLogger'
+// v11.6.1: isTaskMessage 暂时停用 — 参考 Claude 架构 tool_choice:auto
+// import { isTaskMessage } from './utils/taskDetection'
 import type { Message } from './state/types'
 import type {
   BridgeOptions,
@@ -39,7 +41,6 @@ function ensureInitialized() {
     toolRegistry.registerAll(ALL_TOOLS as any)
     toolsRegistered = true
   }
-  // v11.5.1: Provider registration removed — ALL_PROVIDERS=[] (system retired)
 }
 
 // ── Bridge ──
@@ -133,7 +134,9 @@ export class V4AnthropicChatBridge {
       }, adapter)
 
       // ── 2.5. 工具准备 ──
+      // v11.6.1: isTaskMessage 停用，工具始终发送，模型自己判断
       const allTools = toolRegistry.getAllSchemas()
+      this.runtime.setTools(allTools)
 
       // ── 3. 注入 Context Assembler (v11.5.1: BridgeContextBuilder 共享模块) ──
       const CORE_PROMPT = buildSystemPrompt('', '')
@@ -193,10 +196,7 @@ export class V4AnthropicChatBridge {
       }
       this.runtime.setToolExecutor(toolExecutor)
 
-      // ── 5. 工具注入 ──
-      this.runtime.setTools(allTools)
-
-      // ── 6. 注入历史 ──
+      // ── 5. 注入历史 ──
       this.runtime.setHistory(this.history)
 
       // ── 7. 事件监听 ──

@@ -39,10 +39,6 @@ export function isQualityCheckApplicable(checkId: string, toolName: string): boo
   if (/^qc-/.test(checkId) && toolName === 'create_file') return true
   // 章节内容检查 → create_file（章节正文 .txt）
   if (/^(word-count|paragraph-spacing|not-one-block|chapter-format|read-summary-not-chapter)$/.test(checkId)) return toolName === 'create_file'
-  // 风格模板检查 → create_style_template
-  if (/^(no-empty-dims|11-required-dims|vocabulary-limit|english-keys)$/.test(checkId)) return toolName === 'create_style_template'
-  // 场景模板检查
-  if (/^(required-fields|auto-fields-limit|no-empty-config)$/.test(checkId)) return toolName === 'create_scene_template'
   // 大纲/追加内容检查 → edit_file 或 create_file
   if (/^(content-length|old-string-exact|append-not-overwrite)$/.test(checkId)) return toolName === 'edit_file' || toolName === 'create_file'
   // KB/其他检查

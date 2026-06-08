@@ -49,16 +49,13 @@ export class BridgeContextBuilder {
   ): Promise<ContextBuilderResult> {
     // ── 1. Message classification ──
     const isGreeting = isPureGreeting(msg)
-    const needsIndex = (hasTaskKeywords(msg) || hist.length > 0) && !isGreeting
 
-    // ── 2. Global index (cached → lazy build) ──
+    // ── 2. Global index — 始终构建，第1条就缓存（v9.8.9原始设计）──
     let globalIndex = ''
-    if (needsIndex) {
-      try {
-        const { buildGlobalIndex } = await import('./MemoryIndex')
-        globalIndex = await buildGlobalIndex(pid)
-      } catch { /* unavailable */ }
-    }
+    try {
+      const { buildGlobalIndex } = await import('./MemoryIndex')
+      globalIndex = await buildGlobalIndex(pid)
+    } catch { /* unavailable */ }
 
     // ── 3. KB search + Web search ──
     let searchContext = ''
@@ -109,16 +106,7 @@ export class BridgeContextBuilder {
     const msgIsMultiFile = isComplexTask(msg)
     const planInstruction = (msgIsMultiFile && !this.opts.planMode) ? '逐个文件完成。' : ''
 
-    // ── 7. toolInvokePrompt (skip for greetings) ──
-    let toolInvokePrompt = ''
-    if (!isGreeting) {
-      try {
-        const { buildToolInvokePrompt } = await import('@/types/fileOps')
-        toolInvokePrompt = buildToolInvokePrompt()
-      } catch { /* unavailable */ }
-    }
-
-    // ── 8. Token estimation ──
+    // ── 7. Token estimation ──
     const coreTokens = estimateTokens(corePrompt)
     const searchTokens = searchContext ? estimateTokens(searchContext) : 0
     const globalIndexTokens = estimateTokens(globalIndex || '')
@@ -130,23 +118,12 @@ export class BridgeContextBuilder {
       historyTokens + estimateTokens(msg)
 
     // ── 9. Assemble system messages ──
+    // v11.6.1: 固定2条 system 消息 [0]核心规则 [1]索引
+    // 工具定义在 tools 参数中，不在此处重复
     const coreSystemMsg: Message = { role: 'system', content: corePrompt }
-    const dynamicContent = [
-      ...base.systemMessages.map(m => m.content),
-      searchContext,
-      toolInvokePrompt,
-      planInstruction,
-      planPrompt,
-    ].filter(Boolean).join('\n\n')
-
     const systemMessages: Array<{ role: 'system'; content: string }> = [
       coreSystemMsg as { role: 'system'; content: string },
-      ...(globalIndex
-        ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }]
-        : []),
-      ...(dynamicContent
-        ? [{ role: 'system' as const, content: dynamicContent }]
-        : []),
+      ...(globalIndex ? [{ role: 'system' as const, content: `⬇️ 以下是项目文件索引：\n\n${globalIndex}` }] : []),
     ]
 
     // ── 10. Build breakdown ──

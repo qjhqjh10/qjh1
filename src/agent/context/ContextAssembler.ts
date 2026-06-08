@@ -77,8 +77,6 @@ export class ContextAssembler {
 
   /**
    * Map a modified file path to the affected provider domains.
-   * Returns the list of provider domain names to invalidate.
-   * @deprecated v11.5.1: ALL_PROVIDERS=[] — this is a no-op but kept for bridge compat.
    */
   static domainsForPath(filePath: string): string[] {
     const fp = filePath.replace(/\\/g, '/')

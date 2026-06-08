@@ -1,7 +1,21 @@
 {
-  "currentVersion": "11.6.0",
-  "currentDate": "2026-06-07",
+  "currentVersion": "11.7.0",
+  "currentDate": "2026-06-08",
   "history": [
+    {
+      "version": "11.7.0",
+      "date": "2026-06-08",
+      "features": [
+        "提示词重构: 删除铁律/写优先/禁止列表, 改为对话人格+工具使用指南",
+        "工具系统: 删除create_style_template/create_scene_template, 新增analyze_text_style(调用仿写分析引擎)",
+        "缓存修复: 恢复v9.8.9三层缓存设计, 第1条消息全发核心规则+索引+33工具并缓存",
+        "isTaskMessage停用: 改为tool_choice:auto, 模型自己判断是否调工具",
+        "文件路径: create_file支持../../style_templates全局路径",
+        "工具超时: 60s→120s适配analyze_text_style内部AI调用",
+        "死代码清理: PhaseManager/ALL_PROVIDERS/peakPromptTokens/lastPromptTokens",
+        "测试: FunctionalSmoke更新为33工具, 新增模拟测试"
+      ]
+    },
     {
       "version": "11.6.0",
       "date": "2026-06-07",

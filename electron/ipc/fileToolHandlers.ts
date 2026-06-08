@@ -624,7 +624,11 @@ export async function executeFileTool(
 
       case 'create_file': {
         const fp = resolvePath('file_path')
-        if (!fp || !isSafePath(fp, projectPath)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(String(args.file_path || '')) }
+        // ../ paths resolve against appRoot (parent of projects/) — check against appRoot, not projectPath
+        const rawPath = String(args.file_path || '')
+        const isGlobalPath = rawPath.startsWith('../')
+        const safetyBase = isGlobalPath ? path.dirname(projectPath) : projectPath
+        if (!fp || !isSafePath(fp, safetyBase)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(rawPath) }
         const content = args.content as string
         // Issue #12: Size limit for writes
         if (content.length > MAX_WRITE_CHARS) {

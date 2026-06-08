@@ -228,23 +228,16 @@ export class V4UnifiedRuntime {
           continue
         }
 
-        // ── No tools used at all → early nudge to explore (skip for knowledge questions) ──
+        // ── No tools used → 模型自己选择不调工具，接受 ──
+        // v11.6.1: 工具始终发送(tool_choice:auto)，模型不调是自主判断，不强制推探索
         if (this.toolsUsed.length === 0) {
-          if (iteration <= 2 && !isKnowledgeOnly(this._userMessage)) {
-            this.messagesForApi.push({
-              role: 'user',
-              content: '请先使用 read_file 或 list_directory 了解项目状态。',
-            })
-            continue
-          }
-          // Chat question or late iteration → accept
           break
         }
 
         // ── Model used tools, now speaking text ──
 
         // Track write tool usage across iterations
-        const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file|create_style_template|create_scene_template)$/
+        const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
         if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
 
         // ── Substantial text after using tools → accept (v11.5.1: prevent infinite nudge loop) ──

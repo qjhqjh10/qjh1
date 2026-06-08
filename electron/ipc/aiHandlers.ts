@@ -448,6 +448,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         }
 
         if (tools && tools.length > 0) {
+          // v3.1: Mark last tool for prefix caching — DeepSeek caches from start to this point
           const cachedTools = tools.map((t: any, i: number) => {
             if (i === tools.length - 1) return { ...t, cache_control: { type: 'ephemeral' } }
             return t

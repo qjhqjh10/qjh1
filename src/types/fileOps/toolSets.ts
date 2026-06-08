@@ -2,10 +2,9 @@ export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_fi
 // Plan 模式工具集。名称保留 "READ_ONLY" 为历史兼容，实际允许以下写操作（设计意图）：
 // - write_note/append_note/delete_note: 草稿笔记管理，Plan 模式下仍需正常使用
 // - generate_image/search_images: 只生成/搜索不修改文件，视为安全操作
-// - create_style_template/create_scene_template: 模板创建写入独立全局目录，不修改项目文件
 // - kb_create_file/kb_append_file: 知识库写入独立目录，不修改项目文件
 // - list_prompts/toggle_prompt/update_prompt: 提示词库管理，不影响项目文件
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'create_style_template', 'create_scene_template', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'list_notes', 'read_note', 'write_note', 'append_note', 'delete_note', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_list', 'kb_create_file', 'kb_append_file', 'kb_index_file']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -33,8 +32,6 @@ export function summarizeFileOp(
     case 'delete_note': return `删除草稿: ${args.note_name}`
     case 'search_images': return `搜索图片: ${args.query}`
     case 'generate_image': return `AI生成图片: ${(args.prompt as string || '').slice(0, 40)}`
-    case 'create_style_template': return `创建风格模板: ${args.name}`
-    case 'create_scene_template': return `创建场景模板: ${args.name}`
     case 'list_prompts': return '列出提示词库'
     case 'toggle_prompt': return `${args.enabled ? '启用' : '关闭'}提示词: ${args.prompt_id}`
     case 'update_prompt': return `修改提示词: ${args.prompt_id}`
