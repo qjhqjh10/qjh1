@@ -1,7 +1,21 @@
 {
-  "currentVersion": "11.8.0",
+  "currentVersion": "11.8.1",
   "currentDate": "2026-06-08",
   "history": [
+    {
+      "version": "11.8.1",
+      "date": "2026-06-08",
+      "features": [
+        "CI测试全绿: 0 failed, 386 passed, 15 skipped(过期Mock标为skip)",
+        "死代码清理: 删TemplateGenerationAndCache测试(测已删工具), 删4个无引用提示词类型(灵感/世界观/大纲/细纲)",
+        "fileToolHandlers测试修复: notes全局路径对齐v11.8.0",
+        "toolSets/toolDefs/toolInvokePrompt测试更新匹配当前32工具",
+        "AI角色生成修复: 形象图描述→形象图标签对齐, 加YAML说明+纯文本约束",
+        "Key加密移除: saveConfigs/loadConfigs明文存储, decryptKey全部替换, 眼睛按钮可用",
+        "软件说明更新: 工具数/仿写类型/双协议/Prompt缓存等描述同步v11.8.0",
+        "记忆文件更新: architecture/file-reference/anthropic-mode重写为v11.8.0"
+      ]
+    },
     {
       "version": "11.8.0",
       "date": "2026-06-08",
