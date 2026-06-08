@@ -45,7 +45,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Harness 配置 | `.aiharness/aiharness.json` |
 | Agent 工具列表 | `src/agent/skills/tools/index.ts` (34 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
-| PhaseManager | `src/agent/runtime/PhaseManager.ts` (v11.0 simplified) |
+| — | PhaseManager 已在 v11.7.0 移除 |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (14 个模板文件) |
 | 版本历史 | `src/data/version_history.json` (当前 v10.1.0) |

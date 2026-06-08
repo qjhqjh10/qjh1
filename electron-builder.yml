@@ -16,4 +16,11 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: AI写作软件—青剑
 extraResources:
-  []
+  - from: .aiharness/templates
+    to: .aiharness/templates
+  - from: .aiharness/rules
+    to: .aiharness/rules
+  - from: .aiharness/aiharness.json
+    to: .aiharness/aiharness.json
+  - from: .aiharness/AGENTS.md
+    to: .aiharness/AGENTS.md
