@@ -37,48 +37,39 @@ export function AISettingsTab() {
 
           {/* 工具清单 */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>13 个文件操作工具</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>32 个工具（核心 7 个 + 扩展 25 个）</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {[
-                { n: 'list_directory', t: '只读' }, { n: 'read_file', t: '只读' },
-                { n: 'search_content', t: '只读' },
-                { n: 'edit_file', t: '预览确认' },
-                { n: 'create_file', t: '需确认' }, { n: 'delete_file', t: '需确认' },
+                { n: 'read_file', t: '核心' }, { n: 'create_file', t: '核心' },
+                { n: 'edit_file', t: '核心' }, { n: 'delete_file', t: '核心' },
+                { n: 'list_directory', t: '核心' }, { n: 'search_content', t: '核心' },
+                { n: 'tool_search', t: '核心' },
+                { n: 'find_files', t: '只读' }, { n: 'batch_replace', t: '只读' },
                 { n: 'rename_file', t: '需确认' },
                 { n: 'create_project', t: '需确认' }, { n: 'delete_project', t: '需确认' },
-                { n: 'kb_index_file', t: '自动' },
               ].map(t => (
                 <span key={t.n} title={t.n} style={{
                   padding: '2px 8px', borderRadius: 6, fontSize: 10,
-                  background: t.t === '只读' ? 'rgba(16,185,129,0.06)' : t.t === '需确认' ? 'rgba(245,158,11,0.06)' : t.t === '预览确认' ? 'rgba(59,130,246,0.06)' : 'rgba(124,58,237,0.04)',
-                  color: t.t === '只读' ? '#16a34a' : t.t === '需确认' ? '#d97706' : t.t === '预览确认' ? '#3b82f6' : '#7c3aed',
+                  background: t.t === '核心' ? 'rgba(124,58,237,0.08)' : t.t === '只读' ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)',
+                  color: t.t === '核心' ? '#7c3aed' : t.t === '只读' ? '#16a34a' : '#d97706',
                   fontWeight: 600, cursor: 'default',
                 }}>{t.n}</span>
               ))}
+              <span style={{ fontSize: 10, color: '#9b8e84', padding: '2px 4px' }}>+ 扩展 22 个（tool_search 按需发现）</span>
             </div>
           </div>
 
           {/* 工作模式 */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 6 }}>2 种工作模式</div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>Plan 分析</span>
-                <p style={{ fontSize: 10, color: '#6b5e54', margin: '4px 0 0' }}>仅只读工具，安全探索项目</p>
-              </div>
-              <div style={{ flex: 1, padding: '8px 12px', borderRadius: 10, background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.1)' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#d97706' }}>Action 执行</span>
-                <p style={{ fontSize: 10, color: '#6b5e54', margin: '4px 0 0' }}>全部工具，可修改文件</p>
-              </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 6 }}>特性</div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 10, color: '#9b8e84' }}>
+              <span>首条全量注入，后续精简 ~540 tokens</span>
+              <span>Prompt 缓存（费用减免 90%+）</span>
+              <span>tool_search 按需发现扩展工具</span>
+              <span>风格/场景模板注入</span>
+              <span>上下文自动压缩</span>
+              <span>双协议（Anthropic+OpenAI）</span>
             </div>
-          </div>
-
-          {/* 内嵌命令 + 页面覆盖 */}
-          <div style={{ display: 'flex', gap: 16, fontSize: 10, color: '#9b8e84' }}>
-            <span>6 个内嵌命令（分析/检查/创建/统计/备份）</span>
-            <span>10 个页面数据上下文注入</span>
-            <span>编辑预览 DiffView</span>
-            <span>一键回滚撤销</span>
           </div>
         </div>
 
