@@ -16,6 +16,7 @@ import SymbolPicker from '@/components/common/SymbolPicker'
 import FindReplace from '@/components/common/FindReplace'
 import ContextMenu from '@/components/common/ContextMenu'
 import PolishPreview from '@/components/common/PolishPreview'
+import AIPolishDialog from '@/components/common/AIPolishDialog'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService } from '@/services/fileService'
 import { aiCapability } from '@/services/aiCapabilityService'
@@ -30,9 +31,11 @@ interface Props {
   showFind?: boolean
   onToggleFind?: () => void
   projectPath?: string
+  chapterId?: string
+  onPolishApplied?: (generatedText: string, mode: string) => void
 }
 
-export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind, projectPath }: Props) {
+export default function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind, projectPath, chapterId, onPolishApplied }: Props) {
   const [showSymbols, setShowSymbols] = useState(false)
   const [showFind, setShowFind] = useState(false)
   const effectiveShowFind = externalShowFind !== undefined ? externalShowFind : showFind
@@ -45,6 +48,9 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   const [polishError, setPolishError] = useState('')
   const [polishTitle, setPolishTitle] = useState('')
   const [polishLoading, setPolishLoading] = useState(false)
+  // Polish dialog
+  const [polishDialogOpen, setPolishDialogOpen] = useState(false)
+  const [polishMode, setPolishMode] = useState<'润色' | '改写' | '续写'>('润色')
 
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -227,24 +233,35 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   const generationRef = useRef(0)
 
   // Unified AI text editing: polish / rewrite / continue
-  const doAiEdit = useCallback(async (mode: '润色' | '改写' | '续写') => {
+  const doAiEdit = useCallback((mode: '润色' | '改写' | '续写') => {
     setCtxMenu(null)
     if (!activeConfigId || !selectedText) return
+    setPolishMode(mode)
+    setPolishDialogOpen(true)
+  }, [activeConfigId, selectedText])
+
+  const handlePolishGenerate = useCallback(async (customRequirement: string, promptId: string) => {
+    setPolishDialogOpen(false)
+    if (!activeConfigId || !selectedText) return
     setPolishLoading(true)
-    setPolishTitle(`${mode}结果`)
+    setPolishTitle(`${polishMode}结果`)
     setPolishError('')
     const genId = ++generationRef.current
     try {
-      const tpl = prompts.find(p => p.type === mode && p.enabled)
+      const tpl = promptId && promptId !== '__none__' ? prompts.find(p => p.id === promptId) : null
       const defs: Record<string, string> = {
         '润色': '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
         '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。',
         '续写': '请根据以下内容自然续写，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性。',
       }
-      const result = await aiCapability.generate(
-        `${tpl?.content || defs[mode]}\n\n${selectedText}`,
-        { configId: activeConfigId, projectId: activeProjectId || undefined }
-      )
+      const customPart = customRequirement.trim() ? `${customRequirement}\n\n` : ''
+      const wantTemplate = promptId && promptId !== '__none__'
+      const templateContent = wantTemplate && tpl?.content
+      // 不使用模板：有自定义要求就只用自定义，无自定义才用默认指令兜底
+      const useDefault = !wantTemplate && !customPart
+      const templatePart = templateContent ? `【提示词模板】\n${tpl.content}\n\n` : useDefault ? `${defs[polishMode]}\n\n` : ''
+      const prompt = `${customPart}${templatePart}[原文]\n${selectedText}`
+      const result = await aiCapability.generate(prompt, { configId: activeConfigId, projectId: activeProjectId || undefined })
       if (genId === generationRef.current) {
         if (result.success) setPolishResult(result.content)
         else setPolishError(result.error || '请求失败')
@@ -253,7 +270,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       if (genId === generationRef.current) setPolishError(parseAiErrorMessage(err, '请求失败'))
     }
     if (genId === generationRef.current) setPolishLoading(false)
-  }, [activeConfigId, selectedText, prompts, activeProjectId])
+  }, [activeConfigId, selectedText, prompts, activeProjectId, polishMode])
 
   const handlePolish = () => doAiEdit('润色')
   const handleRewrite = () => doAiEdit('改写')
@@ -264,15 +281,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     setCtxMenu(null)
     if (!selectedText) return
     const store = useStore.getState()
-    const page = store.activePage
-    let pageLabel = ''
-    if (page === 'chapter') pageLabel = '章节编辑器中'
-    else if (page === 'outline') pageLabel = '大纲编辑器中'
-    else if (page === 'worldbuilding') pageLabel = '世界观编辑器中'
-    const context = pageLabel
-      ? `[从${pageLabel}右键发送]\n\n${selectedText}\n\n---\n请帮我处理以上文字。`
-      : `请帮我处理以下文字：\n\n${selectedText}`
-    store.setPendingMessage(context)
+    store.setPendingMessage(selectedText)
     store.setAIChatOpen(true)
   }, [selectedText])
 
@@ -280,11 +289,15 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     if (!editor) return
     if (append) {
       // 续写: 追加在选中内容之后，不删除原文
-      const { from, to } = editor.state.selection
+      const { to } = editor.state.selection
       editor.chain().focus().setTextSelection(to).insertContent('\n\n' + text).run()
     } else {
       // 改写/润色: 替换选中内容
       editor.chain().focus().deleteSelection().insertContent(text).run()
+    }
+    // 保存版本历史
+    if (onPolishApplied) {
+      onPolishApplied(text, polishMode)
     }
     setPolishResult(null)
   }
@@ -369,6 +382,17 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
           onClose={closeCtxMenu}
         />
       )}
+
+      {/* Polish/Continue dialog */}
+      <AIPolishDialog
+        isOpen={polishDialogOpen}
+        mode={polishMode}
+        selectedText={selectedText}
+        prompts={prompts}
+        loading={false}
+        onClose={() => setPolishDialogOpen(false)}
+        onGenerate={handlePolishGenerate}
+      />
 
       {/* Polish/Continue preview */}
       <PolishPreview

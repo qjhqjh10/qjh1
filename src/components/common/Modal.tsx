@@ -11,14 +11,40 @@ interface Props {
   maxHeight?: string
   closeOnBackdropClick?: boolean
   draggable?: boolean
+  resizable?: boolean
 }
 
-export default function Modal({ isOpen, onClose, title, children, width = 640, maxHeight = '92vh', closeOnBackdropClick = true, draggable = false }: Props) {
+export default function Modal({ isOpen, onClose, title, children, width: initialWidth = 640, maxHeight = '92vh', closeOnBackdropClick = true, draggable = false, resizable = false }: Props) {
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 })
   const dragRef = useRef({ startX: 0, startY: 0, posX: 0, posY: 0, active: false })
+  const [modalSize, setModalSize] = useState({ w: 0, h: 0 })
+  const [fixedPos, setFixedPos] = useState<{ left: number; top: number } | null>(null)
+  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startLeft: 0, startTop: 0, active: false })
+  const modalRef = useRef<HTMLDivElement>(null)
 
-  // Reset drag position when modal opens
-  useEffect(() => { if (isOpen) setDragPos({ x: 0, y: 0 }) }, [isOpen])
+  // Reset position when modal opens
+  useEffect(() => { if (isOpen) { setDragPos({ x: 0, y: 0 }); setModalSize({ w: 0, h: 0 }); setFixedPos(null) } }, [isOpen])
+
+  // Resize: fix position on start, update size on move
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const rect = modalRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setFixedPos({ left: rect.left, top: rect.top })
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, startW: rect.width, startH: rect.height, startLeft: rect.left, startTop: rect.top, active: true }
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    const hu = () => { resizeRef.current.active = false; document.body.style.userSelect = '' }
+    const hm = (ev: MouseEvent) => {
+      if (!resizeRef.current.active) return
+      setModalSize({ w: Math.max(320, resizeRef.current.startW + ev.clientX - resizeRef.current.startX), h: Math.max(200, resizeRef.current.startH + ev.clientY - resizeRef.current.startY) })
+    }
+    window.addEventListener('mousemove', hm)
+    window.addEventListener('mouseup', hu)
+    return () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+  }, [])
 
   // Cleanup drag listeners on unmount
   useEffect(() => {
@@ -36,9 +62,11 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
     if (!draggable) return
     if ((e.target as HTMLElement).closest('button, select, input, textarea, label')) return
     e.preventDefault()
+    // Clear resize fixed position so drag works normally
+    if (fixedPos) setFixedPos(null)
     dragRef.current = { startX: e.clientX, startY: e.clientY, posX: dragPos.x, posY: dragPos.y, active: true }
     document.body.style.userSelect = 'none'
-  }, [draggable, dragPos.x, dragPos.y])
+  }, [draggable, dragPos.x, dragPos.y, fixedPos])
 
   useEffect(() => {
     if (isOpen) {
@@ -71,24 +99,27 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
           }}
         >
           <motion.div
+            ref={modalRef}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'relative',
-              left: dragPos.x,
-              top: dragPos.y,
+              position: fixedPos ? 'fixed' : 'relative',
+              left: fixedPos ? fixedPos.left : dragPos.x,
+              top: fixedPos ? fixedPos.top : dragPos.y,
               background: 'var(--theme-bg-card-solid, #fff)',
               borderRadius: 'var(--theme-radius-xxl, 24px)',
               boxShadow: 'var(--theme-shadow-lg, 0 24px 64px rgba(0, 0, 0, 0.14))',
-              width,
+              width: modalSize.w ? modalSize.w : initialWidth,
               maxWidth: '95vw',
-              maxHeight,
+              maxHeight: modalSize.h ? `${modalSize.h}px` : maxHeight,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
+              minWidth: 320,
+              minHeight: 200,
             }}
           >
             {title && (
@@ -135,6 +166,18 @@ export default function Modal({ isOpen, onClose, title, children, width = 640, m
             <div style={{ flex: 1, overflow: 'auto', padding: title || !draggable ? 24 : '8px 24px 24px' }} className="custom-scrollbar">
               {children}
             </div>
+            {/* Resize handle */}
+            {resizable && (
+              <div
+                onMouseDown={handleResizeStart}
+                style={{
+                  position: 'absolute', bottom: 0, right: 0,
+                  width: 20, height: 20, cursor: 'nwse-resize',
+                  background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.1) 50%)',
+                  borderRadius: '0 0 24px 0',
+                }}
+              />
+            )}
           </motion.div>
         </motion.div>
       )}

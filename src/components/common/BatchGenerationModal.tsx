@@ -262,7 +262,7 @@ export default function BatchGenerationModal({
   const errorCount = queue.filter(q => q.status === 'error').length
 
   return (
-    <Modal isOpen={isOpen} onClose={running ? () => {} : onClose} title={running ? '批量生成中...' : '批量生成章节'} width={600} draggable>
+    <Modal isOpen={isOpen} onClose={running ? () => {} : onClose} title={running ? '批量生成中...' : '批量生成章节'} width={600} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {!running ? (
           <>

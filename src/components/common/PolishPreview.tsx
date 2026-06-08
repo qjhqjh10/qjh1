@@ -18,7 +18,7 @@ export default function PolishPreview({ isOpen, title, original, result, onApply
   useEffect(() => { if (isOpen) setEdited(result) }, [isOpen, result])
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title} width={640} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title={title} width={640} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: '#9b8e84', marginBottom: 4 }}>原文</div>

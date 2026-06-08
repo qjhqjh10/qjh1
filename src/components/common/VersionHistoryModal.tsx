@@ -11,7 +11,7 @@ export function VersionHistoryModal({ isOpen, onClose, versions, onRestore }: {
   const [compareB, setCompareB] = useState<number | null>(null)
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="版本历史" width={compareA !== null && compareB !== null ? 900 : 700} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title="版本历史" width={compareA !== null && compareB !== null ? 900 : 700} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 500, overflowY: 'auto' }} className="custom-scrollbar">
         {versions.length > 0 ? versions.map((v, i) => (
           <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.06)' }}>

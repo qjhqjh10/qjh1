@@ -29,20 +29,25 @@ export function useWindowDrag(windowKey: string) {
       const dx = ev.clientX - startX; const dy = ev.clientY - startY
       let w = startW, h = startH, r = startR, b = startB
       const isEdge = /^(top|bottom|left|right)$/.test(corner)
+      const MIN_W = 360, MAX_W = 1200, MIN_H = 360
+      const MAX_H = Math.max(MIN_H, window.innerHeight - 60)
       // Edge resize: dragged edge follows mouse, opposite edge stays fixed
-      // Corner resize: anchored at opposite corner
       if (isEdge) {
-        if (corner === 'right')  { w = Math.max(360, Math.min(1200, startW + dx)); r = startR - dx }
-        if (corner === 'left')   { w = Math.max(360, Math.min(1200, startW - dx)) }
-        if (corner === 'bottom') { h = Math.max(360, Math.min(window.innerHeight - 60, startH + dy)); b = startB - dy }
-        if (corner === 'top')    { h = Math.max(360, Math.min(window.innerHeight - 60, startH - dy)) }
+        if (corner === 'right')  { w = clamp(startW + dx); r = startR - dx }
+        if (corner === 'left')   { w = clamp(startW - dx) }
+        if (corner === 'bottom') { h = clampH(startH + dy); b = startB - dy }
+        if (corner === 'top')    { h = clampH(startH - dy) }
       } else {
-        // Corner: anchor at bottom-right
-        if (corner.includes('right'))  { w = Math.max(360, Math.min(1200, startW + dx)) }
-        if (corner.includes('left'))   { w = Math.max(360, Math.min(1200, startW - dx)); r = startR + dx }
-        if (corner.includes('bottom')) { h = Math.max(360, Math.min(window.innerHeight - 60, startH + dy)) }
-        if (corner.includes('top'))    { h = Math.max(360, Math.min(window.innerHeight - 60, startH - dy)); b = startB + dy }
+        // Corner: anchor at opposite corner
+        const anchorRight  = !corner.includes('right')  // left corners anchor right
+        const anchorBottom = !corner.includes('bottom') // top corners anchor bottom
+        if (corner.includes('right'))  { w = clamp(startW + dx); if (!anchorRight) r = startR - dx }
+        if (corner.includes('left'))   { w = clamp(startW - dx); if (anchorRight) r = startR + dx }
+        if (corner.includes('bottom')) { h = clampH(startH + dy); if (!anchorBottom) b = startB - dy }
+        if (corner.includes('top'))    { h = clampH(startH - dy); if (anchorBottom) b = startB + dy }
       }
+      function clamp(v: number) { return Math.max(MIN_W, Math.min(MAX_W, v)) }
+      function clampH(v: number) { return Math.max(MIN_H, Math.min(MAX_H, v)) }
       setWinSize({ width: w, height: h })
       setWinPos({ right: Math.max(0, r), bottom: Math.max(0, b) })
     }

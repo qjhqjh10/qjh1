@@ -9,7 +9,7 @@ interface Props {
 
 export default function SoftwareGuideModal({ isOpen, onClose }: Props) {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="软件功能说明" width={700} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title="软件功能说明" width={700} draggable resizable>
       <ScrollArea maxHeight="70vh">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 4 }}>
           {SOFTWARE_GUIDE.map((section, si) => (

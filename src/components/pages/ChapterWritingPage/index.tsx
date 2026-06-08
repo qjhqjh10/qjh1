@@ -37,6 +37,7 @@ import { loadSummary, saveSummary } from '@/services/summaryService'
 
 import { GenerationOverlay } from "./GenerationOverlay";
 import { loadVersionHistory, templateStyle } from "./utils";
+import { saveVersionRecord } from '@/components/common/ChapterGenerationModal/versionManager';
 export default function ChapterWritingPage() {
 
   const { chapterId } = useParams<{ chapterId: string }>()
@@ -533,6 +534,25 @@ export default function ChapterWritingPage() {
               onContentChange={setContent}
               onBlur={handleSave}
               projectPath={projectPath}
+              chapterId={chapterId}
+              onPolishApplied={(generatedText, mode) => {
+                if (!chapterId) return
+                const pp = `${projectsBasePath}/${activeProjectId}`
+                saveVersionRecord(pp, chapterId, {
+                  versionId: '', chapterId,
+                  modelConfigId: activeConfigId || '',
+                  modelName: '', temperature: 0,
+                  promptTitle: `右键-${mode}`,
+                  promptContent: '',
+                  generatedContent: generatedText,
+                  tokens: { input: 0, output: 0, total: 0 },
+                  cost: 0,
+                  generatedAt: new Date().toISOString(),
+                  contextUsed: [],
+                }).then(() => {
+                  loadVersionHistory(pp, chapterId!).then(setVersionHistory)
+                })
+              }}
               placeholder={!content.trim() && detailedChapter?.description ? '本章细纲已就绪，点击上方 AI生成 开始写作，或手动输入内容...' : '开始创作你的章节内容...'}
             />
           </div>

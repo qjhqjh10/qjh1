@@ -181,7 +181,9 @@ export function registerFileHandlers(
   ipcMain.handle('files:deleteFile', async (_event, filePath: string) => {
     const resolved = resolveWritePath(filePath)
     if (!resolved) throw new Error('Access denied: system or write-protected directory')
-    await fs.unlink(resolved)
+    try { await fs.unlink(resolved) } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e  // 文件不存在=已删除，不报错
+    }
   })
 
   ipcMain.handle('files:deleteDir', async (_event, dirPath: string) => {

@@ -49,6 +49,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const [aiGenLoading, setAiGenLoading] = useState(false)
   const [aiGenConfigId, setAiGenConfigId] = useState(activeConfigId)
   const [aiGenImageNote, setAiGenImageNote] = useState('')
+  const [aiGenPromptId, setAiGenPromptId] = useState('')
 
   const graph = useRelationshipGraph({ projectPath, activeProjectId, activeConfigId })
 
@@ -143,8 +144,8 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     if (!aiGenDesc.trim() || !genConfigId) return
     setAiGenLoading(true)
     try {
-      const rolePrompt = promptTemplates.find(p => p.type === '角色' && p.enabled)
-      const rolePromptContent = rolePrompt?.content || ''
+      const selectedPrompt = aiGenPromptId && aiGenPromptId !== '__none__' ? promptTemplates.find(p => p.id === aiGenPromptId) : null
+      const rolePromptContent = selectedPrompt?.content || ''
       const messages = [{
         role: 'user' as const,
         content: `${rolePromptContent ? `[提示词模板]\n${rolePromptContent}\n\n` : ''}[格式要求]\n${AI_FORMAT_INSTRUCTION}\n\n[用户需求]\n请根据以下描述生成角色：\n${aiGenDesc}`,
@@ -251,12 +252,14 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         aiGenConfigId={aiGenConfigId}
         aiGenLoading={aiGenLoading}
         aiGenImageNote={aiGenImageNote}
+        aiGenPromptId={aiGenPromptId}
         configs={configs}
         promptTemplates={promptTemplates}
         activeConfigId={activeConfigId}
         onClose={() => setShowAIGen(false)}
         onDescChange={setAiGenDesc}
         onConfigChange={setAiGenConfigId}
+        onPromptChange={setAiGenPromptId}
         onGenerate={handleAIGenerate}
       />
 

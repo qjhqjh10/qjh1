@@ -84,7 +84,7 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="导出章节" width={560} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title="导出章节" width={560} draggable resizable>
       {/* Export mode selector */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.08)' }}>
         {(['single', 'merge', 'epub'] as ExportMode[]).map(mode => (

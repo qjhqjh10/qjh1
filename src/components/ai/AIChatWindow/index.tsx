@@ -508,7 +508,7 @@ export default function AIChatWindow() {
     // fileService.write auto-caches via shared fileReadCache
     // This ensures AI can reference it later even if conversation context is compressed
     let pasteClipPath = ''
-    if (!attachment && input.trim().length > 200) {
+    if (!attachment && input.trim().length > 3000) {
       try {
         const ts = Date.now().toString(36)
         const b2 = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
@@ -519,7 +519,7 @@ export default function AIChatWindow() {
     }
 
     const capturedInputLength = input.trim().length
-    const pasteRef = pasteClipPath ? `[粘贴文本已保存: ${pasteClipPath}。要精准修改内容，使用 read_file("${pasteClipPath}") 读取后用 edit_file 替换。]\n\n` : ''
+    const pasteRef = pasteClipPath ? `[粘贴文本已保存: ../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}。要精准修改内容，使用 read_file("../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}") 读取后用 edit_file 替换。]\n\n` : ''
     const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : pasteRef + input.trim())
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
@@ -1287,10 +1287,10 @@ export default function AIChatWindow() {
               )}
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              placeholder={activeConfigId ? '输入消息...' : '请先在设置中配置模型'}
-              disabled={!activeConfigId} rows={2}
+              placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
+              disabled={!activeConfigId} rows={3}
               className="focus-ring"
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'none', padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)' }}
+              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'vertical', minHeight: 48, maxHeight: 200, padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)' }}
             />
             <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
               style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: input.trim() && activeConfigId ? '#7c3aed' : '#e5e0da', color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' }}>

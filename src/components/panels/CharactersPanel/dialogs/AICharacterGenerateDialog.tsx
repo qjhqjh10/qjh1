@@ -9,24 +9,30 @@ interface AICharacterGenerateDialogProps {
   aiGenConfigId: string | null
   aiGenLoading: boolean
   aiGenImageNote: string
+  aiGenPromptId: string
   configs: ModelConfig[]
   promptTemplates: PromptTemplate[]
   activeConfigId: string | null
   onClose: () => void
   onDescChange: (v: string) => void
   onConfigChange: (v: string) => void
+  onPromptChange: (v: string) => void
   onGenerate: () => void
 }
 
 export function AICharacterGenerateDialog({
   isOpen, aiGenDesc, aiGenConfigId, aiGenLoading, aiGenImageNote,
-  configs, promptTemplates, activeConfigId,
-  onClose, onDescChange, onConfigChange, onGenerate,
+  aiGenPromptId, configs, promptTemplates, activeConfigId,
+  onClose, onDescChange, onConfigChange, onPromptChange, onGenerate,
 }: AICharacterGenerateDialogProps) {
-  const rp = promptTemplates.find(p => p.type === '角色' && p.enabled)
+  const NONE_ID = '__none__'
+  const selectedPromptId = aiGenPromptId || NONE_ID
+  const rp = selectedPromptId !== NONE_ID ? promptTemplates.find(p => p.id === selectedPromptId) : null
+  // 所有已启用的提示词模板
+  const availablePrompts = promptTemplates.filter(p => p.enabled)
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="AI 生成角色" width={560} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title="AI 生成角色" width={560} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#2d2520', marginBottom: 6 }}>
@@ -44,6 +50,28 @@ export function AICharacterGenerateDialog({
             autoFocus
           />
         </div>
+
+        {availablePrompts.length > 0 && (
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>
+              提示词模板
+            </label>
+            <select
+              value={selectedPromptId}
+              onChange={e => onPromptChange(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 10,
+                border: '1px solid #e5e0da', outline: 'none', cursor: 'pointer',
+                background: '#faf9f8', fontFamily: 'inherit', color: '#2d2520',
+              }}
+            >
+              <option value={NONE_ID}>不使用模板（AI 自行决定角色设定）</option>
+              {availablePrompts.map(p => (
+                <option key={p.id} value={p.id}>{p.title} [{p.type}]</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 4 }}>

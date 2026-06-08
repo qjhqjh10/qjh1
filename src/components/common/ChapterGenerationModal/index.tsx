@@ -134,9 +134,13 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }, [])
 
   const chapterPrompts = prompts.filter(p => p.type === '章节')
-  const chapterPrompt = chapterPrompts.find(p => p.enabled) || chapterPrompts[0]
+  const NONE_ID = '__none__'
+  const [selectedChapterPromptId, setSelectedChapterPromptId] = useState(NONE_ID)
+  const chapterPrompt = selectedChapterPromptId !== NONE_ID ? chapterPrompts.find(p => p.id === selectedChapterPromptId) : undefined
 
   const handleSwitchChapterPrompt = (promptId: string) => {
+    setSelectedChapterPromptId(promptId)
+    if (promptId === NONE_ID) return  // 不使用模板，不修改启用状态
     // Disable all chapter prompts, then enable selected one
     for (const p of chapterPrompts) {
       if (p.id !== promptId && p.enabled) updatePromptStore(p.id, { enabled: false })
@@ -342,7 +346,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="" width={1200} maxHeight="100vh" closeOnBackdropClick={false} draggable>
+    <Modal isOpen={isOpen} onClose={onClose} title="" width={1200} maxHeight="100vh" closeOnBackdropClick={false} draggable resizable>
       <style>{`
         @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
         .gen-btn { transition: all 0.25s ease; }
@@ -528,20 +532,19 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             {/* Template */}
             <div className="section-card" style={cardStyle}>
               <div style={cardHeaderStyle}>生成模板</div>
-              {chapterPrompts.length > 1 && (
-                <select value={chapterPrompt?.id || ''} onChange={e => handleSwitchChapterPrompt(e.target.value)}
-                  style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 10, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
-                  {chapterPrompts.map(p => (
-                    <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
-                  ))}
-                </select>
-              )}
+              <select value={selectedChapterPromptId} onChange={e => handleSwitchChapterPrompt(e.target.value)}
+                style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 10, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+                <option value={NONE_ID}>不使用模板（根据四层配置生成）</option>
+                {chapterPrompts.map(p => (
+                  <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
+                ))}
+              </select>
               {chapterPrompt ? (
                 <div style={{ fontSize: 11, color: '#7c3aed', padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', lineHeight: 1.5 }}>
                   <span style={{ fontWeight: 600 }}>{chapterPrompt.title}</span> — {chapterPrompt.content.slice(0, 70)}...
                 </div>
               ) : (
-                <div style={{ fontSize: 11, color: '#9b8e84' }}>使用默认模板</div>
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>不使用模板 — AI 根据四层配置自行组织创作要求</div>
               )}
             </div>
 
