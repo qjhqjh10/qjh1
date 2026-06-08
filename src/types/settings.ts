@@ -46,7 +46,7 @@ export interface ModelConfig {
   currency: 'USD' | 'CNY'
 }
 
-export type PromptType = '灵感' | '世界观' | '角色' | '大纲' | '细纲' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
+export type PromptType = '角色' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
 
 export interface PromptTemplate {
   id: string
@@ -56,7 +56,7 @@ export interface PromptTemplate {
   enabled: boolean
 }
 
-export const PROMPT_TYPES: PromptType[] = ['灵感', '世界观', '角色', '大纲', '细纲', '章节', '润色', '续写', '改写', '摘要', '审稿']
+export const PROMPT_TYPES: PromptType[] = ['角色', '章节', '润色', '续写', '改写', '摘要', '审稿']
 
 export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   provider: 'openai',
@@ -269,31 +269,10 @@ export const DEFAULT_PROMPTS: PromptTemplate[] = [
     enabled: true,
   },
   {
-    id: 'default_outline',
-    title: '默认大纲模板',
-    type: '大纲',
-    content: '请根据以下设定生成一份小说大纲。包括：故事主线（起因-发展-转折-高潮-结局）、主要角色弧线、世界观核心设定、关键事件节点。',
-    enabled: false,
-  },
-  {
     id: 'default_summary',
     title: '默认摘要模板',
     type: '摘要',
     content: '请用简洁的语言总结以下章节内容的核心情节、人物发展和关键转折点。',
-    enabled: true,
-  },
-  {
-    id: 'default_worldbuilding',
-    title: '默认世界观模板',
-    type: '世界观',
-    content: '你是一位专业的世界观设定设计师，擅长构建小说中的世界观体系。请帮助作者完善世界背景设定，包括但不限于：地理环境、政治体制、社会结构、魔法/科技体系、历史背景、文化习俗等。设定应逻辑自洽、细节丰富，并能服务于故事主线。',
-    enabled: true,
-  },
-  {
-    id: 'default_detailed_outline',
-    title: '默认细纲模板',
-    type: '细纲',
-    content: '你是一位专业的小说结构规划师，擅长设计章节级别的详细写作大纲。请帮助作者规划章节内容，包括：本章核心情节、场景设置、人物出场安排、关键对话节点、情感发展和节奏控制。细纲应具体可执行，每项内容应有明确的写作目标。',
     enabled: true,
   },
   {
