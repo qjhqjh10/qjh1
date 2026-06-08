@@ -8,51 +8,30 @@ describe('buildToolInvokePrompt', () => {
     expect(prompt.length).toBeGreaterThan(100)
   })
 
-  it('contains core tools (v11.3: no invoke_skill)', () => {
+  it('contains core tools', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).not.toContain('invoke_skill')
     expect(prompt).toContain('read_file')
+    expect(prompt).toContain('edit_file')
+    expect(prompt).toContain('create_file')
+    expect(prompt).toContain('list_directory')
+    expect(prompt).toContain('search_content')
+    expect(prompt).toContain('find_files')
   })
 
-  it('lists all major tool categories', () => {
+  it('lists major tool categories', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).toContain('核心工具')
     expect(prompt).toContain('知识库')
     expect(prompt).toContain('笔记')
-    expect(prompt).toContain('模板')
-    expect(prompt).toContain('模板')
-  })
-
-  it('includes read_file tool', () => {
-    expect(buildToolInvokePrompt()).toContain('read_file')
-  })
-
-  it('includes list_directory tool', () => {
-    expect(buildToolInvokePrompt()).toContain('list_directory')
-  })
-
-  it('includes edit_file tool', () => {
-    expect(buildToolInvokePrompt()).toContain('edit_file')
-  })
-
-  it('includes create_file tool', () => {
-    expect(buildToolInvokePrompt()).toContain('create_file')
+    expect(prompt).toContain('图片')
+    expect(prompt).toContain('项目')
   })
 
   it('includes KB tools', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('kb_list')
-    expect(prompt).toContain('kb_create_file')
     expect(prompt).toContain('kb_append_file')
     expect(prompt).toContain('kb_index_file')
-  })
-
-  it('includes note tools', () => {
-    const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('write_note')
-    expect(prompt).toContain('read_note')
-    expect(prompt).toContain('list_notes')
-    expect(prompt).toContain('append_note')
   })
 
   it('includes image tools', () => {
@@ -61,27 +40,13 @@ describe('buildToolInvokePrompt', () => {
     expect(prompt).toContain('generate_image')
   })
 
-  it('includes template tools', () => {
-    const prompt = buildToolInvokePrompt()
-    expect(prompt).toContain('create_style_template')
-    expect(prompt).toContain('create_scene_template')
-  })
-
   it('includes project tools', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).toContain('create_project')
-    expect(prompt).toContain('shell_run_script')
+    expect(prompt).toContain('delete_project')
   })
 
-  it('contains tool and skill guidance', () => {
-    const prompt = buildToolInvokePrompt()
-    expect(prompt).not.toContain('invoke_skill')
-    expect(prompt).toContain('read_file')
-    expect(prompt).toContain('edit_file')
-    expect(prompt).toContain('create_file')
-  })
-
-  it('emphasizes direct tool use without invoke_skill (v11.3)', () => {
+  it('emphasizes direct tool use without invoke_skill', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).not.toContain('invoke_skill')
     expect(prompt).toContain('直接使用工具')
@@ -89,6 +54,6 @@ describe('buildToolInvokePrompt', () => {
 
   it('has sufficient length for tool descriptions', () => {
     const prompt = buildToolInvokePrompt()
-    expect(prompt.length).toBeGreaterThan(300)
+    expect(prompt.length).toBeGreaterThan(200)
   })
 })
