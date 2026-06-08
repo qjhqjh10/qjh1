@@ -15,7 +15,7 @@ export const AI_FORMAT_INSTRUCTION = `
 角色成长弧线: <角色故事发展轨迹>
 关系标签: <标签1、标签2、标签3>
 重要程度: <1-100的整数，数值越大越重要，默认50>
-形象图描述: <英文关键词描述，用于图片搜索，如"young swordsman with silver hair, blue eyes, dark armor, anime style, portrait">
+形象图: <英文关键词描述，用于图片搜索，如"young swordsman with silver hair, blue eyes, dark armor, anime style, portrait">
 
 注意：
 - 每个字段都必须填写，不确定的可以写"暂无"
