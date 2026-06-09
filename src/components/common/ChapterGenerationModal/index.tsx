@@ -6,6 +6,7 @@ import { loadOutlineDimensions } from "@/utils/outlineData";
 import { loadAllSummaries, saveSummary } from "@/services/summaryService";
 import type { OutlineTabToggles, DetailedOutlineToggles } from "@/types/settings";
 import Modal from "../Modal";
+import ConfirmModal from "../ConfirmModal";
 import { SparklesIcon, BookOpenIcon } from "@heroicons/react/24/outline";
 import type { DetailedChapter } from "@/types/chapter";
 import type { SceneTemplate } from "@/types/story";
@@ -76,6 +77,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [replaceMode, setReplaceMode] = useState(cg.replaceMode)
   const [autoSummary, setAutoSummary] = useState(false)
   const [selectedSummaryPromptId, setSelectedSummaryPromptId] = useState('__none__')
+  const [kbDeleteConfirm, setKbDeleteConfirm] = useState<{ type: 'batch'; ids: string[]; count: number } | { type: 'single'; id: string; name: string } | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -367,6 +369,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title="" width="86vw" maxHeight="100vh" closeOnBackdropClick={false} draggable resizable>
       <style>{`
         @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
@@ -505,7 +508,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 {autoSummary && (
                   <select value={selectedSummaryPromptId} onChange={e => setSelectedSummaryPromptId(e.target.value)} style={{ padding: '3px 6px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer' }}>
                     <option value={NONE_ID}>默认模板（200字摘要）</option>
-                    {prompts.filter(p => p.type === '摘要' && p.enabled).map(p => (
+                    {prompts.filter(p => p.type === '摘要').map(p => (
                       <option key={p.id} value={p.id}>{p.title}</option>
                     ))}
                   </select>
@@ -535,25 +538,38 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             {/* Knowledge base */}
             <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>知识库注入 · {selectedKbFileIds.size} 个</div>
-              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4 }}>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={miniActionLink}>全选</button>
                 <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
                 <button onClick={loadKBFiles} style={{ ...miniActionLink, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                   <BookOpenIcon style={{ width: 10, height: 10 }} />
                   {kbLoaded ? `已加载 ${kbFiles.length}` : '加载'}
                 </button>
+                {selectedKbFileIds.size > 0 && (
+                  <button onClick={() => setKbDeleteConfirm({ type: 'batch', ids: [...selectedKbFileIds], count: selectedKbFileIds.size })} style={{ ...miniActionLink, color: '#dc2626' }}>🗑 删除选中</button>
+                )}
               </div>
               {kbLoaded && kbFiles.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
                   {kbFiles.map(f => (
-                    <label key={f.id} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-                      background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff',
-                      border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
-                    }}>
-                      <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
-                      {f.originalName.slice(0, 20)}
-                    </label>
+                    <div key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      <label style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px 3px 10px', borderRadius: '6px 0 0 6px', fontSize: 12, cursor: 'pointer',
+                        background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff',
+                        border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
+                        borderRight: 'none',
+                      }}>
+                        <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
+                        {f.originalName.slice(0, 20)}
+                      </label>
+                      <button onClick={e => {
+                        e.stopPropagation()
+                        setKbDeleteConfirm({ type: 'single', id: f.id, name: f.originalName })
+                      }} title="删除此文件" style={{
+                        padding: '3px 8px', borderRadius: '0 6px 6px 0', border: '1px solid rgba(0,0,0,0.05)', borderLeft: 'none',
+                        background: '#fff', cursor: 'pointer', fontSize: 11, color: '#9b8e84', display: 'flex', alignItems: 'center',
+                      }}>×</button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -779,5 +795,32 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         </div>
       </div>
     </Modal>
+    {/* KB Delete Confirm */}
+    <ConfirmModal
+      isOpen={kbDeleteConfirm !== null}
+      title="删除知识库文件"
+      message={kbDeleteConfirm?.type === 'batch'
+        ? `确定从知识库删除选中的 ${(kbDeleteConfirm as any).count} 个文件？此操作不可撤销。`
+        : `确定从知识库删除「${(kbDeleteConfirm as any)?.name || ''}」？`}
+      confirmLabel="删除"
+      danger
+      onConfirm={() => {
+        if (!kbDeleteConfirm) return
+        if (kbDeleteConfirm.type === 'batch') {
+          Promise.all(kbDeleteConfirm.ids.map(id => kbService.delete(id).catch(() => {}))).then(() => {
+            setSelectedKbFileIds(new Set())
+            setKbLoaded(false)
+          })
+        } else {
+          kbService.delete(kbDeleteConfirm.id).then(() => {
+            setSelectedKbFileIds(prev => { const n = new Set(prev); n.delete(kbDeleteConfirm.id); return n })
+            setKbLoaded(false)
+          }).catch(() => {})
+        }
+        setKbDeleteConfirm(null)
+      }}
+      onCancel={() => setKbDeleteConfirm(null)}
+    />
+    </>
   )
 }

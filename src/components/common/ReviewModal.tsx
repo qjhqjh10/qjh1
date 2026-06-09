@@ -52,7 +52,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
   const [customRequirement, setCustomRequirement] = useState('')
   const [selectedPromptId, setSelectedPromptId] = useState('')
 
-  const reviewPrompts = prompts.filter(p => p.type === '审稿' && p.enabled)
+  const reviewPrompts = prompts.filter(p => p.type === '审稿')
   const activePrompt = selectedPromptId !== NONE_ID ? reviewPrompts.find(p => p.id === selectedPromptId) : null
   const plainContent = stripHtml(chapterContent)
 
@@ -135,7 +135,7 @@ export default function ReviewModal({ isOpen, onClose, chapterTitle, chapterLabe
               >
                 <option value={NONE_ID}>不使用模板（默认审稿维度：节奏/对白/描写/情节一致性）</option>
                 {reviewPrompts.map(p => (
-                  <option key={p.id} value={p.id}>{p.title}</option>
+                  <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
                 ))}
               </select>
               {activePrompt && (

@@ -1,5 +1,8 @@
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import GlassCard from '@/components/common/GlassCard'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { TrashIcon, PencilIcon, UserGroupIcon, MapPinIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter } from '@/types/chapter'
 
@@ -16,10 +19,12 @@ interface ChapterCardProps {
 
 export function ChapterCard({ chapter, index, allChapters, previewText, charPreview, onOpen, onDelete, onReorder }: ChapterCardProps) {
   const navigate = useNavigate()
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const preview = previewText(chapter)
   const chars = charPreview(chapter)
 
   return (
+    <>
     <GlassCard key={chapter.id} hover style={{ cursor: 'pointer', minHeight: 180, maxHeight: 260, minWidth: 0, overflow: 'hidden' }}
       onClick={() => onOpen(chapter)}
     >
@@ -73,7 +78,7 @@ export function ChapterCard({ chapter, index, allChapters, previewText, charPrev
             }}>
             <PencilIcon style={{ width: 11, height: 11 }} /> 撰写
           </button>
-          <button onClick={e => { e.stopPropagation(); onDelete(chapter) }}
+          <button onClick={e => { e.stopPropagation(); setShowDeleteConfirm(true) }}
             title="删除本章细纲" className="interactive" style={{
               display: 'inline-flex', alignItems: 'center',
               padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)',
@@ -110,5 +115,18 @@ export function ChapterCard({ chapter, index, allChapters, previewText, charPrev
         </div>
       </div>
     </GlassCard>
+    {createPortal(
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        title="删除细纲"
+        message={`确定删除「${chapter.title || '未命名'}」的细纲？此操作不可撤销。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={() => { setShowDeleteConfirm(false); onDelete(chapter) }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />,
+      document.body
+    )}
+    </>
   )
 }

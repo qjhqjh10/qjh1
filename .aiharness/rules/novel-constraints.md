@@ -1,7 +1,7 @@
 # 小说写作约束
 
 ## 角色完整性
-- 角色 YAML 必须包含 16 个必需字段（id, name, role, gender, age, occupation, background, appearance, personality, abilities, weaknesses, relationships, relationshipTags, arc, importance, image）
+- 角色 YAML 必须包含 15 个必需字段（id, name, role, gender, age, occupation, background, appearance, personality, abilities, weaknesses, relationships, relationshipTags, arc, importance）
 - 角色文件名使用中文名（如 `林语晴.yaml`），id 字段用拼音保证唯一
 - 修改角色前必须搜索所有引用该角色的文件
 - 不得擅自更改已确立的角色特征

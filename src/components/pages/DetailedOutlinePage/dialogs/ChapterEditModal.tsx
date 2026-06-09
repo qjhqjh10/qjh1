@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import Modal from '@/components/common/Modal'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { TrashIcon, UserGroupIcon, MapPinIcon } from '@heroicons/react/24/outline'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { btnSecondary, btnPrimary } from '../constants'
@@ -15,7 +17,9 @@ interface ChapterEditModalProps {
 }
 
 export function ChapterEditModal({ isOpen, editDraft, isErotic, onClose, onUpdate, onSave, onSaveAndWrite, onDelete }: ChapterEditModalProps) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   return (
+    <>
     <Modal
       isOpen={isOpen}
       onClose={onClose}
@@ -194,7 +198,7 @@ export function ChapterEditModal({ isOpen, editDraft, isErotic, onClose, onUpdat
           {/* Action buttons */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
             <button
-              onClick={() => onDelete(editDraft)}
+              onClick={() => setShowDeleteConfirm(true)}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 4,
                 padding: '8px 16px', borderRadius: 8,
@@ -223,5 +227,15 @@ export function ChapterEditModal({ isOpen, editDraft, isErotic, onClose, onUpdat
         </div>
       )}
     </Modal>
+    <ConfirmModal
+      isOpen={showDeleteConfirm}
+      title="删除细纲"
+      message={`确定删除「${editDraft?.title || '未命名'}」的细纲？此操作不可撤销。`}
+      confirmLabel="删除"
+      danger
+      onConfirm={() => { setShowDeleteConfirm(false); onDelete(editDraft!) }}
+      onCancel={() => setShowDeleteConfirm(false)}
+    />
+    </>
   )
 }

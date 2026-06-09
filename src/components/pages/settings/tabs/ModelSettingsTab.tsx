@@ -3,6 +3,7 @@ import { useSettingsStore } from '@/store'
 import { settingsService, aiService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig } from '@/types/settings'
@@ -328,6 +329,7 @@ export function ModelSettingsTab() {
   const [mainModelList, setMainModelList] = useState<string[]>([])
   const [imageModelList, setImageModelList] = useState<string[]>([])
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'image'
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -392,6 +394,7 @@ export function ModelSettingsTab() {
   const u = (patch: Partial<ModelConfig>) => updateConfig(activeConfig.id, patch)
 
   return (
+    <>
     <div style={{ display: 'flex', height: '100%' }}>
       {/* ── Left: config list ── */}
       <div style={{ width: 260, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
@@ -435,7 +438,7 @@ export function ModelSettingsTab() {
                     }}>{(config as any).protocol === 'anthropic' ? 'ANT' : 'OAI'}</span>
                   </div>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); removeConfig(config.id); if (activeConfigId === config.id) { const latest = useSettingsStore.getState().configs; setActiveConfig(latest.filter(c => c.id !== config.id)[0]?.id || null) } }}
+                <button onClick={(e) => { e.stopPropagation(); setDeleteTargetId(config.id) }}
                     title="删除此配置" style={{
                       background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 8,
                       color: '#d4ccc4', flexShrink: 0,
@@ -534,7 +537,7 @@ export function ModelSettingsTab() {
             </div>
 
             {/* ── Delete ── */}
-            <button onClick={() => { removeConfig(activeConfig.id); const latest = useSettingsStore.getState().configs; setActiveConfig(latest.filter(c => c.id !== activeConfig.id)[0]?.id || null) }}
+            <button onClick={() => setDeleteTargetId(activeConfig.id)}
                 style={{
                   padding: '12px', borderRadius: 12, border: '1px solid rgba(220,38,38,0.15)', background: '#fff',
                   color: '#dc2626', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
@@ -546,5 +549,23 @@ export function ModelSettingsTab() {
         </ScrollArea>
       </div>
     </div>
+    <ConfirmModal
+      isOpen={deleteTargetId !== null}
+      title="删除模型配置"
+      message={`确定删除配置「${configs.find(c => c.id === deleteTargetId)?.name || ''}」？此操作不可撤销。`}
+      confirmLabel="删除"
+      danger
+      onConfirm={() => {
+        if (!deleteTargetId) return
+        removeConfig(deleteTargetId)
+        if (activeConfigId === deleteTargetId) {
+          const latest = useSettingsStore.getState().configs
+          setActiveConfig(latest.filter(c => c.id !== deleteTargetId)[0]?.id || null)
+        }
+        setDeleteTargetId(null)
+      }}
+      onCancel={() => setDeleteTargetId(null)}
+    />
+    </>
   )
 }

@@ -8,6 +8,7 @@ import { fileService } from '@/services/fileService'
 import { saveDetailedChapter } from '@/services/chapterService'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { PencilIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline'
 import { inputStyle } from '@/components/common/styles'
 import type { DetailedChapter } from '@/types/chapter'
@@ -31,6 +32,7 @@ export function ChapterListPanel({
 }: Props) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [editChapter, setEditChapter] = useState<DetailedChapter | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<DetailedChapter | null>(null)
 
   const handleEdit = (idx: number) => {
     setEditingIdx(idx)
@@ -47,11 +49,14 @@ export function ChapterListPanel({
     setEditChapter(null)
   }
 
-  const handleDelete = async (ch: DetailedChapter) => {
+  const handleDelete = async () => {
+    const ch = deleteTarget
+    if (!ch) return
     await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.yaml`)
     await fileService.deleteFile(`${projectPath}/chapters/${ch.id}.txt`).catch(() => {})
     await fileService.deleteFile(`${projectPath}/summaries/${ch.id}.md`).catch(() => {})
     setChapters(prev => prev.filter(c => c.id !== ch.id))
+    setDeleteTarget(null)
   }
 
   const handleMove = async (idx: number, dir: -1 | 1) => {
@@ -77,7 +82,7 @@ export function ChapterListPanel({
   }
 
   return (
-    <>
+    <div>
       {chapters.map((ch, i) => (
         <div
           key={ch.id}
@@ -128,7 +133,7 @@ export function ChapterListPanel({
                   <button onClick={() => handleMove(i, -1)} disabled={i === 0} style={iconBtn} title="上移"><ArrowUpIcon style={iconS} /></button>
                   <button onClick={() => handleMove(i, 1)} disabled={i === chapters.length - 1} style={iconBtn} title="下移"><ArrowDownIcon style={iconS} /></button>
                   <button onClick={() => handleEdit(i)} style={iconBtn} title="编辑"><PencilIcon style={iconS} /></button>
-                  <button onClick={() => handleDelete(ch)} style={{ ...iconBtn, color: '#ef4444' }} title="删除"><TrashIcon style={iconS} /></button>
+                  <button onClick={() => setDeleteTarget(ch)} style={{ ...iconBtn, color: '#ef4444' }} title="删除"><TrashIcon style={iconS} /></button>
                   <Button size="sm" onClick={() => onWriteChapter(ch)}>撰写本章</Button>
                 </div>
               </div>
@@ -137,7 +142,16 @@ export function ChapterListPanel({
           )}
         </div>
       ))}
-    </>
+    <ConfirmModal
+      isOpen={deleteTarget !== null}
+      title="删除细纲"
+      message={`确定删除「${deleteTarget?.title || '未命名'}」的细纲及对应章节内容？此操作不可撤销。`}
+      confirmLabel="删除"
+      danger
+      onConfirm={handleDelete}
+      onCancel={() => setDeleteTarget(null)}
+    />
+    </div>
   )
 }
 

@@ -72,7 +72,7 @@ export function AICharacterGenerateDialog({
 
   const selectedPromptId = aiGenPromptId || NONE_ID
   const rp = selectedPromptId !== NONE_ID ? promptTemplates.find(p => p.id === selectedPromptId) : null
-  const availablePrompts = promptTemplates.filter(p => p.enabled && p.type === '角色')
+  const availablePrompts = promptTemplates.filter(p => p.type === '角色')
 
   // Right panel state
   const cg = useSettingsStore(s => s.aiSettings).chapterGen
@@ -228,7 +228,7 @@ export function AICharacterGenerateDialog({
               >
                 <option value={NONE_ID}>不使用模板（AI 自行决定角色设定）</option>
                 {availablePrompts.map(p => (
-                  <option key={p.id} value={p.id}>{p.title} [{p.type}]</option>
+                  <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
                 ))}
               </select>
             </div>

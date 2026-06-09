@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Modal from './Modal'
 import Button from './Button'
 import { SparklesIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import type { PromptTemplate } from '@/types/settings'
 import { aiCapability } from '@/services/aiCapabilityService'
+import { chatAIStream } from '@/utils/chatAI'
 
 interface Props {
   isOpen: boolean
@@ -42,8 +43,10 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [streamMode, setStreamMode] = useState(false)
+  const abortRef = useRef<(() => void) | null>(null)
 
-  const modePrompts = prompts.filter(p => p.type === mode && p.enabled)
+  const modePrompts = prompts.filter(p => p.type === mode)
   const activePrompt = selectedPromptId !== NONE_ID ? modePrompts.find(p => p.id === selectedPromptId) : null
   const modeLabel = MODE_LABELS[mode] || mode
   const isAppend = mode === '续写'
@@ -61,29 +64,49 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
     if (!selectedText.trim() || !configId) return
     setLoading(true)
     setError('')
-    try {
-      const tpl = selectedPromptId !== NONE_ID ? prompts.find(p => p.id === selectedPromptId) : null
-      const customPart = customRequirement.trim() ? `${customRequirement}\n\n` : ''
-      const wantTemplate = selectedPromptId !== NONE_ID
-      const templateContent = wantTemplate && tpl?.content
-      const useDefault = !wantTemplate && !customPart
-      const templatePart = templateContent
-        ? `【提示词模板】\n${tpl!.content}\n\n`
-        : useDefault
-          ? `${DEFS[mode]}\n\n`
-          : ''
-      const prompt = `${customPart}${templatePart}[原文]\n${selectedText}`
-      const res = await aiCapability.generate(prompt, { configId, projectId: projectId || undefined })
-      if (res.success) {
-        setResult(res.content)
-      } else {
-        setError(res.error || '请求失败')
+    setResult('')
+    const tpl = selectedPromptId !== NONE_ID ? prompts.find(p => p.id === selectedPromptId) : null
+    const customPart = customRequirement.trim() ? `${customRequirement}\n\n` : ''
+    const wantTemplate = selectedPromptId !== NONE_ID
+    const templateContent = wantTemplate && tpl?.content
+    const useDefault = !wantTemplate && !customPart
+    const templatePart = templateContent
+      ? `【提示词模板】\n${tpl!.content}\n\n`
+      : useDefault
+        ? `${DEFS[mode]}\n\n`
+        : ''
+    const prompt = `${customPart}${templatePart}[原文]\n${selectedText}`
+
+    if (streamMode) {
+      // Streaming mode — real-time output
+      abortRef.current?.()
+      const messages = [{ role: 'user' as const, content: prompt }]
+      const handle = chatAIStream(
+        messages, configId, projectId || undefined,
+        (data) => { setResult(data.accumulated) },
+        (data) => { setResult(data.text); setLoading(false); abortRef.current = null },
+        (err) => { setError(err.message); setLoading(false); abortRef.current = null },
+      )
+      abortRef.current = handle.abort
+    } else {
+      try {
+        const res = await aiCapability.generate(prompt, { configId, projectId: projectId || undefined })
+        if (res.success) {
+          setResult(res.content)
+        } else {
+          setError(res.error || '请求失败')
+        }
+      } catch (err: any) {
+        setError(err?.message || '请求失败')
       }
-    } catch (err: any) {
-      setError(err?.message || '请求失败')
+      setLoading(false)
     }
-    setLoading(false)
   }
+
+  // Cleanup abort on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.() }
+  }, [])
 
   const handleClear = () => {
     setShowClearConfirm(false)
@@ -117,7 +140,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
               >
                 <option value={NONE_ID}>不使用模板</option>
                 {modePrompts.map(p => (
-                  <option key={p.id} value={p.id}>{p.title}</option>
+                  <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
                 ))}
               </select>
               {activePrompt && (
@@ -227,7 +250,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
 
           {/* Bottom actions */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid #f0ece8' }}>
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {showClearConfirm ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 8, background: '#fff3f0', border: '1px solid #fecaca' }}>
                   <span style={{ fontSize: 12, color: '#dc2626' }}>确认清空？</span>
@@ -239,12 +262,22 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
                   清空结果
                 </Button>
               )}
+              <label title="逐字实时输出到右侧文本框" style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11, color: streamMode ? '#7c3aed' : '#9b8e84', fontWeight: streamMode ? 600 : 400 }}>
+                <input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={{ width: 14, height: 14, accentColor: '#7c3aed', cursor: 'pointer' }} />
+                流式生成
+              </label>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <Button variant="secondary" size="sm" onClick={onClose}>关闭</Button>
-              <Button size="sm" onClick={handleInsert} disabled={!result.trim() || loading}>
-                {isAppend ? '插入原文后面' : '替换原文'}
-              </Button>
+              {loading && streamMode ? (
+                <Button variant="danger" size="sm" onClick={() => { abortRef.current?.(); abortRef.current = null; setLoading(false) }}>停止</Button>
+              ) : (
+                <>
+                  <Button variant="secondary" size="sm" onClick={onClose}>关闭</Button>
+                  <Button size="sm" onClick={handleInsert} disabled={!result.trim() || loading}>
+                    {isAppend ? '插入原文后面' : '替换原文'}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>

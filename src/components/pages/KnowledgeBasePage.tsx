@@ -4,6 +4,7 @@ import { kbService } from '@/services/fileService'
 import { countChineseWords } from '@/utils/textUtils'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import ScrollArea from '@/components/common/ScrollArea'
 import {
   DocumentTextIcon,
@@ -33,6 +34,10 @@ export default function KnowledgeBasePage() {
   const [indexing, setIndexing] = useState<string | null>(null)
 
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set())
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'batch'; ids: string[]; count: number } | { type: 'single'; file: KnowledgeFile } | null>(null)
+  const [showNewFile, setShowNewFile] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+  const [newFileContent, setNewFileContent] = useState('')
 
   // Estimate dialog
   const [showEstimate, setShowEstimate] = useState(false)
@@ -106,14 +111,6 @@ export default function KnowledgeBasePage() {
   const toggleSelect = (fid: string) => {
     setSelectedFileIds(prev => { const next = new Set(prev); next.has(fid) ? next.delete(fid) : next.add(fid); return next })
   }
-  const batchDelete = async () => {
-    if (selectedFileIds.size === 0) return
-    if (!confirm(`确定删除选中的 ${selectedFileIds.size} 个文件？`)) return
-    for (const fid of selectedFileIds) { await kbService.delete(fid) }
-    setSelectedFileIds(new Set())
-    setSelectedFile(null)
-    await loadFiles()
-  }
   const handleDelete = async (file: KnowledgeFile) => {
     await kbService.delete(file.id)
     if (selectedFile?.id === file.id) {
@@ -163,6 +160,7 @@ export default function KnowledgeBasePage() {
   const isIndexable = selectedFile && selectedFile.type !== 'pdf' && selectedFile.type !== 'docx'
 
   return (
+    <>
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* Left: File list */}
       <div style={{
@@ -225,7 +223,7 @@ export default function KnowledgeBasePage() {
             <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>已选 {selectedFileIds.size} 个文件</span>
             <div style={{ display: 'flex', gap: 6 }}>
               <Button size="sm" variant="ghost" onClick={() => setSelectedFileIds(new Set())}>取消选择</Button>
-              <Button size="sm" variant="danger" onClick={batchDelete} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除选中</Button>
+              <Button size="sm" variant="danger" onClick={() => setDeleteConfirm({ type: 'batch', ids: [...selectedFileIds], count: selectedFileIds.size })} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除选中</Button>
             </div>
           </div>
         )}
@@ -234,8 +232,11 @@ export default function KnowledgeBasePage() {
           <Button size="sm" onClick={handleUpload} disabled={loading} icon={<DocumentArrowUpIcon style={{ width: 14, height: 14 }} />}>
             {loading ? '处理中...' : '上传文件'}
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => { setShowNewFile(true); setNewFileName(''); setNewFileContent('') }} icon={<DocumentTextIcon style={{ width: 14, height: 14 }} />}>
+            新建文件
+          </Button>
           {selectedFile && (
-            <Button size="sm" variant="danger" onClick={() => handleDelete(selectedFile)} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>
+            <Button size="sm" variant="danger" onClick={() => setDeleteConfirm({ type: 'single', file: selectedFile })} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>
               删除
             </Button>
           )}
@@ -381,6 +382,63 @@ export default function KnowledgeBasePage() {
         </div>
       </Modal>
     </div>
+    {/* New file modal */}
+    <Modal isOpen={showNewFile} onClose={() => setShowNewFile(false)} title="新建知识库文件" width={560}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>文件名</div>
+          <input value={newFileName} onChange={e => setNewFileName(e.target.value)}
+            placeholder="例如：世界观设定参考.md"
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #e5e0da', outline: 'none', fontSize: 13, fontFamily: 'inherit', color: '#2d2520', background: '#faf9f8' }}
+            autoFocus
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>内容（可选）</div>
+          <textarea value={newFileContent} onChange={e => setNewFileContent(e.target.value)}
+            placeholder="输入文件内容..."
+            style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #e5e0da', outline: 'none', resize: 'vertical', fontSize: 13, lineHeight: 1.8, fontFamily: 'inherit', color: '#2d2520', background: '#faf9f8', minHeight: 200 }}
+          />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+          <Button variant="secondary" onClick={() => setShowNewFile(false)}>取消</Button>
+          <Button onClick={async () => {
+            if (!newFileName.trim()) return
+            setShowNewFile(false)
+            setLoading(true)
+            try {
+              await kbService.create(newFileName.trim(), newFileContent, activeProjectId || undefined)
+              await loadFiles()
+            } catch (err) { logError('创建文件失败', err); alert('创建文件失败') }
+            setLoading(false)
+          }} disabled={!newFileName.trim()}>创建</Button>
+        </div>
+      </div>
+    </Modal>
+    <ConfirmModal
+      isOpen={deleteConfirm !== null}
+      title="删除知识库文件"
+      message={deleteConfirm?.type === 'batch'
+        ? `确定删除选中的 ${(deleteConfirm as any).count} 个文件？此操作不可撤销。`
+        : `确定删除「${(deleteConfirm as any)?.file?.originalName || ''}」？`}
+      confirmLabel="删除"
+      danger
+      onConfirm={async () => {
+        if (!deleteConfirm) return
+        if (deleteConfirm.type === 'batch') {
+          for (const fid of deleteConfirm.ids) { await kbService.delete(fid).catch(() => {}) }
+          setSelectedFileIds(new Set())
+          setSelectedFile(null)
+        } else {
+          await kbService.delete(deleteConfirm.file.id).catch(() => {})
+          if (selectedFile?.id === deleteConfirm.file.id) { setSelectedFile(null); setFileContent('') }
+        }
+        setDeleteConfirm(null)
+        await loadFiles()
+      }}
+      onCancel={() => setDeleteConfirm(null)}
+    />
+    </>
   )
 }
 
