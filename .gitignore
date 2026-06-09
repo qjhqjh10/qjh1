@@ -48,3 +48,7 @@ _auto_*
 _test_workflow_*
 scripts/autotest-log-*
 scripts/workflow-log-*
+
+# Test images & test data
+images/
+test_data/
