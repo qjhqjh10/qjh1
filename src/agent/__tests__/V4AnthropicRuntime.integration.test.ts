@@ -670,7 +670,7 @@ describe('Anthropic End-to-End', () => {
       }),
       // Step 4: Confirmation
       makeStreamResult({
-        text: '角色林语晴已创建！文件保存在 characters/林语晴.json。共16个字段，格式校验通过。需要我帮你调整哪些信息吗？',
+        text: '角色林语晴已创建！文件保存在 characters/林语晴.json。共15个字段，格式校验通过。需要我帮你调整哪些信息吗？',
         stopReason: 'end_turn',
       }),
     ])

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 验证角色卡 — 检查 16 字段完整性 + 枚举值合法性
+ * 验证角色卡 — 检查 15 字段完整性 + 枚举值合法性
  * 用法: node validate-character.mjs <projectRoot>
  * 输出: JSON { status: "pass"|"fail", checks: [...], failedCount: N }
  */
@@ -14,7 +14,7 @@ const charDir = join(projectRoot, 'characters')
 const REQUIRED_FIELDS = [
   'id', 'name', 'role', 'gender', 'age', 'occupation',
   'background', 'appearance', 'personality', 'abilities', 'weaknesses',
-  'relationships', 'relationshipTags', 'arc', 'importance', 'image',
+  'relationships', 'relationshipTags', 'arc', 'importance',
 ]
 const VALID_ROLES = ['男主', '女主', '男配', '女配', '反派', '其他']
 

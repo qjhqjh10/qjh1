@@ -31,20 +31,20 @@ export function useWindowDrag(windowKey: string) {
       const isEdge = /^(top|bottom|left|right)$/.test(corner)
       const MIN_W = 360, MAX_W = 1200, MIN_H = 360
       const MAX_H = Math.max(MIN_H, window.innerHeight - 60)
-      // Edge resize: dragged edge follows mouse, opposite edge stays fixed
+      // r/b update only when right/bottom edge follows mouse
+      const moveRight  = corner.includes('right')
+      const moveBottom = corner.includes('bottom')
       if (isEdge) {
         if (corner === 'right')  { w = clamp(startW + dx); r = startR - dx }
         if (corner === 'left')   { w = clamp(startW - dx) }
         if (corner === 'bottom') { h = clampH(startH + dy); b = startB - dy }
         if (corner === 'top')    { h = clampH(startH - dy) }
       } else {
-        // Corner: anchor at opposite corner
-        const anchorRight  = !corner.includes('right')  // left corners anchor right
-        const anchorBottom = !corner.includes('bottom') // top corners anchor bottom
-        if (corner.includes('right'))  { w = clamp(startW + dx); if (!anchorRight) r = startR - dx }
-        if (corner.includes('left'))   { w = clamp(startW - dx); if (anchorRight) r = startR + dx }
-        if (corner.includes('bottom')) { h = clampH(startH + dy); if (!anchorBottom) b = startB - dy }
-        if (corner.includes('top'))    { h = clampH(startH - dy); if (anchorBottom) b = startB + dy }
+        // Corner: opposite corner is the anchor (r/b only update for dragged side)
+        if (corner.includes('right'))  { w = clamp(startW + dx); if (moveRight) r = startR - dx }
+        if (corner.includes('left'))   { w = clamp(startW - dx) }
+        if (corner.includes('bottom')) { h = clampH(startH + dy); if (moveBottom) b = startB - dy }
+        if (corner.includes('top'))    { h = clampH(startH - dy) }
       }
       function clamp(v: number) { return Math.max(MIN_W, Math.min(MAX_W, v)) }
       function clampH(v: number) { return Math.max(MIN_H, Math.min(MAX_H, v)) }

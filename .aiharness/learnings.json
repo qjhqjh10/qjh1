@@ -10,7 +10,7 @@
   {
     "id": "learn_test2",
     "problem": "角色JSON缺少gender和age必填字段",
-    "solution": "创建角色时逐项检查16个字段：name/gender/age/role/occupation/personality/appearance/background/abilities/relationships/arc/goals/secrets/weakness/items/notes",
+    "solution": "创建角色时逐项检查15个字段：name/gender/age/role/occupation/personality/appearance/background/abilities/weaknesses/relationships/relationshipTags/arc/importance",
     "category": "character",
     "createdAt": "2026-06-01T11:00:00.000Z",
     "applied": false

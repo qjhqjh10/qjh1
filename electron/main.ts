@@ -108,8 +108,8 @@ async function createWindow() {
     x: saved.x, y: saved.y,
     width: saved.width || 1400,
     height: saved.height || 900,
-    minWidth: 1100,
-    minHeight: 700,
+    minWidth: 1280,
+    minHeight: 780,
     title: 'AI写作软件—青剑',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),

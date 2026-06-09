@@ -368,7 +368,7 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); setCumulativeTokens(conv?.totalTokens || 0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); setCurrentContextTokens(savedTokens); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
   const handleNewConversation = () => { abortToolLoop(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); setConversations(prev => { const r = prev.filter(c => c.id !== convId); if (r.length === 0) { setActiveConversationId('default'); return [makeConversation('default', '新对话')] } if (convId === activeConversationId) setActiveConversationId(r[0].id); return r }) }
@@ -528,8 +528,8 @@ export default function AIChatWindow() {
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 32 个工具（核心7+扩展25，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 16 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n🗺️ 故事脉络 — 多维度分析 + 冲突检测\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
-        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 16 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/润色/续写\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 32 个工具（核心7+扩展25，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n🗺️ 故事脉络 — 多维度分析 + 冲突检测\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
+        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 15 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/润色/续写\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
         { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), displayOnly: true },
@@ -593,8 +593,7 @@ export default function AIChatWindow() {
               { label: `API输入 (${runResult.iterationCount || 1}轮)`, chars: runResult.promptTokens || 0 },
             ])
           }
-          // v11.5.1: 上下文用量 = 实际输入+输出（API返回，包含全部历史+工具结果+输出）
-          setCurrentContextTokens((runResult.promptTokens || 0) + (runResult.completionTokens || 0))
+          // v11.5.1: 本轮用量将在累积更新后再设置（见下方 billedTokens 计算处）
 
           const ctxBreakdown = runResult.contextBreakdown?.map(b => ({ label: b.domain, chars: b.tokens * 2 })) || []
           // Show context composition + API-reported actuals (not double-counted)
@@ -637,6 +636,8 @@ export default function AIChatWindow() {
       setCumulativeTokens(prev => {
         const newTotal = prev + billedTokens
         setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
+        // 上下文进度条显示全部消息累计消耗，非单条消息
+        setCurrentContextTokens(newTotal)
         return newTotal
       })
       useAgentStore.getState().addTokens(billedTokens)
@@ -1285,12 +1286,39 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
-              <textarea value={input} onChange={e => handleInputChange(e.target.value)}
+              <textarea id="ai-chat-input" value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
               disabled={!activeConfigId} rows={3}
               className="focus-ring"
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, outline: 'none', resize: 'vertical', minHeight: 48, maxHeight: 200, padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)' }}
+              ref={el => {
+                if (!el) return
+                const saved = localStorage.getItem('ai-input-height')
+                if (saved) el.style.height = saved
+              }}
+              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: '10px 10px 0 0', outline: 'none', resize: 'none', minHeight: 48, padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)', transition: 'height 0.15s ease' }}
+            />
+            {/* Custom resize handle — smooth, saves height */}
+            <div
+              onMouseDown={e => {
+                const ta = (e.currentTarget.previousElementSibling || document.getElementById('ai-chat-input')) as HTMLTextAreaElement
+                if (!ta) return
+                const startY = e.clientY
+                const startH = ta.offsetHeight
+                let raf = 0
+                const hm = (ev: MouseEvent) => {
+                  if (!raf) raf = requestAnimationFrame(() => {
+                    const h = Math.max(48, startH + (ev.clientY - startY))
+                    ta.style.height = h + 'px'
+                    localStorage.setItem('ai-input-height', ta.style.height)
+                    raf = 0
+                  })
+                }
+                const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+                window.addEventListener('mousemove', hm)
+                window.addEventListener('mouseup', hu)
+              }}
+              style={{ height: 6, cursor: 'ns-resize', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,0.04))', borderRadius: '0 0 10px 10px', flexShrink: 0 }}
             />
             <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
               style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: input.trim() && activeConfigId ? '#7c3aed' : '#e5e0da', color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' }}>

@@ -9,11 +9,9 @@ interface CharacterGridProps {
   projectPath: string
   onEdit: (char: Character) => void
   onDelete: (char: Character) => void
-  onLightbox: (image: string, projectPath: string) => void
-  onUploadImage?: (char: Character) => void
 }
 
-export function CharacterGrid({ characters, projectPath, onEdit, onDelete, onLightbox, onUploadImage }: CharacterGridProps) {
+export function CharacterGrid({ characters, projectPath, onEdit, onDelete }: CharacterGridProps) {
   if (characters.length === 0) {
     return (
       <EmptyState icon="👤" title="暂无角色" description="点击 AI生成角色 或 新建角色 创建" />
@@ -45,7 +43,7 @@ export function CharacterGrid({ characters, projectPath, onEdit, onDelete, onLig
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
             {group.chars.map(char => (
               <div key={char.id} className="stagger-item">
-                <CharacterCard char={char} projectPath={projectPath} onEdit={onEdit} onDelete={onDelete} onLightbox={onLightbox} onUploadImage={onUploadImage} />
+                <CharacterCard char={char} projectPath={projectPath} onEdit={onEdit} onDelete={onDelete} />
               </div>
             ))}
           </div>

@@ -37,36 +37,6 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* 形象图 — 上传入口（预览在卡片上） */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#9b8e84' }}>{char.image ? '已设置形象图' : '未设置形象图'}</span>
-        <button onClick={() => {
-          const input = document.createElement('input')
-          input.type = 'file'; input.accept = 'image/*'
-          input.onchange = async () => {
-            const file = input.files?.[0]
-            if (!file) return
-            const reader = new FileReader()
-            reader.onload = async () => {
-              try {
-                const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
-                if (fn) { set('image', fn); return }
-              } catch { /* fallback to base64 */ }
-              set('image', reader.result as string)
-            }
-            reader.readAsDataURL(file)
-          }
-          input.click()
-        }} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
-          {char.image ? '更换' : '上传形象图'}
-        </button>
-        {char.image && (
-          <button onClick={() => set('image', undefined)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.04)', color: '#dc2626', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
-            移除
-          </button>
-        )}
-      </div>
-
       {/* Basic info row */}
       <div style={{ display: 'flex', gap: 14 }}>
         <div style={{ flex: 1 }}>

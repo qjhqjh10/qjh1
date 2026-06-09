@@ -15,12 +15,11 @@ import EditorToolbar from '@/components/chapterWriting/EditorToolbar'
 import SymbolPicker from '@/components/common/SymbolPicker'
 import FindReplace from '@/components/common/FindReplace'
 import ContextMenu from '@/components/common/ContextMenu'
-import PolishPreview from '@/components/common/PolishPreview'
 import AIPolishDialog from '@/components/common/AIPolishDialog'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService } from '@/services/fileService'
-import { aiCapability } from '@/services/aiCapabilityService'
-import { parseAiErrorMessage } from '@/utils/textUtils'
+
+
 import { logError } from '@/utils/logger'
 
 interface Props {
@@ -43,11 +42,6 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
   const [selectedText, setSelectedText] = useState('')
-  // Polish/continue preview
-  const [polishResult, setPolishResult] = useState<string | null>(null)
-  const [polishError, setPolishError] = useState('')
-  const [polishTitle, setPolishTitle] = useState('')
-  const [polishLoading, setPolishLoading] = useState(false)
   // Polish dialog
   const [polishDialogOpen, setPolishDialogOpen] = useState(false)
   const [polishMode, setPolishMode] = useState<'润色' | '改写' | '续写'>('润色')
@@ -222,15 +216,12 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const text = editor ? editor.state.doc.textBetween(
-      editor.state.selection.from, editor.state.selection.to, ' '
+      editor.state.selection.from, editor.state.selection.to, '\n\n'
     ) : ''
     if (text.trim().length < 2) return
     setSelectedText(text.trim())
     setCtxMenu({ x: e.clientX, y: e.clientY })
   }, [editor])
-
-  // AI generation guard
-  const generationRef = useRef(0)
 
   // Unified AI text editing: polish / rewrite / continue
   const doAiEdit = useCallback((mode: '润色' | '改写' | '续写') => {
@@ -239,38 +230,6 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     setPolishMode(mode)
     setPolishDialogOpen(true)
   }, [activeConfigId, selectedText])
-
-  const handlePolishGenerate = useCallback(async (customRequirement: string, promptId: string) => {
-    setPolishDialogOpen(false)
-    if (!activeConfigId || !selectedText) return
-    setPolishLoading(true)
-    setPolishTitle(`${polishMode}结果`)
-    setPolishError('')
-    const genId = ++generationRef.current
-    try {
-      const tpl = promptId && promptId !== '__none__' ? prompts.find(p => p.id === promptId) : null
-      const defs: Record<string, string> = {
-        '润色': '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
-        '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。',
-        '续写': '请根据以下内容自然续写，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性。',
-      }
-      const customPart = customRequirement.trim() ? `${customRequirement}\n\n` : ''
-      const wantTemplate = promptId && promptId !== '__none__'
-      const templateContent = wantTemplate && tpl?.content
-      // 不使用模板：有自定义要求就只用自定义，无自定义才用默认指令兜底
-      const useDefault = !wantTemplate && !customPart
-      const templatePart = templateContent ? `【提示词模板】\n${tpl.content}\n\n` : useDefault ? `${defs[polishMode]}\n\n` : ''
-      const prompt = `${customPart}${templatePart}[原文]\n${selectedText}`
-      const result = await aiCapability.generate(prompt, { configId: activeConfigId, projectId: activeProjectId || undefined })
-      if (genId === generationRef.current) {
-        if (result.success) setPolishResult(result.content)
-        else setPolishError(result.error || '请求失败')
-      }
-    } catch (err) {
-      if (genId === generationRef.current) setPolishError(parseAiErrorMessage(err, '请求失败'))
-    }
-    if (genId === generationRef.current) setPolishLoading(false)
-  }, [activeConfigId, selectedText, prompts, activeProjectId, polishMode])
 
   const handlePolish = () => doAiEdit('润色')
   const handleRewrite = () => doAiEdit('改写')
@@ -285,9 +244,9 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     store.setAIChatOpen(true)
   }, [selectedText])
 
-  const handleApplyPolish = (text: string, append?: boolean) => {
+  const handleInsertPolish = useCallback((text: string) => {
     if (!editor) return
-    if (append) {
+    if (polishMode === '续写') {
       // 续写: 追加在选中内容之后，不删除原文
       const { to } = editor.state.selection
       editor.chain().focus().setTextSelection(to).insertContent('\n\n' + text).run()
@@ -299,8 +258,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     if (onPolishApplied) {
       onPolishApplied(text, polishMode)
     }
-    setPolishResult(null)
-  }
+  }, [editor, polishMode, onPolishApplied])
 
   return (
     <>
@@ -343,8 +301,8 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
         }
       `}</style>
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', alignItems: 'center' }}>
-        {/* Toolbar — full width */}
-      <div style={{ padding: '0', marginBottom: 6, width: '100%' }}>
+        {/* Toolbar — sticky, scrolls with content */}
+      <div style={{ padding: '0', width: '100%', position: 'sticky', top: 0, zIndex: 10, background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
         <div style={{ borderRadius: '8px 8px 0 0', overflow: 'hidden' }}>
           <EditorToolbar
             editor={editor}
@@ -365,8 +323,6 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       {/* Writing paper — centered with maxWidth */}
       <div className="writing-paper" style={{ flex: 1, borderRadius: '0 0 8px 8px', overflow: 'auto', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 900 }}>
         <div onContextMenu={handleContextMenu} style={{ flex: 1 }}>
-          {polishLoading && <div role="status" aria-live="polite" style={{ padding: '12px 24px', fontSize: 13, color: '#7c3aed', textAlign: 'center' }}>AI 生成中...</div>}
-          {polishError && <div role="alert" style={{ padding: '12px 24px', fontSize: 13, color: '#dc2626', textAlign: 'center' }}>{polishError}</div>}
           <EditorContent editor={editor} style={{ height: '100%' }} />
         </div>
       </div>
@@ -389,19 +345,10 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
         mode={polishMode}
         selectedText={selectedText}
         prompts={prompts}
-        loading={false}
+        configId={activeConfigId}
+        projectId={activeProjectId || ''}
         onClose={() => setPolishDialogOpen(false)}
-        onGenerate={handlePolishGenerate}
-      />
-
-      {/* Polish/Continue preview */}
-      <PolishPreview
-        isOpen={polishResult !== null}
-        title={polishTitle}
-        original={selectedText}
-        result={polishResult || ''}
-        onApply={handleApplyPolish}
-        onClose={() => setPolishResult(null)}
+        onInsert={handleInsertPolish}
       />
 
       <SymbolPicker isOpen={showSymbols} onClose={() => setShowSymbols(false)} onSelect={handleInsertSymbol} />

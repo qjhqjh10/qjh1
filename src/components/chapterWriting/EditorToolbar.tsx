@@ -27,18 +27,18 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
 
   const btn = (action: () => void, active: boolean, children: React.ReactNode, title: string) => (
     <button type="button" onClick={action} title={title} style={{
-      width: 36, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      width: 40, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
       border: 'none', borderRadius: 6, cursor: 'pointer',
       background: active ? 'rgba(124,58,237,0.1)' : 'transparent',
-      color: active ? '#7c3aed' : '#5c5048', fontSize: 'var(--toolbar-font-size, 13px)', fontWeight: active ? 700 : 400,
+      color: active ? '#7c3aed' : '#5c5048', fontSize: 15, fontWeight: active ? 700 : 400,
       transition: 'background 0.1s',
     }}>{children}</button>
   )
 
-  const D = () => <div style={{ width: 1, height: 22, background: 'rgba(0,0,0,0.06)', margin: '0 4px' }} />
+  const D = () => <div style={{ width: 1, height: 26, background: 'rgba(0,0,0,0.06)', margin: '0 6px' }} />
   const selStyle: React.CSSProperties = {
-    padding: '3px 6px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.1)',
-    fontSize: 11, color: '#4a3f38', background: '#fff', cursor: 'pointer', height: 26, outline: 'none',
+    padding: '3px 8px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.1)',
+    fontSize: 12, color: '#4a3f38', background: '#fff', cursor: 'pointer', height: 30, outline: 'none',
   }
 
   const mergedTextStyle = (updates: Record<string, string>) => {
@@ -71,8 +71,8 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
 
   return (
     <div style={{
-      display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 2,
-      padding: '6px 12px', userSelect: 'none',
+      display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 3,
+      padding: '8px 16px', userSelect: 'none',
     }}>
       {/* Font */}
       <select onChange={e => editor.chain().focus().setFontFamily(e.target.value).run()} style={selStyle} defaultValue="">
@@ -87,14 +87,18 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
       </select>
       <D />
       {/* Bold/Italic/Underline/Strike */}
-      {btn(() => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), <BoldIcon style={{ width: 14, height: 14 }} />, '粗体')}
-      {btn(() => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), <ItalicIcon style={{ width: 14, height: 14 }} />, '斜体')}
-      {btn(() => editor.chain().focus().toggleUnderline().run(), editor.isActive('underline'), <span style={{ fontSize: 12, textDecoration: 'underline' }}>U</span>, '下划线')}
-      {btn(() => editor.chain().focus().toggleStrike().run(), editor.isActive('strike'), <span style={{ fontSize: 12, textDecoration: 'line-through' }}>S</span>, '删除线')}
+      {btn(() => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), <BoldIcon style={{ width: 18, height: 18 }} />, '粗体')}
+      {btn(() => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), <ItalicIcon style={{ width: 18, height: 18 }} />, '斜体')}
+      {btn(() => editor.chain().focus().toggleUnderline().run(), editor.isActive('underline'), <span style={{ fontSize: 14, textDecoration: 'underline' }}>U</span>, '下划线')}
+      {btn(() => editor.chain().focus().toggleStrike().run(), editor.isActive('strike'), <span style={{ fontSize: 14, textDecoration: 'line-through' }}>S</span>, '删除线')}
+      <D />
+      {/* Undo/Redo */}
+      {btn(() => editor.chain().focus().undo().run(), false, <span style={{ fontSize: 16 }}>↩</span>, '撤消')}
+      {btn(() => editor.chain().focus().redo().run(), false, <span style={{ fontSize: 16 }}>↪</span>, '重做')}
       <D />
       {/* Image & Link */}
-      {btn(onInsertImage, false, <PhotoIcon style={{ width: 14, height: 14 }} />, '插入图片')}
-      {btn(onInsertLink, editor.isActive('link'), <LinkIcon style={{ width: 14, height: 14 }} />, '插入链接')}
+      {btn(onInsertImage, false, <PhotoIcon style={{ width: 18, height: 18 }} />, '插入图片')}
+      {btn(onInsertLink, editor.isActive('link'), <LinkIcon style={{ width: 18, height: 18 }} />, '插入链接')}
       {/* Image alignment (visible when image selected) */}
       {isImageActive && onImageAlign && (
         <>
@@ -107,18 +111,18 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
             } else {
               editor.chain().focus().updateAttributes('image', { 'data-display': 'block', 'data-align': 'center' }).run()
             }
-          }, editor.getAttributes('image')?.['data-display'] === 'block', <span style={{ fontSize: 11 }}>⊞</span>, '嵌入(文字环绕) / 独立成行')}
-          {btn(() => onImageAlign('left'), currentImageAlign === 'left', <span style={{ fontSize: 11 }}>⫷</span>, '左对齐(文字环绕)')}
-          {btn(() => onImageAlign('center'), currentImageAlign === 'center', <span style={{ fontSize: 11 }}>⫿</span>, '居中')}
-          {btn(() => onImageAlign('right'), currentImageAlign === 'right', <span style={{ fontSize: 11 }}>⫸</span>, '右对齐(文字环绕)')}
+          }, editor.getAttributes('image')?.['data-display'] === 'block', <span style={{ fontSize: 15 }}>⊞</span>, '嵌入(文字环绕) / 独立成行')}
+          {btn(() => onImageAlign('left'), currentImageAlign === 'left', <span style={{ fontSize: 15 }}>⫷</span>, '左对齐(文字环绕)')}
+          {btn(() => onImageAlign('center'), currentImageAlign === 'center', <span style={{ fontSize: 15 }}>⫿</span>, '居中')}
+          {btn(() => onImageAlign('right'), currentImageAlign === 'right', <span style={{ fontSize: 15 }}>⫸</span>, '右对齐(文字环绕)')}
         </>
       )}
       <D />
       {/* Alignment */}
-      {btn(() => editor.chain().focus().setTextAlign('left').run(), editor.isActive({ textAlign: 'left' }), <span style={{ fontSize: 11 }}>⫷</span>, '左对齐')}
-      {btn(() => editor.chain().focus().setTextAlign('center').run(), editor.isActive({ textAlign: 'center' }), <span style={{ fontSize: 11 }}>⫿</span>, '居中')}
-      {btn(() => editor.chain().focus().setTextAlign('right').run(), editor.isActive({ textAlign: 'right' }), <span style={{ fontSize: 11 }}>⫸</span>, '右对齐')}
-      {btn(() => editor.chain().focus().setTextAlign('justify').run(), editor.isActive({ textAlign: 'justify' }), <span style={{ fontSize: 11, fontWeight: 700 }}>≡≡</span>, '两端对齐')}
+      {btn(() => editor.chain().focus().setTextAlign('left').run(), editor.isActive({ textAlign: 'left' }), <span style={{ fontSize: 15 }}>⫷</span>, '左对齐')}
+      {btn(() => editor.chain().focus().setTextAlign('center').run(), editor.isActive({ textAlign: 'center' }), <span style={{ fontSize: 15 }}>⫿</span>, '居中')}
+      {btn(() => editor.chain().focus().setTextAlign('right').run(), editor.isActive({ textAlign: 'right' }), <span style={{ fontSize: 15 }}>⫸</span>, '右对齐')}
+      {btn(() => editor.chain().focus().setTextAlign('justify').run(), editor.isActive({ textAlign: 'justify' }), <span style={{ fontSize: 15, fontWeight: 700 }}>≡≡</span>, '两端对齐')}
       <D />
       {/* Indent */}
       {btn(() => {
@@ -129,7 +133,7 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
         } else {
           editor.chain().focus().updateAttributes('paragraph', { style: mergedParagraphStyle('text-indent', '2em') }).run()
         }
-      }, /text-indent\s*:\s*2em/i.test(editor.getAttributes('paragraph')?.style || ''), <span style={{ fontSize: 11, fontWeight: 600 }}>↦↦</span>, '首行缩进')}
+      }, /text-indent\s*:\s*2em/i.test(editor.getAttributes('paragraph')?.style || ''), <span style={{ fontSize: 15, fontWeight: 600 }}>↦↦</span>, '首行缩进')}
       <D />
       {/* Line height */}
       <select onChange={e => {
@@ -141,7 +145,7 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
         {LINE_HEIGHTS.map(lh => <option key={lh} value={lh}>{lh}</option>)}
       </select>
       {/* Hard break */}
-      {btn(() => editor.chain().focus().setHardBreak().run(), false, <span style={{ fontSize: 12 }}>↵</span>, '换行符 (Shift+Enter)')}
+      {btn(() => editor.chain().focus().setHardBreak().run(), false, <span style={{ fontSize: 15 }}>↵</span>, '换行符 (Shift+Enter)')}
       <D />
       {/* Letter spacing */}
       <select onChange={e => editor.chain().focus().setMark('textStyle', mergedTextStyle({ letterSpacing: e.target.value })).run()} style={selStyle} defaultValue="">
@@ -150,31 +154,29 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
       </select>
       <D />
       {/* Headings */}
-      {btn(() => editor.chain().focus().toggleHeading({ level: 1 }).run(), editor.isActive('heading', { level: 1 }), <span style={{ fontSize: 11, fontWeight: 700 }}>H1</span>, '标题1')}
-      {btn(() => editor.chain().focus().toggleHeading({ level: 2 }).run(), editor.isActive('heading', { level: 2 }), <span style={{ fontSize: 11, fontWeight: 700 }}>H2</span>, '标题2')}
-      {btn(() => editor.chain().focus().toggleHeading({ level: 3 }).run(), editor.isActive('heading', { level: 3 }), <span style={{ fontSize: 10, fontWeight: 600 }}>H3</span>, '标题3')}
+      {btn(() => editor.chain().focus().toggleHeading({ level: 1 }).run(), editor.isActive('heading', { level: 1 }), <span style={{ fontSize: 14, fontWeight: 700 }}>H1</span>, '标题1')}
+      {btn(() => editor.chain().focus().toggleHeading({ level: 2 }).run(), editor.isActive('heading', { level: 2 }), <span style={{ fontSize: 14, fontWeight: 700 }}>H2</span>, '标题2')}
+      {btn(() => editor.chain().focus().toggleHeading({ level: 3 }).run(), editor.isActive('heading', { level: 3 }), <span style={{ fontSize: 13, fontWeight: 600 }}>H3</span>, '标题3')}
       <D />
       {/* Block quote / lists / rule */}
-      {btn(() => editor.chain().focus().toggleBlockquote().run(), editor.isActive('blockquote'), <span style={{ fontSize: 13 }}>❝</span>, '引用')}
-      {btn(() => editor.chain().focus().toggleBulletList().run(), editor.isActive('bulletList'), <QueueListIcon style={{ width: 13, height: 13 }} />, '无序列表')}
-      {btn(() => editor.chain().focus().toggleOrderedList().run(), editor.isActive('orderedList'), <span style={{ fontSize: 11 }}>1.</span>, '有序列表')}
-      {btn(() => editor.chain().focus().setHorizontalRule().run(), false, <span style={{ fontSize: 12 }}>─</span>, '分割线')}
+      {btn(() => editor.chain().focus().toggleBlockquote().run(), editor.isActive('blockquote'), <span style={{ fontSize: 16 }}>❝</span>, '引用')}
+      {btn(() => editor.chain().focus().toggleBulletList().run(), editor.isActive('bulletList'), <QueueListIcon style={{ width: 18, height: 18 }} />, '无序列表')}
+      {btn(() => editor.chain().focus().toggleOrderedList().run(), editor.isActive('orderedList'), <span style={{ fontSize: 14 }}>1.</span>, '有序列表')}
+      {btn(() => editor.chain().focus().setHorizontalRule().run(), false, <span style={{ fontSize: 15 }}>─</span>, '分割线')}
       <D />
       {/* Color */}
-      <div style={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
         {COLORS.map(c => (
           <button key={c} type="button" onClick={() => editor.chain().focus().setColor(c).run()} title={c} style={{
-            width: 20, height: 20, borderRadius: '50%', border: editor.isActive('textStyle', { color: c }) ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.1)',
+            width: 22, height: 22, borderRadius: '50%', border: editor.isActive('textStyle', { color: c }) ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.1)',
             background: c, cursor: 'pointer', padding: 0,
           }} />
         ))}
       </div>
       <D />
-      {/* Symbols / Find / Undo/Redo */}
-      {btn(() => onOpenSymbols(), false, <span style={{ fontSize: 13 }}>Ω</span>, '符号库')}
-      {btn(() => onToggleFind(), false, <MagnifyingGlassIcon style={{ width: 13, height: 13 }} />, '查找替换')}
-      {btn(() => editor.chain().focus().undo().run(), false, <span style={{ fontSize: 12 }}>↩</span>, '撤消')}
-      {btn(() => editor.chain().focus().redo().run(), false, <span style={{ fontSize: 12 }}>↪</span>, '重做')}
+      {/* Symbols / Find */}
+      {btn(() => onOpenSymbols(), false, <span style={{ fontSize: 18 }}>Ω</span>, '符号库')}
+      {btn(() => onToggleFind(), false, <MagnifyingGlassIcon style={{ width: 18, height: 18 }} />, '查找替换')}
     </div>
   )
 }

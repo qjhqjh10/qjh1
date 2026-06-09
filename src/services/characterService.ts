@@ -28,7 +28,6 @@ function normalizeCharacter(raw: Record<string, unknown>): Character {
         : [],
       arc: String(raw.arc || ''),
       importance: typeof raw.importance === 'number' ? raw.importance : 50,
-      image: String(raw.image || ''),
     }
   }
 
@@ -93,7 +92,6 @@ function normalizeCharacter(raw: Record<string, unknown>): Character {
     relationshipTags: ['同伴'],
     arc: arcParts.length > 0 ? arcParts.join('；') : String(raw.notes || ''),
     importance: 20,
-    image: '',
   }
 }
 import { EMPTY_CHARACTER } from '@/types/character'
@@ -129,7 +127,6 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
   { key: 'relationshipTags', label: '关系标签' },
   { key: 'arc', label: '角色成长弧线' },
   { key: 'importance', label: '重要程度', isNumber: true },
-  { key: 'image', label: '形象图' },
 ]
 
 import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'

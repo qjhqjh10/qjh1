@@ -15,12 +15,10 @@ export const AI_FORMAT_INSTRUCTION = `
 角色成长弧线: <角色故事发展轨迹>
 关系标签: <标签1、标签2、标签3>
 重要程度: <1-100的整数，数值越大越重要，默认50>
-形象图: <英文关键词描述，用于图片搜索，如"young swordsman with silver hair, blue eyes, dark armor, anime style, portrait">
 
 注意：
 - 每个字段都必须填写，不确定的可以写"暂无"
 - 关系标签从以下选择或自行发挥：恋人、后宫、父亲、母亲、姐姐、妹妹、哥哥、弟弟、师父、徒弟、挚友、敌人、宿敌、竞争对手、青梅竹马、初恋、暗恋对象等
-- 形象图请使用英文关键词，描述角色外貌特征，便于搜索匹配的图片
 - 只输出上述格式的角色信息，不要输出其他内容`
 
 export const ROLE_COLORS: Record<string, string> = {

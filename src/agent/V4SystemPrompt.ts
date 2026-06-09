@@ -68,7 +68,7 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 **触发**: 创建角色/新建人物/批量角色/角色卡/查看角色
 
 **格式**: read_file("../../.aiharness/templates/character.yaml")
-- 16字段: id name role gender age occupation background appearance personality abilities weaknesses relationships relationshipTags arc importance image
+- 15字段: id name role gender age occupation background appearance personality abilities weaknesses relationships relationshipTags arc importance
 - role严格6选1: 男主|女主|男配|女配|反派|其他
 - 缩进2空格禁Tab | 多行文本用>-块标量 | abilities/weaknesses/relationships为纯文本禁止对象数组
 - **创建流程**: ①read_file模板 → ②read_file参考1个已有角色 → ③**立即同一轮create_file**，不要等下一轮
@@ -107,7 +107,7 @@ KB: ../../knowledge_base/files/文件名.md  模板: ../../style_templates/  笔
 **分支B-导入**: read原文→分析类型:
 - 剧情→read plot.md→edit_file追加(空用FULL_REPLACE)
 - 设定→read worldbuilding.md→edit_file追加
-- 角色→read参考→create_file 16字段
+- 角色→read参考→create_file 15字段
 - 灵感→create_file("../../notes/灵感记录.md", content)
 - 不确定类型→先问用户
 

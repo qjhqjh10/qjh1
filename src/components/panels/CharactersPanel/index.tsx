@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
-import { fileService, aiService } from '@/services/fileService'
+import { fileService } from '@/services/fileService'
 import { chatAI } from '@/utils/chatAI'
 import { loadCharacters, saveCharacter, parseCharacterFromAI, normalizeRole } from '@/services/characterService'
 import { loadWorldbuildingContent } from '@/services/outlineService'
@@ -10,7 +10,7 @@ import Modal from '@/components/common/Modal'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import { SkeletonList } from '@/components/common/Skeleton'
-import ImageLightbox from '@/components/common/ImageLightbox'
+
 import CharacterForm from '../CharacterForm'
 import RelationshipGraphModal from '@/components/common/RelationshipGraphModal'
 import { PlusIcon, SparklesIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
@@ -33,6 +33,8 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const setCharacters = useStore(s => s.setCharacters)
   const removeCharacter = useStore(s => s.removeCharacter)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
+  const outlineContent = useStore(s => s.outlineContent)
+  const detailedChapters = useStore(s => s.detailedChapters)
 
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
@@ -40,7 +42,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
 
   const [editingChar, setEditingChar] = useState<Character | null>(null)
   const [showModal, setShowModal] = useState(false)
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -52,18 +53,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const [aiGenPromptId, setAiGenPromptId] = useState('')
 
   const graph = useRelationshipGraph({ projectPath, activeProjectId, activeConfigId })
-
-  const openLightbox = async (image: string, pp: string) => {
-    if (image.startsWith('data:')) { setLightboxImage(image); return }
-    if (!pp) return
-    const imagePath = image.includes('/') ? image : `images/${image}`
-    const ext = image.split('.').pop()?.toLowerCase() || 'png'
-    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
-    try {
-      const b64 = await fileService.readBinary(`${pp}/${imagePath}`)
-      if (b64) setLightboxImage(`data:${mime};base64,${b64}`)
-    } catch { /* silently fail */ }
-  }
 
   useEffect(() => {
     if (!activeProjectId) { if (standalone) navigate('/'); return }
@@ -102,30 +91,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     removeCharacter(char.id)
   }
 
-  const handleUploadImage = (char: Character) => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/*'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      const reader = new FileReader()
-      reader.onload = async () => {
-        let imagePath: string | undefined
-        try {
-          const fn = await fileService.saveImageUrl(reader.result as string, projectPath)
-          if (fn) imagePath = fn
-        } catch { /* fallback to base64 */ }
-        const updatedChar: Character = { ...char, image: imagePath || reader.result as string }
-        await saveCharacter(projectPath, updatedChar)
-        const refreshed = await loadCharacters(projectPath)
-        setCharacters(refreshed)
-      }
-      reader.readAsDataURL(file)
-    }
-    input.click()
-  }
-
   const handleSave = async () => {
     if (!editingChar || !editingChar.name.trim()) return
     const isNew = !characters.find(c => c.id === editingChar.id)
@@ -139,39 +104,22 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     }
   }
 
-  const handleAIGenerate = async () => {
+  const handleAIGenerate = async (referenceContext: string) => {
     const genConfigId = aiGenConfigId || activeConfigId
     if (!aiGenDesc.trim() || !genConfigId) return
     setAiGenLoading(true)
     try {
       const selectedPrompt = aiGenPromptId && aiGenPromptId !== '__none__' ? promptTemplates.find(p => p.id === aiGenPromptId) : null
       const rolePromptContent = selectedPrompt?.content || ''
+      const refBlock = referenceContext ? `\n\n[参考背景]\n${referenceContext}` : ''
       const messages = [{
         role: 'user' as const,
-        content: `${rolePromptContent ? `[提示词模板]\n${rolePromptContent}\n\n` : ''}[格式要求]\n${AI_FORMAT_INSTRUCTION}\n\n[用户需求]\n请根据以下描述生成角色：\n${aiGenDesc}`,
+        content: `${rolePromptContent ? `[提示词模板]\n${rolePromptContent}\n\n` : ''}[格式要求]\n${AI_FORMAT_INSTRUCTION}\n\n[用户需求]\n请根据以下描述生成角色：\n${aiGenDesc}${refBlock}`,
       }]
       const reply = await chatAI(messages, genConfigId, activeProjectId || undefined)
       const parsed = parseCharacterFromAI(reply)
-      const imagePromptMatch = reply.match(/形象图描述[:：]\s*(.+)/)
-      const imagePrompt = imagePromptMatch?.[1]?.trim() || ''
-      let characterImage: string | undefined
-      let note = ''
-      if (imagePrompt && projectPath) {
-        try {
-          const results = await aiService.executeFileTools([{
-            callId: nanoid(6), toolName: 'search_images', args: { query: imagePrompt, count: 1 },
-          }])
-          const r = results[0]
-          if (r?.status === 'success' && r?.detail) {
-            const detail = JSON.parse(r.detail) as { path: string; description: string }[]
-            if (detail.length > 0) { characterImage = detail[0].path } else { note = '未找到匹配图片，可手动上传' }
-          } else {
-            note = r?.status === 'error' ? `图片搜索失败: ${r.summary}` : '图片搜索暂不可用'
-          }
-        } catch { note = '图片搜索暂不可用（可能限流或网络问题）' }
-      }
-      setAiGenImageNote(note)
-      const newChar: Character = { ...EMPTY_CHARACTER, id: nanoid(8), ...parsed, image: characterImage }
+      // image is no longer part of Character — managed independently via file convention
+      const newChar: Character = { ...EMPTY_CHARACTER, id: nanoid(8), ...parsed }
       setEditingChar(newChar)
       setShowAIGen(false)
       setAiGenDesc('')
@@ -220,7 +168,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
             <div style={{ maxWidth: 600, margin: '0 auto' }}><SkeletonList count={6} /></div>
           ) : (
             <CharacterGrid characters={characters} projectPath={projectPath}
-              onEdit={handleEdit} onDelete={handleDelete} onLightbox={openLightbox} onUploadImage={handleUploadImage} />
+              onEdit={handleEdit} onDelete={handleDelete} />
           )}
         </ScrollArea>
       </div>
@@ -256,6 +204,10 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         configs={configs}
         promptTemplates={promptTemplates}
         activeConfigId={activeConfigId}
+        characters={characters}
+        outlineContent={outlineContent}
+        detailedChapters={detailedChapters}
+        currentChapterId={undefined}
         onClose={() => setShowAIGen(false)}
         onDescChange={setAiGenDesc}
         onConfigChange={setAiGenConfigId}
@@ -263,8 +215,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         onGenerate={handleAIGenerate}
       />
 
-      {/* 形象图灯箱 */}
-      {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
     </div>
   )
 }

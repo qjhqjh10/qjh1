@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useStore, useSettingsStore } from "@/store";
 import { aiService, kbService, fileService, templateService, styleTemplateService, settingsService } from "@/services/fileService";
-import { chatAIWithUsage, chatAIStream } from "@/utils/chatAI";
+import { chatAIWithUsage, chatAIStream, chatAI } from "@/utils/chatAI";
 import { loadOutlineDimensions } from "@/utils/outlineData";
-import { loadAllSummaries } from "@/services/summaryService";
+import { loadAllSummaries, saveSummary } from "@/services/summaryService";
 import type { OutlineTabToggles, DetailedOutlineToggles } from "@/types/settings";
 import Modal from "../Modal";
 import { SparklesIcon, BookOpenIcon } from "@heroicons/react/24/outline";
@@ -74,6 +74,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [wordTarget, setWordTarget] = useState(cg.wordTarget)
   const [streamMode, setStreamMode] = useState(cg.streamMode)
   const [replaceMode, setReplaceMode] = useState(cg.replaceMode)
+  const [autoSummary, setAutoSummary] = useState(false)
+  const [selectedSummaryPromptId, setSelectedSummaryPromptId] = useState('__none__')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -169,7 +171,20 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
 
-  // Force paragraph separation: ensure blank lines between paragraphs
+  const generateSummaryForChapter = async (chapterId: string, chapterContent: string, chapterTitle: string) => {
+    if (!activeProjectId || !projectsBasePath || !genConfigId) return
+    try {
+      const summaryPrompts = prompts.filter(p => p.type === '摘要' && p.enabled)
+      const selectedPrompt = selectedSummaryPromptId !== NONE_ID ? summaryPrompts.find(p => p.id === selectedSummaryPromptId) : null
+      const template = selectedPrompt?.content || '请用简洁的语言总结以下章节内容的核心情节、人物发展和关键转折点。控制在200字以内。'
+      const summaryPrompt = `${template}\n\n章节标题: ${chapterTitle}\n\n章节内容:\n${chapterContent.slice(0, 30000)}`
+      const summary = await chatAI([{ role: 'user' as const, content: summaryPrompt }], genConfigId, activeProjectId)
+      if (summary) {
+        await saveSummary(`${projectsBasePath}/${activeProjectId}`, chapterId, summary)
+        chapterSummaryMap[chapterId] = summary
+      }
+    } catch { /* non-critical */ }
+  }
 
   const handleGenerate = async () => {
     const config = configs.find(c => c.id === genConfigId)
@@ -246,6 +261,9 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
               usage: data.usage ? { input: data.usage.prompt_tokens, output: data.usage.completion_tokens, total: data.usage.total_tokens } : { input: 0, output: 0, total: 0 },
               cost: data.usage?.cost || 0,
             }).catch(err => logError('保存版本记录失败', err))
+            if (autoSummary && chapterId) {
+              generateSummaryForChapter(chapterId, data.text, currentChapter?.title || '').catch(() => {})
+            }
             setLoading(false)
             onGenDone?.()
           },
@@ -265,6 +283,9 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           usage: { input: genUsage?.prompt_tokens || 0, output: genUsage?.completion_tokens || 0, total: genUsage?.total_tokens || 0 },
           cost: genUsage?.cost || 0,
         }).catch(err => logError('保存版本记录失败', err))
+        if (autoSummary && chapterId) {
+          generateSummaryForChapter(chapterId, reply, currentChapter?.title || '').catch(() => {})
+        }
         setLoading(false)
         onClose()
       }
@@ -346,7 +367,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="" width={1200} maxHeight="100vh" closeOnBackdropClick={false} draggable resizable>
+    <Modal isOpen={isOpen} onClose={onClose} title="" width="86vw" maxHeight="100vh" closeOnBackdropClick={false} draggable resizable>
       <style>{`
         @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
         .gen-btn { transition: all 0.25s ease; }
@@ -357,9 +378,9 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         .section-card { transition: box-shadow 0.2s ease; }
         .section-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
       `}</style>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '82vh', minHeight: 600 }}>
         {/* Header — clean title */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 12,
@@ -382,19 +403,19 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         </div>
 
         {/* === SECTION 1: Dimensions (combined: outline + detailed) === */}
-        <div className="section-card" style={{ padding: '14px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 14, borderRadius: 2, background: '#7c3aed' }} />
+        <div className="section-card" style={{ padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)', flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
             关联大纲和细纲
           </div>
           {/* Outline tabs — all on one line */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: '#6b5e54' }}>大纲</span>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>大纲</span>
               <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
               <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {([
                 ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
                 ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
@@ -402,8 +423,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 ['plotThreads', '故事线'],
               ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
                 <label key={key} className="chip-check" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 9px', borderRadius: 7,
-                  fontSize: 11, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
+                  fontSize: 12, cursor: 'pointer',
                   background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
                   border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
                   color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
@@ -417,20 +438,20 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           </div>
           {/* Detailed outline fields */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: '#6b5e54' }}>细纲</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38' }}>细纲</span>
               <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
               <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {([
                 ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
                 ['location', '场景地点'], ['keyEvents', '关键事件'],
                 ['eroticContent', '情色剧情'],
               ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
                 <label key={key} className="chip-check" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 9px', borderRadius: 7,
-                  fontSize: 11, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
+                  fontSize: 12, cursor: 'pointer',
                   background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
                   border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
                   color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
@@ -445,64 +466,76 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         </div>
 
         {/* === SECTION 2: Two-column layout (characters+summary+kb | template+scene+style) === */}
-        <div style={{ display: 'flex', gap: 14 }}>
+        <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {/* Left column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             {/* Characters */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>角色库 · {selectedCharacterIds.size} 个</div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                <button onClick={() => selectIds(setSelectedCharacterIds, characters.map(c => c.id))} style={miniActionLink}>全选</button>
-                <button onClick={autoDetectCharacters} style={miniActionLink}>自动检测</button>
-                <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={miniActionLink}>清空</button>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>角色库 · {selectedCharacterIds.size} 个</div>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 6 }}>
+                <button onClick={() => selectIds(setSelectedCharacterIds, characters.map(c => c.id))} style={{...miniActionLink, fontSize: 12}}>全选</button>
+                <button onClick={autoDetectCharacters} style={{...miniActionLink, fontSize: 12}}>自动检测</button>
+                <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={{...miniActionLink, fontSize: 12}}>清空</button>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 100, overflowY: 'auto' }} className="custom-scrollbar">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
                 {characters.map(c => (
                   <label key={c.id} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 7, fontSize: 12, cursor: 'pointer',
                     background: selectedCharacterIds.has(c.id) ? 'rgba(124,58,237,0.06)' : 'transparent',
                     border: selectedCharacterIds.has(c.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
                   }}>
                     <input type="checkbox" checked={selectedCharacterIds.has(c.id)} onChange={() => toggleId(setSelectedCharacterIds, c.id)} style={checkInput} />
-                    {c.name}<span style={{ fontSize: 9, color: '#9b8e84', marginLeft: 2 }}>{c.role}</span>
+                    {c.name}<span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 2 }}>{c.role}</span>
                   </label>
                 ))}
-                {characters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>暂无角色</span>}
+                {characters.length === 0 && <span style={{ fontSize: 12, color: '#9b8e84' }}>暂无角色</span>}
               </div>
             </div>
 
             {/* Chapter summaries */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>前文摘要 · {selectedSummaryIds.size}/5（有摘要 {prevChaptersWithSummary.length}/{prevChapters.length} 章）</div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                <button onClick={smartSelectSummaries} style={miniActionLink}>最近五章（有摘要的）</button>
-                <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={miniActionLink}>清空</button>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>前文摘要 · {selectedSummaryIds.size}/5（有摘要 {prevChaptersWithSummary.length}/{prevChapters.length} 章）</div>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button onClick={smartSelectSummaries} style={{...miniActionLink, fontSize: 12}}>最近五章（有摘要的）</button>
+                <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={{...miniActionLink, fontSize: 12}}>清空</button>
+                <div style={{ width: 1, height: 14, background: 'rgba(0,0,0,0.1)' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: autoSummary ? '#16a34a' : '#6b5e54', fontWeight: autoSummary ? 600 : 400 }}>
+                  <input type="checkbox" checked={autoSummary} onChange={() => setAutoSummary(!autoSummary)} style={checkInput} />自动生成摘要
+                </label>
+                {autoSummary && (
+                  <select value={selectedSummaryPromptId} onChange={e => setSelectedSummaryPromptId(e.target.value)} style={{ padding: '3px 6px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer' }}>
+                    <option value={NONE_ID}>默认模板（200字摘要）</option>
+                    {prompts.filter(p => p.type === '摘要' && p.enabled).map(p => (
+                      <option key={p.id} value={p.id}>{p.title}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-              <div className="custom-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
+              <div className="custom-scrollbar" style={{ overflowY: 'auto', flex: 1 }}>
                 {prevChapters.map(c => {
                   const hasSummary = !!chapterSummaryMap[c.id]?.trim()
                   return (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: hasSummary ? 'pointer' : 'default', borderRadius: 6, fontSize: 11, color: hasSummary ? '#2d2520' : '#b0a89e' }}>
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', cursor: hasSummary ? 'pointer' : 'default', borderRadius: 6, fontSize: 13, color: hasSummary ? '#2d2520' : '#b0a89e' }}>
                     <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!hasSummary || (!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5)} style={checkInput} />
                     <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>第{c.order + 1}章</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-                    {!hasSummary && <span style={{ fontSize: 9, color: '#f59e0b', whiteSpace: 'nowrap' }}>无摘要</span>}
-                    <span style={{ fontSize: 9, color: '#9b8e84', whiteSpace: 'nowrap' }}>{STATUS_LABELS[c.status || 'incomplete']}</span>
+                    {!hasSummary && <span style={{ fontSize: 11, color: '#f59e0b', whiteSpace: 'nowrap' }}>无摘要</span>}
+                    <span style={{ fontSize: 11, color: '#9b8e84', whiteSpace: 'nowrap' }}>{STATUS_LABELS[c.status || 'incomplete']}</span>
                   </label>
                 )})}
-                {prevChapters.length === 0 && <span style={{ fontSize: 11, color: '#9b8e84' }}>无前序章节</span>}
+                {prevChapters.length === 0 && <span style={{ fontSize: 13, color: '#9b8e84' }}>无前序章节</span>}
               </div>
               {prevChapters.length > 0 && prevChaptersWithSummary.length === 0 && (
-                <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', fontSize: 10, color: '#b45309', lineHeight: 1.4 }}>
-                  💡 前序章节尚未创建摘要。可在章节创作页左侧面板的"章节正文摘要"中点击"AI提取"为每章自动生成摘要。摘要存储在 summaries/ 目录中。
+                <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', color: '#b45309', lineHeight: 1.4, flexShrink: 0 }}>
+                  💡 前序章节尚未创建摘要。可在章节创作页左侧面板的"章节正文摘要"中点击"AI提取"为每章自动生成摘要。
                 </div>
               )}
             </div>
 
             {/* Knowledge base */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>知识库注入 · {selectedKbFileIds.size} 个</div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>知识库注入 · {selectedKbFileIds.size} 个</div>
+              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4 }}>
                 <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={miniActionLink}>全选</button>
                 <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
                 <button onClick={loadKBFiles} style={{ ...miniActionLink, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -511,10 +544,10 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 </button>
               </div>
               {kbLoaded && kbFiles.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 80, overflowY: 'auto' }} className="custom-scrollbar">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
                   {kbFiles.map(f => (
                     <label key={f.id} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
                       background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff',
                       border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
                     }}>
@@ -528,12 +561,12 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           </div>
 
           {/* Right column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             {/* Template */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>生成模板</div>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>生成模板</div>
               <select value={selectedChapterPromptId} onChange={e => handleSwitchChapterPrompt(e.target.value)}
-                style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 10, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
                 <option value={NONE_ID}>不使用模板（根据四层配置生成）</option>
                 {chapterPrompts.map(p => (
                   <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
@@ -549,34 +582,34 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             </div>
 
             {/* Scene injection */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>场景注入</div>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>场景注入</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
                 {(['all', '情色小说', '普通小说'] as const).map(t => (
                   <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
-                    padding: '2px 8px', borderRadius: 5, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.05)',
-                    background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#f8f7f5', cursor: 'pointer', fontSize: 10,
+                    padding: '3px 10px', borderRadius: 5, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.05)',
+                    background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#f8f7f5', cursor: 'pointer', fontSize: 12,
                     color: sceneFilterType === t ? '#7c3aed' : '#6b5e54', fontFamily: 'inherit',
                   }}>{t === 'all' ? '全部' : t === '情色小说' ? '情色' : '普通'}</button>
                 ))}
               </div>
-              <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+              <select value={selectedSceneId} onChange={e => setSelectedSceneId(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
                 <option value="">— 不注入 —</option>
                 {sceneTemplates.filter(t => sceneFilterType === 'all' || t.type === sceneFilterType).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
               {selectedScene && (
-                <div style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.02)', border: '1px solid rgba(124,58,237,0.06)', fontSize: 10, maxHeight: 140, overflow: 'auto', color: '#4a3f38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                <div style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.02)', border: '1px solid rgba(124,58,237,0.06)', fontSize: 10, overflow: 'auto', flex: 1, color: '#4a3f38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
                   {buildScenePrompt(selectedScene)}
                 </div>
               )}
             </div>
 
             {/* Style template */}
-            <div className="section-card" style={cardStyle}>
-              <div style={cardHeaderStyle}>风格模板</div>
-              <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', background: '#faf9f8' }}>
+            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>风格模板</div>
+              <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', background: '#faf9f8' }}>
                 <option value="">— 不注入 —</option>
                 {styleTemplates.map((t: any) => (
                   <option key={t.id} value={t.id}>{t.name || '未命名'}</option>
@@ -587,7 +620,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 {(['light','normal','strong'] as const).map(s => (
                   <button key={s} onClick={() => updateCg({ styleStrength: s })}
                     style={{
-                      padding: '2px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer',
+                      padding: '3px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
                       background: (cg.styleStrength || 'normal') === s ? 'rgba(124,58,237,0.08)' : 'transparent',
                       border: (cg.styleStrength || 'normal') === s ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
                       color: (cg.styleStrength || 'normal') === s ? '#7c3aed' : '#9b8e84',
@@ -597,7 +630,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 ))}
               </div>
               {selectedStyleTemplate && (
-                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, maxHeight: 100, overflow: 'auto', color: '#4a3f38', lineHeight: 1.5 }}>
+                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, overflow: 'auto', flex: 1, color: '#4a3f38', lineHeight: 1.5 }}>
                   {(() => {
                     const t = selectedStyleTemplate
                     const parts: string[] = []
@@ -618,53 +651,77 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         </div>
 
         {/* === SECTION 3: Output settings (compact row) === */}
-        <div className="section-card" style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(0,0,0,0.01), rgba(0,0,0,0.02))', border: '1px solid rgba(0,0,0,0.06)' }}>
+        <div className="section-card" style={{ padding: '14px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(0,0,0,0.01), rgba(0,0,0,0.02))', border: '1px solid rgba(0,0,0,0.06)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
             {/* Word target */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>目标字数</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>目标字数</span>
               <input type="number" step={100} value={wordTarget} onChange={e => setWordTarget(parseInt(e.target.value) || 0)}
                 onBlur={e => { const v = parseInt(e.target.value); if (v < 500 || v > 50000) setWordTarget(4000) }}
-                style={{ width: 80, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit', textAlign: 'center' }} />
-              <span style={{ fontSize: 10, color: '#9b8e84' }}>字</span>
+                style={{ width: 80, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 13, fontFamily: 'inherit', textAlign: 'center' }} />
+              <span style={{ fontSize: 11, color: '#9b8e84' }}>字</span>
             </div>
             <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
             {/* Output mode */}
-            <label style={{ ...checkLabel, fontSize: 11, gap: 3 }}><input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={checkInput} /> 流式</label>
-            <label style={{ ...checkLabel, fontSize: 11, gap: 3 }}><input type="checkbox" checked={replaceMode} onChange={() => setReplaceMode(!replaceMode)} style={checkInput} /> 替换正文</label>
+            <label title="逐字实时输出生成内容到编辑器，可随时停止" style={{ ...checkLabel, fontSize: 12, gap: 4 }}><input type="checkbox" checked={streamMode} onChange={() => setStreamMode(!streamMode)} style={checkInput} /> 流式生成</label>
+            <label title="勾选：AI生成内容替换当前章节原文；不勾选：追加在原文后面" style={{ ...checkLabel, fontSize: 12, gap: 4 }}><input type="checkbox" checked={replaceMode} onChange={() => setReplaceMode(!replaceMode)} style={checkInput} /> 替换正文</label>
             <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
             {/* Model selector */}
-            <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', maxWidth: 200 }}>
+            <select value={genConfigId} onChange={e => setGenConfigId(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', maxWidth: 200 }}>
               {configs.map(c => <option key={c.id} value={c.id}>{c.name} ({c.model})</option>)}
             </select>
             <div style={{ width: 1, height: 24, background: 'rgba(0,0,0,0.08)' }} />
-            {/* Temperature */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-              title="温度越高回复越随机/有创意，越低越确定/保守">
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>温度</span>
-              <button onClick={async () => {
+            {/* Temperature — draggable gradient slider */}
+            {(() => {
+              const curTemp = configs.find(c => c.id === genConfigId)?.temperature ?? 0.8
+              const pct = Math.round((curTemp / 2) * 100)
+              const tempColor = curTemp <= 0.5 ? '#3b82f6' : curTemp <= 1.0 ? '#7c3aed' : curTemp <= 1.5 ? '#f59e0b' : '#ef4444'
+              const tempLabel = curTemp <= 0.5 ? '精确' : curTemp <= 1.0 ? '均衡' : curTemp <= 1.5 ? '创意' : '狂想'
+              const saveTemp = async (newTemp: number) => {
                 const config = configs.find(c => c.id === genConfigId); if (!config) return
-                const newTemp = Math.max(0, +(config.temperature || 0.8).toFixed(1) - 0.1)
-                useSettingsStore.getState().updateConfig(config.id, { temperature: newTemp })
+                useSettingsStore.getState().updateConfig(config.id, { temperature: +newTemp.toFixed(1) })
                 await settingsService.saveConfigs(useSettingsStore.getState().configs)
-              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
-              <span style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', minWidth: 28, textAlign: 'center' }}>
-                {(configs.find(c => c.id === genConfigId)?.temperature ?? 0.8).toFixed(1)}°C
-              </span>
-              <button onClick={async () => {
-                const config = configs.find(c => c.id === genConfigId); if (!config) return
-                const newTemp = Math.min(2, +(config.temperature || 0.8).toFixed(1) + 0.1)
-                useSettingsStore.getState().updateConfig(config.id, { temperature: newTemp })
-                await settingsService.saveConfigs(useSettingsStore.getState().configs)
-              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
-            </div>
+              }
+              const handleSliderDown = (e: React.MouseEvent) => {
+                const bar = e.currentTarget as HTMLElement
+                const rect = bar.getBoundingClientRect()
+                const updateFromMouse = (clientX: number) => {
+                  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+                  saveTemp(Math.round(ratio * 20) / 10)
+                }
+                updateFromMouse(e.clientX)
+                const onMove = (ev: MouseEvent) => updateFromMouse(ev.clientX)
+                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                window.addEventListener('mousemove', onMove)
+                window.addEventListener('mouseup', onUp)
+              }
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 220 }}>
+                  <span title="控制AI输出随机性：0=精准确定（适合事实性内容），2=最大创意（适合文学创作）" style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap', cursor: 'help' }}>温度</span>
+                  <button onClick={() => saveTemp(Math.max(0, curTemp - 0.1))}
+                    style={{ width: 22, height: 22, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', fontSize: 14, color: '#6b5e54', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
+                  {/* Draggable slider bar */}
+                  <div onMouseDown={handleSliderDown}
+                    style={{ flex: 1, height: 20, borderRadius: 4, background: 'linear-gradient(90deg, #3b82f6 0%, #7c3aed 33%, #f59e0b 66%, #ef4444 100%)', position: 'relative', cursor: 'ew-resize', maxWidth: 140 }}>
+                    {/* Center track line */}
+                    <div style={{ position: 'absolute', left: 4, right: 4, top: '50%', transform: 'translateY(-50%)', height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.35)' }} />
+                    {/* Thumb */}
+                    <div style={{ position: 'absolute', left: `calc(${pct}% - 8px)`, top: 2, width: 16, height: 16, borderRadius: '50%', background: tempColor, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(0,0,0,0.3)', transition: 'left 0.15s', pointerEvents: 'none' }} />
+                  </div>
+                  <button onClick={() => saveTemp(Math.min(2, curTemp + 0.1))}
+                    style={{ width: 22, height: 22, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.1)', background: '#fff', cursor: 'pointer', fontSize: 14, color: '#6b5e54', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: tempColor, minWidth: 48, textAlign: 'center' }}>{curTemp.toFixed(1)}°C</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: tempColor, background: `${tempColor}14`, padding: '1px 6px', borderRadius: 4 }}>{tempLabel}</span>
+                </div>
+              )
+            })()}
           </div>
           {streamMode && <div style={{ marginTop: 6, fontSize: 10, color: '#16a34a' }}>流式输出已启用 — 内容将逐字输出到编辑器</div>}
         </div>
 
         {/* Streaming progress */}
         {loading && streamMode && (
-          <div style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.03), rgba(168,85,247,0.05))', border: '1px solid rgba(124,58,237,0.1)' }}>
+          <div style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.03), rgba(168,85,247,0.05))', border: '1px solid rgba(124,58,237,0.1)', flexShrink: 0 }}>
             {!streamContent ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
                 <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.15)', borderTopColor: '#7c3aed', animation: 'spin 0.7s linear infinite' }} />
@@ -689,28 +746,28 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         )}
 
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.12)', color: '#dc2626', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
+          <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.12)', color: '#dc2626', fontSize: 12, lineHeight: 1.5, flexShrink: 0 }}>{error}</div>
         )}
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 6, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', flexShrink: 0 }}>
           <button onClick={onClose} disabled={loading && !streamDone} style={{
-            padding: '8px 22px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
+            padding: '10px 28px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
             background: '#fff', cursor: loading && !streamDone ? 'not-allowed' : 'pointer',
-            fontSize: 13, fontWeight: 600, color: '#6b5e54', fontFamily: 'inherit',
+            fontSize: 14, fontWeight: 600, color: '#6b5e54', fontFamily: 'inherit',
           }}>取消</button>
           {loading && streamMode && !streamDone ? (
             <button onClick={handleCancelStream} style={{
-              padding: '8px 22px', borderRadius: 10, border: 'none',
+              padding: '10px 28px', borderRadius: 10, border: 'none',
               background: 'linear-gradient(135deg, #ef4444, #dc2626)', cursor: 'pointer',
-              fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: 'inherit',
+              fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: 'inherit',
             }}>停止生成</button>
           ) : (
             <button className="gen-btn" onClick={handleGenerate} disabled={loading || !genConfigId} style={{
-              padding: '8px 28px', borderRadius: 10, border: 'none',
+              padding: '10px 34px', borderRadius: 10, border: 'none',
               background: loading || !genConfigId ? 'linear-gradient(135deg, #c4b5e3, #d4c4f3)' : 'linear-gradient(135deg, #7c3aed, #a855f7)',
               cursor: loading || !genConfigId ? 'not-allowed' : 'pointer',
-              fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit',
+              fontSize: 14, fontWeight: 700, color: '#fff', fontFamily: 'inherit',
               display: 'flex', alignItems: 'center', gap: 6,
               animation: loading || !genConfigId ? 'none' : 'glow-pulse 2.5s ease-in-out infinite',
               opacity: loading || !genConfigId ? 0.6 : 1,

@@ -216,7 +216,7 @@ export async function validateYaml(filePath, requiredKeys = []) {
 }
 
 /**
- * 验证角色 YAML 的 16 字段完整性
+ * 验证角色 YAML 的 15 字段完整性
  */
 export async function validateCharacterFields(filePath) {
   const requiredFields = [
