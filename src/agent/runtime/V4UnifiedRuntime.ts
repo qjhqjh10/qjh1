@@ -26,8 +26,6 @@ export class V4UnifiedRuntime {
   private toolExecutor: ToolExecutorFn | null = null
   private contextAssembler: ContextAssemblerFn | null = null
   private tools: unknown[] = []
-  private extendedTools: unknown[] = []
-  private toolsExpanded = false
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private toolsUsed: string[] = []
@@ -53,7 +51,6 @@ export class V4UnifiedRuntime {
   setToolExecutor(fn: ToolExecutorFn): void { this.toolExecutor = fn }
   setContextAssembler(fn: ContextAssemblerFn): void { this.contextAssembler = fn }
   setTools(tools: unknown[]): void { this.tools = tools }
-  setExtendedTools(tools: unknown[]): void { this.extendedTools = tools }
   setHistory(messages: Message[]): void { this.historyMessages = messages }
   setMaxIterations(n: number): void { this.config.maxIterations = n }
   /** v11.3: skill system removed — kept as no-op for backward compat */
@@ -157,13 +154,6 @@ export class V4UnifiedRuntime {
         this.compressedAt = iteration
       }
 
-      // ── Progressive tool disclosure ──
-      if (this.adapter.capabilities.progressiveDisclosure && !this.toolsExpanded && iteration >= 3 && this.extendedTools.length > 0) {
-        this.tools = [...this.tools, ...this.extendedTools]
-        this.toolsExpanded = true
-        diagnosticLogger.recordInfo(`工具扩展: +${this.extendedTools.length}个 (迭代${iteration})`)
-      }
-
       // ── API Call (with single retry for transient failures) ──
       const API_TIMEOUT = 90_000
       let response = undefined
@@ -208,7 +198,7 @@ export class V4UnifiedRuntime {
       totalCacheHitTokens += response.usage.cacheHitTokens || 0
       totalCacheCreationTokens += (response.usage as any).cacheCreationTokens || 0
       totalCost += response.usage.cost || 0
-      store.addTokens(response.usage.totalTokens)
+      // Token 累计由 UI 层（AIChatWindow）统一管理，避免双重计数
       diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
 
       // ── finishReason: truncated → inject continuation ──

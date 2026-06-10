@@ -5,16 +5,17 @@
 // v11.7.1: 首条全量规则，后续精简提醒。工具分层（核心+tool_search）
 
 import { estimateTokens } from '../utils/tokenEstimation'
-import { isPureGreeting, isComplexTask } from '../utils/taskDetection'
 import type { Message } from '../state/types'
 
 // ── Types ──
 
 export interface ContextBuilderOptions {
   projectId: string | null
+  configId: string
   kbEnabled: boolean
   webSearchEnabled: boolean
   selectedKbFileIds?: string[]
+  enableThinkingPlan?: boolean
 }
 
 export interface ContextBuilderResult {
@@ -37,11 +38,9 @@ export class BridgeContextBuilder {
     /** v11.7.1: 是否首条消息（首条发全量规则，后续精简） */
     isFirstMessage: boolean,
   ): Promise<ContextBuilderResult> {
-    const isGreeting = isPureGreeting(msg)
-
     // ── 1. 确定是否发全量规则 ──
     const sendFullRules = isFirstMessage
-    const effectivePrompt = sendFullRules ? corePrompt : (await import('../V4SystemPrompt')).MINIMAL_SYSTEM_PROMPT
+    let effectivePrompt = sendFullRules ? corePrompt : (await import('../V4SystemPrompt')).MINIMAL_SYSTEM_PROMPT
 
     // ── 2. KB search + Web search（始终执行，动态内容）──
     let searchContext = ''
@@ -49,7 +48,7 @@ export class BridgeContextBuilder {
       try {
         const { kbService } = await import('@/services/fileService')
         const results = await kbService.search(
-          msg, this.opts.projectId, '', 3, this.opts.selectedKbFileIds,
+          msg, this.opts.projectId, this.opts.configId, 3, this.opts.selectedKbFileIds,
         )
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[知识库]\n' +
@@ -68,10 +67,6 @@ export class BridgeContextBuilder {
       } catch { /* unavailable */ }
     }
 
-    // ── 4. planInstruction ──
-    const msgIsMultiFile = isComplexTask(msg)
-    const planInstruction = msgIsMultiFile ? '逐个文件完成。' : ''
-
     // ── 6. Token estimation ──
     const coreTokens = estimateTokens(effectivePrompt)
     const searchTokens = searchContext ? estimateTokens(searchContext) : 0
@@ -80,10 +75,21 @@ export class BridgeContextBuilder {
     )
     const fullTotal = coreTokens + searchTokens + historyTokens + estimateTokens(msg)
 
-    // ── 7. Assemble system messages — 只有核心规则（索引不用了，模型用工具探索）──
-    const systemMessages: Array<{ role: 'system'; content: string }> = [
-      { role: 'system', content: effectivePrompt },
-    ]
+    // ── 7. Assemble system messages — 角色身份 + 核心规则 ──
+    const systemMessages: Array<{ role: 'system'; content: string }> = []
+
+    // 注入用户选择的角色身份（预设或自定义）
+    const { useSettingsStore } = await import('@/store')
+    const aiSettings = useSettingsStore.getState().aiSettings
+    const selectedRole = aiSettings.customRoles?.find(r => r.id === aiSettings.defaultRole)
+    if (selectedRole?.prompt) {
+      systemMessages.push({ role: 'system', content: selectedRole.prompt })
+      // 去掉核心规则的默认身份行，让角色 prompt 成为唯一身份定义
+      effectivePrompt = effectivePrompt.replace(/^你是青剑，一个小说创作对话助手。\n\n?/, '')
+      effectivePrompt = effectivePrompt.replace(/^你是青剑，小说创作对话助手。/, '')
+    }
+
+    systemMessages.push({ role: 'system', content: effectivePrompt })
 
     // ── 8. Breakdown ──
     const breakdown: Array<{ domain: string; tokens: number }> = [

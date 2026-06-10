@@ -108,7 +108,6 @@ export interface AppState {
   setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null) => void
   setReplaceAction: (action: { chapterId: string; content: string } | null) => void
   setFileEditNotify: (notify: { filePath: string; newContent: string } | null) => void
-  bumpFileVersion: () => void
   setRewriteContent: (content: string) => void
 
   // Actions - Reset
@@ -229,7 +228,6 @@ export const useStore = create<AppState>()(
     focusPopup: (popup) => set(s => { const idx = s.popupWindows.findIndex(p => p.id === popup.id); if (idx >= 0) { s.popupWindows = [...s.popupWindows.slice(0, idx), ...s.popupWindows.slice(idx + 1), s.popupWindows[idx]] } }),
     closePopup: (id) => set(s => { s.popupWindows = s.popupWindows.filter(p => p.id !== id) }),
     setFileEditNotify: (notify) => set(s => { s.fileEditNotify = notify; if (notify) s.fileVersion++ }),
-    bumpFileVersion: () => set(s => { s.fileVersion++ }),
     setRewriteContent: (content: string) => set({ rewriteContent: content }),
     setChapterGenTrigger: (chapterId) => set({ chapterGenTrigger: chapterId }),
 

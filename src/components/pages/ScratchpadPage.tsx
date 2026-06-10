@@ -43,6 +43,13 @@ export default function ScratchpadPage() {
   }, [notesDir])
 
   useEffect(() => { loadNotes() }, [loadNotes])
+
+  // AI 修改 notes 目录 → 刷新笔记列表
+  useEffect(() => {
+    if (fileEditNotify?.filePath?.includes('notes/')) {
+      loadNotes()
+    }
+  }, [fileEditNotify])
   // Sync raw content for character count (content may be HTML from RichTextEditor)
   useEffect(() => {
     if (/<[a-zA-Z][^>]*>/.test(content)) setRawContent(htmlToMarkdown(content))
@@ -53,12 +60,7 @@ export default function ScratchpadPage() {
     if (!fileEditNotify || !selectedNote) return
     const expectedPath = notePath(selectedNote)
     if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase() === expectedPath.toLowerCase()) {
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(expectedPath).then(c => { setContent(c); setRawContent(c) }).catch(() => {})
-      } else {
-        setContent(fileEditNotify.newContent)
-        setRawContent(fileEditNotify.newContent)
-      }
+      fileService.read(expectedPath).then(c => { setContent(c); setRawContent(c) }).catch(() => {})
       setFileEditNotify(null)
     }
   }, [fileEditNotify, selectedNote, notePath, setFileEditNotify])

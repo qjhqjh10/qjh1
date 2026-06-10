@@ -24,6 +24,7 @@ export default function ContinuationOutlinePage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
+  const fileVersion = useStore(s => s.fileVersion)
   const [project, setProject] = useState<ContinuationProject | null>(null)
   const [showOriginal, setShowOriginal] = useState(false)
   const [showPlotCards, setShowPlotCards] = useState(false)
@@ -31,7 +32,7 @@ export default function ContinuationOutlinePage() {
   const [loading, setLoading] = useState('')
   const [editTarget, setEditTarget] = useState<EditTarget>(null)
 
-  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId])
+  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId, fileVersion])
 
   const load = async () => {
     const list = await continuationService.list() as ContinuationProject[]

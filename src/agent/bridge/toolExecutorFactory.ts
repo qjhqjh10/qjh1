@@ -53,7 +53,6 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
       await invalidateAfterTool(ctx.toolName, args, projectId, {
         onFileChanged: async (filePath) => {
           const { useStore } = await import('@/store')
-          useStore.getState().bumpFileVersion()
           useStore.getState().setFileEditNotify({
             filePath,
             newContent: '__AI_EDITED__',

@@ -172,7 +172,7 @@ describe('Progressive Tool Disclosure', () => {
     const coreTools = toolRegistry.getAllSchemas().slice(0, 3)
     const extendedTools = toolRegistry.getAllSchemas().slice(3, 8)
     runtime.setTools(coreTools)
-    runtime.setExtendedTools(extendedTools)
+    // Progressive disclosure feature removed (v11.7.1 replaced by _fullPromptSent) — use all tools
 
     await runtime.run({ userMessage: '执行任务', attachments: [] })
 

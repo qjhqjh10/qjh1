@@ -148,6 +148,7 @@ export class V4AnthropicChatBridge {
       const isFirst = !this._fullPromptSent
       const contextBuilder = new BridgeContextBuilder({
         projectId: this.projectId,
+        configId: this.configId,
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,

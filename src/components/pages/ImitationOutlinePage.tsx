@@ -31,6 +31,7 @@ export default function ImitationOutlinePage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const [extraction, setExtraction] = useState<NovelExtraction | null>(null)
   const [outlineResults, setOutlineResults] = useState<Record<string, string>>({})
   const [expandedDim, setExpandedDim] = useState<string | null>(null)
@@ -38,7 +39,7 @@ export default function ImitationOutlinePage() {
 
   const pp = activeProjectId ? `${projectsBasePath}/${activeProjectId}` : ''
 
-  useEffect(() => { if (!activeProjectId) { navigate('/'); return }; loadData() }, [activeProjectId])
+  useEffect(() => { if (!activeProjectId) { navigate('/'); return }; loadData() }, [activeProjectId, fileVersion])
 
   const loadData = async () => {
     const ext = await loadExtraction(pp)

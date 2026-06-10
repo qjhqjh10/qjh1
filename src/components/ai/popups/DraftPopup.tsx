@@ -61,11 +61,7 @@ export function DraftPopup({ documentKey }: Props) {
     if (!fileEditNotify || !notesDir || !activeNote) return
     const expectedPath = `${notesDir}/${activeNote}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase() === expectedPath.toLowerCase()) {
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(expectedPath).then(c => setContent(c)).catch(() => {})
-      } else {
-        setContent(fileEditNotify.newContent)
-      }
+      fileService.read(expectedPath).then(c => setContent(c)).catch(() => {})
       setFileEditNotify(null)
     }
   }, [fileEditNotify, notesDir, activeNote])

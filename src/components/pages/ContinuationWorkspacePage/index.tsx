@@ -29,6 +29,7 @@ export default function ContinuationWorkspacePage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const setActivePage = useStore(s => s.setActivePage)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
 
@@ -87,7 +88,7 @@ export default function ContinuationWorkspacePage() {
   useEffect(() => {
     if (!activeProjectId) { navigate('/continuation'); return }
     loadProject()
-  }, [activeProjectId])
+  }, [activeProjectId, fileVersion])
 
   const loadProject = async () => {
     if (!activeProjectId) return

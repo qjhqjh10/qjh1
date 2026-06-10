@@ -26,6 +26,7 @@ export default function RewritePage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const setActivePage = useStore(s => s.setActivePage)
   const setRewriteContent = useStore(s => s.setRewriteContent)
+  const fileVersion = useStore(s => s.fileVersion)
 
   const [projects, setProjects] = useState<RewriteProject[]>([])
   const [projectId, setProjectId] = useState('')
@@ -80,7 +81,18 @@ export default function RewritePage() {
   // Handle insertion action from AI assistant (rewrite: red/blue annotation)
   useRewriteInsertion(() => chapterContent, setChapterContent)
 
-  useEffect(() => { if (rewriteService) loadProjects() }, [])
+  useEffect(() => { if (rewriteService) loadProjects() }, [fileVersion])
+
+  // AI 修改文件后刷新当前项目内容
+  useEffect(() => {
+    if (!projectId || !fileVersion) return
+    const ch = chapters[selectedChIdx]
+    if (!ch) return
+    rewriteService.readChapter(projectId, ch.id).then(setChapterContent).catch(() => {})
+    rewriteService.readAnalysis(projectId, ch.id).then(raw => {
+      if (raw) { try { setAnalyses(prev => ({ ...prev, [ch.id]: JSON.parse(raw) })) } catch {} }
+    }).catch(() => {})
+  }, [fileVersion])
 
   const loadProjects = async () => {
     const list = await rewriteService.list()

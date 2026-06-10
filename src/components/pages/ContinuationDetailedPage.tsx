@@ -21,13 +21,14 @@ export default function ContinuationDetailedPage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const [project, setProject] = useState<ContinuationProject | null>(null)
   const [selectedSegIdx, setSelectedSegIdx] = useState(0)
   const [chapters, setChapters] = useState<DetailedChapter[]>([])
   const [generating, setGenerating] = useState(false)
   const [editSegment, setEditSegment] = useState<PlotDirectionSegment | null>(null)
 
-  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId])
+  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId, fileVersion])
 
   const pp = `${projectsBasePath}/${activeProjectId}`
 

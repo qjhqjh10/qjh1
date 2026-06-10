@@ -41,11 +41,7 @@ export function OutlinePopup({ worldbuilding = false }: Props) {
     if (!fileEditNotify || !activeProjectId || !projectsBasePath) return
     const expectedPath = `${projectsBasePath}/${activeProjectId}/outline/${fileName}`.replace(/\\/g, '/')
     if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase() === expectedPath.toLowerCase()) {
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(expectedPath).then(c => setContent(markdownToHtml(c))).catch(() => {})
-      } else {
-        setContent(markdownToHtml(fileEditNotify.newContent))
-      }
+      fileService.read(expectedPath).then(c => setContent(markdownToHtml(c))).catch(() => {})
       setFileEditNotify(null)
     }
   }, [fileEditNotify])

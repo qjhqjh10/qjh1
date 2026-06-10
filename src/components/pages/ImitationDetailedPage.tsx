@@ -20,6 +20,7 @@ export default function ImitationDetailedPage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const [extraction, setExtraction] = useState<NovelExtraction | null>(null)
   const [chapters, setChapters] = useState<DetailedChapter[]>([])
   const [detailResults, setDetailResults] = useState<DetailGenResult[]>([])
@@ -28,7 +29,7 @@ export default function ImitationDetailedPage() {
 
   const pp = activeProjectId ? `${projectsBasePath}/${activeProjectId}` : ''
 
-  useEffect(() => { if (!activeProjectId) { navigate('/'); return }; loadData() }, [activeProjectId])
+  useEffect(() => { if (!activeProjectId) { navigate('/'); return }; loadData() }, [activeProjectId, fileVersion])
 
   const loadData = async () => {
     const ext = await loadExtraction(pp)

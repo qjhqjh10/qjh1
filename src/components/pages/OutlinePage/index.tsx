@@ -176,29 +176,17 @@ export default function OutlinePage() {
     let handled = false
     if (normalized === outlinePath || normalized === outlineJsonPath || normalized === outlineLegacyPath) {
       handled = true
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        loadOutlineContent(projectPath).then(setOutlineContent)
-        fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => {})
-      } else {
-        setOutlineContent(fileEditNotify.newContent)
-      }
+      loadOutlineContent(projectPath).then(setOutlineContent)
+      fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => {})
     } else if (normalized === wbPath || normalized === wbJsonPath) {
       handled = true
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
-        fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => {})
-      } else {
-        setWorldbuildingContent(fileEditNotify.newContent)
-      }
+      loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
+      fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => {})
     } else if (normalized === metaPath) {
       handled = true
-      if (fileEditNotify.newContent === '__AI_EDITED__') {
-        fileService.read(`${pp}/outline/outline_meta.yaml`).then(c => {
-          try { setMeta(JSON.parse(c) as OutlineMeta) } catch {}
-        }).catch(() => {})
-      } else {
-        try { setMeta(JSON.parse(fileEditNotify.newContent) as OutlineMeta) } catch {}
-      }
+      fileService.read(`${pp}/outline/outline_meta.yaml`).then(c => {
+        try { setMeta(JSON.parse(c) as OutlineMeta) } catch {}
+      }).catch(() => {})
     } else if (normalized === itemsPath) {
       handled = true
       loadOutlineData(pp, 'items', { items: [] }).then(d => setItems(d.items))

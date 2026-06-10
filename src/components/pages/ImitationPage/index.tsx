@@ -64,6 +64,7 @@ export default function ImitationPage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const setActiveProject = useStore(s => s.setActiveProject)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const fileVersion = useStore(s => s.fileVersion)
   const setActivePage = useStore(s => s.setActivePage)
   const setCharacters = useStore(s => s.setCharacters)
   const setOutlineContent = useStore(s => s.setOutlineContent)
@@ -129,7 +130,7 @@ export default function ImitationPage() {
   const pausedRef = useRef(false)
   const mountedRef = useRef(false)
 
-  useEffect(() => { setActivePage("imitation"); handlers.loadProjects() }, [activeProjectId, projectsBasePath])
+  useEffect(() => { setActivePage("imitation"); handlers.loadProjects() }, [activeProjectId, projectsBasePath, fileVersion])
 
   // Sync previewTab to URL search params (skip mount to avoid overwriting sidebar deep-link)
   useEffect(() => {

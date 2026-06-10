@@ -1,7 +1,24 @@
 {
-  "currentVersion": "12.3.0",
+  "currentVersion": "12.4.0",
   "currentDate": "2026-06-10",
   "history": [
+    {
+      "version": "12.4.0",
+      "date": "2026-06-10",
+      "features": [
+        "P0修复: sendLock竞态/协议锁释放/pendingCorrection覆盖手动发送修复",
+        "P0修复: 对话管理Bridge销毁统一(新建/清空/删除均释放协议锁)",
+        "P1修复: Token双重计数移除Runtime层addTokens/UI层统一计费",
+        "角色系统: customRoles+defaultRole端到端注入BridgeContextBuilder",
+        "角色系统: 身份行剥离(角色prompt成为唯一身份)/预设角色增强",
+        "P2修复: conversationToolNames删除对话清除+planInstruction死代码清理",
+        "工作流优化: fileVersion双重递增修复(删除bumpFileVersion冗余调用)",
+        "工作流优化: 8页面AI变更刷新(Imitation×3+Continuation×4+Rewrite)",
+        "工作流优化: KB搜索configId修复(空字符串→有效configId)",
+        "工作流优化: setExtendedTools死代码移除(被_fullPromptSent替代)",
+        "代码清理: 6处哨兵值死else分支移除(OutlinePage/ScratchpadPage/2个Popup)"
+      ]
+    },
     {
       "version": "12.3.0",
       "date": "2026-06-10",

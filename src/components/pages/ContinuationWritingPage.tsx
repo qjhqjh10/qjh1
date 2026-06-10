@@ -11,10 +11,11 @@ export default function ContinuationWritingPage() {
   const navigate = useNavigate()
   const activeProjectId = useStore(s => s.activeProjectId)
   const setActivePage = useStore(s => s.setActivePage)
+  const fileVersion = useStore(s => s.fileVersion)
   const [project, setProject] = useState<ContinuationProject | null>(null)
 
   useEffect(() => { setActivePage('continuation-writing') }, [])
-  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId])
+  useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId, fileVersion])
 
   const load = async () => {
     const list = await continuationService.list() as ContinuationProject[]
