@@ -1,7 +1,43 @@
 {
-  "currentVersion": "12.0.0",
-  "currentDate": "2026-06-08",
+  "currentVersion": "12.3.0",
+  "currentDate": "2026-06-10",
   "history": [
+    {
+      "version": "12.3.0",
+      "date": "2026-06-10",
+      "features": [
+        "行为决策树: 4分支统一Prompt替换对话/创作双Prompt，模型自主判断意图",
+        "Runtime v4: 读循环检测+文本输出拦截+文件操作意图强化Nudge(上限2→3)",
+        "Plan模式移除: 类型/注册/Bridge/UI全链路清理，availableInPlanMode死代码删除",
+        "路径全面修正: ../../ → ../ (6文件)，目录结构文档化含字段结构",
+        "编辑操作模式: 追加/覆盖/替换的edit_file具体old_string操作指南",
+        "模板智能读取: 大纲6YAML Tab+角色15字段+细纲字段内置Prompt，不再强制读模板",
+        "KB修复: 元数据同步(create_file自动注册)+上传estimate路径检查移除+文件名中文支持",
+        "KB增强: LM Studio预设+文件列表删除按钮+项目内notes/僵尸目录删除",
+        "路径别名修复: @/utils/security→相对路径(4文件)，vitest/tsx均可解析",
+        "混合响应修复: Runtime text+tool_calls同响应时文本emit到UI",
+        "项目内notes/目录移除: PROJECT_DIRS清理，create_project不再创建",
+        "LM Studio预设: PROVIDER_PRESETS新增lmstudio条目(http://localhost:1234/v1)"
+      ]
+    },
+    {
+      "version": "12.2.0",
+      "date": "2026-06-09",
+      "features": [
+        "知识库文件列表: 每行新增删除按钮(垃圾桶图标)+确认弹窗",
+        "KB文件命名: 上传/新建文件使用原始中文名(非随机ID)，重名自动加_1后缀",
+        "KB: kb:rename同步重命名物理文件"
+      ]
+    },
+    {
+      "version": "12.1.0",
+      "date": "2026-06-09",
+      "features": [
+        "AI系统提示词补充: 章节摘要生成+细纲提取+反向细纲+对话分析流程",
+        "系统提示词内容来源明确: 分支A/A2/A3区分对话内容/文件两种输入源",
+        "Node.js v25兼容: electron-builder配置更新"
+      ]
+    },
     {
       "version": "12.0.0",
       "date": "2026-06-08",

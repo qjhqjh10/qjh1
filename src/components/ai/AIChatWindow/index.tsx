@@ -814,18 +814,6 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
-            {/* Plan/Action toggle — Anthropic 协议下禁用 */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-              title={(activeConfig as any)?.protocol === 'anthropic' ? 'Anthropic 协议下 Plan/Action 不可用' : ''}>
-              <div style={{ display: 'inline-flex', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden', opacity: (activeConfig as any)?.protocol === 'anthropic' ? 0.4 : 1 }}>
-                <button onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') useSettingsStore.getState().setAISettings({ workMode: 'plan' }) }}
-                  disabled={(activeConfig as any)?.protocol === 'anthropic'}
-                  style={{ padding: '4px 10px', border: 'none', cursor: (activeConfig as any)?.protocol === 'anthropic' ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'plan' ? 700 : 400, background: aiSettings.workMode === 'plan' ? 'rgba(22,163,74,0.12)' : 'transparent', color: aiSettings.workMode === 'plan' ? '#16a34a' : '#9b8e84', fontFamily: 'inherit' }}>Plan</button>
-                <button onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') useSettingsStore.getState().setAISettings({ workMode: 'action' }) }}
-                  disabled={(activeConfig as any)?.protocol === 'anthropic'}
-                  style={{ padding: '4px 10px', border: 'none', borderLeft: '1px solid rgba(0,0,0,0.06)', cursor: (activeConfig as any)?.protocol === 'anthropic' ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: aiSettings.workMode === 'action' ? 700 : 400, background: aiSettings.workMode === 'action' ? 'rgba(217,119,6,0.12)' : 'transparent', color: aiSettings.workMode === 'action' ? '#d97706' : '#d4ccc4', fontFamily: 'inherit' }}>Action</button>
-              </div>
-            </div>
             {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff' }}
               title={`温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 越高回复越随机/有创意，越低越确定/保守`}>
@@ -1167,15 +1155,6 @@ export default function AIChatWindow() {
                       style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)', cursor: 'pointer' }} />
                   </div>
                 ))}
-                {/* Plan reminder banner */}
-                {msg.role === 'assistant' && aiSettings.workMode === 'plan' && msg.content.length > 400 && /文件|修改|编辑|写入|创建|删除|章节|大纲|细纲|替换|改写|目录|备份|项目/.test(msg.content) && (
-                  <div style={{ marginLeft: 36, marginBottom: 8, padding: '6px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', fontSize: 11, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <ExclamationTriangleIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
-                    <span>Plan 模式 — 如需执行上述建议，请切换到</span>
-                    <button onClick={() => useSettingsStore.getState().setAISettings({ workMode: 'action' })} style={{ fontWeight: 700, color: '#7c3aed', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 11 }}>Action 执行模式</button>
-                  </div>
-                )}
-
                 {/* Insertion card */}
                 {msg.insertion && (
                   <div style={{ marginLeft: 36, marginBottom: 14, padding: 12, borderRadius: 16, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.03)' }}>

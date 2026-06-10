@@ -77,13 +77,6 @@ export function AISettingsTab() {
         <div className="stagger-item" style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>AI 对话设置</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <FormField label="工作模式">
-              <select value={aiSettings.workMode || 'action'} onChange={e => update('workMode', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>
-                <option value="plan">Plan 分析 — 仅可读取搜索，不可修改文件</option>
-                <option value="action">Action 执行 — 全部工具可用，可修改文件</option>
-              </select>
-              <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 4 }}>聊天窗口中也可随时切换。Plan 模式安全无风险。</div>
-            </FormField>
 
             <FormField label="默认角色">
               <select value={aiSettings.defaultRole} onChange={e => update('defaultRole', e.target.value)} className="focus-ring" style={{ ...inputStyle, cursor: 'pointer' }}>

@@ -41,6 +41,7 @@ export class V4UnifiedRuntime {
   private _consecutiveReads = 0
   private _nudgeCount = 0       // v11.5.1: prevent infinite nudge loop
   private _userMessage = ''
+  private _userRequestedFileOp = false  // v4: 用户是否明确要求文件操作
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -107,6 +108,8 @@ export class V4UnifiedRuntime {
     this._consecutiveReads = 0
     this._nudgeCount = 0      // reset per run
     this._userMessage = input.userMessage
+    // v4: 检测用户是否明确要求文件创建/修改（用于 Nudge 强化）
+    this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要]|写.*[章节章]|填充|追加|新建|create|save|write|edit|改成)/.test(input.userMessage)
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
     const contextResult = this.contextAssembler
@@ -252,6 +255,25 @@ export class V4UnifiedRuntime {
         const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
         if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
 
+        // ── v4: 用户要求文件操作但模型没调用写工具 → 不接受纯文本，推动写入 ──
+        if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 3 && collectedText.length > 0) {
+          // Emit the text first so user sees what model said, then push for file op
+          this.emitter.emit('response:streaming', {
+            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+          })
+          const userReq = this._userMessage.length > 150
+            ? this._userMessage.slice(0, 150) + '…'
+            : this._userMessage
+          const msgs = [
+            `⚠️ 用户要求操作文件：「${userReq}」。你已读取了相关文件，现在必须调用 create_file 或 edit_file 执行。不要只输出文字描述——文字描述不算完成。`,
+            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 create_file 或 edit_file 写入内容。说"我会创建…"不算数——必须实际调用工具。`,
+            `⚠️ 最后一次：用户要求「${userReq}」。现在必须调用 create_file 或 edit_file。如果确实不想写，请回复"已完成"并说明原因。`,
+          ]
+          this.messagesForApi.push({ role: 'user', content: msgs[this._nudgeCount] || msgs[2] })
+          this._nudgeCount++
+          continue
+        }
+
         // ── Substantial text after using tools → accept (v11.5.1: prevent infinite nudge loop) ──
         if (collectedText.length > 200) {
           this.emitter.emit('response:streaming', {
@@ -260,8 +282,9 @@ export class V4UnifiedRuntime {
           break
         }
 
-        // ── Nudge limit: max 2 nudges after tools used (v11.5.1) ──
-        if (this._nudgeCount >= 2) {
+        // ── Nudge limit: max 2 (conversation) or 3 (file op intent) ──
+        const _nudgeLimit = this._userRequestedFileOp ? 3 : 2
+        if (this._nudgeCount >= _nudgeLimit) {
           // Accept what the model said rather than looping forever
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
@@ -273,7 +296,10 @@ export class V4UnifiedRuntime {
         const _isAskingUser = /[？?]/.test(collectedText) &&
           /(?:选择|想怎么|要怎么|如何处理|哪种|哪个|是否|要不要|需要我|你想|我可以|要我|你希望|让我|要不要我|你想怎么|你打算|你来决定)/.test(collectedText)
 
-        if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser) {
+        // v2.0: 兜底检测 — 用户消息含分析/评价词 → 即使 Bridge 层未检测到，Runtime 层也豁免
+        const _userMsgIsConversation = /(?:怎么样|如何|有什么问题|给点建议|评价|帮我看看|你觉得|好不好|行不行|合理吗|合适吗)/.test(this._userMessage)
+
+        if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser && !_userMsgIsConversation) {
           // Read-only → push to write with user's original request as context
           const userReq = this._userMessage.length > 200
             ? this._userMessage.slice(0, 200) + '…'
@@ -295,6 +321,15 @@ export class V4UnifiedRuntime {
 
       // ── Has tool calls → execute ──
       toolCallsCount += response.toolCalls.length
+
+      // v2.0: 混合响应 — 模型同时输出了文本分析和工具调用
+      // 先 emit 文本到 UI（用户立即看到分析），再执行工具操作
+      if (response.text && response.text.trim().length > 0) {
+        collectedText = response.text
+        this.emitter.emit('response:streaming', {
+          text: response.text, accumulated: response.text, timestamp: Date.now(),
+        })
+      }
 
       // Build assistant message
       const assistantMsg: Message = {
@@ -342,6 +377,18 @@ export class V4UnifiedRuntime {
         await executeSingleTool(tc, execCtx)
       }
       this._consecutiveReads = execCtx._consecutiveReads
+
+      // v4: 读循环检测 — 用户要求文件操作但模型一直在读不写
+      if (this._userRequestedFileOp && !_hasWriteCall && writeCalls.length === 0 && this._nudgeCount < 2) {
+        // Fire at iteration 4 (first warning) and iteration 8 (final warning)
+        if (iteration === 4 || iteration === 8) {
+          const msg = iteration === 4
+            ? `⚠️ 已读取${this.toolsUsed.length}次文件。用户要求：「${this._userMessage.slice(0, 80)}」。读完参考就够了——下一轮直接 create_file 创建文件。不要继续探索目录。`
+            : `⚠️ 最后提醒：已读取${this.toolsUsed.length}次。现在必须立即 create_file 创建文件。即使参考信息不完整，也要基于你的知识直接写。不要继续读文件了。`
+          this.messagesForApi.push({ role: 'user', content: msg })
+          this._nudgeCount++
+        }
+      }
     }
 
     // ── ③ Done ──

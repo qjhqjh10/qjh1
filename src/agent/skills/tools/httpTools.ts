@@ -3,7 +3,7 @@
 // with SSRF protection via validateUrl from @/utils/security.
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
-import { validateUrl } from '@/utils/security'
+import { validateUrl } from '../../../utils/security'
 
 export const httpTools: ToolDefinition[] = [
   {
@@ -21,7 +21,6 @@ export const httpTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'http',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const check = validateUrl(args.url)
@@ -57,7 +56,6 @@ export const httpTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'http',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const check = validateUrl(args.url)

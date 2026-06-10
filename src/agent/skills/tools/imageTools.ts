@@ -23,7 +23,6 @@ export const imageTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'image',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -64,7 +63,6 @@ export const imageTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'image',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
       const prompt = String(args.prompt ?? '').trim().slice(0, 1000)
       if (!prompt) return { status: 'error', summary: '图片描述不能为空' }

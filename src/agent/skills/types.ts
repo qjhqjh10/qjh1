@@ -27,6 +27,5 @@ export interface ToolDefinition {
   }
   permission: 'AUTO' | 'READ_ASK' | 'PROJECT_ASK' | 'DANGEROUS_ASK'
   category: 'file' | 'kb' | 'note' | 'image' | 'template' | 'project' | 'prompt' | 'harness' | 'http' | 'browser' | 'shell' | 'lsp'
-  availableInPlanMode: boolean
   executor: (args: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolResult>
 }

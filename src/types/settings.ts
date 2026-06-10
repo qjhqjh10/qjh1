@@ -229,6 +229,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'moonshot', label: 'Moonshot（月之暗面）', apiUrl: 'https://api.moonshot.cn/v1' },
   { name: 'baidu', label: '百度文心一言', apiUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop' },
   { name: 'siliconflow', label: '硅基流动（SiliconFlow）', apiUrl: 'https://api.siliconflow.cn/v1' },
+  { name: 'lmstudio', label: 'LM Studio（本地）', apiUrl: 'http://localhost:1234/v1' },
   { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
 ]
 

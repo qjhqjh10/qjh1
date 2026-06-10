@@ -1,8 +1,8 @@
 // ── Note Search Tool (1 tool) ──
 // v11.5: list_notes/read_note/write_note/edit_note/append_note/delete_note REMOVED.
-// Use universal tools instead: list_directory("../../notes") / read_file("../../notes/xxx.md") /
-//   create_file("../../notes/xxx.md", content) / edit_file("../../notes/xxx.md", old, new) /
-//   delete_file("../../notes/xxx.md")
+// Use universal tools instead: list_directory("../notes") / read_file("../notes/xxx.md") /
+//   create_file("../notes/xxx.md", content) / edit_file("../notes/xxx.md", old, new) /
+//   delete_file("../notes/xxx.md")
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
 
@@ -22,7 +22,6 @@ export const noteTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'note',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
       try {
         const win = typeof window !== 'undefined' ? (window as any) : null

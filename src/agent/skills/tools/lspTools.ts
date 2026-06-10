@@ -23,7 +23,6 @@ export const lspTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'lsp',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         let filePath: string | undefined

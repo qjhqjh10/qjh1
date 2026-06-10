@@ -3,7 +3,7 @@
 // opening/content extraction and web search.
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
-import { validateUrl } from '@/utils/security'
+import { validateUrl } from '../../../utils/security'
 
 export const browserTools: ToolDefinition[] = [
   {
@@ -21,7 +21,6 @@ export const browserTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'browser',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const check = validateUrl(args.url)
@@ -52,7 +51,6 @@ export const browserTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'browser',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { bridge } = await import('@/services/electronBridge')

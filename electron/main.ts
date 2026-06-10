@@ -38,7 +38,7 @@ function getProjectsBasePath(): string {
 /** Ensure all runtime directories exist before handlers start */
 async function ensureRuntimeDirectories(parentDir: string, projectsPath: string) {
   // All global dirs now unified at parentDir level (userData in prod)
-  // AI accesses via ../../ prefix with corrected ../ navigation
+  // AI accesses via ../ prefix (from projects/ up to app root)
   const globalDirs = [
     join(parentDir, 'notes'),
     join(parentDir, 'style_templates'),

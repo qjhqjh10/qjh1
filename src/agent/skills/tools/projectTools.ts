@@ -21,7 +21,6 @@ export const projectTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'project',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const { sanitizeFileName } = await import('@/utils/security')
       const nameCheck = sanitizeFileName(args.name)
@@ -61,7 +60,6 @@ export const projectTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'project',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { aiService } = await import('@/services/fileService')

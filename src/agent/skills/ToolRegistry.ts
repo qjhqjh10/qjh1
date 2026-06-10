@@ -93,10 +93,6 @@ export class SkillToolRegistry {
     return this.tools.get(name)?.permission === 'DANGEROUS_ASK'
   }
 
-  isAvailableInPlanMode(name: string): boolean {
-    return this.tools.get(name)?.availableInPlanMode ?? true
-  }
-
   /** 按类别筛选工具 */
   getByCategory(cat: ToolDefinition['category']): ToolDefinition[] {
     return this.getAll().filter(t => t.category === cat)

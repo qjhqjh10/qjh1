@@ -2,9 +2,9 @@ import { IpcMain, BrowserWindow, SafeStorage } from 'electron'
 import * as fs from 'fs/promises'
 import { logError } from '../logger'
 import * as path from 'path';
-import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog, isSafePath } from '../utils'
+import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, cosineSimilarity, saveKBFile } from './helpers';
+import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -102,7 +102,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   ipcMain.handle('kb:create', async (_event, name: string, content: string, projectId?: string) => {
     const meta = await loadMetadata()
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-    const safeName = `${id}.md`
+    const userFileName = name.endsWith('.md') ? name : `${name}.md`
+    const safeName = await getUniqueFileName(sanitizeFileName(userFileName))
     const filePath = path.join(getKBPath(), 'files', safeName)
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     await fs.writeFile(filePath, content, 'utf-8')
@@ -254,6 +255,20 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
+
+    // Rename physical file on disk to match the new display name
+    const oldExt = path.extname(file.name)
+    const newSanitized = sanitizeFileName(
+      newName.endsWith(oldExt) ? newName : `${newName}${oldExt}`
+    )
+    if (newSanitized !== file.name) {
+      const oldPath = safeKBFilePath(file)
+      const uniqueName = await getUniqueFileName(newSanitized)
+      const newPath = path.join(path.dirname(oldPath), uniqueName)
+      await fs.rename(oldPath, newPath)
+      file.name = uniqueName
+    }
+
     file.originalName = newName
     await saveMetadata(meta)
   })
@@ -314,10 +329,6 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
   // Estimate chunks (for upload confirmation)
   ipcMain.handle('kb:estimate', async (_event, filePath: string) => {
-    const kbPath = getKBPath()
-    if (!isSafePath(filePath, kbPath) && !isSafePath(filePath, pBasePath)) {
-      throw new Error('不允许访问该路径')
-    }
     const stat = await fs.stat(filePath)
     const ext = path.extname(filePath).toLowerCase().replace('.', '')
     const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']

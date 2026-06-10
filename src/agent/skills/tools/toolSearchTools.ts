@@ -34,7 +34,6 @@ export const toolSearchTools: ToolDefinition[] = [{
   },
   permission: 'AUTO',
   category: 'harness',
-  availableInPlanMode: true,
   executor: async (args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolResult> => {
     const query = String(args.query || '')
     const allDefs = toolRegistry.getAllDefinitions()

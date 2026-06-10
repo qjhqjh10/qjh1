@@ -15,7 +15,6 @@ export const harnessTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'harness',
-    availableInPlanMode: true,
     executor: async (_args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolResult> => {
       const { fileService } = await import('@/services/fileService')
       const rules: string[] = []
@@ -68,7 +67,6 @@ export const harnessTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'harness',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { fileService } = await import('@/services/fileService')
@@ -118,7 +116,6 @@ export const harnessTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'harness',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const limit = Math.min(Number(args.limit) || 20, 100)
       try {

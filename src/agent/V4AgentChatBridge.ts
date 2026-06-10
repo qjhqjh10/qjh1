@@ -44,7 +44,6 @@ export interface SendOptions {
   kbEnabled?: boolean
   webSearchEnabled?: boolean
   selectedKbFileIds?: string[]
-  planMode?: boolean  // Enable plan-first prompting via ThinkingEngine
   onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
   onComplete?: (result: V4AgentRunResult) => void
   onToolProgress?: (event: { callId: string; toolName: string; phase: string; progress: number; message: string; timestamp: number }) => void
@@ -180,7 +179,6 @@ export class V4AgentChatBridge {
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,
-        planMode: !!options.planMode,
         enableThinkingPlan: true,
       })
 

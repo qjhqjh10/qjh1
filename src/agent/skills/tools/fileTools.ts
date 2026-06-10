@@ -33,7 +33,7 @@ export const fileTools: ToolDefinition[] = [
         '列出指定目录内容（单层，不递归子目录）。\n\n' +
         '📁 支持目录:\n' +
         '- 项目内: {项目名}/ / characters/ / chapters/ / outline/ / detailed_outline/ / summaries/\n' +
-        '- 全局: ../../notes/ / ../../knowledge_base/files/ / ../../style_templates/ / ../../scene_templates/ / ../../uploads/\n' +
+        '- 全局: ../notes/ / ../knowledge_base/files/ / ../style_templates/ / ../scene_templates/ / ../uploads/\n' +
         '- 项目列表: projects/\n' +
         '- 用户任意指定目录\n\n' +
         '💡 已知路径时直接 read_file 即可，不必先 list_directory。确认目录状态、探索未知目录时使用。\n' +
@@ -41,7 +41,7 @@ export const fileTools: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          dir_path: { type: 'string', description: '目录路径。如"projects/"看项目列表，"1/characters"看角色，"../../style_templates"看模板。不填则列出项目+全局资源目录。' },
+          dir_path: { type: 'string', description: '目录路径。如"projects/"看项目列表，"1/characters"看角色，"../style_templates"看模板。不填则列出项目+全局资源目录。' },
           pattern: { type: 'string', description: 'Glob 过滤文件名，如 "*.json"。不填列出全部。支持 ** 做一层子目录匹配。' },
           broad: { type: 'boolean', description: '搜索电脑桌面/文档/下载目录（需审批）' },
         },
@@ -50,7 +50,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'READ_ASK',
     category: 'file',
-    availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('list_directory', args, ctx),
   },
 
@@ -60,9 +59,9 @@ export const fileTools: ToolDefinition[] = [
       description:
         '读取文件完整内容。支持所有文件类型和路径：\n' +
         '📁 项目内: {项目}/characters/*.yaml / chapters/*.txt / outline/*.md / outline/*.yaml / detailed_outline/*.yaml / summaries/*.md / 任意用户文件\n' +
-        '📁 全局: ../../notes/*.md / ../../knowledge_base/files/*.md / ../../style_templates/* / ../../scene_templates/* / ../../uploads/*\n' +
-        '📁 模板: ../../.aiharness/templates/* (16个格式模板)\n' +
-        '📁 规则: ../../.aiharness/rules/*\n\n' +
+        '📁 全局: ../notes/*.md / ../knowledge_base/files/*.md / ../style_templates/* / ../scene_templates/* / ../uploads/*\n' +
+        '📁 模板: ../.aiharness/templates/* (16个格式模板)\n' +
+        '📁 规则: ../.aiharness/rules/*\n\n' +
         '💡 不确定文件路径 → 用 find_files。修改前必须 read_file 确认原文再 edit_file。',
       parameters: {
         type: 'object',
@@ -74,7 +73,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'file',
-    availableInPlanMode: true,
     executor: async (args, ctx) => {
       // NOTE: The shared FileCache (src/agent/context/FileCache) is checked first
       // inside the backend IPC handler for read_file, so the cache benefit is
@@ -88,7 +86,7 @@ export const fileTools: ToolDefinition[] = [
       name: 'search_content',
       description:
         '按文本内容搜索文件。默认子串匹配。\n' +
-        '📁 搜索范围: 默认项目目录。dir_path="../../" → 全局（notes/knowledge_base/style_templates/scene_templates/uploads）。\n' +
+        '📁 搜索范围: 默认项目目录。dir_path="../" → 全局（notes/knowledge_base/style_templates/scene_templates/uploads）。\n' +
         '💡 regex=true → 正则 / context_around → 上下文行 / file_pattern → Glob过滤 / multiline → 跨行 / 最多500条。',
       parameters: {
         type: 'object',
@@ -110,7 +108,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'file',
-    availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('search_content', args, ctx),
   },
 
@@ -122,7 +119,7 @@ export const fileTools: ToolDefinition[] = [
       description:
         '精确字符串替换编辑。支持所有文件类型，路径与 create_file 相同：\n' +
         '项目内: {项目}/characters/*.yaml / chapters/*.txt / detailed_outline/*.yaml / summaries/*.md / outline/*.md / outline/*.yaml / 任意用户文件\n' +
-        '全局: ../../knowledge_base/files/*.md / ../../notes/*.md / ../../style_templates/*.yaml / ../../scene_templates/*.yaml / 任意全局路径\n' +
+        '全局: ../knowledge_base/files/*.md / ../notes/*.md / ../style_templates/*.yaml / ../scene_templates/*.yaml / 任意全局路径\n' +
         '\n规则:\n' +
         '- 必须先 read_file 确认原文 — old_string 必须逐字精确匹配（含换行和空格）\n' +
         '- old_string 设为 "__FULL_REPLACE__" 可全量替换（空文件或需要完全重写时用）\n' +
@@ -142,7 +139,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'file',
-    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -189,7 +185,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'file',
-    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -211,18 +206,18 @@ export const fileTools: ToolDefinition[] = [
       description:
         '创建新文件并写入内容。自动创建不存在的父目录。\n' +
         '\n📁 项目内预设路径:\n' +
-        '- 角色: {项目名}/characters/{中文名}.yaml（先读 ../../.aiharness/templates/character.yaml）\n' +
-        '- 章节: {项目名}/chapters/chapter{N}.txt（先读 ../../.aiharness/templates/chapter-body.txt）\n' +
-        '- 细纲: {项目名}/detailed_outline/chapter{N}.yaml（先读 ../../.aiharness/templates/detailed-outline.yaml）\n' +
-        '- 摘要: {项目名}/summaries/chapter{N}.md（先读 ../../.aiharness/templates/chapter-summary.md）\n' +
+        '- 角色: {项目名}/characters/{中文名}.yaml（先读 ../.aiharness/templates/character.yaml）\n' +
+        '- 章节: {项目名}/chapters/chapter{N}.txt（先读 ../.aiharness/templates/chapter-body.txt）\n' +
+        '- 细纲: {项目名}/detailed_outline/chapter{N}.yaml（先读 ../.aiharness/templates/detailed-outline.yaml）\n' +
+        '- 摘要: {项目名}/summaries/chapter{N}.md（先读 ../.aiharness/templates/chapter-summary.md）\n' +
         '\n📁 全局预设路径:\n' +
-        '- 知识库: ../../knowledge_base/files/文件名.md（先读 ../../.aiharness/templates/knowledge-base-file.md）\n' +
-        '- 笔记: ../../notes/文件名.md（先读 ../../.aiharness/templates/note-draft.md）\n' +
-        '- 风格模板: ../../style_templates/模板名.yaml（先读 ../../.aiharness/templates/style-template.yaml）\n' +
-        '- 场景模板: ../../scene_templates/模板名.yaml（先读 ../../.aiharness/templates/scene-template.yaml）\n' +
+        '- 知识库: ../knowledge_base/files/文件名.md（先读 ../.aiharness/templates/knowledge-base-file.md）\n' +
+        '- 笔记: ../notes/文件名.md（先读 ../.aiharness/templates/note-draft.md）\n' +
+        '- 风格模板: ../style_templates/模板名.yaml（先读 ../.aiharness/templates/style-template.yaml）\n' +
+        '- 场景模板: ../scene_templates/模板名.yaml（先读 ../.aiharness/templates/scene-template.yaml）\n' +
         '\n📁 用户自定义路径（用户说放哪就放哪）:\n' +
         '- 项目根目录: {项目名}/文件名.md — 简介、写作计划、灵感、修订记录等\n' +
-        '- 全局目录: ../../文件名.md — 跨项目共享的写作素材、技巧笔记\n' +
+        '- 全局目录: ../文件名.md — 跨项目共享的写作素材、技巧笔记\n' +
         '- 任意子目录: 系统自动创建不存在的父目录，支持嵌套路径\n' +
         '\n⚠️ 已有模板的用模板格式。无模板的自由内容用 Markdown（# 标题 + ## 段落）。',
       parameters: {
@@ -239,7 +234,6 @@ export const fileTools: ToolDefinition[] = [
     // 避免每次创作都弹出确认框打断工作流。后端服务会在覆盖已有文件前校验。
     permission: 'AUTO',
     category: 'file',
-    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -269,7 +263,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'file',
-    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -300,7 +293,6 @@ export const fileTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'file',
-    availableInPlanMode: false,
     executor: async (args, ctx) => {
       try {
         const { aiService } = await import('@/services/fileService')
@@ -339,7 +331,6 @@ export const fileTools: ToolDefinition[] = [
     // scope="computer" 可搜索用户整个电脑 → 需要用户确认
     permission: 'DANGEROUS_ASK',
     category: 'file',
-    availableInPlanMode: true,
     executor: async (args, ctx) => ipcExecute('find_files', args, ctx),
   },
 ]

@@ -138,3 +138,4 @@ const TASK_KEYWORDS_FOR_INDEX = /角色|人物|大纲|剧情|章节|写|创作|�
 export function hasTaskKeywords(msg: string): boolean {
   return TASK_KEYWORDS_FOR_INDEX.test(msg)
 }
+

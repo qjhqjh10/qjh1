@@ -25,7 +25,6 @@ export const templateTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'template',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const content = String(args.content || '')
       const dims: string[] = Array.isArray(args.dimensions) ? args.dimensions.map(String) : []

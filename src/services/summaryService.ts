@@ -1,7 +1,7 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
 
-import { sanitizeFileName } from '@/utils/security'
+import { sanitizeFileName } from '../utils/security'
 
 function summaryPath(projectPath: string, chapterId: string): string {
   const safe = sanitizeFileName(chapterId).value || 'unknown'

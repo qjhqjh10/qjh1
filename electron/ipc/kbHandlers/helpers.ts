@@ -154,6 +154,40 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
 
+// ====================== File Name Helpers ======================
+
+/** Sanitize a user-provided filename for filesystem safety (keeps Chinese/Unicode) */
+export function sanitizeFileName(name: string): string {
+  // Replace Windows-illegal characters with underscore
+  let sanitized = name.replace(/[<>:"/\\|?*]/g, '_')
+  // Trim whitespace and control characters
+  sanitized = sanitized.replace(/[\x00-\x1f\x7f]/g, '').trim()
+  // Remove leading/trailing dots and spaces (Windows issue)
+  sanitized = sanitized.replace(/^[. ]+/, '').replace(/[. ]+$/, '')
+  // If empty after sanitization, use a fallback
+  if (!sanitized) sanitized = 'untitled'
+  return sanitized
+}
+
+/** Ensure a filename is unique in the KB files directory; appends _1, _2 if needed */
+export async function getUniqueFileName(baseName: string): Promise<string> {
+  const filesDir = path.join(getKBPath(), 'files')
+  const ext = path.extname(baseName)
+  const stem = path.basename(baseName, ext)
+  let candidate = baseName
+  let counter = 1
+  while (true) {
+    try {
+      await fs.access(path.join(filesDir, candidate))
+      // File exists — try next counter
+      candidate = `${stem}_${counter}${ext}`
+      counter++
+    } catch {
+      return candidate  // Available
+    }
+  }
+}
+
 // ====================== Upload Helper ======================
 
 export async function saveKBFile(filePath: string, activeProjectId: string): Promise<KnowledgeFile> {
@@ -164,8 +198,8 @@ export async function saveKBFile(filePath: string, activeProjectId: string): Pro
   const ext = path.extname(filePath).toLowerCase().replace('.', '')
   const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
   const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const safeName = `${id}.${ext}`
   await fs.mkdir(path.join(getKBPath(), 'files'), { recursive: true })
+  const safeName = await getUniqueFileName(sanitizeFileName(path.basename(filePath)))
   await fs.copyFile(filePath, path.join(getKBPath(), 'files', safeName))
   const file: KnowledgeFile = {
     id, name: safeName, originalName: path.basename(filePath),

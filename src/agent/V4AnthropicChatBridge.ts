@@ -151,7 +151,6 @@ export class V4AnthropicChatBridge {
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,
-        planMode: !!options.planMode,
         enableThinkingPlan: false,
       })
 

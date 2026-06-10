@@ -15,8 +15,6 @@ export interface ContextBuilderOptions {
   kbEnabled: boolean
   webSearchEnabled: boolean
   selectedKbFileIds?: string[]
-  planMode?: boolean
-  enableThinkingPlan?: boolean
 }
 
 export interface ContextBuilderResult {
@@ -70,22 +68,9 @@ export class BridgeContextBuilder {
       } catch { /* unavailable */ }
     }
 
-    // ── 4. planMode injection ──
-    let planPrompt = ''
-    if (this.opts.planMode && !isGreeting) {
-      if (this.opts.enableThinkingPlan) {
-        try {
-          const { ThinkingEngine } = await import('../thinking/ThinkingEngine')
-          planPrompt = new ThinkingEngine().generatePlanPrompt()
-        } catch { /* */ }
-      } else {
-        planPrompt = '[Plan Mode] 先分析任务→列出步骤→确认→逐步执行。不要直接操作文件。'
-      }
-    }
-
-    // ── 5. planInstruction ──
+    // ── 4. planInstruction ──
     const msgIsMultiFile = isComplexTask(msg)
-    const planInstruction = (msgIsMultiFile && !this.opts.planMode) ? '逐个文件完成。' : ''
+    const planInstruction = msgIsMultiFile ? '逐个文件完成。' : ''
 
     // ── 6. Token estimation ──
     const coreTokens = estimateTokens(effectivePrompt)

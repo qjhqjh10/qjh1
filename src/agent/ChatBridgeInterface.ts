@@ -31,7 +31,6 @@ export interface IChatBridge {
       kbEnabled?: boolean
       webSearchEnabled?: boolean
       selectedKbFileIds?: string[]
-      planMode?: boolean
       onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
       onComplete?: (result: V4AgentRunResult) => void
       onToolProgress?: (event: {

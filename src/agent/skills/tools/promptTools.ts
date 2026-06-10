@@ -13,7 +13,6 @@ export const promptTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'prompt',
-    availableInPlanMode: true,
     executor: async (_args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { useSettingsStore } = await import('@/store')
@@ -50,7 +49,6 @@ export const promptTools: ToolDefinition[] = [
     },
     permission: 'READ_ASK',
     category: 'prompt',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { useSettingsStore } = await import('@/store')
@@ -101,7 +99,6 @@ export const promptTools: ToolDefinition[] = [
     },
     permission: 'READ_ASK',
     category: 'prompt',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
         const { useSettingsStore } = await import('@/store')

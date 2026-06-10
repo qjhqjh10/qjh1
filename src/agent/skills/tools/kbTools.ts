@@ -1,7 +1,7 @@
 // ── Knowledge Base Tools (2 tools) ──
 // v11.5: kb_list/kb_create_file REMOVED.
-// Use universal tools instead: list_directory("../../knowledge_base/files") /
-//   create_file("../../knowledge_base/files/xxx.md", content)
+// Use universal tools instead: list_directory("../knowledge_base/files") /
+//   create_file("../knowledge_base/files/xxx.md", content)
 // Kept: kb_append_file (uses file_id, not path) and kb_index_file (triggers embedding)
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
@@ -11,7 +11,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_append_file',
       description:
-        '向知识库已有文件末尾追加内容。file_id 是 KB 文件的 UUID。⚠️ 新建 KB 文件：用 create_file("../../knowledge_base/files/文件名.md", content)。追加已有文件：用此工具 + file_id。追加后必须调用 kb_index_file 建立语义搜索索引。',
+        '向知识库已有文件末尾追加内容。file_id 是 KB 文件的 UUID。⚠️ 新建 KB 文件：用 create_file("../knowledge_base/files/文件名.md", content)。追加已有文件：用此工具 + file_id。追加后必须调用 kb_index_file 建立语义搜索索引。',
       parameters: {
         type: 'object',
         properties: {
@@ -23,7 +23,6 @@ export const kbTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'kb',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
       try {
         const { kbService } = await import('@/services/fileService')
@@ -50,7 +49,6 @@ export const kbTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'kb',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
       try {
         const { kbService } = await import('@/services/fileService')

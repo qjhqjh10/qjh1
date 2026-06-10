@@ -4,7 +4,7 @@
 // from @/utils/security.
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
-import { checkCommand, sanitizeFileName } from '@/utils/security'
+import { checkCommand, sanitizeFileName } from '../../../utils/security'
 
 const ALLOWED_COMMANDS = new Set(['node', 'python', 'python3', 'git', 'npm', 'npx'])
 
@@ -28,7 +28,6 @@ export const shellTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'shell',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const check = checkCommand(args.command, ALLOWED_COMMANDS)
       if (!check.valid) return { status: 'error', summary: check.error! }
@@ -61,7 +60,6 @@ export const shellTools: ToolDefinition[] = [
     },
     permission: 'DANGEROUS_ASK',
     category: 'shell',
-    availableInPlanMode: false,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const check = sanitizeFileName(args.name)
       if (!check.valid) return { status: 'error', summary: check.error! }

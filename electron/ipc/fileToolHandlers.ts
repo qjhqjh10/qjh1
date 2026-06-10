@@ -5,6 +5,7 @@ import * as os from 'os'
 import minimatch from 'minimatch'
 import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
+import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
 
 export interface ToolCallArgs {
   callId: string
@@ -198,8 +199,8 @@ async function listBackupsForFile(
 
 /** Unified global backup root: app data root (not per-project) */
 function getBackupRoot(projectPath: string): string {
-  // From userData/projects/{name} → userData
-  return path.dirname(path.dirname(projectPath))
+  // From userData/projects → userData
+  return path.dirname(projectPath)
 }
 
 /**
@@ -367,9 +368,9 @@ export async function executeFileTool(
         // ── Build scan targets: always scan the entire software folder in parallel ──
         const targets: Array<{ path: string; label: string }> = []
 
-        // All global resource dirs — now at parentDir (app data root), not appRoot (projects/)
+        // All global resource dirs — at appRoot, sibling of projects/
         const globalDirs = ['style_templates', 'scene_templates', 'knowledge_base/files', 'uploads/files', 'uploads/images', 'notes', '.aiharness/templates']
-        const parentDir = path.dirname(appRoot)  // appRoot = projects/, parentDir = userData/
+        const parentDir = path.dirname(projectPath)  // appRoot, where knowledge_base/notes/etc live
         for (const d of globalDirs) {
           const p = path.join(parentDir, d)
           try { await fsp.access(p); targets.push({ path: p, label: d.replace('knowledge_base/', 'KB:').replace('uploads/', '上传:') }) } catch {}
@@ -669,6 +670,25 @@ export async function executeFileTool(
 
         await fsp.mkdir(path.dirname(fp), { recursive: true })
         await fsp.writeFile(fp, content, 'utf-8')
+
+        // If created in knowledge_base, auto-register in KB metadata so it appears in the KB page
+        const kbPath = getKBPath()
+        if (fp.startsWith(kbPath + path.sep)) {
+          try {
+            const stat = await fsp.stat(fp)
+            const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+            const meta = await loadMetadata()
+            const ext = path.extname(fp).toLowerCase().replace('.', '')
+            const kbType = (['txt','md','pdf','docx'].includes(ext) ? ext : 'md') as 'txt'|'md'|'pdf'|'docx'
+            meta.files.push({
+              id, name: path.basename(fp), originalName: path.basename(fp),
+              type: kbType, size: stat.size, chunkCount: 0,
+              projects: [], source: 'ai', uploadedAt: new Date().toISOString(),
+            })
+            await saveMetadata(meta)
+          } catch { /* best-effort — KB metadata sync failure shouldn't block file creation */ }
+        }
+
         // v11.5.1: 返回前500字让模型验证写入内容
         const preview = content.length > 500 ? content.slice(0, 500) + '…' : content
         return { callId, toolName, status: 'success', summary: `已创建 (${content.length} 字符)`, detail: preview }
@@ -678,7 +698,7 @@ export async function executeFileTool(
         const resolveNotePath = async (): Promise<string | null> => {
           const notesPath = (args.file_path as string || '').replace(/\\/g, '/')
           if (!notesPath.startsWith('notes/')) return null
-          const globalNotesDir = path.join(path.dirname(path.dirname(projectPath)), 'notes')
+          const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
           // Strip 'notes/' prefix since globalNotesDir already is the notes root
           const cleanPath = notesPath.replace(/^notes\//, '')
           return await safeResolve('file_path', { ...args, file_path: cleanPath }, globalNotesDir)
@@ -963,7 +983,7 @@ export async function executeFileTool(
         if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return deny(callId, toolName, '无效的项目名称')
         const pp = path.join(projectPath, name)
         try { await fsp.access(pp); return { callId, toolName, status: 'error', summary: `项目已存在: ${name}` } } catch { /* ok */ }
-        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'notes', 'covers', 'images', 'summaries']) {
+        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
           await fsp.mkdir(path.join(pp, dir), { recursive: true })
         }
         // 初始模板文件（YAML，匹配当前系统提示词）
@@ -1053,7 +1073,7 @@ export async function executeFileTool(
         const pattern = String(args.pattern || '')
         const scope = String(args.scope || 'project')
         const maxDepth = Math.min(Number(args.max_depth) || 5, 10)
-        const appRoot = path.dirname(path.dirname(projectPath))  // userData level (includes global dirs)
+        const appRoot = path.dirname(projectPath)  // app root level (includes global dirs)
 
         const skipDirs = new Set(['node_modules', '.git', '.svn', 'AppData', 'Library', '.cache', '__pycache__', 'dist', '.next'])
         const results: string[] = []

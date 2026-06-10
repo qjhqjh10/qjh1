@@ -21,7 +21,6 @@ export const thinkTools: ToolDefinition[] = [
     },
     permission: 'AUTO',
     category: 'harness',
-    availableInPlanMode: true,
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       const thought = String(args.thought || '').trim()
       if (!thought) return { status: 'error', summary: '思考内容不能为空' }

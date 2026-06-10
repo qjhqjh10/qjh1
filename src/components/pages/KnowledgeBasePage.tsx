@@ -188,26 +188,42 @@ export default function KnowledgeBasePage() {
         <ScrollArea maxHeight="100%" style={{ flex: 1, padding: '8px 12px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {filteredFiles.filter(f => (f.source === 'upload' || f.source === 'ai')).map(file => (
-              <button key={file.id} onClick={() => handleSelectFile(file)} style={{
-                width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12,
-                border: 'none', cursor: 'pointer',
+              <div key={file.id} style={{
+                display: 'flex', alignItems: 'center', borderRadius: 12,
                 background: selectedFile?.id === file.id ? 'rgba(124,58,237,0.06)' : 'transparent',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <DocumentTextIcon style={{ width: 15, height: 15, color: '#7c3aed', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {file.originalName}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 2, fontSize: 10, color: '#9b8e84' }}>
-                      <span>{file.type.toUpperCase()}</span>
-                      <span>{formatSize(file.size)}</span>
-                      {file.chunkCount > 0 && <span>{file.chunkCount}块</span>}
-                      <span>关联项目: {file.projects.length > 0 ? file.projects.join(', ') : '无'}</span>
+                <button onClick={() => handleSelectFile(file)} style={{
+                  flex: 1, textAlign: 'left', padding: '10px 12px', borderRadius: 12,
+                  border: 'none', cursor: 'pointer', background: 'transparent',
+                  minWidth: 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <DocumentTextIcon style={{ width: 15, height: 15, color: '#7c3aed', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {file.originalName}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 2, fontSize: 10, color: '#9b8e84' }}>
+                        <span>{file.type.toUpperCase()}</span>
+                        <span>{formatSize(file.size)}</span>
+                        {file.chunkCount > 0 && <span>{file.chunkCount}块</span>}
+                        <span>关联项目: {file.projects.length > 0 ? file.projects.join(', ') : '无'}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: 'single', file }) }}
+                  title="删除此文件"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px',
+                    color: '#d4ccc4', flexShrink: 0, borderRadius: 8,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.06)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                >
+                  <TrashIcon style={{ width: 16, height: 16 }} />
+                </button>
+              </div>
             ))}
             {filteredFiles.filter(f => (f.source === 'upload' || f.source === 'ai')).length === 0 && (
               <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 13 }}>
