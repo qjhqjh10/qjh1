@@ -94,7 +94,7 @@ export class V4AgentChatBridge {
   init(options: BridgeOptions): void {
     this.configId = options.configId
     this.projectId = options.projectId
-    this.maxIterations = options.maxIterations ?? 60
+    this.maxIterations = options.maxIterations ?? 30
     this.contextWindow = options.contextWindow ?? 128_000
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
