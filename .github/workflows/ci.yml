@@ -27,8 +27,8 @@ jobs:
           node-version: '23'
           cache: 'npm'
       - run: npm install
-      - run: npx vitest run
-      - run: npx vitest run --coverage
+      - run: npx vitest run --reporter=verbose
+      - run: npx vitest run --coverage --reporter=verbose
         continue-on-error: true
       - uses: actions/upload-artifact@v4
         if: always()
