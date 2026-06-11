@@ -118,6 +118,8 @@ export default function ChapterWritingPage() {
       })
     }).catch(() => {
       setContent('')
+      // 章节 TXT 不存在 → 自动创建空文件
+      fileService.write(`${pp}/chapters/${chapterId}.txt`, '').catch(() => {})
       const dc = detailedChaptersRef.current.find(c => c.id === chapterId)
       setWritingChapter(chapterId, {
         id: chapterId, detailedChapterId: chapterId,

@@ -148,7 +148,7 @@ export const DEFAULT_CHAPTER_GEN: ChapterGenSettings = {
   outlineTabs: { ...DEFAULT_OUTLINE_TABS },
   detailedOutlineFields: { ...DEFAULT_DETAILED_OUTLINE_TOGGLES },
   wordTarget: 4000,
-  streamMode: false,
+  streamMode: true,
   replaceMode: true,
   selectedSceneId: '',
   selectedStyleTemplateId: '',

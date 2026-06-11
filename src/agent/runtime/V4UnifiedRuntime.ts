@@ -38,6 +38,7 @@ export class V4UnifiedRuntime {
   private lastCompressLength = 0
   private _consecutiveReads = 0
   private _nudgeCount = 0       // v11.5.1: prevent infinite nudge loop
+  private _consecutiveFailures = 0  // v12.4.0: detect path failure loops
   private _userMessage = ''
   private _userRequestedFileOp = false  // v4: 用户是否明确要求文件操作
 
@@ -104,6 +105,7 @@ export class V4UnifiedRuntime {
     this.toolCallSteps = []
     this._consecutiveReads = 0
     this._nudgeCount = 0      // reset per run
+    this._consecutiveFailures = 0
     this._userMessage = input.userMessage
     // v4: 检测用户是否明确要求文件创建/修改（用于 Nudge 强化）
     this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要]|写.*[章节章]|填充|追加|新建|create|save|write|edit|改成)/.test(input.userMessage)
@@ -367,6 +369,37 @@ export class V4UnifiedRuntime {
         await executeSingleTool(tc, execCtx)
       }
       this._consecutiveReads = execCtx._consecutiveReads
+
+      // v12.4.0: 连续失败检测 — 防止任何原因导致的工具失败死循环
+      const allToolCalls = [...readOnlyCalls, ...writeCalls]
+      if (allToolCalls.length > 0) {
+        const thisIterationFailed = allToolCalls.every(tc => {
+          const step = this.toolCallSteps.find(s => s.tool === tc.name && s.iteration === iteration)
+          return step?.status === 'error'
+        })
+        if (thisIterationFailed) {
+          this._consecutiveFailures++
+        } else {
+          this._consecutiveFailures = 0
+        }
+        // 干预 1: 连续 3 次失败 → 提醒 AI 停止重复尝试，转向询问用户
+        if (this._consecutiveFailures === 3) {
+          const recentErrors = this.toolCallSteps.filter(s => s.status === 'error').slice(-3)
+            .map(s => s.tool + ': ' + s.summary).join('\n')
+          this.messagesForApi.push({
+            role: 'user',
+            content: '⚠️ 已连续 ' + this._consecutiveFailures + ' 轮工具调用全部失败。这说明当前操作方式可能有问题——不要继续重复同样的尝试了。\n\n最近的错误：\n' + recentErrors + '\n\n请直接询问用户，获取更具体的信息（如准确的文件路径、操作意图、目标内容），或者提出替代方案（如让用户粘贴内容到对话中、列出可用文件让用户选择、改用其他方式完成任务）。',
+          })
+        }
+        // 干预 2: 连续 5 次失败 → 强制终止循环，兜底回复
+        if (this._consecutiveFailures >= 5) {
+          const failedTools = this.toolCallSteps.filter(s => s.status === 'error').slice(-3)
+            .map(s => s.tool + ': ' + s.summary).join('; ')
+          collectedText = '抱歉，连续 ' + this._consecutiveFailures + ' 次工具调用都失败了。最近的错误：' + failedTools + '。\n\n请给我更具体的信息——比如准确的文件路径、你想做什么操作，或者直接把相关的内容粘贴到对话中，我来帮你处理。'
+          diagnosticLogger.recordInfo('连续失败强制终止: ' + this._consecutiveFailures + '次 (' + failedTools + ')')
+          break
+        }
+      }
 
       // v4: 读循环检测 — 用户要求文件操作但模型一直在读不写
       if (this._userRequestedFileOp && !_hasWriteCall && writeCalls.length === 0 && this._nudgeCount < 2) {

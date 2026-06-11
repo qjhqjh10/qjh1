@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '@/store'
 import { fileService, dialogService } from '@/services/fileService'
-import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import { SkeletonCard } from '@/components/common/Skeleton'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -84,9 +83,13 @@ export default function DetailedOutlinePage() {
   }
 
   const handleNewChapter = async () => {
+    // 生成 chapter{N} 格式的 ID：找到已有章节号的最大值 + 1
+    const existingNums = detailedChapters
+      .map(c => { const m = c.id.match(/^chapter(\d+)$/); return m ? parseInt(m[1]) : 0 })
+    const maxNum = Math.max(0, ...existingNums)
     const newCh: DetailedChapter = {
-      id: nanoid(8),
-      title: `章节 ${detailedChapters.length + 1}`,
+      id: 'chapter' + (maxNum + 1),
+      title: `章节 ${maxNum + 1}`,
       description: '',
       summary: '',
       order: detailedChapters.length,
@@ -111,6 +114,9 @@ export default function DetailedOutlinePage() {
   const handleDeleteChapter = async (ch: DetailedChapter) => {
     await fileService.deleteFile(`${projectPath}/detailed_outline/${ch.id}.yaml`)
     await fileService.deleteFile(`${projectPath}/summaries/${ch.id}.md`).catch(() => {})
+    await fileService.deleteFile(`${projectPath}/chapters/${ch.id}.txt`).catch(() => {})
+    // 删除版本历史目录
+    try { await fileService.deleteDir(`${projectPath}/chapters/${ch.id}_versions`) } catch {}
     removeDetailedChapter(ch.id)
     if (editingChapter?.id === ch.id) {
       setEditingChapter(null)

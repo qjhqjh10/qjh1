@@ -1,7 +1,19 @@
 {
-  "currentVersion": "12.4.0",
-  "currentDate": "2026-06-10",
+  "currentVersion": "12.5.0",
+  "currentDate": "2026-06-11",
   "history": [
+    {
+      "version": "12.5.0",
+      "date": "2026-06-11",
+      "features": [
+        "连续失败保护: Runtime层_consecutiveFailures计数器,3轮提醒/5轮强制终止",
+        "系统提示词: 操作失败处理指导(路径/匹配/参数等所有工具错误通用),最多2次重试",
+        "润色弹窗: 原文/结果区等宽(flex:8/10→flex:1),流式默认开启,遮罩改为角标",
+        "章节创作: 进入时自动创建TXT文件,细纲章节ID改为chapter{N}格式",
+        "细纲删除: 同步清理chapters/{id}.txt+版本历史目录",
+        "章节生成: streamMode默认值改为true(ChapterGenSettings)"
+      ]
+    },
     {
       "version": "12.4.0",
       "date": "2026-06-10",

@@ -1495,3 +1495,6 @@
 {"timestamp":"2026-06-09T15:56:06+08:00","projectId":"1","configId":"rXtNCSVl","configName":"你好","model":"deepseek-v4-flash","inputTokens":7594,"outputTokens":95,"cacheHitTokens":0,"cost":0.023352}
 {"timestamp":"2026-06-09T15:56:19+08:00","projectId":"1","configId":"rXtNCSVl","configName":"你好","model":"deepseek-v4-flash","inputTokens":2276,"outputTokens":427,"cacheHitTokens":0,"cost":0.009389999999999999}
 {"timestamp":"2026-06-09T15:56:55+08:00","projectId":"1","configId":"rXtNCSVl","configName":"你好","model":"deepseek-v4-flash","inputTokens":479,"outputTokens":1002,"cacheHitTokens":2176,"cost":0.008188}
+{"timestamp":"2026-06-11T14:08:08+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":362,"outputTokens":743,"cacheHitTokens":0,"cost":0.005544}
+{"timestamp":"2026-06-11T14:08:55+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":106,"outputTokens":673,"cacheHitTokens":256,"cost":0.00404056}
+{"timestamp":"2026-06-11T14:09:15+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":106,"outputTokens":944,"cacheHitTokens":256,"cost":0.00566656}

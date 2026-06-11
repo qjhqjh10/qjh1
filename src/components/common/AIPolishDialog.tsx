@@ -43,7 +43,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
-  const [streamMode, setStreamMode] = useState(false)
+  const [streamMode, setStreamMode] = useState(true)
   const abortRef = useRef<(() => void) | null>(null)
 
   const modePrompts = prompts.filter(p => p.type === mode)
@@ -188,7 +188,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
         <div style={{ width: 1, alignSelf: 'stretch', background: '#d0cbc4', flexShrink: 0 }} />
 
         {/* ===== 中栏：原文展示 ===== */}
-        <div style={{ flex: 8, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={COL_HEADER}>
             <DocumentTextIcon style={{ width: 14, height: 14, color: '#9b8e84' }} />
             选中原文
@@ -209,7 +209,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
         <div style={{ width: 1, alignSelf: 'stretch', background: '#d0cbc4', flexShrink: 0 }} />
 
         {/* ===== 右栏：生成结果展示 ===== */}
-        <div style={{ flex: 10, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={COL_HEADER}>
             <SparklesIcon style={{ width: 14, height: 14, color: '#7c3aed' }} />
             {modeLabel}结果
@@ -230,7 +230,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
                 resize: 'none', fontFamily: 'inherit', fontWeight: 500,
               }}
             />
-            {loading && (
+            {loading && !streamMode && (
               <div style={{
                 position: 'absolute', inset: 0, borderRadius: 10,
                 background: 'rgba(255,255,255,0.7)',
@@ -244,6 +244,21 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
                   }} />
                   AI 正在{modeLabel}...
                 </span>
+              </div>
+            )}
+            {loading && streamMode && (
+              <div style={{
+                position: 'absolute', top: 8, right: 12, zIndex: 5,
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 8,
+                background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.15)',
+              }}>
+                <span style={{
+                  display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                  border: '2px solid #7c3aed', borderTopColor: 'transparent',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+                <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>生成中...</span>
               </div>
             )}
           </div>
