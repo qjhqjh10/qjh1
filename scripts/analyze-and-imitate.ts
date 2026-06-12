@@ -14,7 +14,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt, buildFewShotExcerpts } from '../src/services/extractionService/styleAnalysis'
 import { buildStylePrompt } from '../src/utils/styleInjector'
-import { classifyDimTiers } from '../src/utils/dimTiers'
+import { classifyDimTiers, DIM_PRIORITY } from '../src/utils/dimTiers'
 import { DIMENSION_META, NOVEL_TYPE_DIMS } from '../src/types/story/storyTypes'
 import type { StyleProfile, DimAnalysis, ChapterAnalysis, CategorizedVocab } from '../src/types/story/style'
 
@@ -74,26 +74,22 @@ async function main() {
   for (let i = 0; i < chapters.length; i++) {
     const ch = chapters[i]
     const prompt = buildStyleAnalyzePrompt(dims, NOVEL_TYPE_LONG)
-    const msg = `${prompt}\n\n[${ch.title}]\n${ch.content.slice(0, 8000)}`
-const reply = await chat([{ role: 'user', content: msg }], 8192)
-    fs.writeFileSync(path.join(OUT_DIR, 'debug-raw-reply.txt'), reply, 'utf-8')
-    const hdrs = (reply.match(/^## /gm) || []).length
-    const analysis = parseStyleAnalysisReply(reply, dims)
+    const msg = `${prompt}
 
+[${ch.title}]
+${ch.content.slice(0, 8000)}`
+    const reply = await chat([{ role: 'user', content: msg }], 8192)
+    fs.writeFileSync(path.join(OUT_DIR, 'debug-raw-reply.txt'), reply, 'utf-8')
+    const analysis = parseStyleAnalysisReply(reply, dims)
     const dCount = analysis.dimAnalyses ? Object.keys(analysis.dimAnalyses).length : 0
     const eCount = analysis.dimAnalyses
       ? Object.values(analysis.dimAnalyses).reduce((s, d: any) => s + (d.examples?.length || 0), 0)
       : 0
-    // Debug: check first dim's desc for > lines
-    if (analysis.dimAnalyses) {
-      const first = Object.entries(analysis.dimAnalyses)[0]
-      if (first) console.log(`    DEBUG first dim[${first[0]}]: desc=${first[1].description?.length||0} chars, examples=${first[1].examples?.length||0}, > in desc=${(first[1].description?.match(/^>/gm)||[]).length}`)
-    }
     console.log(`  [${i + 1}/${chapters.length}] ${ch.title}: ${dCount}维度 ${eCount}例句`)
     chapterAnalyses.push({ title: ch.title, analysis })
   }
 
-  // ── Stage 2: 汇总 ──
+// ── Stage 2: 汇总 ──
   console.log('\n[Stage 2] 全局汇总...')
   const aggregated: Record<string, DimAnalysis> = {}
   for (const { analysis } of chapterAnalyses) {
@@ -197,8 +193,26 @@ const reply = await chat([{ role: 'user', content: msg }], 8192)
 ${stylePrompt}
 
 【创作要求】
-创建新的角色和新的场景（不要重复原文的角色和情节）。世界背景可自由选择——关键是将上述风格技法完整地迁移到你的故事中。
-先写2-3句剧情前提（新场景的设定和核心角色），再写约2000-3000字的完整场景。直接输出，不需要额外说明。`
+创建新的角色和新的场景（不要重复原文的角色和情节）。
+
+⚠️ 场景选择约束（极其重要——选错场景会毁掉整个仿写）：
+- 选择与原文同类的场景：社交场合（宴会/派对/聚会/典礼）、权力场合（府邸/办公室/会议室）、日常空间（住宅/酒店/更衣室）、交通工具（车/船/飞机）。这些场景自然承载权力关系和身体接触。
+- 禁止选择以下场景：实验室、医院、科研机构、检查中心、训练舱、基因工程设施、手术室。这些场景会诱导你用医学/数据/技术语言而非感官/体液/粗粝语言。
+- 场景不是世界设定——不需要解释社会制度、不需要说明科技背景。场景只是情色事件发生的地点，用一两句交代即可。
+
+⚠️ 词汇直白度（极其重要——文雅词汇是情色文学的死穴）：
+- 性器官必须用最粗俗的词汇：用"鸡巴""肉棒"不用"阴茎"，用"骚穴""肉穴"不用"阴道"，用"奶子"不用"乳房"，用"屁眼"不用"肛门"。
+- 性行为必须用最直接的动词：用"操"不用"性交"，用"插"不用"进入"，用"射"不用"射精"。
+- 每个性器官前面至少堆叠2-3个定语："粗长滚烫的鸡巴""青涩紧窄的处子骚穴""肥美多汁的雪白奶子""沉甸甸的巨乳"。不是"她的乳房"——而是"她那对肥熟饱满、沉甸甸坠在胸前的大奶子"。
+
+⚠️ 篇幅分配（极其重要——这是独立情色场景，不是长篇小说第一章）：
+- 背景铺垫 ≤ 总篇幅的 15%（交代角色身份和场景即可，不要展开世界观）
+- 情色互动 ≥ 总篇幅的 85%（从第一个身体接触开始，持续递进到高潮）
+- 不写"故事的开头"——直接从情色张力的起点切入。读完你的文字，读者应该已经被感官轰炸，而非还在等待故事开始。
+
+关键原则：你的任务是迁移原文的"情色技法"（感官密度/体液描写/叫床声/羞辱递进/权力对话），而非"世界设定"。世界设定只是承载技法的容器——用最简单的容器，把全部精力投入技法。
+
+先写1-2句角色和场景简介，再写约2000-3000字的完整情色场景。直接输出，不需要额外说明。`
 
   const imitation = await chat([{ role: 'user', content: genPrompt }])
   fs.writeFileSync(path.join(OUT_DIR, '测试-AI模仿生成.txt'), imitation, 'utf-8')

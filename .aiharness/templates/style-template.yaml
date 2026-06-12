@@ -1,8 +1,8 @@
-# 风格模板 — 26维度完整格式
+# 风格模板 — 27维度完整格式
 # 存储于 style_templates/ 目录（实际为JSON格式，此处YAML为格式说明）
 # 必填: name、type、dimensions
 # dimensions 中每维格式: {description, examples[], writingRules[], vocabularyList[]}
-# 11必填维(任何小说必分析) + 3可选维 + 7情色专属 + 5类型专属 = 26维
+# 11必填维(任何小说必分析) + 2可选维 + 9情色专属 + 5类型专属 = 27维
 name: 示例都市文艺风格
 type: 都市小说
 

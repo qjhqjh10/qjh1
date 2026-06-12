@@ -462,7 +462,7 @@
     "type": "function",
     "function": {
       "name": "create_style_template",
-      "description": "创建风格模板。基于26维文风分析。",
+      "description": "创建风格模板。基于27维文风分析。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -472,7 +472,7 @@
           },
           "dimensions": {
             "type": "object",
-            "description": "26维文风分析结果"
+            "description": "27维文风分析结果"
           }
         },
         "required": [

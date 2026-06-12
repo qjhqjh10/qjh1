@@ -53,7 +53,7 @@ function generateSchemas() {
     { name: 'search_images', description: '搜索网络图片（Unsplash）。', params: { query: { type: 'string', description: '搜索关键词' }, count: { type: 'number', description: '返回数量' } }, required: ['query'] },
     { name: 'generate_image', description: '使用AI生成图片。', params: { prompt: { type: 'string', description: '图片描述' }, size: { type: 'string', description: '图片尺寸', enum: ['1024x1024', '1792x1024', '1024x1792'] } }, required: ['prompt'] },
     // ── Template tools (2) ──
-    { name: 'create_style_template', description: '创建风格模板。基于26维文风分析。', params: { name: { type: 'string', description: '模板名称' }, dimensions: { type: 'object', description: '26维文风分析结果' } }, required: ['name'] },
+    { name: 'create_style_template', description: '创建风格模板。基于27维文风分析。', params: { name: { type: 'string', description: '模板名称' }, dimensions: { type: 'object', description: '27维文风分析结果' } }, required: ['name'] },
     { name: 'create_scene_template', description: '创建场景模板。配置章节的场景参数。', params: { name: { type: 'string', description: '模板名称' }, scene_type: { type: 'string', description: '场景类型' }, config: { type: 'object', description: '场景配置' } }, required: ['name'] },
     // ── Project tools (2) ──
     { name: 'create_project', description: '创建新的写作项目。需要用户确认。', params: { name: { type: 'string', description: '项目名称' }, novel_category: { type: 'string', description: '小说类型' } }, required: ['name'] },

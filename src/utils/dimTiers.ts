@@ -23,7 +23,7 @@ export const DIM_TIERS: Record<string, { tier: 'core' | 'evidence' | 'erotic' | 
   descriptionPattern:   { tier: 'core', desc: '描写结构模式（任何文本必有）' },
   tensionStyle:         { tier: 'evidence', desc: '心理张力（仅当文本有显著内心冲突时分析）' },
   compoundWordPattern:  { tier: 'evidence', desc: '复合造词模式（仅当有大量自造复合词时分析）' },
-  onomatopoeiaSystem:   { tier: 'evidence', desc: '拟声词系统（仅当有显著拟声词使用模式时分析）' },
+  onomatopoeiaSystem:   { tier: 'erotic', desc: '情色声音系统（情色专属）' },
   corruptionArc:        { tier: 'erotic', desc: '人物堕落弧线（情色专属）' },
   degradationRitual:    { tier: 'erotic', desc: '凌辱/调教场景机制（情色专属）' },
   narrativeVoice:       { tier: 'erotic', desc: '叙事声音反差（情色专属）' },
@@ -43,28 +43,1129 @@ export const DIM_TIERS: Record<string, { tier: 'core' | 'evidence' | 'erotic' | 
 // Higher tier = higher priority, more token budget.
 // Tier 1: 情色核心（400字）  Tier 2: 情色支撑（300字）
 // Tier 3: 辅助（200字）       Tier 4: 有证据才写（100字）
-export const DIM_PRIORITY: Record<string, Record<string, { tier: 1 | 2 | 3 | 4; maxChars: number }>> = {
+export const DIM_PRIORITY: Record<string, Record<string, { tier: 0 | 1 | 2 | 3; minChars: number; maxChars: number }>> = {
   '情色小说': {
-    // Tier 1 — 情色核心: 决定风格模仿质量的关键维度
-    narrativeTone:       { tier: 1, maxChars: 400 },
-    bodyLanguageStyle:    { tier: 1, maxChars: 400 },
-    bodyMindBetrayal:    { tier: 1, maxChars: 400 },  // 含心理撕裂(tensionStyle已合并)
-    sensoryStyle:         { tier: 1, maxChars: 400 },  // 含感官打包(sensoryPackFormula已合并)
-    degradationRitual:    { tier: 1, maxChars: 400 },
-    rhetoricStyle:        { tier: 1, maxChars: 400 },
-    vocabularyStyle:      { tier: 1, maxChars: 400 },  // 物化命名词（辱骂/物化+功能性重命名，语义层）
-    onomatopoeiaSystem:   { tier: 1, maxChars: 400 },  // 叫床/淫叫词（性反应发声，听觉层）
-    // Tier 2 — 情色支撑
-    costumeStyle:         { tier: 2, maxChars: 200 },  // 衣着/装扮：衣服与身体的互动
-    dialogueStyle:        { tier: 2, maxChars: 300 },
-    humiliationTemplate:  { tier: 2, maxChars: 300 },
-    shameVoyeurLoop:      { tier: 2, maxChars: 300 },
-    // Tier 3 — 辅助（简要分析即可）
-    moodStyle:            { tier: 3, maxChars: 150 },
-    perspectiveStyle:     { tier: 3, maxChars: 150 },
-    descriptionPattern:   { tier: 3, maxChars: 150 },
-    narrativeVoice:       { tier: 3, maxChars: 150 },
+    // Tier 0 — 总基调层：几十到两百字，决定全文走向
+    narrativeTone:       { tier: 0, minChars: 100, maxChars: 300 },  // 叙事语气态度：叙述者"用什么眼神看这个场景"
+    perspectiveStyle:    { tier: 0, minChars: 30,  maxChars: 100 },  // 视角类型：第一/第三人称、叙述距离
+    descriptionPattern:  { tier: 0, minChars: 30,  maxChars: 100 },  // 描写推进顺序：从外到内/从衣着到裸体/从远到近
+
+    // Tier 1 — 技法核心（5个）：直接决定情色文本的感官质地
+    vocabularyStyle:      { tier: 1, minChars: 200, maxChars: 500 },  // 选词+造词：词库分类/构造公式/降格链/定语堆叠
+    costumeStyle:         { tier: 1, minChars: 150, maxChars: 350 },  // 衣着作为情色装置：勒痕/开档/半透明/权力差异
+    sensoryStyle:         { tier: 1, minChars: 200, maxChars: 500 },  // 感官：体液脏化/气味/触感阶梯
+    rhetoricStyle:        { tier: 1, minChars: 200, maxChars: 400 },  // 用词效果：比喻来源领域/借代压缩/排比清单化/反问羞辱
+    onomatopoeiaSystem:   { tier: 1, minChars: 150, maxChars: 350 },  // 叫床/淫叫声：动作-声音编码/密度/排版
+
+    // Tier 2 — 结构支撑（5个）：情色场景骨架
+    bodyLanguageStyle:    { tier: 2, minChars: 100, maxChars: 250 },  // 身体姿势语法（从T1降）
+    dialogueStyle:        { tier: 2, minChars: 100, maxChars: 250 },  // 对话（从T1降）
+    degradationRitual:    { tier: 2, minChars: 150, maxChars: 400 },  // 场景机制：空间倒置/可见性分层/推进模板
+    bodyMindBetrayal:     { tier: 2, minChars: 150, maxChars: 350 },  // 身心背离：背德张力/堕落路径/堕落后心理
+    humiliationTemplate:  { tier: 2, minChars: 150, maxChars: 400 },  // 羞辱：外部递进序列 + 内部羞耻→快感循环（含shameVoyeurLoop）
+
+    // Tier 3 — 辅助（3个）：简短交代即可
+    moodStyle:            { tier: 3, minChars: 30,  maxChars: 100 },  // 氛围底色
+    narrativeVoice:       { tier: 3, minChars: 30,  maxChars: 100 },  // 叙事声音反差
+    shameVoyeurLoop:      { tier: 3, minChars: 30,  maxChars: 100 },  // 羞耻循环（已合并入humiliationTemplate，此处仅作简述）
   },
+  '通用小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    }
+  },
+  '都市小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '修仙小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "cultivationCombat": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    }
+  },
+  '武侠小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "cultivationCombat": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 350
+    },
+    "archaicStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '恋爱小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "romanceArc": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    }
+  },
+  '古风小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "archaicStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '悬疑小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "suspensePacing": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    }
+  },
+  '历史小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "archaicStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '穿越小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "cultivationCombat": {
+      "tier": 2,
+      "minChars": 150,
+      "maxChars": 300
+    }
+  },
+  '科幻小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '玄幻小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "cultivationCombat": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "archaicStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "compoundWordPattern": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '奇幻小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 180
+    },
+    "cultivationCombat": {
+      "tier": 2,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "compoundWordPattern": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '灵异小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "suspensePacing": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    }
+  },
+  '游戏小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "suspensePacing": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    }
+  },
+  '末世小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "socialRealism": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "suspensePacing": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "compoundWordPattern": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 200
+    }
+  },
+  '轻小说': {
+    "narrativeTone": {
+      "tier": 0,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "perspectiveStyle": {
+      "tier": 0,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "sentenceStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "vocabularyStyle": {
+      "tier": 1,
+      "minChars": 200,
+      "maxChars": 400
+    },
+    "rhetoricStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "dialogueStyle": {
+      "tier": 1,
+      "minChars": 150,
+      "maxChars": 300
+    },
+    "descriptionPattern": {
+      "tier": 1,
+      "minChars": 100,
+      "maxChars": 200
+    },
+    "rhythmStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "bodyLanguageStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "sensoryStyle": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    },
+    "tensionStyle": {
+      "tier": 2,
+      "minChars": 80,
+      "maxChars": 200
+    },
+    "moodStyle": {
+      "tier": 3,
+      "minChars": 30,
+      "maxChars": 80
+    },
+    "compoundWordPattern": {
+      "tier": 2,
+      "minChars": 100,
+      "maxChars": 250
+    }
+  }
 }
 
 export interface ClassifiedDims {
@@ -83,12 +1184,21 @@ export function classifyDimTiers(dimKeys: string[], novelType?: string): Classif
   const checkFirst: string[] = []
   const skipHint: string[] = []
 
+  const isErotic = novelType === '情色小说' || novelType === 'erotic'
+  // For erotic novels, T1/T2 dims in DIM_PRIORITY override DIM_TIERS tier
+  const eroticPriority = isErotic ? DIM_PRIORITY['情色小说'] : null
+
   for (const dk of dimKeys) {
     const info = DIM_TIERS[dk] || { tier: 'evidence' as const, desc: '' }
+    // Erotic T1/T2 override: promote evidence-tier dims that are high priority for erotic
+    if (eroticPriority && (eroticPriority[dk]?.tier === 1 || eroticPriority[dk]?.tier === 2)) {
+      mustAnalyze.push(dk)
+      continue
+    }
     if (info.tier === 'core') {
       mustAnalyze.push(dk)
     } else if (info.tier === 'erotic') {
-      if (novelType === '情色小说' || novelType === 'erotic') {
+      if (isErotic) {
         mustAnalyze.push(dk)
       } else {
         skipHint.push(dk)
@@ -101,46 +1211,4 @@ export function classifyDimTiers(dimKeys: string[], novelType?: string): Classif
   }
 
   return { mustAnalyze, checkFirst, skipHint }
-}
-
-/**
- * Generate Markdown-formatted tier instructions for system prompts.
- * @param novelType — Optional novel type for erotic/genre tier handling
- */
-export function getTieredDimInstructions(novelType?: string): string {
-  const lines: string[] = []
-
-  lines.push('✅ 必须分析（任何小说都有，每个维度写100-300字具体描述）：')
-  for (const [key, info] of Object.entries(DIM_TIERS)) {
-    if (info.tier === 'core') lines.push(`  ${key}(${info.desc})`)
-  }
-
-  lines.push('')
-  lines.push('🔍 有证据才分析（原文找到≥2处证据→详析；无证据→跳过不填）：')
-  for (const [key, info] of Object.entries(DIM_TIERS)) {
-    if (info.tier === 'evidence') lines.push(`  ${key}(${info.desc})`)
-  }
-
-  const isErotic = novelType === '情色小说' || novelType === 'erotic'
-  if (isErotic) {
-    lines.push('')
-    lines.push('🔞 情色专属（必须分析）：')
-    for (const [key, info] of Object.entries(DIM_TIERS)) {
-      if (info.tier === 'erotic') lines.push(`  ${key}(${info.desc})`)
-    }
-  } else {
-    lines.push('')
-    lines.push('⏭️ 情色专属（跳过，非情色小说不适用）：')
-    for (const [key, info] of Object.entries(DIM_TIERS)) {
-      if (info.tier === 'erotic') lines.push(`  ${key}(${info.desc})`)
-    }
-  }
-
-  lines.push('')
-  lines.push('📖 类型专属（仅匹配小说类型时分析，否则跳过）：')
-  for (const [key, info] of Object.entries(DIM_TIERS)) {
-    if (info.tier === 'genre') lines.push(`  ${key}(${info.desc})`)
-  }
-
-  return lines.join('\n')
 }

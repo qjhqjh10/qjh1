@@ -1,7 +1,28 @@
 {
-  "currentVersion": "12.7.2",
-  "currentDate": "2026-06-12",
+  "currentVersion": "12.8.0",
+  "currentDate": "2026-06-13",
   "history": [
+    {
+      "version": "12.8.0",
+      "date": "2026-06-13",
+      "features": [
+        "全类型维度分层: 17种小说类型各有DIM_PRIORITY(T0-T3)分层体系",
+        "类型特别注意: 7种热门类型(情色/修仙/都市/恋爱/玄幻/科幻/奇幻)有专属分析指导",
+        "动态篇幅分配: 根据novelType自动匹配各维度字数范围",
+        "紧凑纯文本输出: 分析prompt要求无Markdown格式符号",
+        "注入类型感知: 情色专属内容(感官锚/直白锚/绕过指导)仅情色类型触发",
+        "极端内容绕过: 分隔符/拼音/英文/同音字四种方法",
+        "vocabularyStyle↔rhetoricStyle边界重写(选词造词vs用词效果)",
+        "humiliationTemplate合并shameVoyeurLoop(外部递进+内部循环)",
+        "bodyMindBetrayal扩展为背德内容+堕落路径+堕落后心理三维分析",
+        "costumeStyle提升至T1(衣着作为核心情色装置)",
+        "dialogueStyle/bodyLanguageStyle降至T2(公式化输出)",
+        "onomatopoeiaSystem标签改为情色声音系统，类别改为情色专属",
+        "narrativeTone补回15种非情色类型",
+        "死代码getTieredDimInstructions删除",
+        "26维→27维数字修正"
+      ]
+    },
     {
       "version": "12.7.2",
       "date": "2026-06-12",

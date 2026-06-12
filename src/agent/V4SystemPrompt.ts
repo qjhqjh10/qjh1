@@ -103,7 +103,7 @@ summaries/        — 摘要（chapter{N}.md，## 剧情概述 / ## 关键事件
 
 ../notes/             — 草稿笔记（*.md，自由格式）
 ../knowledge_base/files/ — 知识库参考资料（*.md *.txt *.pdf *.docx，# 标题 → > 元数据 → ## 正文）
-../style_templates/   — 风格模板（*.yaml，26维，格式复杂→先 read_file 模板）
+../style_templates/   — 风格模板（*.yaml，27维，格式复杂→先 read_file 模板）
 ../scene_templates/   — 场景模板（*.yaml，字段多→先 read_file 模板）
 ../.aiharness/templates/ — 17个格式模板（角色/章节/细纲/大纲8Tab/摘要/笔记/KB/风格/场景）
 ../uploads/files/     — 用户上传文件

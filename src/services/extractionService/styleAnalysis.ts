@@ -17,38 +17,57 @@ import { safeJsonParse } from '@/utils/safeJsonParse'
 // ============================================================
 
 import { DIM_TIERS, DIM_PRIORITY, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
+import { getSpecialNote } from './specialNotes'
 
 export function buildStyleAnalyzePrompt(dims: string[], novelType?: string): string {
   const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dims, novelType)
   const priorityMap = (novelType && DIM_PRIORITY[novelType]) ? DIM_PRIORITY[novelType] : null
 
-  // Sort mustAnalyze dims by priority (tier 1 first, then 2, 3, 4)
+  // Sort mustAnalyze dims by priority
   const sortedMustAnalyze = priorityMap
-    ? [...mustAnalyze].sort((a, b) => (priorityMap[a]?.tier || 4) - (priorityMap[b]?.tier || 4))
+    ? [...mustAnalyze].sort((a, b) => (priorityMap[a]?.tier ?? 4) - (priorityMap[b]?.tier ?? 4))
     : mustAnalyze
+
+  // v12.8: Split into two phases — T1 first (full attention), then T0+T2+T3 (shorter)
+  const phase1Dims = sortedMustAnalyze.filter(dk => priorityMap?.[dk]?.tier === 1)
+  const phase2Dims = sortedMustAnalyze.filter(dk => priorityMap?.[dk]?.tier !== 1)
 
   const fmtGroup = (items: string[], prefix: string) => items.map(k => {
     const meta = DIMENSION_META[k]
     const p = priorityMap?.[k]
-    const tierTag = p ? `★T${p.tier} ` : ''
-    const charsHint = p ? `（${p.maxChars}字）` : ''
+    let tierTag = ''
+    if (p) {
+      if (p.tier === 0) tierTag = '【总基调】 '
+      else tierTag = `★T${p.tier} `
+    }
+    const charsHint = p ? `（${p.minChars}-${p.maxChars}字）` : ''
     return `  ${prefix} ${tierTag}${k}: ${meta?.label || k}${charsHint}`
   }).join('\n')
 
-  // Build the mandatory minimum list: only Tier 1-2
   const requiredDims = sortedMustAnalyze.filter(dk => {
     const p = priorityMap?.[dk]
-    return p && p.tier <= 2  // Only T1+T2 are mandatory
+    return p && p.tier <= 2
   })
 
   return `你是专业的文学风格分析师。请对以下章节进行深度写作风格分析。
 
+【两段式分析 — 严格按顺序执行，先Phase1再Phase2】
+
+Phase 1【T1核心维度，必须首先分析，投入最多篇幅】：
+这5个维度直接决定情色文本的感官质地——集中精力逐项分析。
+
+${fmtGroup(phase1Dims, '🔴')}
+
+⬇ 完成Phase 1全部维度后，再开始Phase 2 ⬇
+
+Phase 2【总基调+T2+T3，简要分析】：
+字数约为Phase 1各维度的一半，公式化输出即可。
+
+${fmtGroup(phase2Dims, '🔹')}
+
 【维度分析策略 — 请仔细阅读并认真遵循】
 
-以下维度按重要性分为四级，★T1最高优先级，必须详细分析：
-
-1️⃣ 必须检查（共 ${sortedMustAnalyze.length} 个维度。T1+T2 = 重点详析；T3 = 简要分析；T4 = 有证据才写）：
-${fmtGroup(sortedMustAnalyze, '✅')}
+1️⃣ 必须分析（共 ${sortedMustAnalyze.length} 个维度）：
 
 2️⃣ 先检查再决定（在原文中找到 ≥2处证据 → 分析；找不到 → 跳过）：
 ${fmtGroup(checkFirst, '🔍') || '  （无）'}
@@ -56,41 +75,40 @@ ${fmtGroup(checkFirst, '🔍') || '  （无）'}
 3️⃣ 类型不匹配（非当前小说类型的专属维度，强烈建议全部跳过）：
 ${fmtGroup(skipHint, '⏭️') || '  （无）'}
 
-${priorityMap ? `【分析三原则 — 情色小说优先级】
-✅ T1维度（★T1）= 400字深度分析 + 2-3条原文例句(> 引用) + 1-2条核心规则
-✅ T2维度（★T2）= 约300字分析 + 1-2条例句 + 1条规则
-🔹 T3维度（★T3）= 约200字简要分析，有证据就写无证据跳过
-⏭️ T4维度（★T4）= 约100字，仅显著证据才写通常跳过
-` : `【分析三原则】
+${priorityMap ? (() => {
+  const dims = priorityMap;
+  const t1 = Object.entries(dims).filter(([,v]: [string, any]) => v.tier === 1);
+  const t2 = Object.entries(dims).filter(([,v]: [string, any]) => v.tier === 2);
+  const t03 = Object.entries(dims).filter(([,v]: [string, any]) => v.tier === 0 || v.tier === 3);
+  const fmtDim = ([k, v]: [string, { minChars: number; maxChars: number }]) => `   ${k.padEnd(24)}约 ${v.minChars}-${v.maxChars}字`;
+  return `【篇幅分配 — T2篇幅约为T1的2/3，以下为参考范围，不强制精确】
+
+🔴 T1核心（最详细）：
+${t1.map(fmtDim).join('\n')}
+
+🔹 T2结构（约为T1篇幅的2/3）：
+${t2.map(fmtDim).join('\n')}
+
+⚪ T0+T3（简要）：
+${t03.map(fmtDim).join('\n')}
+` })() : `【分析三原则】
 ✅ 有证据 → 必须写: 200-400字深度分析 + ≥3个原文例句(> 引用) + 具体写作规则
 ❌ 无证据 → 必须跳: 不输出该维度的 ## 区块，不写占位内容，不强行编造
 `}
 
 【输出格式 — 标题请用 ## 双井号，不要用 # 单井号】
 
-${priorityMap ? `应覆盖的维度（T1+T2共 ${requiredDims.length} 个维度）：
-${requiredDims.map(dk => `  ## ${dk}: ${DIMENSION_META[dk]?.label || dk}（★T${priorityMap[dk]?.tier}）`).join('\n')}
+${priorityMap ? `应覆盖的维度（总基调+T1+T2共 ${requiredDims.length} 个维度）：
+${requiredDims.map(dk => `  ## ${dk}: ${DIMENSION_META[dk]?.label || dk}（${priorityMap[dk]?.tier === 0 ? '总基调，' + priorityMap[dk]?.minChars + '-' + priorityMap[dk]?.maxChars + '字' : '★T' + priorityMap[dk]?.tier + '，' + priorityMap[dk]?.minChars + '-' + priorityMap[dk]?.maxChars + '字'}）`).join('\n')}
 ` : ''}
-每个有证据的维度用 Markdown 二级标题：
+每个维度用 ## 标题开头，正文用紧凑纯文本。每段之间一个空行。
 
 ## 维度key: 中文标签
-分析正文。引用原文词句时用 > 标记。
-> 原文例句（必须直接从原文摘录）
+正文直接从分析开始，不要前缀废话。需要引用原文时单独一行用 > 开头。
+> 从原文摘录的词句
+正文末尾附该维度专属写作规则，用"规则："开头独占一行。每条规则只写本维度特有技法——不同维度的规则不得相同。
 
-每个维度分析中必须包含该维度专属的写作规则（用"规则："开头，每条一行）。
-不同维度的规则应该各有侧重——避免所有维度使用相同的规则。
-
-${novelType === '情色小说' ? `⚠️ 情色小说特别注意：
-- vocabularyStyle（物化命名词，T1）词分四类，每类提取代表性词即可——①性器官/体液②角色/身份（辱骂/等级/物化称谓）③动作/技法④场景/装扮。分析每类词的构造公式——公式是核心，词是参考。
-- onomatopoeiaSystem（叫床/淫叫声，T1）提取代表性叫床声即可，重点分析发声逻辑——什么场景/动作触发什么声音、喉音唇音如何交替。叫床声是参考，按逻辑举一反三。
-	- sensoryStyle（感官，T1）情色类型优先分析气味和触感——这两者是肉体沉浸感的核心。气味：体香/汗/乳汁/香水/精液的种类和触发场景。触感：温度/黏度/压力/质地的描写模式。视觉听觉辅助。
-	- costumeStyle（衣着/装扮，T2）分析衣着作为情色装置：衣服与身体的互动（勒/绷/透/露/遮）、衣物正常功能与情色化改造之间的张力、不同角色衣着的权力差异。
-- rhetoricStyle（修辞暗示，T1）分析比喻/借代的来源领域、辱骂称谓的降格链。
-- bodyMindBetrayal（身心背离，T1）必须同时分析身体背叛结果+意志对抗过程。
-	- degradationRitual（场景/空间情色机制，T1）分析场景如何被情色化：①空间功能倒置（正常用途→性化使用）②可见性分层（谁在场/谁不知道/被子门灯光制造的窥视结构）③物品情色语义化（日常物品如何通过与身体的连接获得性含义）④场景推进阶段模板。
-	- bodyLanguageStyle（身体描写，T1）注意：身体分析不限于性行为反应——铺垫阶段的身体线索（衣着线条、目光距离、呼吸节奏、细微动作建立的性张力）同样是情色氛围的核心。
-- corruptionArc 单章不适用已移除——需多章上下文。
-` : ``}
+${getSpecialNote(novelType)}
 
 ⚠️ 在输出所有维度分析之前，必须先输出以下三个汇总块。这是强制要求——没有VOCABULARY/RULES/TONE的分析是不完整的。
 
@@ -255,9 +273,23 @@ export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterA
         dimVocab.push(...vocabularyList.slice(0, 8))
       }
     }
+    // Extract per-dimension rules from this dimension's description.
+    // Priority: 1) "规则：" lines in description → 2) global RULES block → 3) empty
+    const descRuleLines = cleanDesc.match(/^规则[：:]\s*(.+)$/gm)
+    const extractedRules: string[] = []
+    if (descRuleLines) {
+      for (const rl of descRuleLines) {
+        const cleaned = rl.replace(/^规则[：:]\s*/, '').trim()
+        if (cleaned.length > 3 && cleaned.length < 200) extractedRules.push(cleaned)
+      }
+      // Remove rule lines from description to avoid duplication
+      cleanDesc = cleanDesc.replace(/^规则[：:]\s*.+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
+    }
     const dimRules = dk === 'narrativeTone' && toneDesc
       ? [`基调: ${toneWord} - ${toneDesc}`]
-      : writingRules.length > 0 ? writingRules.slice(0, 8) : []
+      : extractedRules.length > 0
+        ? extractedRules.slice(0, 8)
+        : writingRules.length > 0 ? writingRules.slice(0, 4) : []
 
     dimAnalyses[dk] = {
       description: cleanDesc,
