@@ -119,6 +119,13 @@ export class V4AnthropicChatBridge {
     const unsubscribes: Array<() => void> = []
 
     try {
+      // ── 0. 加载模型配置 (v12.5.1: 阶段感知温度需要 temperature/toolTemperature) ──
+      const { useSettingsStore } = await import('@/store')
+      const settingsConfigs = useSettingsStore.getState().configs
+      const modelConfig = settingsConfigs.find(c => c.id === this.configId)
+      const creativeTemp = (modelConfig as any)?.temperature ?? 1.0
+      const toolTemp = (modelConfig as any)?.toolTemperature ?? 0.5
+
       // ── 1. 创建 Runtime (V4UnifiedRuntime + AnthropicAdapter — constructor-injected) ──
       const { anthropicService } = await import('@/services/anthropicService')
       const adapter = new AnthropicAdapter({
@@ -134,6 +141,8 @@ export class V4AnthropicChatBridge {
         maxIterations: this.maxIterations,
         abortSignal: this.abortController.signal,
         contextWindow: this.contextWindow,
+        temperature: creativeTemp,
+        toolTemperature: toolTemp,
       }, adapter)
 
       // ── 2.5. 工具准备 ──

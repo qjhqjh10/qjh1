@@ -1,6 +1,7 @@
 import { styleProjectService, styleTemplateService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
 import type { StyleProject, StyleProfile, DimAnalysis } from '@/types/story'
+import { DIMENSION_META } from '@/types/story'
 
 // Cache loaded style projects to avoid repeated IPC calls (LRU, max 20)
 const MAX_STYLE_CACHE = 20
@@ -153,11 +154,115 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     if (writingRules.length > 100) writingRules.length = 100
     if (vocabWords.size > 500) { const arr = [...vocabWords].slice(0, 500); vocabWords.clear(); arr.forEach(w => vocabWords.add(w)) }
 
-    if (vocabWords.size > 0) {
-      parts.push(`【必须使用的原文词汇库 - 严禁替换为近义词】\n${[...vocabWords].join('、')}`)
+    // Fallback: only if VOCABULARY block was completely empty AND we have dim data
+    // Limit extraction to vocabularyStyle dimension description only (not all dims)
+    if (vocabWords.size === 0 && dims?.vocabularyStyle?.description) {
+      const vDesc = (dims.vocabularyStyle as any).description || ''
+      // Extract only quoted words (not bracket patterns which may contain old test data)
+      const extracted = vDesc.match(/["「『]([^"「」『』]{1,6})["」『』]/g)
+      if (extracted) {
+        extracted.forEach((m: string) => vocabWords.add(m.replace(/["「『』」"]/g, '').trim()))
+      }
+    }
+
+    const cv = style.profile?.categorizedVocab
+    const hasVocab = vocabWords.size > 0 || (cv && Object.values(cv).some((a: string[]) => a.length > 0))
+
+    if (hasVocab) {
+
+      // Build category banks: prefer AI-pre-categorized vocab, fallback to regex
+      const categoryBanks: Record<string, string[]> = {}
+
+      if (cv && Object.values(cv).some((a: string[]) => a.length > 0)) {
+        // Use AI's own categorization directly — no regex needed
+        if (cv.sexBody?.length) categoryBanks['性器官/体液'] = [...new Set(cv.sexBody)].slice(0, 5)
+        if (cv.roleIdentity?.length) categoryBanks['角色/身份'] = [...new Set(cv.roleIdentity)].slice(0, 5)
+        if (cv.actionTechnique?.length) categoryBanks['动作/技法'] = [...new Set(cv.actionTechnique)].slice(0, 5)
+        if (cv.sceneCostume?.length) categoryBanks['场景/装扮'] = [...new Set(cv.sceneCostume)].slice(0, 5)
+        if (cv.moanOnomatopoeia?.length) categoryBanks['叫床/淫叫'] = [...new Set(cv.moanOnomatopoeia)].slice(0, 5)
+      } else {
+        // Fallback: soft regex classification (kept for backward compat with old profiles)
+        // These patterns are intentionally broad structural patterns, not hardcoded word lists
+        const allWords = [...vocabWords]
+        const buckets: Record<string, string[]> = { '性器官/体液': [], '角色/身份': [], '动作/技法': [], '场景/装扮': [], '叫床/淫叫': [] }
+        for (const w of allWords) {
+          if (/[齁咿唔咕噗啵滋啪嘎唧噫嘶噜嗯嗤啊哎哈嘿呵]{2,}|[ぁ-んァ-ン]{2}|❤/.test(w)) buckets['叫床/淫叫'].push(w)
+          else if (/[母狗猪畜贱骚废奴畜妾婢蛮妖姬妃王主]{1}./.test(w) || /[狗猪畜奴妾婢].$/.test(w)) buckets['角色/身份'].push(w)
+          else if (/[肏插射宫体位交肛穴脱榨吞].{1}/.test(w) || /强暴|内射|开宫|潮吹|种付|骑乘|口交|乳交|三穴/.test(w)) buckets['动作/技法'].push(w)
+          else if (/[丝袜衣裤裙装束袜鞋].{1}/.test(w) || /情趣|舞女|亵裤|渔网|黑丝|白丝/.test(w)) buckets['场景/装扮'].push(w)
+          else if (/[屌穴逼屄臀子宫精液淫水龟头阴乳奶尻腔肉屄骚逼骚奶鸡巴肉棒].{0,2}/.test(w)) buckets['性器官/体液'].push(w)
+        }
+        for (const [k, v] of Object.entries(buckets)) {
+          if (v.length > 0) categoryBanks[k] = [...new Set(v)].slice(0, 8)
+        }
+      }
+
+      const bankParts = Object.entries(categoryBanks).map(([k, v]) => `${k}: ${v.join('、')}`)
+      if (bankParts.length === 0) bankParts.push([...vocabWords].slice(0, 25).join('、'))
+
+      parts.push(`【情色词库 — 每类仅列出少量代表性参考词。理解每类构造逻辑后举一反三创造属于你新世界的词】\n${bankParts.join('\n')}\n\n构造逻辑参考（公式为核心，你的任务是按逻辑创造新词）：\n- 性器官/体液 = [质感/用途修饰]+[器官/体液名] — 用功能性描述替换解剖学术语\n- 角色/身份 = [否定/关系形容词]+[动物/社会角色名词] — 通过称谓建立权力关系\n- 动作/技法 = [动作目标]+[动作方式] — 将性行为具象为可以描述的操作序列\n- 场景/装扮 = [场景功能]+[物品类型] — 道具和服装的情色语义化\n- 叫床/淫叫 = [喉音/唇音交替]+[失控拖长]+[标点符号作为快感标记] — 非语义的发声序列`)
+
+      // Extract coinage formulas — broadened detection
+      const vocabDesc = dims?.vocabularyStyle?.description || ''
+      const rhetoricDesc = dims?.rhetoricStyle?.description || ''
+      const formulaText = vocabDesc + ' ' + rhetoricDesc
+
+      const formulaPatterns: string[] = []
+      const formulaLines = formulaText.split(/[。\n；;]/)
+      for (const line of formulaLines) {
+        const trimmed = line.trim()
+        if (trimmed.length < 6 || trimmed.length > 180) continue
+        // Broadened: match any line that describes a naming/construction pattern
+        if (/(公式|构成|复合|造词|组合|模式|命名|称为|叫做|定义为|重新|功能|用途|用法|器物|容器|工具|动物|身份|部位)/.test(trimmed) &&
+            (/[\[【〔].+?[\]】〕]|[+＋→➡＝=]|类.{1,4}[+＋]|型.{1,4}[+＋]|—/.test(trimmed) || trimmed.includes('='))) {
+          formulaPatterns.push(trimmed)
+        }
+      }
+      // Fallback: extract any compound word description
+      if (formulaPatterns.length === 0 && vocabDesc.length > 50) {
+        const categoryRe = /([^\s,，\n]{2,8}(?:类|型|式|词|组|法|模式))[：:]*\s*[""「『]([^""」』]{2,30})[""」『]/g
+        let cm
+        while ((cm = categoryRe.exec(vocabDesc)) !== null) {
+          formulaPatterns.push(`${cm[1]}：${cm[2]}`)
+        }
+        // Second fallback: just grab lines that mention body parts with renaming
+        if (formulaPatterns.length === 0) {
+          const renameRe = /(?:将|把|用|以).{2,15}(?:称为|叫做|命名为|当作|当成|视为).{2,20}/g
+          let rm
+          while ((rm = renameRe.exec(vocabDesc)) !== null) {
+            formulaPatterns.push(rm[0])
+          }
+        }
+      }
+
+      // Integrated guidance: word creation + onomatopoeia as unified "选词策略"
+      const vocabGuide: string[] = []
+      if (formulaPatterns.length > 0) {
+        vocabGuide.push(`【功能性重命名 — 按身体部位此刻的用途重新命名】\n${formulaPatterns.slice(0, 5).join('\n')}\n\n创造新词的思维链：①这个部位此刻正在被用来做什么？②用一个日常物品/容器/工具来命名这个用途 ③保持粗粝直白。示范：原文"肉棒收纳室"=阴道→存放肉棒的空间。你的新场景→？`)
+      }
+      parts.push(vocabGuide.join('\n'))
     }
     if (writingRules.length > 0) {
-      parts.push(`【必须遵守的写作规则 - 逐条执行】\n${writingRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`)
+      parts.push(`【写作手法参考 — 原文的技法特征，在新场景中灵活运用和发展】\n${writingRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`)
+    }
+  }
+
+  // v12.5.1: Inject原文例句 as few-shot style samples (highest priority, before all other rules)
+  if (dims && Object.keys(dims).length > 0) {
+    const exampleParts: string[] = []
+    const priorityDims = ['bodyLanguageStyle', 'sensoryStyle', 'sentenceStyle', 'vocabularyStyle',
+                          'degradationRitual', 'corruptionArc', 'narrativeVoice', 'rhetoricStyle',
+                          'dialogueStyle', 'humiliationTemplate', 'sensoryPackFormula']
+    for (const dk of priorityDims) {
+      const da = dims[dk] as DimAnalysis | undefined
+      if (da?.examples?.length) {
+        const meta = DIMENSION_META[dk]
+        const label = meta?.label || dk
+        exampleParts.push(`【${label} — 原文风格样本】\n${da.examples.map((e, i) => `${i + 1}. ${e}`).join('\n')}`)
+      }
+    }
+    if (exampleParts.length > 0) {
+      parts.unshift(`【原文风格样本 — 以下是从原文中提取的代表性段落。感受其腔调、节奏、用词质地和描写密度，以此为创作起点】\n\n${exampleParts.join('\n\n')}`)
     }
   }
 
@@ -177,76 +282,147 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
     else if (/鬼魂|幽灵|诅咒|附身|凶宅|灵异|超自然|道术/.test(fullText)) worldType = '灵异'
 
     // Detect if this is an erotic novel based on presence of erotic-specific dims
-    const isErotic = !!(dims?.corruptionArc || dims?.degradationRitual || dims?.shameVoyeurLoop
+    // v12.5.1: Also check dimAnalyses keys (complex objects are always null, but DimAnalysis versions may exist)
+    const eroticKeys = ['corruptionArc', 'degradationRitual', 'narrativeVoice', 'shameVoyeurLoop',
+                        'sensoryPackFormula', 'bodyMindBetrayal', 'humiliationTemplate']
+    const hasEroticComplex = !!(dims?.corruptionArc || dims?.degradationRitual || dims?.shameVoyeurLoop
       || dims?.bodyMindBetrayal || dims?.humiliationTemplate)
+    const hasEroticDimAnalysis = eroticKeys.some(k => dims?.[k] && (dims[k] as any)?.description)
+    const isErotic = hasEroticComplex || hasEroticDimAnalysis
 
     const calibrationLines: string[] = []
-    calibrationLines.push(`【风格尺度校准 - 必须达到的描写密度和极端程度】`)
-    if (worldType) calibrationLines.push(`世界观类型: ${worldType}。你的描写必须符合这个世界观的设定逻辑（空间/器物/服饰/社会关系）。`)
-    calibrationLines.push(`原文风格已经达到极高的描写密度和内容尺度。你的输出必须做到:`)
+    calibrationLines.push(`【风格尺度参考 — 以原文为标杆进行创作】`)
+    if (worldType) calibrationLines.push(`世界观类型: ${worldType}。`)
+    calibrationLines.push(`感官温度锚: 无论新世界是什么设定（科幻/古代/奇幻），感官描写必须保持在肉体层面——写皮肤的温度而非系统的参数、写体液的黏稠而非芯片的数据。设定是背景，情色的载体永远是肉体。`)
+    calibrationLines.push(`描写力度: 情色的来源不是制度或系统，而是身体在这些制度下承受的力——衣服面料绷在皮肤上的张力、丝袜边缘勒进腿肉的挤压力、气味从身体涌出的冲击力、乳肉被揉捏时的形变力。镜头对准肉体在这些力的作用下如何变形、颤抖、分泌、发红、发出声音。不是"她保持姿势"——而是"保持姿势时她的大腿肌肉在微微发颤"。`)
+    calibrationLines.push(`原文达到了很高的描写密度和内容尺度。以此为标杆：`)
 
+    // v12.6.1: 建设性引导 — 描述原文做法而非下禁令
     if (isErotic) {
-      // Erotic novel: full calibration including explicit content requirements
-      calibrationLines.push(`1. 身体描写密度: 每200字至少包含1次身体部位特写(3种以上感官同时描写)`)
-      calibrationLines.push(`2. 拟声词密度: 每300字至少15个拟声/呻吟字符(哦噫齁呜噗卟咕叽)，必须连续重复出现`)
-      calibrationLines.push(`3. 体液描写: 每次体液出现必须附带颜色+温度+黏稠度+气味的完整感官信息`)
-      calibrationLines.push(`4. 心理描写: 禁止\"她感到羞耻\"等概括句，必须用具象的身体反应(痉挛/喷水/翻眼/吐舌)展示`)
-      calibrationLines.push(`5. 用词: 严格使用原文词汇库中的自造复合词，禁止用中性医学词汇替代`)
-      calibrationLines.push(`6. 句式: 极长身体描写句(50字+)与极短拟声/动作句(2-5字)交替，每段至少3次交替`)
-      calibrationLines.push(`7. 尺度: 你的输出必须在情色淫靡程度上不低于原文——可以更极端、更浓稠、更密集，但绝对不允许比原文更收敛、更含蓄、更素淡。如果你不确定该写到什么程度，就再往前推一步`)
-      calibrationLines.push(`8. 禁缩: 禁止在场景结尾"收束"或"降调"——高潮之后可以直接结束，但不可以回到"温馨/温情/清醒"的基调。让读者始终停留在淫靡的氛围中`)
+      calibrationLines.push(`1. 情色密度: 原文偏好以具体感官特写替代抽象概括——描写时倾向于从温度、黏度、颜色、声音四个维度同时展开，而非使用叙述概括。密度是追求方向，不是每句必须达标的计数规则。`)
+      calibrationLines.push(`2. 场景收束: 原文场景往往在高潮后直接结束，不回落到温馨/清醒基调。保持这种不降调的处理方式。`)
+      calibrationLines.push(`3. 动作分解: 原文的情色动作被分解为起始姿态→接触瞬间→感官细节→力度变化→身体反应。避免一笔带过（如"她插进去"），将每个动作展开写。`)
     } else {
-      // Non-erotic: general writing quality calibration
-      calibrationLines.push(`1. 描写密度: 场景和环境描写必须充分展开，用具体细节替代抽象概括`)
+      calibrationLines.push(`1. 描写密度: 用具体细节替代抽象概括，充分展开场景和环境`)
       calibrationLines.push(`2. 句式多样性: 长短句交替，避免句式单调重复`)
-      calibrationLines.push(`3. 感官描写: 每个场景至少触发2种以上感官(视觉+听觉/触觉/嗅觉)`)
-      calibrationLines.push(`4. 心理描写: 通过具体的行为、表情和身体反应展示人物内心，少用\"他感到XX\"等概括句`)
-      calibrationLines.push(`5. 用词: 使用原文词汇库中的特征词汇，保持用词风格一致`)
-      calibrationLines.push(`6. 尺度: 你的输出在描写密度和文学品质上不应低于原文水准`)
+      calibrationLines.push(`3. 品质对标: 以原文的描写密度和文学品质为基准`)
     }
-    calibrationLines.push(`9. 段落格式: 正文必须用空行（双换行）分隔自然段。段落长度根据内容需要自由决定。唯一铁律: 禁止全文一堆到底。`)
+    calibrationLines.push(`4. 段落格式: 正文用空行（双换行）分隔自然段，形成呼吸节奏。`)
+
+    // v12.5.1: 情色语言强化 — 强迫AI使用原文级别的符号/辱骂词/物化词，并举一反三
+    if (isErotic) {
+      const vocabData = dims?.vocabularyStyle
+      const dialogueData = dims?.dialogueStyle
+      // Collect vocabulary from all dims for pattern detection (descriptions alone miss ❤/辱骂词)
+      const allVocabText = Object.values(dims).map((d: any) => d?.vocabularyList || []).flat().join(' ')
+      const combinedText = [vocabData?.description||'', dialogueData?.description||'', allVocabText].join(' ')
+
+      // Analysis-driven detection (replaced hardcoded regex word lists)
+      const vocabDesc = dims?.vocabularyStyle?.description || ''
+      const onoDesc = dims?.onomatopoeiaSystem?.description || ''
+      const hasHeart = /❤/.test(combinedText) || /❤|标记/.test(onoDesc + vocabDesc)
+      // Degradation: check if analysis identified identity-degrading vocabulary
+      const degradationPattern = /物化|降格|辱骂|身份摧毁|权力关系|称谓.*动物|器物.*命名/.test(vocabDesc) ||
+        (style.profile?.categorizedVocab?.roleIdentity?.length ?? 0) > 0
+      // Compound body words: check if analysis identified body-part renaming patterns
+      const compoundPattern = /身体.*命名|器官.*物化|功能.*重命名|质感.*部位/.test(vocabDesc) ||
+        (style.profile?.categorizedVocab?.sexBody?.length ?? 0) > 0
+
+      const langLines: string[] = []
+      langLines.push(`【情色语言技法 — 原文的风格特征，理解后创造性运用】`)
+
+      if (hasHeart) {
+        langLines.push(`❤ 标记: 原文将 ❤ 作为情色对话和呻吟的风格签名。善用此技法——在情色对话/呻吟中融入 ❤ 标记（单个或多连），让它成为你文本的标点特色。`)
+      }
+      if (degradationPattern) {
+        langLines.push(`物化词创作: 原文善用极致物化称谓塑造权力关系——将人物降格为具有特定功能的物品/动物。学习这种思维——按[功能用途]+[物品/动物/器官]的构造逻辑创造新的物化称谓。核心是降格方向和物化强度，不是复制原文的具体词语。`)
+      }
+      if (compoundPattern) {
+        langLines.push(`身体复合词: 原文独创复合形容词写身体（如"肥熟雌躯""焖油雌尻"），公式：[质感]+[状态]+[部位]。学习这种构词思维，在新场景中创造你自己的身体复合词，不必局限于普通形容词。`)
+      }
+      langLines.push(`举一反三: 以上技法的核心是理解原文的造词逻辑和物化强度，在新场景中创造同等级的新表达。你可以超越原文的具体词条，关键在于保持直白程度和物化强度的基调一致。`)
+      calibrationLines.push(...langLines)
+
+      // 叫床/淫叫声框架 — 情色小说听觉层，无条件注入
+      calibrationLines.push(`【叫床/淫叫声 — 三层功能：失控表达 + 分段工具 + 密度引擎】\n\n叫床声在情色文本中不是装饰，而是结构性元素：\n\n第一层·失控表达：叫床声是角色意志崩溃时的生理性发声——理智无法处理快感，身体直接用喉咙发出声音。喉音与唇音交替、拖长与急促切换、❤标记作为快感标点。举一反三：不要复制原文的叫床词，而是理解发声逻辑——你的新角色失控时会发出什么声音？创造属于她的叫床声。\n\n第二层·分段工具：叫床声可以单独成行、单独成段——放在两段长描写之间，像呼吸一样打断密集的叙述。"噗嗤！"独占一行，你不需要写"他插了进去"。这在视觉上制造节奏，让读者的眼睛在密集描写中获得喘息，同时又用声音维持情色张力。\n\n第三层·密度引擎：叫床声的价值在重复——"噗嗤！噗嗤！噗嗤！噗嗤！"连发十次比单次有力十倍。高潮段落让叫床声密集爆发、堆叠、越来越失控——这不是零散点缀，而是用声音轰炸替代描写。连发本身就是情色密度。\n\n叫床声必须与台词融为一体：不要分开写"啊啊…我是XX…啊啊"，融合成"齁哦哦我是XX咕呜噫噫❤"。`)
+    }
+
+    // v12.5.1: 叙述者站姿 + 羞辱递进链 — 从维度分析结果提取，提升到语言尺度层
+    const toneData = dims?.narrativeTone
+    if (toneData?.description) {
+      const toneDesc = toneData.description.slice(0, 300)
+      const stance = /赏玩|欣赏|暗爽|把玩|品评|玩味|享乐主义/.test(toneDesc) ? '赏玩'
+        : /冷眼|冷漠|旁观|疏离|不评判|抽离道德|近距离|检验/.test(toneDesc) ? '冷眼'
+        : /共情|代入|温柔|包容|治愈/.test(toneDesc) ? '共情'
+        : null
+      if (stance === '赏玩') {
+        calibrationLines.push(`5. 叙述者姿态参考（赏玩）: 原文叙述者以"欣赏把玩"的姿态观察角色——角色沉沦、被羞辱、身体背叛意志时，叙述者不表达惋惜或同情，而是欣赏这个画面。角色被肏到翻白烂软如泥时露出满足的笑容——叙述者不替她难过，而是品味这一刻。这是一种享乐主义的叙事姿态。`)
+      } else if (stance === '冷眼') {
+        calibrationLines.push(`5. 叙述者姿态参考（冷眼）: 原文叙述者以冷眼中立的距离观察——极端场景（暴力/羞辱/高潮）不做道德判断，不替角色感受。用纪录片般平淡的语气写最淫秽的画面，反差本身就是一种风格力量。`)
+      } else if (stance === '共情') {
+        calibrationLines.push(`5. 叙述者姿态参考（共情）: 原文叙述者贴近角色的身体感受——让读者通过角色的皮肤、呼吸、心跳来体验场景。每个动作都写出角色感受到的具体生理细节，创造沉浸式的身体阅读体验。`)
+      }
+    }
+
+    const degradationData = dims?.degradationRitual
+    const humiliationData = dims?.humiliationTemplate
+    if (isErotic && (degradationData || humiliationData)) {
+      calibrationLines.push(`6. 羞辱心理弧线参考 — 角色自我认知的瓦解与重建`)
+      calibrationLines.push(`羞辱的核心不是事件序列，而是角色内心如何一步步放弃旧身份、接受新身份。原文的典型弧线：`)
+      calibrationLines.push(`  Phase 1 意志抗拒 → "这种事情想都不可以想"`)
+      calibrationLines.push(`  Phase 2 身体背叛 → "身体却无法控制地起了反应"`)
+      calibrationLines.push(`  Phase 3 被迫服从 → "咬紧牙关忍耐，不让自己发出声音"`)
+      calibrationLines.push(`  Phase 4 快感淹没 → "意识被快感冲散，理智崩溃"`)
+      calibrationLines.push(`  Phase 5 主动谄媚 → 在高潮中主动宣告自己的物化身份（"我是XX！"）`)
+      calibrationLines.push(`  Phase 6 以辱为荣 → 在余韵中发自内心地感恩（"有幸成为XX"）`)
+      calibrationLines.push(`创作要点：`)
+      calibrationLines.push(`- Phase 5→6 是"青出于蓝"的关键——角色不能只被动承受，必须在高潮的顶点主动宣告、在余韵中感恩`)
+      calibrationLines.push(`- 羞辱的天花板不在于施加了什么，而在于角色主动承认了什么`)
+      calibrationLines.push(`- 在你的新场景中，让角色沿这六个阶段逐级推进，最终到达"以辱为荣"的顶点`)
+    }
+
     parts.push(calibrationLines.join('\n'))
 
-    // ── Dialogue style enforcement ──
+    // ── Dialogue style reference ──
     const dialogueData = dims?.dialogueStyle
     if (dialogueData?.description || (dialogueData?.writingRules && dialogueData.writingRules.length > 0)) {
       const dlLines: string[] = []
-      dlLines.push(`【对话风格强制约束 — 必须遵守】`)
-      if (dialogueData.description) dlLines.push(`整体要求: ${dialogueData.description}`)
+      dlLines.push(`【对话风格参考 — 原文的对白技法特征】`)
+      if (dialogueData.description) dlLines.push(`整体特征: ${dialogueData.description}`)
       if (dialogueData.writingRules && dialogueData.writingRules.length > 0) {
-        dlLines.push(`对白规则:`)
+        dlLines.push(`对白技法:`)
         dialogueData.writingRules.forEach((r: string, i: number) => dlLines.push(`  ${i + 1}. ${r}`))
       }
-      // Add character differentiation reminder
-      dlLines.push(`角色区分: 每个角色的对白必须有明显差异——语气词(呢/哦/嘛/罢了/呀)、句式长短、礼貌程度、用词习惯都要不同。主角之间对话时尤其要区分，让读者能从对白本身辨识出是谁在说话。`)
+      // Add onomatopoeia embedding + climax confession techniques
+      dlLines.push(`关键技法：`)
+      dlLines.push(`1. 拟声嵌入 — 被支配者的台词在高潮时与拟声词融为一体。呻吟打断话语、话语被快感冲散又重组、句子在拟声词中破碎。不要分写"啊啊啊…我是飞机杯…啊啊啊"——要融合成"咕齁哦噫噫我是飞机杯咕呜叽噫噫"，让读者同时"听到"身体反应和语言内容。`)
+      dlLines.push(`2. 高潮告解 — 对话的峰值不在日常交流，而在性高潮时刻。被支配者在被内射/高潮瞬间发出大段身份宣告——这是角色的"真相时刻"，平时羞于启齿的自我定义在此刻喷涌而出。内容从"我是XX"升级到"我有幸成为XX"——不是被迫承认，而是感恩。`)
+      dlLines.push(`3. 支配者语言 — 极简、干冷、短。不用脏话。命令句不超过5字。不需要解释、不需要回应。`)
+      dlLines.push(`角色区分: 建议每个角色的对白有辨识度——语气词、句式长短、用词习惯各有不同，让读者从对白本身辨识出说话者。`)
       parts.push(dlLines.join('\n'))
     }
 
-    // ── Tone enforcement ──
+    // ── Tone reference ──
     const toneAnalysis = dims?.narrativeTone
     if (toneAnalysis?.description) {
       const toneWord = toneAnalysis.description.match(/基调[：:]\s*"?([^"\n，。]{2,12})"?/) || []
       const detectedTone = toneWord[1] || ''
       const toneLines: string[] = []
       if (isErotic) {
-        toneLines.push(`【叙事基调强制约束 - 情色小说双层基调架构】`)
-        toneLines.push(`情色小说的基调是双层的：`)
-        toneLines.push(`  底层（不可动摇的底色）: 色情淫靡——所有描写必须浸润在淫靡、肉欲、感官过载的氛围中。这不是风格选择，而是类型铁律。`)
+        toneLines.push(`【叙事基调参考 — 情色小说的双层底色】`)
+        toneLines.push(`情色小说的基调通常是双层的：`)
+        toneLines.push(`  底层（淫靡底色）: 色情淫靡、肉欲、感官过载——这是情色类型的基调土壤，所有描写从中生长。`)
         toneLines.push(`  上层（风格辨识度）: ${detectedTone || toneAnalysis.description.slice(0, 120)}`)
-        toneLines.push(`写作时：先用色情淫靡的底色铺满每一个段落，然后在上层叠加风格特征。`)
-        toneLines.push(`具体规则:`)
-        toneLines.push(`1. 每一个场景段落必须同时满足两层：色情淫靡的肉体描写 + ${detectedTone || '分析出的风格'}的叙事语气`)
-        toneLines.push(`2. 如果色情淫靡和风格发生冲突——色情淫靡优先。宁可让风格让步，不能让情色描写变素变淡`)
+        toneLines.push(`写作时可以先铺开色情淫靡的底色，然后在上层叠加风格特征。两者相辅相成——肉欲的厚度支撑风格的个性。`)
       } else {
-        toneLines.push(`【叙事基调约束】`)
-        toneLines.push(`原文的叙事基调已被分析确定为: ${detectedTone || toneAnalysis.description.slice(0, 120)}`)
-        toneLines.push(`你的输出必须保持与此一致的叙事语气，不能突然切换成其他语调。`)
+        toneLines.push(`【叙事基调参考】`)
+        toneLines.push(`原文的叙事基调: ${detectedTone || toneAnalysis.description.slice(0, 120)}`)
+        toneLines.push(`以此为叙事语气的参考基调。`)
       }
-      toneLines.push(`3. 叙述者的语气必须在全文中保持${detectedTone || '分析出的基调'}——不能突然切换成其他语调`)
-      toneLines.push(`原文的叙事基调已被分析确定为:`)
+      toneLines.push(`原文的叙事基调分析:`)
       toneLines.push(`  ${toneAnalysis.description.slice(0, 400)}`)
       if (toneAnalysis.writingRules?.length > 0) {
-        toneLines.push(`基调维持规则:`)
+        toneLines.push(`基调技法:`)
         toneAnalysis.writingRules.slice(0, 5).forEach((r: string, i: number) => {
           toneLines.push(`  ${i + 1}. ${r}`)
         })
@@ -254,61 +430,11 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
       parts.push(toneLines.join('\n'))
     }
 
-    // ── Expansion mandate: word count + slow-down pacing ──
-    const expansionLines: string[] = []
-    expansionLines.push(`【篇幅与展开要求 - 用大篇幅详细描写提升模仿程度】`)
-    expansionLines.push(`原文风格的核心特征之一是"不疾不徐"——对每个身体部位、每个动作都充分展开，不压缩、不跳跃。你必须做到:`)
-    expansionLines.push(`【字数说明】总字数请参照【创作要求】中的【总字数目标】，以下为展开密度要求:`)
-    expansionLines.push(`1. 禁止以下凑字数手段: 重复对话、无意义的呻吟拟声词堆砌、完全相同的形容词循环。多出来的字数必须来自新的身体细节、新的视角切换、新的环境情色化描写。`)
-    expansionLines.push(`---`)
-    expansionLines.push(`6. 角色展开: 每个出场角色至少用200-300字逐层描写其身体(整体轮廓→局部特写→微观细节)。不同角色必须有差异化的身体特征(年龄/体型/疤痕/纹路/毛发)`)
-    expansionLines.push(`7. 动作展开: 每个身体接触动作必须写触感+温度+力度+持续时长，禁止\"她舔了他\"这种概括句`)
-    expansionLines.push(`8. 微观解剖: 口腔内部/皮肤纹理/毛发细节/分泌物等日常写作不会触及的层面，至少各展开150字`)
-    expansionLines.push(`9. 节奏控制: 每段身体描写后插入50-100字的纯叙述过渡(环境描写/心理活动/对话)，模拟原文从容不迫的呼吸感`)
-    expansionLines.push(`10. 禁止跳过: 禁止用\"其他修女也……\"\"等等\"\"之类的\"等概括句式跳过细节——每个角色、每个动作都必须单独展开描写`)
-    expansionLines.push(`11. 身体描写长句: 全文至少包含5处150字以上的纯身体描写长句，每句堆叠3-5种感官`)
-    parts.push(expansionLines.join('\n'))
-
-    if (isErotic) {
-      // ── Character architecture: per-character differentiation (multi-person scenes) ──
-      const charLines: string[] = []
-      charLines.push(`【角色构架要求 - 多人场景必须逐人展开】`)
-      charLines.push(`多人场景是检验风格模仿的关键考场。你必须做到:`)
-      charLines.push(`1. 人物名片: 每个出场角色必须有独立的"身体名片"——年龄/体型/毛发颜色与状态/皮肤质感/疤痕或痣/独特体味。不同角色之间的身体特征必须有显著差异，不能重复`)
-      charLines.push(`2. 出场顺序: 按身体特征从温和到极端依次展开（最普通的先出场，最夸张的压轴），形成递进式冲击`)
-      charLines.push(`3. 差异化描写: 同一身体部位在不同角色身上必须用不同的形容词。如果A的乳房是"腻白乳肉肥硕花白"，B的就应该是"褐色巨乳布满青筋"。禁止使用相同形容词描述不同人物`)
-      charLines.push(`4. 年龄梯度: 如果有多个角色，必须涵盖至少两个年龄层（如熟女+少女/老妇+少妇），形成身体衰老或发育的对比`)
-      charLines.push(`5. 每个角色至少获得200字专属描写空间，禁止合并描写("她们都……")`)
-      parts.push(charLines.join('\n'))
-
-      // ── Costume as erotic prop: clothing/undressing requirements ──
-      const costumeLines: string[] = []
-      costumeLines.push(`【服装情色功能要求 - 服装不是背景，是情色道具】`)
-      costumeLines.push(`原文中服装承担重要的情色叙事功能。你必须做到:`)
-      costumeLines.push(`1. 服装描述: 每个角色的服装至少用100字描写（材质/颜色/剪裁/开衩位置/透明程度/如何勾勒身体曲线）`)
-      costumeLines.push(`2. 脱衣仪式: 脱衣过程必须逐件、逐层描写（第一颗纽扣→肩带滑落→布料垂坠→肌肤渐露），禁止"她脱掉了衣服"这种概括句。每脱一件至少50字`)
-      costumeLines.push(`3. 服装与身体的互动: 描写布料如何勒入皮肤、蕾丝边缘如何在肌肤上留下印痕、紧绷处如何透出肉色、汗湿后布料如何变得半透明`)
-      costumeLines.push(`4. 服装的情色功能化: 丁字裤/胯帘/开档/皮扣项圈/Y字开叉/透明蕾丝等服装必须作为"性行为的道具"而非单纯衣着来描写`)
-      costumeLines.push(`5. 高跟鞋/丝袜/手套: 这些配饰必须获得独立描写段落（白丝勒出的腿根肉痕、高跟鞋的细跟踩地的声音、手套指尖的触感传递）`)
-      parts.push(costumeLines.join('\n'))
-
-      // ── Micro-movement decomposition: ban summary verbs ──
-      const microLines: string[] = []
-      microLines.push(`【动作微观分解要求 - 禁止概括动词，必须逐帧展开】`)
-      microLines.push(`原文的"色情感"来源于对每一个微小动作的极致放大。你必须做到:`)
-      microLines.push(`1. 禁止概括动词: 禁止"她舔了他""她含住""她插进去"等一笔带过的概括句。每个动作必须分解为: 起始姿态→接近过程→接触瞬间的触感(温度/湿度/软硬)→力度变化→持续时长→对方的身体反应`)
-      microLines.push(`2. 口腔内部描写: 口交场景必须描写: 嘴唇的触感→舌头探出的动作→舌尖触碰的精确位置→唾液分泌量→口腔温度→舌下腺/舌面纹理→喉咙深度→对方在口腔内的感官体验。至少300字`)
-      microLines.push(`3. 性器官接触描写: 插入场景必须描写: 对准的姿态→龟头碰触阴唇/肛口的第一触感→逐寸撑开的过程(每一寸的紧度和湿润度)→完全没入的包裹感→抽送时内壁褶皱的摩擦细节→分泌物的颜色/黏稠度/温度/气味。至少400字`)
-      microLines.push(`4. 手指/手掌动作: 每个抚摸动作必须写: 用哪根手指→触碰哪个精确位置→力度(轻如羽毛还是重如碾压)→手指停留的时长→移动的轨迹→对方的皮肤反应(起鸡皮/颤抖/收缩)`)
-      microLines.push(`5. 全身同时描写: 多人场景中必须交替描写不同角色在同一时刻的不同动作，形成"同时性"的感官交叠——A在做什么的同时B在做什么，两种触感叠加在同一人身上`)
-      microLines.push(`6. 禁止跳过快感: 每个动作必须跟随后续的身体反应描写，不能只写动作不写感受`)
-      microLines.push(`7. 情色程度只增不减: 场景从头到尾，描写密度和淫靡程度必须持续攀升或至少维持峰值，禁止出现\"逐渐平静\"\"慢慢缓过来\"\"回到现实\"等降调段落。最极端的高潮之后直接戛然而止，好过用温馨收尾稀释淫靡感`)
-      parts.push(microLines.join('\n'))
-    }
+  // v12.6.1: Constructive guidance — tone is a reference, not a straitjacket
   }
 
   // ── V1 String descriptions (always included for backward compat) ──
-  parts.push(`【写作风格要求 - 优先级高于角色设定】\n${style.profile.fullDescription}`)
+  parts.push(`【写作风格综述 — 原文核心风格特征（T1/T2）速览】\n${style.profile.fullDescription}`)
 
   if (!dims || Object.keys(dims).length === 0) {
     // Old format: just list string descriptions
@@ -318,11 +444,11 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // If description pattern exists, add structural constraints
   const dp = style.profile?.features?.descriptionPattern
   if (dp && dp.bodyOrder?.length > 0) {
-    const s: string[] = [`【描写结构要求 - 必须严格遵守】`]
-    s.push(`女性角色首次出场时，按以下顺序扫描描写: ${dp.bodyOrder.join(' → ')}`)
+    const s: string[] = [`【描写结构参考 — 原文的描写顺序和部位聚焦模式】`]
+    s.push(`原文女性角色出场时的扫描顺序: ${dp.bodyOrder.join(' → ')}`)
     if (dp.sections?.length > 0) {
-      const rules = dp.sections.filter(x => x.part && x.details?.length > 0).map(x => `${x.part}(至少${x.sentenceCount || '1-2句'}: ${x.details.join('、')})`)
-      if (rules.length > 0) s.push(`各部位要求: ${rules.join('; ')}`)
+      const rules = dp.sections.filter(x => x.part && x.details?.length > 0).map(x => `${x.part}(约${x.sentenceCount || '1-2句'}: ${x.details.join('、')})`)
+      if (rules.length > 0) s.push(`各部位参考: ${rules.join('; ')}`)
     }
     if (dp.detailFingerprints?.length > 0) s.push(`指纹细节: ${dp.detailFingerprints.join('、')}`)
     if (dp.stockingDetail) s.push(`丝袜描写: ${dp.stockingDetail}`)
@@ -333,21 +459,21 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // Corruption arc
   const ca = style.profile?.features?.corruptionArc
   if (ca && ca.overallTrajectory) {
-    const s: string[] = [`【角色堕落弧线 - 必须遵守的进展阶梯】`]
+    const s: string[] = [`【角色弧线参考 — 原文的人物演变阶梯】`]
     s.push(`整体轨迹: ${ca.overallTrajectory}`)
     if (ca.characterStates?.length > 0) {
       ca.characterStates.forEach(cs => {
         s.push(`${cs.characterName}: ${cs.originalState} → ${cs.currentState} (${(cs.progressionSteps || []).join(' → ')})`)
       })
     }
-    s.push(`注意：角色状态必须随章节推进沿弧线变化，不能跳跃式堕落`)
+    s.push(`建议：角色状态随章节推进沿弧线演变，避免跳跃式转变——每个阶段的状态变化应有具体的触发事件支撑。`)
     parts.push(s.join('\n'))
   }
 
   // Degradation ritual
   const dr = style.profile?.features?.degradationRitual
   if (dr && (dr.sceneTemplate?.length > 0 || dr.authorityEntryPattern)) {
-    const s: string[] = [`【羞辱场景剧本 - 必须使用此叙事结构】`]
+    const s: string[] = [`【羞辱场景结构参考 — 原文的场景推进模板】`]
     if (dr.sceneTemplate?.length > 0) s.push(`场景步骤: ${dr.sceneTemplate.join(' → ')}`)
     if (dr.authorityEntryPattern) s.push(`权威入场: ${dr.authorityEntryPattern}`)
     if (dr.punishmentTools?.length > 0) s.push(`惩罚工具: ${dr.punishmentTools.join('、')}`)
@@ -359,7 +485,7 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // Narrative voice
   const nv = style.profile?.features?.narrativeVoice
   if (nv && (nv.toneContrast || nv.internalMonologueRatio)) {
-    const s: string[] = [`【叙事声音要求 - 决定整体阅读感受】`]
+    const s: string[] = [`【叙事声音参考 — 原文的叙事语气与视角特征】`]
     if (nv.toneContrast) s.push(`语态反差: ${nv.toneContrast}`)
     if (nv.internalMonologueRatio) s.push(`内心独白: ${nv.internalMonologueRatio}`)
     if (nv.worldBuildingStyle) s.push(`世界设定交代方式: ${nv.worldBuildingStyle}`)
@@ -371,7 +497,7 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // Scene mechanics
   const sm = style.profile?.features?.sceneMechanics
   if (sm && (sm.sensoryCounterpoint || sm.symbolicTool)) {
-    const s: string[] = [`【场景装置要求】`]
+    const s: string[] = [`【场景装置参考 — 原文的感官对位与象征手法】`]
     if (sm.sensoryCounterpoint) s.push(`感官对位: ${sm.sensoryCounterpoint}`)
     if (sm.symbolicTool) s.push(`象征工具: ${sm.symbolicTool}`)
     if (sm.recurringVisualFormula) s.push(`视觉定型模板: ${sm.recurringVisualFormula}`)
@@ -381,7 +507,7 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // Identity dissolution (merged into corruptionArc or standalone)
   const idis = style.profile?.features?.identityDissolution
   if (idis && (idis.replacementIdentity || idis.correctionFrame || idis.hierarchyStructure)) {
-    const s: string[] = [`【身份系统与等级层级】`]
+    const s: string[] = [`【身份系统参考 — 原文的角色等级与身份演变】`]
     if (idis.preExistingIdentity) s.push(`旧身份: ${idis.preExistingIdentity}`)
     if (idis.replacementIdentity) s.push(`新身份: ${idis.replacementIdentity}`)
     if (idis.selfGaslightingPattern) s.push(`自我合理化: ${idis.selfGaslightingPattern}`)
@@ -394,7 +520,7 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   // Shame-voyeur loop
   const svl = style.profile?.features?.shameVoyeurLoop
   if (svl && svl.triggerPattern) {
-    const s: string[] = [`【羞耻-窥视心理循环 - 情感引擎】`]
+    const s: string[] = [`【羞耻-窥视心理循环参考 — 原文的情感驱动引擎】`]
     if (svl.triggerPattern) s.push(`触发: ${svl.triggerPattern}`)
     if (svl.excitementResponse) s.push(`兴奋: ${svl.excitementResponse}`)
     if (svl.shameLayer) s.push(`羞耻: ${svl.shameLayer}`)
@@ -403,6 +529,71 @@ export function buildStylePrompt(style: { profile: StyleProfile | null }): strin
   }
 
   return parts.join('\n')
+}
+
+// v12.5.1: Scene-type classification for context-aware style injection
+export type SceneCategory = 'erotic' | 'tension' | 'transition' | 'daily'
+
+export function classifySceneType(sceneConfig: any, chapterContext: string): SceneCategory {
+  // Priority 1: Explicit scene template type
+  if (sceneConfig?.type === '情色小说') return 'erotic'
+  if (sceneConfig?.selectedKinks?.length > 0) return 'erotic'
+
+  // Priority 2: Chapter content cue words (first 500 chars)
+  const cues = chapterContext.slice(0, 500)
+  const eroticCues = /插入|龟头|肉穴|抽送|高潮|舔舐|呻吟|射精|痉挛|淫|肉棒|乳|假阳具|自慰/
+  const tensionCues = /战斗|攻击|逃跑|危险|追杀|搏斗|激战|对峙|冲突|惩罚|羞辱/
+  const transitionCues = /次日|之后|路上|到达|准备|休息|醒来|回家|出门|早上|晚上/
+
+  if (eroticCues.test(cues)) return 'erotic'
+  if (tensionCues.test(cues)) return 'tension'
+  if (transitionCues.test(cues)) return 'transition'
+  return 'daily'
+}
+
+// Shared constants for section headers — must match what buildStylePrompt outputs.
+// If headers are renamed, update these constants AND buildStylePrompt together.
+const EROTIC_ONLY_HEADERS = ['风格尺度参考', '叙事基调参考', '对话风格参考', '情色语言技法']
+const CALIB_SUB_ITEMS = ['情色密度', '场景收束', '动作分解', '叫床/淫叫声', '叙述者姿态', '羞辱心理弧线', '感官温度锚', '世界观类型', '原文达到了']
+const EROTIC_HEADER_RE = new RegExp(`^【(${EROTIC_ONLY_HEADERS.join('|')})`)
+const CALIB_RESUME_RE = new RegExp(`^【(?!${CALIB_SUB_ITEMS.join('|')})`)
+
+// v12.5.1: Scene-aware style prompt — filters erotic rules for non-erotic scenes
+export function buildSceneAwareStylePrompt(
+  style: { profile: StyleProfile | null },
+  sceneCategory: SceneCategory,
+): string {
+  // For erotic scenes: full prompt
+  if (sceneCategory === 'erotic') {
+    return buildStylePrompt(style)
+  }
+
+  // For non-erotic scenes: build base prompt then filter
+  const fullPrompt = buildStylePrompt(style)
+
+  // Remove erotic-specific sections for daily/transition scenes
+  if (sceneCategory === 'daily' || sceneCategory === 'transition') {
+    // Remove sections that contain erotic-specific calibration
+    const lines = fullPrompt.split('\n')
+    const filtered: string[] = []
+    let skipBlock = false
+    for (const line of lines) {
+      // Skip blocks that start with these erotic-only headers
+      if (EROTIC_HEADER_RE.test(line)) {
+        skipBlock = true
+        continue
+      }
+      // Resume on a new section header (not a calibration sub-item)
+      if (skipBlock && CALIB_RESUME_RE.test(line)) {
+        skipBlock = false
+      }
+      if (!skipBlock) filtered.push(line)
+    }
+    return filtered.join('\n')
+  }
+
+  // For tension scenes: keep most rules, just tone down the erotic calibration
+  return fullPrompt
 }
 
 // Convert a StyleTemplate to the internal format buildStylePrompt expects

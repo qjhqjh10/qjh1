@@ -35,6 +35,8 @@ export interface ProtocolAdapter {
     configId: string
     projectId?: string
     signal: AbortSignal
+    /** v12.5.1: 运行时阶段感知温度 — 创作轮传 config.temperature，执行轮传 min(config.temperature, config.toolTemperature) */
+    temperature?: number
   }): Promise<NormalizedModelResponse>
 
   /** Abort the current (streaming) API call. */

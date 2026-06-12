@@ -129,6 +129,8 @@ export function registerAnthropicHandlers(
           description: string
           input_schema: Record<string, unknown>
         }>
+        /** v12.5.1: 阶段感知温度 */
+        temperature?: number
       },
     ) => {
       // 1. 加载配置，解密 API key
@@ -201,8 +203,10 @@ export function registerAnthropicHandlers(
         if (isDeepSeekV4) {
           body.thinking = { type: 'enabled', budget_tokens: 8192 }
         }
-        if (!isDeepSeekV4 && config.temperature !== undefined) {
-          body.temperature = config.temperature
+        // v12.5.1: 阶段感知温度 — runtime 传入时使用，否则回退到 config.temperature
+        const effectiveTemperature = params.temperature ?? config.temperature
+        if (!isDeepSeekV4 && effectiveTemperature !== undefined) {
+          body.temperature = effectiveTemperature
         }
         if (params.tools && params.tools.length > 0) {
           // v11.7.0: 透传 cache_control in tool definitions

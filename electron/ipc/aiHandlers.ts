@@ -329,7 +329,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
   // ── Tool-enabled chat (single turn) ──
   ipcMain.handle('ai:chat-with-tools',
     async (event, messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
-      configId: string, projectId?: string, tools?: unknown[],
+      configId: string, projectId?: string, tools?: unknown[], temperature?: number,
     ) => {
       const store = await getConfigStore()
       const configs = store.get('configs', []) as StoredConfig[]
@@ -400,10 +400,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         // v11.4: Enable DeepSeek V4 thinking mode (configurable in settings)
         const isDeepSeek = /deepseek/i.test(config.model)
         const useThinking = isDeepSeek && /v4/i.test(config.model) && (config as any).enableThinking !== false
-        // Agent tool calling: lower temperature for reliable tool selection
-        const agentTemperature = tools && tools.length > 0
-          ? Math.min(config.temperature, 0.3)  // tool mode: max 0.3
-          : config.temperature
+
+        // v12.5.1: 阶段感知温度 — runtime 根据阶段传入，无传入时回退到 config.temperature
+        // 创作轮: temperature = config.temperature (默认 1.0)
+        // 执行轮: temperature = min(config.temperature, config.toolTemperature || 0.5)
+        const effectiveTemperature = temperature ?? config.temperature
 
         const params: Record<string, unknown> = {
           model: config.model,
@@ -411,7 +412,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
         }
         if (!useThinking) {
-          params.temperature = agentTemperature
+          params.temperature = effectiveTemperature
         }
 
         if (useThinking) {

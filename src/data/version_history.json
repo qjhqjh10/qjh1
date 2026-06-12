@@ -1,7 +1,49 @@
 {
-  "currentVersion": "12.5.0",
-  "currentDate": "2026-06-11",
+  "currentVersion": "12.7.2",
+  "currentDate": "2026-06-12",
   "history": [
+    {
+      "version": "12.7.2",
+      "date": "2026-06-12",
+      "features": [
+        "风格模板v4: 情色维度精简至16个(T1=8/T2=4/T3=4)",
+        "风格模板v4: 新增costumeStyle(T2)衣着/装扮独立维度",
+        "风格模板v4: sensoryStyle情色类型优先分析气味和触感",
+        "风格模板v4: VOCABULARY改为AI预分类对象格式(5类)，注入端正则退为回退",
+        "风格模板v4: 移除sentenceStyle/rhythmStyle/corruptionArc从情色维度",
+        "风格模板v4: degradationRitual扩展为场景/空间情色机制",
+        "风格模板v4: 新增描写力度/感官温度锚校准指导",
+        "风格模板v4: 叫床/淫叫声三层功能框架无条件注入",
+        "风格模板v4: 羞辱递进改为心理弧线模板(Phase1-6)",
+        "风格模板v4: 对话技法增强(拟声嵌入+高潮告解)",
+        "风格模板v4: prompt移除所有硬编码示例词",
+        "风格模板v4: 分析prompt新增铺垫/前戏阶段指导",
+        "风格模板v4: novelType键名拆分(LONG/SHORT)，修复T1-T4优先级静默失效",
+        "风格模板v4: parseStyleAnalysisReply修复VOCABULARY行首匹配+slice顺序",
+        "风格模板v4: CategorizedVocab类型体系，全链路类型安全",
+        "风格模板v4: Scene-Aware过滤改为共享常量"
+      ]
+    },
+    {
+      "version": "12.6.0",
+      "date": "2026-06-12",
+      "features": [
+        "温度优化: 阶段感知温度(创作轮=用户设定/执行轮≤0.5),默认温度0.3→1.0",
+        "温度优化: 工具执行温度上限可配置(toolTemperature),设置页新增滑块",
+        "风格模板v3: 情色小说优先级系统(T1-T4),6核心+4支撑+5辅助+1跳过",
+        "风格模板v3: 维度合并(compoundWordPattern→vocabularyStyle/sensoryPackFormula→sensoryStyle/rhythm+mood→rhythmMoodStyle)",
+        "风格模板v3: 词汇注入改版——词条清单→核心词+造词公式双段+举一反三",
+        "风格模板v3: 情色语言强化块(❤标记/辱骂词/复合词自动检测注入)",
+        "风格分析: parseStyleAnalysisReply解析器重写(支持per-dimension VOCABULARY/RULES/兼容单#双##)",
+        "风格分析: examples双向打通(解析提取→注入为few-shot样本)",
+        "风格分析: DIMENSION_META.prompt注入分析prompt(提升分析质量)",
+        "风格分析: buildFewShotExcerpts集成到汇总流程",
+        "风格注入: 场景感知(buildSceneAwareStylePrompt/classifySceneType)",
+        "风格注入: 硬编码规则精简(28→6条),维度分析结果浮现",
+        "风格注入: 叙述者站姿检测(tone→赏玩/冷眼/共情)+羞辱递进链提取",
+        "测试脚本: analyze-and-imitate.ts+compare-imitation.ts(分析+仿写+对比全链路)"
+      ]
+    },
     {
       "version": "12.5.0",
       "date": "2026-06-11",

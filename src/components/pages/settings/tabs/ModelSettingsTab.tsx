@@ -47,6 +47,7 @@ function ApiKeyField({ value, onChange }: { value: string; onChange: (v: string)
 function ModelCard({
   icon, title, desc, modelValue, onModelChange, placeholder,
   tempValue, onTempChange, tempDisabled,
+  toolTempValue, onToolTempChange,
   maxTokValue, onMaxTokChange,
   ctxWinValue, onCtxWinChange,
   inPrice, onInPrice, outPrice, onOutPrice, cachePrice, onCachePrice,
@@ -61,6 +62,7 @@ function ModelCard({
   icon: string; title: string; desc: string
   modelValue: string; onModelChange: (v: string) => void; placeholder: string
   tempValue: number; onTempChange: (v: number) => void; tempDisabled?: boolean
+  toolTempValue?: number; onToolTempChange?: (v: number) => void
   maxTokValue: number; onMaxTokChange: (v: number) => void
   ctxWinValue?: number; onCtxWinChange?: (v: number) => void
   inPrice: number; onInPrice?: (v: number) => void
@@ -187,6 +189,19 @@ function ModelCard({
               <span style={{ fontSize: 9, color: '#9b8e84' }}>2</span>
             </div>
           </div>
+          {/* v12.5.1: 工具执行温度上限 — 仅 Main 模型显示 */}
+          {onToolTempChange && (
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <label style={fieldLabel}>🔧 工具温度 Tool Temp {toolTempValue?.toFixed(1) ?? '0.5'}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', maxWidth: 180 }}>
+                <span style={{ fontSize: 9, color: '#9b8e84' }}>0.1</span>
+                <input type="range" min="0" max="1" step="0.1" value={toolTempValue ?? 0.5}
+                  onChange={e => onToolTempChange(parseFloat(e.target.value))}
+                  style={{ flex: 1, accentColor: '#f59e0b' }} />
+                <span style={{ fontSize: 9, color: '#9b8e84' }}>1</span>
+              </div>
+            </div>
+          )}
           {/* v11.4: 深度推理开关 — 仅 Main 模型显示 */}
           {onThinkingChange && onReasoningEffort && (
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -471,6 +486,7 @@ export function ModelSettingsTab() {
               modelValue={activeConfig.model} onModelChange={v => u({ model: v })}
               placeholder="deepseek-chat / gpt-4o"
               tempValue={activeConfig.temperature} onTempChange={v => u({ temperature: v })}
+              toolTempValue={activeConfig.toolTemperature ?? 0.5} onToolTempChange={v => u({ toolTemperature: v })}
               maxTokValue={activeConfig.maxTokens} onMaxTokChange={v => u({ maxTokens: v })}
               ctxWinValue={activeConfig.contextWindow ?? 128000} onCtxWinChange={v => u({ contextWindow: v })}
               inPrice={activeConfig.inputPricePerM} onInPrice={v => u({ inputPricePerM: v })}

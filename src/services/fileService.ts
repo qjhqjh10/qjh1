@@ -103,8 +103,10 @@ export const aiService = {
     configId: string,
     projectId: string | undefined,
     tools?: unknown[],
+    /** v12.5.1: 阶段感知温度 */
+    temperature?: number,
   ): Promise<ChatWithToolsResult> => {
-    const raw = await e().ai.chatWithTools(messages, configId, projectId, tools)
+    const raw = await e().ai.chatWithTools(messages, configId, projectId, tools, temperature)
     try {
       const parsed = JSON.parse(raw)
       // #15: Validate tool_calls structure

@@ -18,6 +18,7 @@ export interface ModelConfig {
   protocol?: 'openai' | 'anthropic'  // API 协议：openai (默认) 或 anthropic (流式 content blocks)
   enableThinking?: boolean          // v11.4: 启用 DeepSeek V4 深度推理 (thinking mode)
   reasoningEffort?: 'high' | 'max'  // v11.4: 推理强度 (默认 max，简单对话可降为 high)
+  toolTemperature?: number          // v12.5.1: 工具执行轮温度上限 (默认 0.5，仅深度推理关闭时生效)
   mainProvider?: string
   mainApiUrl?: string
   mainApiKey?: string
@@ -64,12 +65,13 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   apiKey: '',
   // Main
   model: 'gpt-4o',
-  temperature: 0.3,  // v11.4: lowered from 0.8 — agent tool calling needs deterministic output
+  temperature: 1.0,  // v12.5.1: 创作温度升高到 1.0 — 深度推理关闭时保持创意自由度、工具执行轮由 toolTemperature 控制
   maxTokens: 0,
   contextWindow: 128000,
   protocol: 'openai' as const,
   enableThinking: true,             // v11.4: 默认启用深度推理
   reasoningEffort: 'max' as const,  // v11.4: 默认最大推理强度
+  toolTemperature: 0.5,            // v12.5.1: 工具执行轮温度上限
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,

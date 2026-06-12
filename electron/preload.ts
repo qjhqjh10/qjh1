@@ -82,8 +82,8 @@ const api = {
     },
     listModels: (configId: string, scope?: string): Promise<string[]> =>
       ipcRenderer.invoke('ai:listModels', configId, scope),
-    chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]): Promise<string> =>
-      ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools),
+    chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number): Promise<string> =>
+      ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools, temperature),
     executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
       ipcRenderer.invoke('ai:execute-file-tool', calls),
     // ── Anthropic 协议（流式 content blocks，独立通道） ──
@@ -105,6 +105,8 @@ const api = {
       configId: string
       projectId?: string
       tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>
+      /** v12.5.1: 阶段感知温度 */
+      temperature?: number
     }): Promise<string> =>
       ipcRenderer.invoke('ai:anthropic-messages', params),
     abortAnthropicStream: (): void => {

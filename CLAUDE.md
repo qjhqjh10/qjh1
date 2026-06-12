@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v12.5.0
+# AI写作软件—青剑 v12.7.2
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
 
@@ -6,16 +6,38 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / G6 + Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v11.6.0)
+## 当前架构 (v12.7.2)
+
+### 温度优化 — 阶段感知
+- 深度推理关闭时：创作轮=用户设定温度(默认1.0)，工具执行轮≤toolTemperature(默认0.5)
+- 深度推理开启时：temperature不发送（模型自控）
+- toolTemperature 可在设置页配置
+
+### 风格模板 v4 — 情色小说维度系统 (16维)
+- T1(8核心)/T2(4支撑)/T3(4辅助)三级优先级，移除T4
+- 新增costumeStyle(T2)衣着/装扮独立维度
+- sensoryStyle情色类型优先分析气味和触感
+- 移除sentenceStyle/rhythmStyle/corruptionArc(情色不适用)
+- 维度合并：compoundWordPattern→vocabularyStyle、sensoryPackFormula→sensoryStyle、tensionStyle→bodyMindBetrayal
+- VOCABULARY改为AI预分类对象格式(5类)：sexBody/roleIdentity/actionTechnique/sceneCostume/moanOnomatopoeia
+- 注入端正则退为回退，主路径用AI分类
+- degradationRitual扩展为场景/空间情色机制
+- 辱骂/❤检测迁移为分析驱动
+- prompt移除所有硬编码示例词，公式为纯结构描述
+- 叫床/淫叫声三层功能框架无条件注入
+- 羞辱递进改为心理弧线模板(Phase1-6)
+- 对话技法增强(拟声嵌入+高潮告解)
+- 描写力度+感官温度锚校准指导
+- 分析prompt覆盖铺垫/前戏阶段
+- CategorizedVocab类型体系，全链路类型安全
 
 ### 工具统一 (42→34)
 - 删除冗余的 note/kb 专用工具（8个），统一使用 create_file/edit_file/read_file/list_directory/delete_file
 - create_file/edit_file 支持所有目录（项目/notes/KB/模板/上传）
-- 保留有独特逻辑的工具：search_notes, kb_append_file, kb_index_file, create_style_template, create_scene_template, create_project
 
 ### DeepSeek V4 Thinking Mode
 - OpenAI + Anthropic 双协议启用深度推理（enableThinking/reasoningEffort 可配置）
-- 工具调用时 temperature 自动降至 ≤0.3，减少幻觉
+- 工具调用时 temperature 由阶段感知系统控制
 - reasoning_content 回传修复，支持多轮工具调用
 
 ### 模板系统

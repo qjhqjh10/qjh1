@@ -22,6 +22,10 @@ export interface V4AgentConfig {
   skipAnalyze?: boolean
   /** v10.0.0: 跳过 Skill Gate（测试 mock 用）。默认 false。 */
   skipSkillGate?: boolean
+  /** v12.5.1: 创作温度 — 深度推理关闭时创作轮使用 (默认 1.0) */
+  temperature?: number
+  /** v12.5.1: 工具执行轮温度上限 — 深度推理关闭时执行轮使用 (默认 0.5) */
+  toolTemperature?: number
 }
 
 export interface V4AgentRunInput {

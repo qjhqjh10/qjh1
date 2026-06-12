@@ -7,7 +7,7 @@ import { getTemplateDims } from '@/types/styleTemplate'
 import type { DimAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPE_LABELS, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
 import { nanoid } from 'nanoid'
-import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt } from '@/services/extractionService'
+import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt, buildFewShotExcerpts } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
@@ -407,7 +407,11 @@ export function useStyleWorkshop() {
           identityDissolution: null, shameVoyeurLoop: null,
         },
         fullDescription,
-        excerpts: [],
+        // v12.5.1: Extract few-shot excerpts from analyzed chapters for style injection
+        excerpts: buildFewShotExcerpts(
+          analyzedChapters.map(c => ({ title: c.title, content: c.content, chapterNumber: c.chapterNumber })),
+          5, 2, 250
+        ).map(text => ({ text, note: '' })),
         analyzedAt: new Date().toISOString(),
         analyzedChapterCount: analyzedChapters.length,
         dimAnalyses: Object.keys(aggregatedDimAnalyses).length > 0 ? aggregatedDimAnalyses : undefined,

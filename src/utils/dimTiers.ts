@@ -30,12 +30,41 @@ export const DIM_TIERS: Record<string, { tier: 'core' | 'evidence' | 'erotic' | 
   shameVoyeurLoop:      { tier: 'erotic', desc: '羞耻-窥视循环（情色专属）' },
   sensoryPackFormula:   { tier: 'erotic', desc: '感官打包句型公式（情色专属）' },
   bodyMindBetrayal:     { tier: 'erotic', desc: '身心背离写法（情色专属）' },
+  costumeStyle:         { tier: 'erotic', desc: '衣着/装扮描写（情色专属）' },
   humiliationTemplate:  { tier: 'erotic', desc: '羞辱场景结构模板（情色专属）' },
   socialRealism:        { tier: 'genre', desc: '社会现实描写（都市/历史/科幻）' },
   cultivationCombat:    { tier: 'genre', desc: '修炼/战斗描写（修仙/武侠/玄幻）' },
   romanceArc:           { tier: 'genre', desc: '感情线发展（恋爱小说）' },
   archaicStyle:         { tier: 'genre', desc: '古风文言特征（古风/历史/武侠）' },
   suspensePacing:       { tier: 'genre', desc: '悬疑节奏（悬疑/灵异小说）' },
+}
+
+// v12.5.1: Dimension priority by novel type for focused style analysis.
+// Higher tier = higher priority, more token budget.
+// Tier 1: 情色核心（400字）  Tier 2: 情色支撑（300字）
+// Tier 3: 辅助（200字）       Tier 4: 有证据才写（100字）
+export const DIM_PRIORITY: Record<string, Record<string, { tier: 1 | 2 | 3 | 4; maxChars: number }>> = {
+  '情色小说': {
+    // Tier 1 — 情色核心: 决定风格模仿质量的关键维度
+    narrativeTone:       { tier: 1, maxChars: 400 },
+    bodyLanguageStyle:    { tier: 1, maxChars: 400 },
+    bodyMindBetrayal:    { tier: 1, maxChars: 400 },  // 含心理撕裂(tensionStyle已合并)
+    sensoryStyle:         { tier: 1, maxChars: 400 },  // 含感官打包(sensoryPackFormula已合并)
+    degradationRitual:    { tier: 1, maxChars: 400 },
+    rhetoricStyle:        { tier: 1, maxChars: 400 },
+    vocabularyStyle:      { tier: 1, maxChars: 400 },  // 物化命名词（辱骂/物化+功能性重命名，语义层）
+    onomatopoeiaSystem:   { tier: 1, maxChars: 400 },  // 叫床/淫叫词（性反应发声，听觉层）
+    // Tier 2 — 情色支撑
+    costumeStyle:         { tier: 2, maxChars: 200 },  // 衣着/装扮：衣服与身体的互动
+    dialogueStyle:        { tier: 2, maxChars: 300 },
+    humiliationTemplate:  { tier: 2, maxChars: 300 },
+    shameVoyeurLoop:      { tier: 2, maxChars: 300 },
+    // Tier 3 — 辅助（简要分析即可）
+    moodStyle:            { tier: 3, maxChars: 150 },
+    perspectiveStyle:     { tier: 3, maxChars: 150 },
+    descriptionPattern:   { tier: 3, maxChars: 150 },
+    narrativeVoice:       { tier: 3, maxChars: 150 },
+  },
 }
 
 export interface ClassifiedDims {

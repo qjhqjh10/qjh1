@@ -13,6 +13,8 @@ export interface OpenAIAIService {
     configId: string,
     projectId: string | undefined,
     tools?: unknown[],
+    /** v12.5.1: 阶段感知温度 (创作轮=config.temperature, 执行轮=min(config.temperature, toolTemperature)) */
+    temperature?: number,
   ): Promise<{
     text: string
     toolCalls: ToolCallRequest[] | null
@@ -43,12 +45,14 @@ export class OpenAIAdapter implements ProtocolAdapter {
     configId: string
     projectId?: string
     signal: AbortSignal
+    temperature?: number
   }): Promise<NormalizedModelResponse> {
     const result = await this.service.chatWithTools(
       params.messages,
       params.configId,
       params.projectId,
       params.tools.length > 0 ? params.tools : undefined,
+      params.temperature,
     )
 
     return {

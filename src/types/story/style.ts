@@ -74,11 +74,20 @@ export interface ShameVoyeurLoop {
   feedbackAmplification: string
 }
 
+export interface CategorizedVocab {
+  sexBody: string[]           // 性器官/体液
+  roleIdentity: string[]      // 角色/身份
+  actionTechnique: string[]   // 动作/技法
+  sceneCostume: string[]      // 场景/装扮
+  moanOnomatopoeia: string[]  // 叫床/淫叫
+}
+
 export interface DimAnalysis {
   description: string
   examples: string[]
   writingRules: string[]
   vocabularyList: string[]
+  categorizedVocab?: CategorizedVocab  // AI pre-categorized vocab (v12.7+)
 }
 
 export interface ChapterAnalysis {
@@ -105,6 +114,7 @@ export interface ChapterAnalysis {
   excerptNote: string
   analyzedAt: string
   dimAnalyses?: Record<string, DimAnalysis>
+  categorizedVocab?: CategorizedVocab
 }
 
 export interface StyleChapter {
@@ -145,6 +155,7 @@ export interface StyleProfile {
   analyzedAt: string
   analyzedChapterCount: number
   dimAnalyses?: Record<string, DimAnalysis>
+  categorizedVocab?: CategorizedVocab
 }
 
 export interface StyleProject {

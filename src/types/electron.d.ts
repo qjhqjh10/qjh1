@@ -57,7 +57,7 @@ export interface AIAPI {
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
   listModels: (configId: string, scope?: string) => Promise<string[]>
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
-  chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[]) => Promise<string>
+  chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
   // ── Anthropic 协议 ──
   chatAnthropicStream: (params: {
@@ -77,6 +77,8 @@ export interface AIAPI {
     configId: string
     projectId?: string
     tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>
+    /** v12.5.1: 阶段感知温度 */
+    temperature?: number
   }) => Promise<string>
   abortAnthropicStream: () => void
   onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void

@@ -30,6 +30,8 @@ export interface AnthropicAIService {
     configId: string
     projectId?: string
     tools?: AnthropicToolDef[]
+    /** v12.5.1: 阶段感知温度 (创作轮=config.temperature, 执行轮=min(config.temperature, toolTemperature)) */
+    temperature?: number
   }): Promise<AnthropicStreamResult>
   abortStream(): void
 }
@@ -143,6 +145,7 @@ export class AnthropicAdapter implements ProtocolAdapter {
     configId: string
     projectId?: string
     signal: AbortSignal
+    temperature?: number
   }): Promise<NormalizedModelResponse> {
     // 1. Extract system messages to top-level parameter
     // v11.7.0: Convert to AnthropicSystemBlock with cache_control on last block
@@ -182,6 +185,7 @@ export class AnthropicAdapter implements ProtocolAdapter {
       configId: params.configId,
       projectId: params.projectId,
       tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      temperature: params.temperature,
     })
 
     // 4. Normalize to canonical format

@@ -8,6 +8,7 @@ import type {
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
+import type { CategorizedVocab } from '@/types/story/style'
 import { safeJsonParse } from '@/utils/safeJsonParse'
 
 
@@ -15,178 +16,200 @@ import { safeJsonParse } from '@/utils/safeJsonParse'
 // Style Analysis: marked-block format (resilient to JSON errors)
 // ============================================================
 
-import { DIM_TIERS, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
+import { DIM_TIERS, DIM_PRIORITY, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
 
 export function buildStyleAnalyzePrompt(dims: string[], novelType?: string): string {
   const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dims, novelType)
+  const priorityMap = (novelType && DIM_PRIORITY[novelType]) ? DIM_PRIORITY[novelType] : null
+
+  // Sort mustAnalyze dims by priority (tier 1 first, then 2, 3, 4)
+  const sortedMustAnalyze = priorityMap
+    ? [...mustAnalyze].sort((a, b) => (priorityMap[a]?.tier || 4) - (priorityMap[b]?.tier || 4))
+    : mustAnalyze
 
   const fmtGroup = (items: string[], prefix: string) => items.map(k => {
     const meta = DIMENSION_META[k]
-    return `  ${prefix} ${k}: ${meta?.label || k}（${(DIM_TIERS[k] || { desc: '内容判定' }).desc}）`
+    const p = priorityMap?.[k]
+    const tierTag = p ? `★T${p.tier} ` : ''
+    const charsHint = p ? `（${p.maxChars}字）` : ''
+    return `  ${prefix} ${tierTag}${k}: ${meta?.label || k}${charsHint}`
   }).join('\n')
 
-  const mustList = fmtGroup(mustAnalyze, '✅')
-  const checkList = fmtGroup(checkFirst, '🔍')
-  const skipList = fmtGroup(skipHint, '⏭️')
+  // Build the mandatory minimum list: only Tier 1-2
+  const requiredDims = sortedMustAnalyze.filter(dk => {
+    const p = priorityMap?.[dk]
+    return p && p.tier <= 2  // Only T1+T2 are mandatory
+  })
 
   return `你是专业的文学风格分析师。请对以下章节进行深度写作风格分析。
 
-【维度分析策略 — 极其重要，仔细阅读并严格执行】
+【维度分析策略 — 请仔细阅读并认真遵循】
 
-以下维度按适用性分为三类，每类有不同的分析要求：
+以下维度按重要性分为四级，★T1最高优先级，必须详细分析：
 
-1️⃣ 必须分析（任何叙事文本都包含这些特征，必须输出分析）：
-${mustList || '  （无）'}
+1️⃣ 必须检查（共 ${sortedMustAnalyze.length} 个维度。T1+T2 = 重点详析；T3 = 简要分析；T4 = 有证据才写）：
+${fmtGroup(sortedMustAnalyze, '✅')}
 
-2️⃣ 先检查再决定（在原文中找到 ≥2处证据 → 详细分析；找不到 → 静默跳过）：
-${checkList || '  （无）'}
+2️⃣ 先检查再决定（在原文中找到 ≥2处证据 → 分析；找不到 → 跳过）：
+${fmtGroup(checkFirst, '🔍') || '  （无）'}
 
 3️⃣ 类型不匹配（非当前小说类型的专属维度，强烈建议全部跳过）：
-${skipList || '  （无）'}
+${fmtGroup(skipHint, '⏭️') || '  （无）'}
 
-【分析三原则】
+${priorityMap ? `【分析三原则 — 情色小说优先级】
+✅ T1维度（★T1）= 400字深度分析 + 2-3条原文例句(> 引用) + 1-2条核心规则
+✅ T2维度（★T2）= 约300字分析 + 1-2条例句 + 1条规则
+🔹 T3维度（★T3）= 约200字简要分析，有证据就写无证据跳过
+⏭️ T4维度（★T4）= 约100字，仅显著证据才写通常跳过
+` : `【分析三原则】
 ✅ 有证据 → 必须写: 200-400字深度分析 + ≥3个原文例句(> 引用) + 具体写作规则
 ❌ 无证据 → 必须跳: 不输出该维度的 ## 区块，不写占位内容，不强行编造
-🔍 证据标准: 至少能在原文中找到2处以上明确的、可直接引用的原文词句
+`}
 
-【输出格式】
-每个有证据的维度输出一个 Markdown 二级标题区块：
+【输出格式 — 标题请用 ## 双井号，不要用 # 单井号】
+
+${priorityMap ? `应覆盖的维度（T1+T2共 ${requiredDims.length} 个维度）：
+${requiredDims.map(dk => `  ## ${dk}: ${DIMENSION_META[dk]?.label || dk}（★T${priorityMap[dk]?.tier}）`).join('\n')}
+` : ''}
+每个有证据的维度用 Markdown 二级标题：
 
 ## 维度key: 中文标签
-200-400字深度分析。引用原文词句时用 > 标记。
+分析正文。引用原文词句时用 > 标记。
 > 原文例句（必须直接从原文摘录）
-> 原文例句
-> 原文例句
+
+每个维度分析中必须包含该维度专属的写作规则（用"规则："开头，每条一行）。
+不同维度的规则应该各有侧重——避免所有维度使用相同的规则。
+
+${novelType === '情色小说' ? `⚠️ 情色小说特别注意：
+- vocabularyStyle（物化命名词，T1）词分四类，每类提取代表性词即可——①性器官/体液②角色/身份（辱骂/等级/物化称谓）③动作/技法④场景/装扮。分析每类词的构造公式——公式是核心，词是参考。
+- onomatopoeiaSystem（叫床/淫叫声，T1）提取代表性叫床声即可，重点分析发声逻辑——什么场景/动作触发什么声音、喉音唇音如何交替。叫床声是参考，按逻辑举一反三。
+	- sensoryStyle（感官，T1）情色类型优先分析气味和触感——这两者是肉体沉浸感的核心。气味：体香/汗/乳汁/香水/精液的种类和触发场景。触感：温度/黏度/压力/质地的描写模式。视觉听觉辅助。
+	- costumeStyle（衣着/装扮，T2）分析衣着作为情色装置：衣服与身体的互动（勒/绷/透/露/遮）、衣物正常功能与情色化改造之间的张力、不同角色衣着的权力差异。
+- rhetoricStyle（修辞暗示，T1）分析比喻/借代的来源领域、辱骂称谓的降格链。
+- bodyMindBetrayal（身心背离，T1）必须同时分析身体背叛结果+意志对抗过程。
+	- degradationRitual（场景/空间情色机制，T1）分析场景如何被情色化：①空间功能倒置（正常用途→性化使用）②可见性分层（谁在场/谁不知道/被子门灯光制造的窥视结构）③物品情色语义化（日常物品如何通过与身体的连接获得性含义）④场景推进阶段模板。
+	- bodyLanguageStyle（身体描写，T1）注意：身体分析不限于性行为反应——铺垫阶段的身体线索（衣着线条、目光距离、呼吸节奏、细微动作建立的性张力）同样是情色氛围的核心。
+- corruptionArc 单章不适用已移除——需多章上下文。
+` : ``}
+
+⚠️ 在输出所有维度分析之前，必须先输出以下三个汇总块。这是强制要求——没有VOCABULARY/RULES/TONE的分析是不完整的。
 
 ---VOCABULARY---
-["原文词1","原文词2",...]（20-50个高频/特色词，双引号，无尾逗号）
+{"sexBody":["词1"],"roleIdentity":["词1"],"actionTechnique":["词1"],"sceneCostume":["词1"],"moanOnomatopoeia":["词1"]}
+每类1-5个代表性词，某类若原文未出现写空数组[]。双引号，无尾逗号。
 
 ---RULES---
-["写作规则1","规则2",...]（3-10条可执行的具体写作指令）
+["写作规则1","规则2",...]（各维度专属规则汇总，去重后列出）
 
 ---TONE---
 {"word":"基调词","description":"100字叙事基调描述","attitude":"冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索（选一）"}
 
-【格式铁律】
-1. 标题严格用 ## dimKey: 中文标签（如 ## sentenceStyle: 句式）
+然后再逐维度输出各 ## 分析。
+
+【各维度分析指导 — 请按以下要点逐维度分析】
+${(() => {
+  // v12.5.1: Append DIMENSION_META.prompt for key dims (cap to prevent token bloat)
+  const critical = mustAnalyze.slice(0, 10)
+  return critical.map(dk => {
+    const meta = DIMENSION_META[dk]
+    if (!meta?.prompt) return ''
+    // Only include the analysis focus (first 120 chars), drop JSON format template
+    const p = meta.prompt.slice(0, 120).replace(/".*?"/, '').trim()
+    return `- ${dk} (${meta.label}): ${p}`
+  }).filter(Boolean).join('\n')
+})()}
+
+【格式规范 — 请遵守以下输出约定】
+1. 标题统一用 ## dimKey: 中文标签（如 ## sentenceStyle: 句式）
 2. VOCABULARY/RULES/TONE 三个标记独占一行，从行首开始
 3. 所有JSON用双引号，数组和对象末尾不要有逗号
 4. 全文只输出一次 VOCABULARY/RULES/TONE（各一个），汇总所有维度
-5. 禁止用代码块包裹输出内容`
+5. 不要用代码块包裹输出内容
+6. ⚠️ 请确保输出所有1️⃣中列出的维度。分析完一个维度后继续输出下一个 ## 维度，直到全部完成。不要中途停止。`
 }
 
 // Parses marked-block format into ChapterAnalysis
 export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterAnalysis {
-  // ── Step 1: Split into sections by markers ──
-  const vocabMarker = '---VOCABULARY---'
-  const rulesMarker = '---RULES---'
-  const toneMarker = '---TONE---'
+  // ── Step 0: Extract VOCABULARY/RULES/TONE blocks FIRST, before any stripping ──
+  let processed = reply
 
-  const vocabIdx = reply.indexOf(vocabMarker)
-  const rulesIdx = reply.indexOf(rulesMarker)
-  const toneIdx = reply.indexOf(toneMarker)
-
-  // Free text is everything before the first marker
-  const firstMarker = Math.min(
-    vocabIdx >= 0 ? vocabIdx : Infinity,
-    rulesIdx >= 0 ? rulesIdx : Infinity,
-    toneIdx >= 0 ? toneIdx : Infinity,
-  )
-  const freeText = firstMarker < Infinity ? reply.slice(0, firstMarker).trim() : reply.trim()
-
-  // ── Step 2: Extract per-dimension descriptions from free text ──
-  const dimMap = new Map<string, { label: string; description: string }>()
-  for (const dk of dims) {
-    const label = DIMENSION_META[dk]?.label || dk
-    const escapedKey = dk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const patterns = [
-      // V4: Markdown header ## dimKey: label or ## label（dimKey）
-      new RegExp(`##\\s+${escapedKey}\\s*[:：]\\s*${escapedLabel}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
-      new RegExp(`##\\s+${escapedLabel}\\s*[（(]?\\s*${escapedKey}\\s*[）)]?\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---VOCABULARY|\\n---RULES|\\n---TONE|$)`, 'im'),
-      // Legacy: === dimKey: label ===
-      new RegExp(`===\\s*${escapedKey}\\s*:\\s*[^=]+?\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
-      new RegExp(`===\\s*${escapedKey}\\s*===\\s*\\n([\\s\\S]*?)(?=\\n===|\\n##\\s|$)`, 'im'),
-      // Bracket format: [dimKey]: description
-      new RegExp(`\\[${escapedKey}\\][:：]([\\s\\S]*?)(?=\\n\\[|\\n===|\\n##\\s|$)`, 'im'),
-      // Bold: **label** or **dimKey**
-      new RegExp(`\\*\\*${escapedLabel}\\*\\*\\s*[:：]?\\s*\\n([\\s\\S]*?)(?=\\n\\*\\*|\\n##\\s|\\n---|$)`, 'im'),
-    ]
-    for (const pat of patterns) {
-      const m = freeText.match(pat)
-      if (m && m[1]?.trim().length > 20) {
-        dimMap.set(dk, { label, description: m[1].trim() })
-        break
-      }
-    }
-    // Fallback: find dimension mentioned anywhere in text
-    if (!dimMap.has(dk)) {
-      const mentionPat = new RegExp(`${escapedKey}|${escapedLabel}\\s*[:：]\\s*`, 'i')
-      if (mentionPat.test(freeText) && freeText.length > 100) {
-        dimMap.set(dk, { label, description: '' })
-      }
-    }
+  // Extract global VOCABULARY/RULES: merge ALL occurrences across the text
+  // Supports both old flat array ["w1","w2"] and new categorized object {"sexBody":[...],...}
+  const allVocabWords: string[] = []
+  const categorizedVocab: CategorizedVocab = {
+    sexBody: [], roleIdentity: [], actionTechnique: [], sceneCostume: [], moanOnomatopoeia: []
   }
-
-  // ── Step 3: Parse marked blocks independently ──
-  const parseBlock = (raw: string, marker: string): string[] => {
-    const idx = raw.indexOf(marker)
-    if (idx < 0) return []
-    const after = raw.slice(idx + marker.length)
-    // Find the next marker or end of string
-    const nextMarker = Math.min(
-      ...[vocabMarker, rulesMarker, toneMarker].map(m => {
-        const i = after.indexOf(m)
-        return i >= 0 ? i : Infinity
-      }),
-    )
-    const block = (nextMarker < Infinity ? after.slice(0, nextMarker) : after).trim()
-
-    // Try JSON.parse with fixes
-    const candidates = [block, block.replace(/,\s*\]/g, ']'), block.replace(/，/g, ',').replace(/,\s*\]/g, ']')]
-    for (const c of candidates) {
-      try {
-        const arrMatch = c.match(/\[[\s\S]*\]/)
-        if (arrMatch) {
-          const parsed = JSON.parse(arrMatch[0])
-          if (Array.isArray(parsed)) return parsed.filter((x: unknown): x is string => typeof x === 'string')
+  const allRules: string[] = []
+  processed = processed.replace(/(?:^|\n)---VOCABULARY---\n(\[[\s\S]*?\]|\{[\s\S]*?\})/g, (_m, json) => {
+    try {
+      const p = JSON.parse(json)
+      if (Array.isArray(p)) {
+        // Old flat format
+        allVocabWords.push(...p)
+      } else if (typeof p === 'object' && p !== null) {
+        // New categorized format: merge each category
+        for (const cat of Object.keys(categorizedVocab) as (keyof CategorizedVocab)[]) {
+          const val = p[cat]
+          if (Array.isArray(val)) categorizedVocab[cat].push(...val)
+          else if (typeof val === 'string') categorizedVocab[cat].push(val)
         }
-      } catch { /* try next */ }
-    }
+      }
+    } catch {}
+    return '\n'
+  })
+  processed = processed.replace(/(?:^|\n)---RULES---\n(\[[\s\S]*?\])/g, (_m, arr) => {
+    try { const p = JSON.parse(arr); if (Array.isArray(p)) allRules.push(...p) } catch {}
+    return '\n'
+  })
 
-    // Fallback: regex extract all quoted strings
-    const quoted = after.match(/"([^"]{2,50})"/g)
-    if (quoted) return [...new Set(quoted.map(q => q.slice(1, -1)))].slice(0, 50)
-
-    return []
-  }
-
-  const vocabularyList = parseBlock(reply, vocabMarker)
-  const writingRules = parseBlock(reply, rulesMarker)
-
-  // Parse tone block
+  // Parse TONE block
+  const toneMatch = processed.match(/(?:^|\n)---TONE---\n(\{[\s\S]*?\})/)
   let toneWord = ''
   let toneDesc = ''
   let toneAttitude = ''
-  if (toneIdx >= 0) {
-    const afterTone = reply.slice(toneIdx + toneMarker.length)
-    const nextMarker = Math.min(
-      ...[vocabMarker, rulesMarker].map(m => {
-        const i = afterTone.indexOf(m)
-        return i >= 0 ? i : Infinity
-      }),
-    )
-    const toneBlock = (nextMarker < Infinity ? afterTone.slice(0, nextMarker) : afterTone).trim()
+  if (toneMatch) {
     try {
-      const objMatch = toneBlock.match(/\{[\s\S]*?\}/)
-      if (objMatch) {
-        const parsed = safeJsonParse(objMatch[0]) as Record<string, unknown> | null
-        toneWord = typeof parsed?.word === 'string' ? parsed.word : ''
-        toneDesc = typeof parsed?.description === 'string' ? parsed.description : ''
-        toneAttitude = typeof parsed?.attitude === 'string' ? parsed.attitude : ''
-      }
+      const parsed = safeJsonParse(toneMatch[1]) as Record<string, unknown> | null
+      toneWord = typeof parsed?.word === 'string' ? parsed.word : ''
+      toneDesc = typeof parsed?.description === 'string' ? parsed.description : ''
+      toneAttitude = typeof parsed?.attitude === 'string' ? parsed.attitude : ''
     } catch { /* keep defaults */ }
+    processed = processed.replace(/(?:^|\n)---TONE---\n\{[\s\S]*?\}/g, '\n')
   }
+
+  // ── Step 1: Strip AI intro, normalize headers ──
+  let firstHeader = processed.search(/^##? /m)
+  if (firstHeader < 0) firstHeader = processed.search(/^# /m)
+  if (firstHeader > 0) processed = processed.slice(firstHeader)
+  // Normalize ## headers (AI sometimes uses single #)
+  processed = processed.replace(/^# /gm, '## ')
+
+  // ── Step 2: Extract per-dimension descriptions by splitting on ## headers ──
+  const dimMap = new Map<string, { label: string; description: string }>()
+  // Build a key→label lookup for matching
+  const keyToLabel = new Map(dims.map(dk => [dk, DIMENSION_META[dk]?.label || dk]))
+  // Split by ## headers, match each section to its dimension
+  const sections = processed.split(/\n(?=## )/)
+  for (const section of sections) {
+    const headerMatch = section.match(/^##\s+(\w+)\s*[:：]\s*(.+)/m)
+    if (!headerMatch) continue
+    const key = headerMatch[1]
+    // Strip priority tags like （★T1）from header label for matching
+    const headerLabel = headerMatch[2]?.replace(/[（(]★T\d[）)]/g, '').trim()
+    const expectedLabel = keyToLabel.get(key)
+    // Match if the header label contains the expected label (AI may add extra text)
+    if (!expectedLabel || !headerLabel?.includes(expectedLabel)) continue
+    // Body is everything after the header line
+    const bodyIdx = section.indexOf('\n')
+    const body = bodyIdx >= 0 ? section.slice(bodyIdx + 1).trim() : ''
+    if (body.length > 20) {
+      dimMap.set(key, { label: expectedLabel, description: body })
+    }
+  }
+
+  // Deduplicate global vocab/rules
+  const vocabularyList = [...new Set(allVocabWords)]
+  const writingRules = [...new Set(allRules)]
 
   // ── Step 4: Build fullDescription from all dimension descriptions ──
   const descParts: string[] = []
@@ -200,10 +223,36 @@ export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterA
   for (const [dk, info] of dimMap) {
     const desc = info.description || ''
     if (!desc || desc.length < 10) continue // Skip truly empty/placeholder dimensions
+
+    // v12.5.1: Extract > -prefixed example lines from description
+    const examples: string[] = []
+    const exampleLines = desc.match(/^>\s*.+$/gm)
+    let cleanDesc = desc
+    if (exampleLines) {
+      for (const line of exampleLines) {
+        const cleaned = line.replace(/^>\s*/, '').trim()
+        if (cleaned.length > 5 && !examples.includes(cleaned)) {
+          examples.push(cleaned)
+        }
+      }
+      // Strip > lines from description to avoid duplication
+      cleanDesc = desc.replace(/^>\s*.+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
+    }
+
+    // v12.5.1: Distribute vocabulary to all dimensions (not just 3)
     const dimVocab: string[] = []
     if (vocabularyList.length > 0) {
       if (dk === 'bodyLanguageStyle' || dk === 'sensoryStyle' || dk === 'vocabularyStyle') {
         dimVocab.push(...vocabularyList)
+      } else {
+        // Extract quoted terms from this dimension's description
+        const quotedTerms = cleanDesc.match(/["「]([^"「」]{1,12})["」]/g)
+        if (quotedTerms) {
+          const terms = quotedTerms.map(t => t.replace(/["「」]/g, '').trim()).filter(t => t.length >= 2)
+          dimVocab.push(...terms.slice(0, 15))
+        }
+        // Also give each dimension a few words from the global vocabulary
+        dimVocab.push(...vocabularyList.slice(0, 8))
       }
     }
     const dimRules = dk === 'narrativeTone' && toneDesc
@@ -211,8 +260,8 @@ export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterA
       : writingRules.length > 0 ? writingRules.slice(0, 8) : []
 
     dimAnalyses[dk] = {
-      description: desc,
-      examples: [],
+      description: cleanDesc,
+      examples: examples.slice(0, 10),
       writingRules: dimRules,
       vocabularyList: dimVocab.slice(0, 30),
     }
@@ -247,6 +296,7 @@ export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterA
     excerpt, excerptNote: '',
     analyzedAt: new Date().toISOString(),
     dimAnalyses: Object.keys(dimAnalyses).length > 0 ? dimAnalyses : undefined,
+    categorizedVocab: (categorizedVocab.sexBody.length > 0 || categorizedVocab.roleIdentity.length > 0) ? categorizedVocab : undefined,
   }
 }
 
@@ -261,8 +311,8 @@ export function buildSummarizePrompt(
   const isErotic = novelType === '情色小说' || novelType === 'erotic'
 
   const typeNote = isErotic
-    ? `【类型提示】当前为情色小说。情色专属维度（corruptionArc/degradationRitual/narrativeVoice/shameVoyeurLoop/sensoryPackFormula/bodyMindBetrayal/humiliationTemplate）如果各章分析中有数据，必须重点综合。`
-    : `【类型提示】当前为${novelType || '未指定'}类型。非本类型专属的维度不要强行总结。`
+    ? `【类型提示】当前为情色小说。情色专属维度（corruptionArc/degradationRitual/narrativeVoice/shameVoyeurLoop/sensoryPackFormula/bodyMindBetrayal/humiliationTemplate）如果各章分析中有数据，请重点综合。`
+    : `【类型提示】当前为${novelType || '未指定'}类型。非本类型专属的维度不必强行总结——没有数据就跳过。`
 
   return `你是专业的文学风格分析师。请综合以下 ${analyzedCount} 章的逐章分析，生成一份完整的风格档案。
 
@@ -273,7 +323,7 @@ ${typeNote}
 ${dimAnalysesSummary}
 
 【输出格式】
-请严格按照以下格式输出（不要用 markdown 代码块）：
+请按以下格式输出（不要用 markdown 代码块包裹）：
 
 === 风格综述 ===
 （300-500字。综合所有章节，描述该小说的整体写作风格特征）
@@ -291,11 +341,11 @@ ${dimAnalysesSummary}
 ---TONE---
 {"word":"整体叙事基调词","description":"100字基调描述","attitude":"叙述者态度（冷漠旁观/欣赏把玩/幽默调侃/温柔包容/神圣庄严/冷酷写实/热忱歌颂/暧昧诱导/疑惑探索，或自定义）"}
 
-【综合规则】
-1. 只总结在逐章分析中实际出现过的维度。未出现的维度说明原文没有相关特征，不要强行补充
-2. 如果某维度在 ≥30% 的章节中被分析到，重点综合；如果仅在个别章节出现，简要提及即可；如果从未出现，跳过
-3. 全书写词汇和规则从各章分析中提炼，去重合并。优先列出高频词和可跨章执行的通用规则
-4. 所有 JSON 数组和对象不要尾部逗号，不要用代码块包裹内容`
+【综合规范】
+1. 只总结在逐章分析中实际出现过的维度。未出现的维度说明原文没有相关特征，不必强行补充
+2. 某维度在 ≥30% 的章节中被分析到 → 重点综合；仅在个别章节出现 → 简要提及；从未出现 → 跳过
+3. 全书词汇和规则从各章分析中提炼、去重合并。优先列出高频词和可跨章执行的通用规则
+4. JSON 数组和对象不要尾部逗号，不要用代码块包裹内容`
 }
 
 // ---- Extract representative excerpts for few-shot prompting ----

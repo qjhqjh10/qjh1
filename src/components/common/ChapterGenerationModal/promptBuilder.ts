@@ -1,4 +1,4 @@
-import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
+import { buildStylePrompt, convertTemplateToProfile, buildSceneAwareStylePrompt, classifySceneType } from '@/utils/styleInjector'
 import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
 import { injectKnowledge, injectKnowledgeFallback } from '@/services/knowledgePipeline'
@@ -210,7 +210,13 @@ export function buildPrompt(opts: BuildPromptOptions): string {
   // ════════════════════════════════════════════════════════════════
   if (selectedStyleTemplateId && selectedStyleTemplate) {
     try {
-      const stylePrompt = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
+      // v12.5.1: Scene-aware style injection — erotic rules only for erotic scenes
+      const sceneCategory = classifySceneType(
+        selectedScene?.config,
+        (currentChapter as any)?.description || ''
+      )
+      const styleProfile = convertTemplateToProfile(selectedStyleTemplate)
+      const stylePrompt = buildSceneAwareStylePrompt(styleProfile, sceneCategory)
       if (stylePrompt) {
         const intensityLabel = styleStrength === 'strong' ? '⚠️ 必须严格执行，违反视为生成失败' :
           styleStrength === 'light' ? '参考以下风格倾向' : '必须遵守，优先级高于其他设定'

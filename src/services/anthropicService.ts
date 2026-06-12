@@ -38,6 +38,8 @@ export const anthropicService = {
     configId: string
     projectId?: string
     tools?: AnthropicToolDef[]
+    /** v12.5.1: 阶段感知温度 */
+    temperature?: number
     onChunk?: (data: { chunk: string; accumulated: string }) => void
   }): Promise<AnthropicStreamResult> => {
     try {
@@ -53,6 +55,7 @@ export const anthropicService = {
         configId: params.configId,
         projectId: params.projectId,
         tools: params.tools,
+        temperature: params.temperature,
       })
 
       // 清理 chunk 监听

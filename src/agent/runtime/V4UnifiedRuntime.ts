@@ -111,6 +111,9 @@ export class V4UnifiedRuntime {
     this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要]|写.*[章节章]|填充|追加|新建|create|save|write|edit|改成)/.test(input.userMessage)
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
+    // v12.5.1: 阶段感知温度 — 初始为创作阶段
+    let isExecutionPhase = false
+
     const contextResult = this.contextAssembler
       ? await this.contextAssembler(input.userMessage, this.historyMessages, this.config.projectId)
       : { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
@@ -162,6 +165,16 @@ export class V4UnifiedRuntime {
       let lastApiErr: Error | null = null
 
       diagnosticLogger.recordApiCallStart()
+
+      // v12.5.1: 阶段感知温度
+      // 创作轮: 用户设定的创作温度 (默认 1.0)
+      // 执行轮: min(创作温度, 工具执行温度上限 (默认 0.5))
+      const creativeTemp = this.config.temperature ?? 1.0
+      const toolCap = this.config.toolTemperature ?? 0.5
+      const effectiveTemperature = isExecutionPhase
+        ? Math.min(creativeTemp, toolCap)
+        : creativeTemp
+
       for (let retry = 0; retry <= 1; retry++) {
         if (this.config.abortSignal.aborted) break
         try {
@@ -171,6 +184,7 @@ export class V4UnifiedRuntime {
             configId: this.config.configId,
             projectId: this.config.projectId || undefined,
             signal: this.config.abortSignal,
+            temperature: effectiveTemperature,
           })
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`API 超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT),
@@ -211,6 +225,7 @@ export class V4UnifiedRuntime {
 
       // ── No tool calls → model is speaking. Trust what it says. ──
       if (response.toolCalls.length === 0) {
+        isExecutionPhase = false  // v12.5.1: 回到创作阶段
         collectedText = response.text || ''
 
         // H5: Empty response fallback
@@ -312,6 +327,7 @@ export class V4UnifiedRuntime {
       }
 
       // ── Has tool calls → execute ──
+      isExecutionPhase = true  // v12.5.1: 进入工具执行阶段
       toolCallsCount += response.toolCalls.length
 
       // v2.0: 混合响应 — 模型同时输出了文本分析和工具调用

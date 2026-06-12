@@ -138,12 +138,19 @@ export class V4AgentChatBridge {
     const unsubscribes: Array<() => void> = []
 
     try {
+      // ── 0. 加载模型配置 (v12.5.1: 阶段感知温度需要 temperature/toolTemperature) ──
+      const { useSettingsStore } = await import('@/store')
+      const settingsConfigs = useSettingsStore.getState().configs
+      const modelConfig = settingsConfigs.find(c => c.id === this.configId)
+      const creativeTemp = (modelConfig as any)?.temperature ?? 1.0
+      const toolTemp = (modelConfig as any)?.toolTemperature ?? 0.5
+
       // ── 1. Create Runtime (via V4UnifiedRuntime + OpenAIAdapter — no setAIService needed) ──
       // Note: Skill scoping below may override maxIterations via this.runtime.setMaxIterations()
       const { aiService } = await import('@/services/fileService')
       const adapter = new OpenAIAdapter({
-        chatWithTools: async (msgs, cid, pid, tools) => {
-          const result = await aiService.chatWithTools(msgs, cid, pid, tools)
+        chatWithTools: async (msgs, cid, pid, tools, temperature) => {
+          const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature)
           return {
             text: result.text,
             toolCalls: result.toolCalls?.map(tc => ({
@@ -162,6 +169,8 @@ export class V4AgentChatBridge {
         maxIterations: this.maxIterations,
         abortSignal: this.abortController.signal,
         contextWindow: this.contextWindow,
+        temperature: creativeTemp,
+        toolTemperature: toolTemp,
       }, adapter)
 
       // ── 2. 工具: 首条全量，后续核心7个（含tool_search按需发现）──
