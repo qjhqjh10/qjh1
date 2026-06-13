@@ -222,12 +222,29 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         ? await loadOutlineDimensions(`${projectsBasePath}/${activeProjectId}`, outlineTabs)
         : undefined
 
+      // v12.12.0: Load user-edited prompt TXT + rule template
+      let stylePromptOverride: string | undefined
+      let styleRuleTemplate: any = undefined
+      if (selectedStyleTemplateId) {
+        try {
+          const { styleTemplateService } = await import('@/services/fileService')
+          const saved = await styleTemplateService.readPrompt(selectedStyleTemplateId)
+          if (saved) stylePromptOverride = saved
+          // Load rule template bound to this style template
+          const rtId = (selectedStyleTemplate as any)?.ruleTemplateId
+          if (rtId) {
+            try { styleRuleTemplate = await styleTemplateService.readRuleTemplate(rtId) } catch {}
+          }
+        } catch {}
+      }
+
       let prompt = buildPrompt({
         outlineTabs, detailedOutlineFields, outlineContent, worldbuildingContent,
         selectedCharacterIds, characters, currentChapter,
         loadedDims, selectedSummaryIds, prevChapters, chapterSummaryMap,
         selectedKbFileIds, selectedScene, selectedStyleTemplateId,
         selectedStyleTemplate, styleStrength: cg.styleStrength || 'normal',
+        stylePromptOverride, styleRuleTemplate,
         chapterPrompt, wordTarget, replaceMode
       })
       const kbSearchQuery = [currentChapter?.description?.slice(0, 200), ...selectedCharacterIds].filter(Boolean).join(' ')

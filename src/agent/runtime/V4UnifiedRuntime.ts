@@ -108,7 +108,7 @@ export class V4UnifiedRuntime {
     this._consecutiveFailures = 0
     this._userMessage = input.userMessage
     // v4: 检测用户是否明确要求文件创建/修改（用于 Nudge 强化）
-    this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要]|写.*[章节章]|填充|追加|新建|create|save|write|edit|改成)/.test(input.userMessage)
+    this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要文件]|写.*[章节章入到成]|填充|追加|新建|create|save|write|edit|改成|输出.*[文件角色信息]|把.*写|整理成.*文件|导出|建一个)/.test(input.userMessage)
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
     // v12.5.1: 阶段感知温度 — 初始为创作阶段

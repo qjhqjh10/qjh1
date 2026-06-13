@@ -1,22 +1,8 @@
-import type {
-  ChapterExtraction, ExtractedCharacterRaw, ExtractedWorldElement,
-  ExtractedItem, ExtractedPowerMention, ExtractedForeshadow,
-  AggregatedResult, AggregatedCharacter,
-  NovelExtraction, PacingTemplate,
-  ChapterAnalysis, StyleProfile, StyleChapter, DimAnalysis,
-  EroticExtractionData, EventPattern, ProgressionRhythm,
-  CharacterArchetype, EmotionCurve,
-} from '@/types/story'
+import type { ChapterAnalysis, DimAnalysis } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
 import type { CategorizedVocab } from '@/types/story/style'
 import { safeJsonParse } from '@/utils/safeJsonParse'
-
-
-// ============================================================
-// Style Analysis: marked-block format (resilient to JSON errors)
-// ============================================================
-
-import { DIM_TIERS, DIM_PRIORITY, classifyDimTiers, type ClassifiedDims } from '@/utils/dimTiers'
+import { DIM_PRIORITY, classifyDimTiers } from '@/utils/dimTiers'
 import { getSpecialNote } from './specialNotes'
 
 export function buildStyleAnalyzePrompt(dims: string[], novelType?: string): string {
@@ -55,6 +41,10 @@ export function buildStyleAnalyzePrompt(dims: string[], novelType?: string): str
 
 Phase 1【T1核心维度，必须首先分析，投入最多篇幅】：
 这5个维度直接决定情色文本的感官质地——集中精力逐项分析。
+
+⚠️ 每个维度必须从原文中引用 ≥3 条原句作为证据。引用格式：独占一行，以 >  开头（> 后有一个空格）。
+> 此处放原文原句
+分析文字中提及某个技法时，紧接着用 > 行给出原文中的对应句子。不要用"例：""典型句："等前缀替代 > 格式。
 
 ${fmtGroup(phase1Dims, '🔴')}
 
@@ -104,9 +94,7 @@ ${requiredDims.map(dk => `  ## ${dk}: ${DIMENSION_META[dk]?.label || dk}（${pri
 每个维度用 ## 标题开头，正文用紧凑纯文本。每段之间一个空行。
 
 ## 维度key: 中文标签
-正文直接从分析开始，不要前缀废话。需要引用原文时单独一行用 > 开头。
-> 从原文摘录的词句
-正文末尾附该维度专属写作规则，用"规则："开头独占一行。每条规则只写本维度特有技法——不同维度的规则不得相同。
+正文直接从分析开始，不要前缀废话。引用原文必须用 > 格式（见Phase1要求）。正文末尾附该维度专属写作规则，用"规则："开头独占一行。每条规则只写本维度特有技法——不同维度的规则不得相同。
 
 ${getSpecialNote(novelType)}
 
@@ -244,11 +232,11 @@ export function parseStyleAnalysisReply(reply: string, dims: string[]): ChapterA
 
     // v12.5.1: Extract > -prefixed example lines from description
     const examples: string[] = []
-    const exampleLines = desc.match(/^>\s*.+$/gm)
+    const exampleLines = desc.match(/^\s*>\s*.+$/gm)
     let cleanDesc = desc
     if (exampleLines) {
       for (const line of exampleLines) {
-        const cleaned = line.replace(/^>\s*/, '').trim()
+        const cleaned = line.replace(/^\s*>\s*/, '').trim()
         if (cleaned.length > 5 && !examples.includes(cleaned)) {
           examples.push(cleaned)
         }
@@ -426,4 +414,3 @@ export function buildFewShotExcerpts(
   return excerpts
 }
 
-// ---- Pacing template ----

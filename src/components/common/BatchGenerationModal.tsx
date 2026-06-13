@@ -166,7 +166,19 @@ export default function BatchGenerationModal({
     // Style injection
     if (selectedStyleTemplateId && selectedStyleTemplate) {
       try {
-        const sp = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate))
+        // v12.12.0: Prioritize user-edited prompt TXT
+        let sp: string | null = null
+        try {
+          const { styleTemplateService } = await import('@/services/fileService')
+          sp = await styleTemplateService.readPrompt(selectedStyleTemplateId)
+        } catch { /* fallback */ }
+        if (!sp) {
+          // Load rule template if bound
+          let rt: any = undefined
+          const rtId = (selectedStyleTemplate as any)?.ruleTemplateId
+          if (rtId) { try { rt = await styleTemplateService.readRuleTemplate(rtId) } catch {} }
+          sp = buildStylePrompt(convertTemplateToProfile(selectedStyleTemplate), rt)
+        }
         if (sp) parts.push(`【语言风格要求】\n${sp}`)
       } catch {}
     }

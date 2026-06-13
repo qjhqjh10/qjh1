@@ -1,3 +1,4 @@
+import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '@/components/common/GlassCard';
 import Button from '@/components/common/Button';
@@ -5,20 +6,50 @@ import Modal from '@/components/common/Modal';
 import ScrollArea from '@/components/common/ScrollArea';
 import { inputStyle } from '@/components/common/styles';
 import { DIMENSION_META, NOVEL_TYPE_DIMS, NOVEL_TYPES, NOVEL_TYPE_LABELS } from '@/types/story';
-import { classifyDimTiers } from '@/utils/dimTiers';
+import { DIM_PRIORITY } from '@/utils/dimTiers';
 import { getTemplateDims } from '@/types/styleTemplate';
 import { SparklesIcon, PlusIcon, TrashIcon, XMarkIcon, DocumentTextIcon, PaintBrushIcon, FolderOpenIcon, MagnifyingGlassIcon, ArrowsUpDownIcon, ArrowPathIcon, TagIcon } from '@heroicons/react/24/outline';
-import { FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, presetBtn, linkBtn, labelStyle, cardActionBtn } from '../constants';
+import { SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS, labelStyle, cardActionBtn } from '../constants';
+
+// 按维度分层排序（T0→T1→T2→T3→无分层）
+function getSortedDims(type: string): { dk: string; tier: number }[] {
+  const dims = getTemplateDims(type)
+  const priority = DIM_PRIORITY[type] || {}
+  return dims.map(dk => ({ dk, tier: priority[dk]?.tier ?? 99 }))
+    .sort((a, b) => a.tier - b.tier)
+}
 import EmptyState from '@/components/common/EmptyState';
 import type { DimAnalysis, StyleProject } from '@/types/story';
-import { styleProjectService, aiService } from '@/services/fileService';
-import { chatAI } from '@/utils/chatAI';
+
+import { styleProjectService, styleTemplateService } from '@/services/fileService';
 import { useSettingsStore } from '@/store';
-import { logError } from '@/utils/logger'
-import { safeJsonParseAs } from '@/utils/safeJsonParse';
 import type { WorkspaceTab } from '../constants';
 
 export function LibraryView({ ws }: { ws: any }) {
+  const [promptTarget, setPromptTarget] = useState<any>(null)
+  const [promptText, setPromptText] = useState('')
+  const [promptLoaded, setPromptLoaded] = useState(false)
+  const [promptSaving, setPromptSaving] = useState(false)
+  const [ruleTemplates, setRuleTemplates] = useState<any[]>([])
+  const [selectedRuleId, setSelectedRuleId] = useState<string>('')
+
+  // Load rule templates list
+  React.useEffect(() => {
+    styleTemplateService.listRuleTemplates().then((list: any[]) => setRuleTemplates(list || [])).catch(() => {})
+  }, [])
+
+  // Load saved prompt when opening editor (no auto-generation)
+  React.useEffect(() => {
+    if (!promptTarget) { setPromptText(''); setPromptLoaded(false); return }
+    setPromptLoaded(false)
+    styleTemplateService.readPrompt(promptTarget.id).then(saved => {
+      setPromptText(saved || '')
+      setPromptLoaded(true)
+    }).catch(() => {
+      setPromptText('')
+      setPromptLoaded(true)
+    })
+  }, [promptTarget?.id])
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   return (
       <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 32 }}>
@@ -315,6 +346,13 @@ export function LibraryView({ ws }: { ws: any }) {
                           <button onClick={(e) => { e.stopPropagation(); ws.setEditTemplate(t) }} style={cardActionBtn}>
                             ✎ 编辑
                           </button>
+                          <button onClick={async (e) => {
+                            e.stopPropagation()
+                            const latest = await styleTemplateService.read(t.id)
+                            setPromptTarget(latest || t)
+                          }} style={{ ...cardActionBtn, color: '#7c3aed' }}>
+                            📝 Prompt
+                          </button>
                           <button onClick={(e) => { e.stopPropagation(); ws.handleCloneTemplate(t) }} style={cardActionBtn}>
                             <ArrowPathIcon style={{ width: 10, height: 10 }} /> 复制
                           </button>
@@ -371,8 +409,8 @@ export function LibraryView({ ws }: { ws: any }) {
         {/* ───── 编辑模板 Modal ───── */}
         <AnimatePresence>
           {ws.editTemplate !== null && (() => { const editTemplate = ws.editTemplate!; return (
-            <Modal isOpen={true} onClose={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={720}>
-              <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 }} className="custom-scrollbar">
+            <Modal isOpen={true} onClose={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={960}>
+              <div style={{ maxHeight: '72vh', overflowY: 'auto', paddingRight: 8 }} className="custom-scrollbar">
                 {/* Basic info */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -422,261 +460,354 @@ export function LibraryView({ ws }: { ws: any }) {
                     <div style={labelStyle}>简介</div>
                     <input value={ws.editTemplate.description} onChange={e => ws.setEditTemplate({ ...editTemplate, description: e.target.value })} style={inputStyle as any} placeholder="一句话描述这个风格" />
                   </div>
-                </div>
-
-                {/* Tone section */}
-                <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.1)' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#ec4899', marginBottom: 10 }}>🎭 叙事基调</div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={labelStyle}>基调词</div>
-                      <input value={ws.editTemplate.tone?.word || ''} onChange={e => ws.setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: e.target.value, description: ws.editTemplate.tone?.description || '', attitude: ws.editTemplate.tone?.attitude || '' } })} style={inputStyle as any} placeholder="如: 冷酷复仇的性支配" />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={labelStyle}>叙述者态度</div>
-                      <select
-                        value={(() => {
-                          if (!ws.editTemplate.tone?.attitude) return ''
-                          return ATTITUDE_PRESETS.includes(ws.editTemplate.tone.attitude) ? ws.editTemplate.tone.attitude : '__custom__'
-                        })()}
-                        onChange={e => {
-                          const v = e.target.value
-                          if (v === '__custom__') {
-                            ws.setCustomAttitude('')
-                            ws.setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: ws.editTemplate.tone?.word || '', description: ws.editTemplate.tone?.description || '', attitude: '__custom__' } })
-                          } else {
-                            ws.setCustomAttitude('')
-                            ws.setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: ws.editTemplate.tone?.word || '', description: ws.editTemplate.tone?.description || '', attitude: v } })
-                          }
-                        }}
-                        style={{ ...inputStyle as any, cursor: 'pointer' }}
-                      >
-                        <option value="">未设置</option>
-                        {ATTITUDE_PRESETS.map(a => (
-                          <option key={a} value={a}>{a}</option>
-                        ))}
-                        <option value="__custom__">✎ 自定义...</option>
-                      </select>
-                      {(!ATTITUDE_PRESETS.includes(ws.editTemplate.tone?.attitude || '') && ws.editTemplate.tone?.attitude) && (
-                        <input
-                          value={ws.customAttitude || (ws.editTemplate.tone?.attitude === '__custom__' ? '' : ws.editTemplate.tone?.attitude || '')}
-                          onChange={e => {
-                            ws.setCustomAttitude(e.target.value)
-                            ws.setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: ws.editTemplate.tone?.word || '', description: ws.editTemplate.tone?.description || '', attitude: e.target.value || '__custom__' } })
-                          }}
-                          style={{ ...inputStyle as any, marginTop: 4, fontSize: 11 }}
-                          placeholder="输入自定义叙述者态度..."
-                        />
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <div style={labelStyle}>基调描述</div>
-                    <textarea value={ws.editTemplate.tone?.description || ''} onChange={e => ws.setEditTemplate({ ...editTemplate, tone: { ...editTemplate.tone, word: ws.editTemplate.tone?.word || '', description: e.target.value, attitude: ws.editTemplate.tone?.attitude || '' } })} rows={2} style={{ ...inputStyle as any, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} placeholder="50-100字基调描述" />
+                  {/* v12.12.0: Rule template binding */}
+                  <div>
+                    <div style={labelStyle}>规则模板</div>
+                    <select value={ws.editTemplate.ruleTemplateId || ''}
+                      onChange={e => ws.setEditTemplate({ ...editTemplate, ruleTemplateId: e.target.value || undefined })}
+                      style={{ ...inputStyle as any, color: '#5c4a3a' }}>
+                      <option value="">使用硬编码默认规则</option>
+                      {ruleTemplates.map((rt: any) => (
+                        <option key={rt.id} value={rt.id}>{rt.isSystem ? '📌' : '📐'} {rt.name} ({rt.type === 'erotic' ? '情色' : '通用'})</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 {/* AI辅助填充维度 */}
                 <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>✨ AI辅助填充维度</div>
-                  <p style={{ fontSize: 11, color: '#6b5e54', margin: '0 0 8px' }}>描述你想要的写作风格，AI 将自动填充模板的维度描述、词汇和写作规则。仅填充适用的维度，不适用的自动跳过。</p>
-                  <textarea
-                    id="aiDescInput"
-                    placeholder="例如：适合修仙小说的风格，战斗场面招式华丽，日常对话幽默轻松，古风文言和现代白话交织，节奏紧凑步步推进..."
-                    style={{ width: '100%', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, outline: 'none', fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', padding: 10, minHeight: 80, resize: 'vertical' }}
-                  />
-                  <button
-                    disabled={ws.aiGenLoading || !activeConfigId}
-                    onClick={async () => {
-                      const desc = (document.getElementById('aiDescInput') as HTMLTextAreaElement)?.value?.trim()
-                      if (!desc) { alert('请描述你想要的写作风格'); return }
-                      ws.setAiGenLoading(true)
-                      try {
-                        const dimKeys = getTemplateDims(ws.editTemplate.type)
-                        const { mustAnalyze, checkFirst, skipHint } = classifyDimTiers(dimKeys, ws.editTemplate.type)
-                        const tieredList = [
-                          mustAnalyze.length > 0 ? `✅ 必须填充（任何${ws.editTemplate.type}都适用）: ${mustAnalyze.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
-                          checkFirst.length > 0 ? `🔍 有证据则填: ${checkFirst.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
-                          skipHint.length > 0 ? `⏭️ 跳过（非本类型小说）: ${skipHint.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')}` : '',
-                        ].filter(Boolean).join('\n')
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <SparklesIcon style={{ width: 16, height: 16 }} /> AI 辅助填充
+                  </div>
 
-                        const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${ws.editTemplate.type}生成风格模板的维度数据。
-
-风格描述: ${desc}
-
-【维度分层 — 严格按此处理】
-${tieredList}
-
-【分析规则】
-1. ✅ 必须填充的维度：每个维度输出100-200字具体描述+3条以上写作规则+10-20个相关词汇
-2. 🔍 先判断再填的维度：只有在风格描述中有明确提及或可合理推断时填充。无证据则跳过（不出现在输出JSON中）
-3. ⏭️ 跳过的维度：绝对不要出现在输出JSON中
-4. 所有词汇必须贴合${ws.editTemplate.type}的语境
-5. examples字段可以用典型例句（可从风格描述中推断），每个维度2-3个
-
-【输出JSON格式】
-{
-  "dimensions": {
-    "维度key": { "description": "该维度的特征描述(100-200字)", "examples": ["典型例句1", "例句2"], "writingRules": ["写作规则1", "规则2", "规则3"], "vocabularyList": ["词汇1", "词汇2", ...] }
-  },
-  "fullDescription": "整体风格综述(200-400字)，用流畅散文描述该风格的全貌",
-  "tone": { "word": "叙事基调词(2-6字)", "description": "基调描述(50-100字)", "attitude": "冷漠旁观|欣赏把玩|幽默调侃|温柔包容|神圣庄严|冷酷写实|热忱歌颂|暧昧诱导|疑惑探索" }
-}
-
-只输出JSON，不要markdown，不要尾逗号。`
-                        const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId!)
-                        const json = safeJsonParseAs<{ fullDescription?: string; tone?: any; dimensions?: any }>(reply)
-                        if (json) {
-                          ws.setEditTemplate((prev: any) => prev ? {
-                            ...prev,
-                            fullDescription: json.fullDescription || prev.fullDescription,
-                            tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
-                            dimensions: { ...prev.dimensions, ...(json.dimensions || {}) },
-                            source: prev.source === 'ai-generated' ? 'ai-generated' : 'manual',
-                            description: prev.description || (json.fullDescription || '').slice(0, 100),
-                          } : prev)
-                        }
-                      } catch (err) { logError('AI填充失败', err); alert('AI填充失败: ' + (err instanceof Error ? err.message : '未知错误')) }
-                      ws.setAiGenLoading(false)
-                    }}
-                    style={{ marginTop: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: activeConfigId ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: activeConfigId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <SparklesIcon style={{ width: 14, height: 14 }} /> {ws.aiGenLoading ? '生成中...' : 'AI填充维度'}
-                  </button>
-                  {ws.editTemplate.fullDescription && (
-                    <div style={{ marginTop: 8, fontSize: 11, color: '#6b5e54', lineHeight: 1.6, maxHeight: 100, overflow: 'auto', padding: 8, borderRadius: 6, background: '#fff' }}>
-                      {ws.editTemplate.fullDescription}
+                  {/* Dimension selection — uses aiFillDims, NOT expandedDims */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>勾选要填充的维度</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[
+                          { label: '全选', fn: () => ws.setAiFillDims(new Set(getSortedDims(ws.editTemplate.type).map(s => s.dk))) },
+                          { label: '仅未填', fn: () => { const s = new Set<string>(); getSortedDims(ws.editTemplate.type).forEach(x => { if (!(ws.editTemplate.dimensions?.[x.dk] as DimAnalysis)?.description) s.add(x.dk) }); ws.setAiFillDims(s) } },
+                          { label: '仅T1', fn: () => { const s = new Set<string>(); getSortedDims(ws.editTemplate.type).filter(x => x.tier === 1).forEach(x => s.add(x.dk)); ws.setAiFillDims(s) } },
+                          { label: '清空', fn: () => ws.setAiFillDims(new Set()) },
+                        ].map(({ label, fn }) => (
+                          <button key={label} onClick={fn} style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid rgba(124,58,237,0.15)', background: '#fff', color: '#7c3aed', fontSize: 9, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{label}</button>
+                        ))}
+                      </div>
                     </div>
-                  )}
+                    {(() => {
+                      const aiTiers = [{ tier: 0, color: '#7c3aed' }, { tier: 1, color: '#dc2626' }, { tier: 2, color: '#d97706' }, { tier: 3, color: '#6b7280' }, { tier: 99, color: '#0891b2' }]
+                      const sortedDims = getSortedDims(ws.editTemplate.type)
+                      const toggleAiDim = (dk: string) => { const next = new Set(ws.aiFillDims); next.has(dk) ? next.delete(dk) : next.add(dk); ws.setAiFillDims(next) }
+                      return aiTiers.map(tg => {
+                        const tierDims = sortedDims.filter(s => s.tier === tg.tier)
+                        if (tierDims.length === 0) return null
+                        const sel = tierDims.filter(s => ws.aiFillDims.has(s.dk)).length
+                        return (
+                          <div key={tg.tier} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: tg.color, width: 28, flexShrink: 0 }}>T{tg.tier === 99 ? '·' : tg.tier}</span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, flex: 1 }}>
+                              {tierDims.map(({ dk }) => {
+                                const checked = ws.aiFillDims.has(dk)
+                                return (
+                                  <label key={dk} onClick={() => toggleAiDim(dk)} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '1px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 9, background: checked ? `${tg.color}14` : '#fff', border: `1px solid ${checked ? tg.color + '40' : 'rgba(0,0,0,0.06)'}`, color: checked ? tg.color : '#9b8e84', fontWeight: checked ? 600 : 400 }}>
+                                    {checked ? '✓' : ''} {DIMENSION_META[dk]?.label || dk}
+                                  </label>
+                                )
+                              })}
+                            </div>
+                            <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{sel}/{tierDims.length}</span>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+
+                  <textarea id="aiDescInput" placeholder="自定义要求（可选）：补充具体的方向指引，如「战斗场面多用短句，突破境界时加入天地异象描写」..."
+                    style={{ width: '100%', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, outline: 'none', fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', padding: 10, minHeight: 60, resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    <button
+                      disabled={ws.aiGenLoading || !activeConfigId}
+                      onClick={async () => {
+                        const desc = (document.getElementById('aiDescInput') as HTMLTextAreaElement)?.value?.trim()
+                        if (!desc) { alert('请描述你想要的写作风格'); return }
+                        const selectedDims = getSortedDims(ws.editTemplate.type).filter(s => ws.aiFillDims.has(s.dk)).map(s => s.dk)
+                        await ws.handleAIFillDimensions(desc, selectedDims)
+                      }}
+                      style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: activeConfigId ? '#7c3aed' : '#d4ccc4', color: '#fff', fontSize: 12, fontWeight: 600, cursor: activeConfigId ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <SparklesIcon style={{ width: 14, height: 14 }} /> {ws.aiGenLoading ? '生成中...' : 'AI 填充选中维度'}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Dimension accordion list */}
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>
-                      维度编辑 · {
-                        getTemplateDims(ws.editTemplate.type).filter(dk => (ws.editTemplate.dimensions?.[dk] as DimAnalysis)?.description).length
-                      }/{getTemplateDims(ws.editTemplate.type).length} 已填充
-                    </span>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={() => ws.setExpandedDims(new Set(getTemplateDims(ws.editTemplate.type)))}
-                        style={{
-                          padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.12)',
-                          background: 'rgba(124,58,237,0.03)', color: '#7c3aed', fontSize: 10,
-                          fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                        }}
-                      >
-                        全部展开
-                      </button>
-                      <button
-                        onClick={() => ws.setExpandedDims(new Set())}
-                        style={{
-                          padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)',
-                          background: 'rgba(0,0,0,0.02)', color: '#6b5e54', fontSize: 10,
-                          fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                        }}
-                      >
-                        全部折叠
-                      </button>
-                    </div>
+                {/* v12.11.0 Gap C: 叙事基调与综述直接编辑 */}
+                <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.1)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>🎭 叙事基调与综述</div>
+                  <p style={{ fontSize: 10, color: '#6b5e54', margin: '0 0 10px' }}>直接编辑，留空则使用 AI 填充的值。</p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input placeholder="基调词（如：冷热交织）" value={ws.editTemplate.toneEditable?.word || ws.editTemplate.tone?.word || ''}
+                      onChange={e => ws.updateToneEditable('word', e.target.value)}
+                      style={{ flex: 1, padding: '6px 10px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 12 }} />
+                    <select value={(() => {
+                        const att = ws.editTemplate.toneEditable?.attitude || ws.editTemplate.tone?.attitude || ''
+                        return ATTITUDE_PRESETS.includes(att) ? att : (att ? '__custom__' : '')
+                      })()}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v === '__custom__') ws.updateToneEditable('attitude', '')
+                        else ws.updateToneEditable('attitude', v)
+                      }}
+                      style={{ flex: 1, padding: '6px 10px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }}>
+                      <option value="">叙事态度（未设置）</option>
+                      {ATTITUDE_PRESETS.map(p => <option key={p} value={p}>{p}</option>)}
+                      <option value="__custom__">自定义…</option>
+                    </select>
                   </div>
-
-                  {/* Dimension overview tags */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
-                    {getTemplateDims(ws.editTemplate.type).map(dk => {
-                      const dim = (ws.editTemplate.dimensions?.[dk] || {}) as DimAnalysis
-                      const filled = !!dim.description
-                      const label = DIMENSION_META[dk]?.label || dk
+                  {(() => {
+                    const att = ws.editTemplate.toneEditable?.attitude || ws.editTemplate.tone?.attitude || ''
+                    if (!ATTITUDE_PRESETS.includes(att) && att) {
                       return (
-                        <motion.button
-                          key={dk}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => ws.toggleDimExpanded(dk)}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 3,
-                            padding: '4px 10px', borderRadius: 8, border: 'none',
-                            cursor: 'pointer', fontFamily: 'inherit',
-                            borderColor: filled ? 'rgba(16,185,129,0.3)' : 'rgba(0,0,0,0.08)',
-                            borderStyle: 'solid', borderWidth: 1,
-                            background: ws.expandedDims.has(dk)
-                              ? (filled ? 'rgba(16,185,129,0.08)' : 'rgba(124,58,237,0.05)')
-                              : (filled ? 'rgba(16,185,129,0.03)' : 'rgba(0,0,0,0.01)'),
-                            color: filled ? '#16a34a' : '#9b8e84',
-                            fontSize: 10, fontWeight: filled ? 600 : 400,
-                            transition: 'all 0.15s',
-                          }}
-                        >
-                          {filled ? '✓' : '—'} {label}
-                        </motion.button>
+                        <input value={att} placeholder="自定义叙事态度…"
+                          onChange={e => ws.updateToneEditable('attitude', e.target.value)}
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 12, marginBottom: 8 }} />
                       )
-                    })}
-                  </div>
+                    }
+                    return null
+                  })()}
+                  <textarea placeholder="基调描述" value={ws.editTemplate.toneEditable?.description || ws.editTemplate.tone?.description || ''}
+                    onChange={e => ws.updateToneEditable('description', e.target.value)}
+                    rows={2} style={{ width: '100%', padding: '6px 10px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 12, resize: 'vertical', marginBottom: 8 }} />
+                  <textarea placeholder="风格综述（fullDescription，AI 注入时作为速览块）" value={ws.editTemplate.fullDescriptionEditable || ws.editTemplate.fullDescription || ''}
+                    onChange={e => ws.updateFullDescriptionEditable(e.target.value)}
+                    rows={4} style={{ width: '100%', padding: '6px 10px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 12, resize: 'vertical' }} />
+                </div>
 
-                  {/* Expanded dimension editors */}
-                  {getTemplateDims(ws.editTemplate.type).filter(dk => ws.expandedDims.has(dk)).map(dk => {
-                    const meta = DIMENSION_META[dk]
-                    const dim = (ws.editTemplate.dimensions?.[dk] || { description: '', examples: [], writingRules: [], vocabularyList: [] }) as DimAnalysis
+                {/* 五类词库编辑 */}
+                <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.1)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', marginBottom: 8 }}>📚 情色词库（五类分类词汇）</div>
+                  <p style={{ fontSize: 10, color: '#6b5e54', margin: '0 0 10px' }}>AI 分析原文后自动提取。每类 3-5 个代表性词即可。生成时 AI 参考这些词 + 构造公式创造新词。</p>
+                  {[
+                    { key: 'sexBody', label: '性器官/体液', color: '#ef4444', desc: '用功能性描述替换解剖学术语，如小穴/幽谷/奶子/肉穴' },
+                    { key: 'roleIdentity', label: '角色/身份', color: '#f59e0b', desc: '降格称谓，如精液厕所/母狗/性玩偶/孕奴' },
+                    { key: 'actionTechnique', label: '动作/技法', color: '#3b82f6', desc: '性行为动词，如打桩机/直捣黄龙/深喉/搅动' },
+                    { key: 'sceneCostume', label: '场景/装扮', color: '#8b5cf6', desc: '服装道具的情色语义，如丝袜/长筒靴/短裤' },
+                    { key: 'moanOnomatopoeia', label: '叫床/淫叫', color: '#ec4899', desc: '拟声词，如啪啪啪/咕叽咕叽/噗嗤/哦齁' },
+                  ].map(({ key, label, color, desc }) => {
+                    const words = (ws.editTemplate.categorizedVocab?.[key] || []).join('、')
                     return (
-                      <motion.div
-                        key={dk}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 10, background: '#faf9f8', border: '1px solid rgba(0,0,0,0.05)', overflow: 'hidden' }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <div>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{meta?.label || dk}</span>
-                            <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 10, marginLeft: 6 }}>({meta?.category || ''})</span>
-                          </div>
-                          <button onClick={() => ws.toggleDimExpanded(dk)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2 }}>
-                            <XMarkIcon style={{ width: 14, height: 14 }} />
-                          </button>
+                      <div key={key} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color, minWidth: 70 }}>{label}</span>
+                          <input
+                            value={words}
+                            onChange={e => ws.updateCategorizedVocab(key, e.target.value)}
+                            style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}
+                            placeholder={desc}
+                          />
                         </div>
-
-                        {/* Description */}
-                        <textarea
-                          value={dim.description || ''}
-                          onChange={e => ws.updateDim(dk, 'description', e.target.value)}
-                          rows={2}
-                          style={{ ...inputStyle as any, width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 11, marginBottom: 10 }}
-                          placeholder="维度描述（200-400字）"
-                        />
-
-                        {/* Vocabulary tags */}
-                        <div style={{ marginBottom: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            词汇清单 ({(dim.vocabularyList || []).length})
-                            <button onClick={() => ws.addVocabItem(dk)} style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>+ 添加</button>
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {(dim.vocabularyList || []).map((v: string, i: number) => (
-                              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                <input value={v} onChange={e => ws.updateVocabItem(dk, i, e.target.value)} style={{ width: 80, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit' }} placeholder="词" />
-                                <button onClick={() => ws.removeVocabItem(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 10 }}>×</button>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Writing rules */}
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            写作规则 ({(dim.writingRules || []).length})
-                            <button onClick={() => ws.addRule(dk)} style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>+ 添加</button>
-                          </div>
-                          {(dim.writingRules || []).map((r: string, i: number) => (
-                            <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 3, alignItems: 'center' }}>
-                              <input value={r} onChange={e => ws.updateRule(dk, i, e.target.value)} style={{ flex: 1, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit' }} placeholder="规则" />
-                              <button onClick={() => ws.removeRule(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 12 }}>×</button>
-                            </div>
-                          ))}
-                        </div>
-                      </motion.div>
+                      </div>
                     )
                   })}
+                </div>
+
+                {/* Dimension editing — tier-grouped */}
+                <div style={{ marginBottom: 8 }}>
+                  {(() => {
+                    const sorted = getSortedDims(ws.editTemplate.type)
+                    const totalDims = sorted.length
+                    const filledCount = sorted.filter(({ dk }) => (ws.editTemplate.dimensions?.[dk] as DimAnalysis)?.description).length
+                    const tiers = [
+                      { tier: 0, label: '总基调', color: '#7c3aed', bg: 'rgba(124,58,237,0.04)', border: 'rgba(124,58,237,0.12)', desc: '定调全文走向，几十字决定全文气质' },
+                      { tier: 1, label: '技法核心', color: '#dc2626', bg: 'rgba(220,38,38,0.03)', border: 'rgba(220,38,38,0.10)', desc: '直接决定感官质地，最重要最详细' },
+                      { tier: 2, label: '结构支撑', color: '#d97706', bg: 'rgba(217,119,6,0.03)', border: 'rgba(217,119,6,0.10)', desc: '公式化输出场景结构' },
+                      { tier: 3, label: '辅助维度', color: '#6b7280', bg: 'rgba(107,114,128,0.03)', border: 'rgba(107,114,128,0.10)', desc: '有证据则简述，补充质感' },
+                      { tier: 99, label: '泛用技法', color: '#0891b2', bg: 'rgba(8,145,178,0.03)', border: 'rgba(8,145,178,0.10)', desc: '通用维度' },
+                    ]
+
+                    return (
+                      <>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1410' }}>维度编辑</span>
+                            <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 8 }}>{filledCount}/{totalDims} 已填充</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => ws.setExpandedDims(new Set(getSortedDims(ws.editTemplate.type).map(s => s.dk)))} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid rgba(124,58,237,0.15)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>全部展开</button>
+                            <button onClick={() => ws.setExpandedDims(new Set())} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>全部折叠</button>
+                          </div>
+                        </div>
+
+                        {/* Flat overview tag cloud — always visible, click to expand individual dim */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14 }}>
+                          {sorted.map(({ dk, tier }) => {
+                            const dim = (ws.editTemplate.dimensions?.[dk] || {}) as DimAnalysis
+                            const filled = !!dim.description
+                            const label = DIMENSION_META[dk]?.label || dk
+                            const tierColor = tiers.find(t => t.tier === tier)?.color || '#9b8e84'
+                            return (
+                              <motion.button
+                                key={dk}
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={() => ws.toggleDimExpanded(dk)}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                                  padding: '6px 12px', borderRadius: 8,
+                                  cursor: 'pointer', fontFamily: 'inherit',
+                                  border: `1px solid ${ws.expandedDims.has(dk) ? (filled ? `${tierColor}50` : `${tierColor}25`) : (filled ? 'rgba(16,185,129,0.25)' : 'rgba(0,0,0,0.05)')}`,
+                                  background: ws.expandedDims.has(dk) ? (filled ? `${tierColor}14` : `${tierColor}06`) : (filled ? 'rgba(16,185,129,0.04)' : '#fff'),
+                                  color: filled ? '#16a34a' : '#9b8e84',
+                                  fontSize: 11, fontWeight: filled ? 600 : 400,
+                                }}
+                              >
+                                {filled ? '✓' : ''} {label}
+                              </motion.button>
+                            )
+                          })}
+                        </div>
+
+                        {/* Tier-grouped sections */}
+                        {tiers.map(tg => {
+                          const tierDims = sorted.filter(s => s.tier === tg.tier)
+                          if (tierDims.length === 0) return null
+                          const tierFilled = tierDims.filter(({ dk }) => (ws.editTemplate.dimensions?.[dk] as DimAnalysis)?.description).length
+                          const anyExpanded = tierDims.some(({ dk }) => ws.expandedDims.has(dk))
+
+                          return (
+                            <div key={tg.tier} style={{
+                              marginBottom: 10, borderRadius: 12, overflow: 'hidden',
+                              border: `1px solid ${anyExpanded ? tg.border : 'rgba(0,0,0,0.04)'}`,
+                              background: anyExpanded ? tg.bg : '#fafaf9',
+                              transition: 'all 0.2s',
+                            }}>
+                              {/* Tier header */}
+                              <button
+                                onClick={() => {
+                                  const next = new Set(ws.expandedDims)
+                                  const allExpanded = tierDims.every(({ dk }) => next.has(dk))
+                                  tierDims.forEach(({ dk }) => allExpanded ? next.delete(dk) : next.add(dk))
+                                  ws.setExpandedDims(next)
+                                }}
+                                style={{
+                                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                                  padding: '11px 16px', border: 'none', background: 'transparent',
+                                  cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' as any,
+                                }}>
+                                <span style={{
+                                  width: 28, height: 28, borderRadius: 7,
+                                  background: `${tg.color}15`, color: tg.color,
+                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: 12, fontWeight: 800, flexShrink: 0,
+                                }}>T{tg.tier === 99 ? '·' : tg.tier}</span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>{tg.label}</div>
+                                  <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 1 }}>{tg.desc} · {tierFilled}/{tierDims.length} 维已填充</div>
+                                </div>
+                                <span style={{ fontSize: 10, color: '#9b8e84' }}>
+                                  {anyExpanded ? '收起 ▲' : '展开 ▼'}
+                                </span>
+                              </button>
+
+
+                              {/* Expanded editors — only for individually toggled dims */}
+                              {tierDims.filter(({ dk }) => ws.expandedDims.has(dk)).length > 0 && (
+                                <div style={{ padding: '8px 14px 12px', borderTop: `1px solid ${tg.border}`, background: tg.bg }}>
+                                  {tierDims.filter(({ dk }) => ws.expandedDims.has(dk)).map(({ dk }) => {
+                                    const meta = DIMENSION_META[dk]
+                                    const dim = (ws.editTemplate.dimensions?.[dk] || { description: '', examples: [], writingRules: [], vocabularyList: [] }) as DimAnalysis
+                                    return (
+                                      <motion.div
+                                        key={dk}
+                                        initial={{ opacity: 0, y: -8 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        style={{
+                                          marginBottom: 10, padding: '14px 16px', borderRadius: 10,
+                                          background: '#fff', border: `1px solid ${tg.border}`,
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>{meta?.label || dk}</span>
+                                            <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 10 }}>{meta?.category || ''}</span>
+                                          </div>
+                                          <button onClick={() => ws.toggleDimExpanded(dk)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2 }}>
+                                            <XMarkIcon style={{ width: 14, height: 14 }} />
+                                          </button>
+                                        </div>
+                                        <textarea value={dim.description || ''} onChange={e => ws.updateDim(dk, 'description', e.target.value)}
+                                          rows={3} style={{ ...inputStyle as any, width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 12, marginBottom: 10 }}
+                                          placeholder="维度描述（100-400字）" />
+
+                                        <div style={{ marginBottom: 8 }}>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                            例句 ({(dim.examples || []).length})
+                                            <button onClick={() => ws.addExampleItem(dk)} style={{ background: 'none', border: 'none', color: tg.color, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>+ 添加</button>
+                                          </div>
+                                          {(dim.examples || []).map((ex: string, i: number) => (
+                                            <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 3, alignItems: 'flex-start' }}>
+                                              <textarea value={ex} onChange={e => ws.updateExampleItem(dk, i, e.target.value)}
+                                                rows={1} style={{ flex: 1, padding: '4px 8px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, fontFamily: 'inherit', resize: 'vertical', minHeight: 24 }}
+                                                placeholder={`例句 ${i + 1}`} />
+                                              <button onClick={() => ws.removeExampleItem(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 13, paddingTop: 2 }}>×</button>
+                                            </div>
+                                          ))}
+                                        </div>
+
+                                        <div style={{ marginBottom: 8 }}>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                            词汇 ({(dim.vocabularyList || []).length})
+                                            <button onClick={() => ws.addVocabItem(dk)} style={{ background: 'none', border: 'none', color: tg.color, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>+ 添加</button>
+                                          </div>
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                            {(dim.vocabularyList || []).map((v: string, i: number) => (
+                                              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                <input value={v} onChange={e => ws.updateVocabItem(dk, i, e.target.value)}
+                                                  style={{ width: 90, padding: '4px 8px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, fontFamily: 'inherit', background: '#fafaf9' }} placeholder="词" />
+                                                <button onClick={() => ws.removeVocabItem(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 10 }}>×</button>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                            写作规则 ({(dim.writingRules || []).length})
+                                            <button onClick={() => ws.addRule(dk)} style={{ background: 'none', border: 'none', color: tg.color, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>+ 添加</button>
+                                          </div>
+                                          {(dim.writingRules || []).map((r: string, i: number) => (
+                                            <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                                              <input value={r} onChange={e => ws.updateRule(dk, i, e.target.value)}
+                                                style={{ flex: 1, padding: '5px 8px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.08)', fontSize: 11, fontFamily: 'inherit', background: '#fafaf9' }} placeholder="写作规则" />
+                                              <button onClick={() => ws.removeRule(dk, i)} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', fontSize: 12 }}>×</button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      {/* v12.11.0 Gap A: 复杂维度 YAML 结构化数据编辑器 */}
+                                      {(['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','shameVoyeurLoop'] as string[]).includes(dk) && (
+                                        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.15)' }}>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: '#d97706', marginBottom: 6 }}>📋 扩展结构化数据（YAML 格式，高级用户）</div>
+                                          <textarea
+                                            value={(ws.editTemplate.complexData as any)?.[dk] || ''}
+                                            onChange={e => ws.updateComplexData(dk, e.target.value)}
+                                            rows={6}
+                                            placeholder={`# ${meta.label || dk} 的结构化数据（YAML）\n# 留空则使用 AI 分析自动填充的值`}
+                                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #e0d8cc', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', resize: 'vertical', background: '#fafaf9' }}
+                                          />
+                                        </div>
+                                      )}
+                                      </motion.div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
@@ -688,6 +819,71 @@ ${tieredList}
             </Modal>
           ); })()}
         </AnimatePresence>
+
+        {/* v12.12.0: Prompt 编辑弹窗 */}
+        {promptTarget && (() => {
+          const t = promptTarget
+          return (
+            <Modal isOpen={true} onClose={() => { setPromptTarget(null) }}
+              title={`📝 Prompt 编辑 — ${t.name}`} width={900}>
+              <div style={{ maxHeight: '65vh', overflow: 'auto', padding: '0 8px' }}>
+                {/* Toolbar */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select value={selectedRuleId || t.ruleTemplateId || ''}
+                    onChange={e => setSelectedRuleId(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d4c4b0', background: '#fff', fontSize: 12, fontFamily: 'inherit', color: '#5c4a3a' }}>
+                    <option value="">规则模板: 系统默认</option>
+                    {ruleTemplates.map((rt: any) => (
+                      <option key={rt.id} value={rt.id}>{rt.isSystem ? '📌' : '📐'} {rt.name} ({rt.type === 'erotic' ? '情色' : '通用'})</option>
+                    ))}
+                  </select>
+                  <button onClick={async () => {
+                    const gen = await ws.generatePrompt(t.id, selectedRuleId || undefined)
+                    if (gen) setPromptText(gen)
+                  }} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: promptText ? '#7c3aed' : '#dc2626', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {promptText ? '🔄 从模板重新生成' : '⚡ 生成 Prompt'}
+                  </button>
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(promptText)
+                  }} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #d4c4b0', background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    📋 复制全文
+                  </button>
+                  <span style={{ fontSize: 10, color: '#9b8e84', marginLeft: 8 }}>
+                    {promptText.length.toLocaleString()} 字符
+                  </span>
+                </div>
+                {/* Editor */}
+                <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
+                  rows={30}
+                  style={{ width: '100%', padding: '12px', border: '1px solid #e0d8cc', borderRadius: 8, fontSize: 11, fontFamily: 'monospace', resize: 'vertical', background: '#fafaf9', lineHeight: 1.6 }}
+                />
+                {!promptText && promptLoaded && (
+                  <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 8, background: 'rgba(220,38,38,0.05)', border: '1px solid rgba(220,38,38,0.12)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#dc2626', marginBottom: 4 }}>尚未生成 Prompt</div>
+                    <div style={{ fontSize: 11, color: '#6b5e54' }}>点击上方「⚡ 生成 Prompt」按钮，根据模板的维度数据、词库和规则自动生成 prompt 文本。生成后可自由编辑。</div>
+                  </div>
+                )}
+                {promptText && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: '#9b8e84' }}>
+                    直接编辑 prompt 全文。生成章节时优先使用此文本。模板维度数据变更后，点击「从模板重新生成」更新。
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #f0ece8' }}>
+                <Button variant="secondary" onClick={() => setPromptTarget(null)}>取消</Button>
+                <Button onClick={async () => {
+                  setPromptSaving(true)
+                  try {
+                    await styleTemplateService.savePrompt(t.id, promptText)
+                    setPromptTarget(null)
+                  } catch { alert('保存失败') }
+                  setPromptSaving(false)
+                }} disabled={promptSaving}>{promptSaving ? '保存中...' : '保存 Prompt'}</Button>
+              </div>
+            </Modal>
+          )
+        })()}
       </div>
   );
 }

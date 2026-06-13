@@ -79,6 +79,10 @@ projList.push({ id: name, ...meta, type: pt })
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || !projectsBasePath) return
     const name = newProjectName.trim()
+    if (projects.some(p => p.name === name || p.id === name)) {
+      alert(`项目"${name}"已存在，请使用其他名称`)
+      return
+    }
     try {
       await projectService.create(name, projectsBasePath, newProjectType)
       // Set initial novel category for writing projects

@@ -1,4 +1,4 @@
-import { buildStylePrompt, convertTemplateToProfile, buildSceneAwareStylePrompt, classifySceneType } from '@/utils/styleInjector'
+import { convertTemplateToProfile, buildSceneAwareStylePrompt, classifySceneType } from '@/utils/styleInjector'
 import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
 import { injectKnowledge, injectKnowledgeFallback } from '@/services/knowledgePipeline'
@@ -188,6 +188,8 @@ export interface BuildPromptOptions {
   selectedStyleTemplateId: string
   selectedStyleTemplate: any
   styleStrength: string
+  stylePromptOverride?: string  // v12.12.0: pre-loaded prompt TXT bypasses dynamic generation
+  styleRuleTemplate?: any       // v12.12.0: rule template for dynamic generation
   chapterPrompt: { title: string; content: string } | undefined
   wordTarget: number
   replaceMode: boolean
@@ -210,13 +212,20 @@ export function buildPrompt(opts: BuildPromptOptions): string {
   // ════════════════════════════════════════════════════════════════
   if (selectedStyleTemplateId && selectedStyleTemplate) {
     try {
-      // v12.5.1: Scene-aware style injection — erotic rules only for erotic scenes
-      const sceneCategory = classifySceneType(
-        selectedScene?.config,
-        (currentChapter as any)?.description || ''
-      )
-      const styleProfile = convertTemplateToProfile(selectedStyleTemplate)
-      const stylePrompt = buildSceneAwareStylePrompt(styleProfile, sceneCategory)
+      // v12.12.0: Use pre-loaded prompt TXT if provided, else dynamic generation
+      let stylePrompt: string | null = null
+      if (opts.stylePromptOverride) {
+        stylePrompt = opts.stylePromptOverride
+      } else {
+        const sceneCategory = classifySceneType(
+          selectedScene?.config,
+          (currentChapter as any)?.description || ''
+        )
+        const styleProfile = convertTemplateToProfile(selectedStyleTemplate)
+        // v12.12.0: Pass rule template if provided
+        const rt = opts.styleRuleTemplate
+        stylePrompt = buildSceneAwareStylePrompt(rt ? { ...styleProfile, _ruleTemplate: rt } : styleProfile, sceneCategory)
+      }
       if (stylePrompt) {
         const intensityLabel = styleStrength === 'strong' ? '⚠️ 必须严格执行，违反视为生成失败' :
           styleStrength === 'light' ? '参考以下风格倾向' : '必须遵守，优先级高于其他设定'

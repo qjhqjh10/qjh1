@@ -243,6 +243,13 @@ export const styleTemplateService = {
   read: (id: string) => e().styleTemplates.read(id),
   save: (template: StyleTemplate) => e().styleTemplates.save(template as any),
   delete: (id: string) => e().styleTemplates.delete(id),
+  readPrompt: (id: string) => e().styleTemplates.readPrompt(id),
+  savePrompt: (id: string, content: string) => e().styleTemplates.savePrompt(id, content),
+  deletePrompt: (id: string) => e().styleTemplates.deletePrompt(id),
+  listRuleTemplates: () => e().styleTemplates.listRuleTemplates(),
+  readRuleTemplate: (id: string) => e().styleTemplates.readRuleTemplate(id),
+  saveRuleTemplate: (template: any) => e().styleTemplates.saveRuleTemplate(template),
+  deleteRuleTemplate: (id: string) => e().styleTemplates.deleteRuleTemplate(id),
 }
 
 export const templateService = {

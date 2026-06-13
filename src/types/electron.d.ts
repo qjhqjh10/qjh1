@@ -1,7 +1,7 @@
 import type { ModelConfig } from './settings'
 import type { StyleProject, SceneTemplate } from './story'
+import type { StyleTemplate, RuleTemplate } from './styleTemplate'
 import type { KnowledgeFile, KnowledgeMetadata } from './knowledge'
-import type { StyleTemplate } from './styleTemplate'
 import type { ContinuationProject } from './continuation'
 
 export interface FileAPI {
@@ -248,7 +248,7 @@ export interface ElectronAPI {
   notes: { search: (query: string, configId: string, topK?: number) => Promise<{ content: string; fileName: string; score: number }[]> }
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
-  styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void> }
+  styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void>; readPrompt: (id: string) => Promise<string | null>; savePrompt: (id: string, content: string) => Promise<void>; deletePrompt: (id: string) => Promise<void>; listRuleTemplates: () => Promise<RuleTemplate[]>; readRuleTemplate: (id: string) => Promise<RuleTemplate | null>; saveRuleTemplate: (template: RuleTemplate) => Promise<RuleTemplate>; deleteRuleTemplate: (id: string) => Promise<void> }
   templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<SceneTemplate>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI

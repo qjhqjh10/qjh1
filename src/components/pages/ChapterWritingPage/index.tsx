@@ -185,7 +185,27 @@ export default function ChapterWritingPage() {
     setInsertionAction(null)
   }, [insertionAction, setInsertionAction, content, projectPath as string, chapterId, detailedChapter])
 
-  // Auto-save disabled — save only via button click
+  // Auto-save: debounced 2s after last change. Undo/redo now safely reverts unwanted AI edits.
+  useEffect(() => {
+    if (!projectPath || !chapterId) return
+    const timer = setTimeout(() => {
+      if (contentRef.current) {
+        fileService.write(`${projectPath}/chapters/${chapterId}.txt`, contentRef.current).catch(() => {})
+      }
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [content, projectPath, chapterId])
+
+  // Save on app exit — best effort async save
+  useEffect(() => {
+    const save = () => {
+      if (contentRef.current && projectPath && chapterId) {
+        fileService.write(`${projectPath}/chapters/${chapterId}.txt`, contentRef.current).catch(() => {})
+      }
+    }
+    window.addEventListener('beforeunload', save)
+    return () => window.removeEventListener('beforeunload', save)
+  }, [projectPath, chapterId])
 
   // Handle replace action from AI assistant (apply to editor + save)
   useEffect(() => {

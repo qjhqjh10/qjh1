@@ -209,6 +209,13 @@ const api = {
     read: (id: string): Promise<any> => ipcRenderer.invoke('styleTemplate:read', id),
     save: (template: any): Promise<any> => ipcRenderer.invoke('styleTemplate:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:delete', id),
+    readPrompt: (id: string): Promise<string | null> => ipcRenderer.invoke('styleTemplate:readPrompt', id),
+    savePrompt: (id: string, content: string): Promise<void> => ipcRenderer.invoke('styleTemplate:savePrompt', id, content),
+    deletePrompt: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:deletePrompt', id),
+    listRuleTemplates: (): Promise<any[]> => ipcRenderer.invoke('styleTemplate:listRuleTemplates'),
+    readRuleTemplate: (id: string): Promise<any> => ipcRenderer.invoke('styleTemplate:readRuleTemplate', id),
+    saveRuleTemplate: (template: any): Promise<any> => ipcRenderer.invoke('styleTemplate:saveRuleTemplate', template),
+    deleteRuleTemplate: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:deleteRuleTemplate', id),
   },
   templates: {
     list: (): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:list'),

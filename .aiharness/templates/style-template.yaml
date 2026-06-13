@@ -1,5 +1,7 @@
-# 风格模板 — 27维度完整格式
-# 存储于 style_templates/ 目录（实际为JSON格式，此处YAML为格式说明）
+# 风格模板 — 27维度完整格式（全类型通用参考）
+# 存储于 style_templates/ 目录（YAML格式）
+# 各小说类型的专属模板见 style_templates/ 目录
+# 实际创建模板时请优先读 style_templates/{类型}.yaml（先读 INDEX.yaml）
 # 必填: name、type、dimensions
 # dimensions 中每维格式: {description, examples[], writingRules[], vocabularyList[]}
 # 11必填维(任何小说必分析) + 2可选维 + 9情色专属 + 5类型专属 = 27维

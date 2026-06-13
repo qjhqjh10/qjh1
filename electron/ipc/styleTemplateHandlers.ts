@@ -98,6 +98,70 @@ export function registerStyleTemplateHandlers(ipcMain: IpcMain, basePath: string
     await deleteTemplate(id)
   })
 
+  // v12.12.0: Prompt TXT file handlers
+  function safePromptPath(id: string): string {
+    const safe = path.basename(id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64)
+    return path.join(getTemplatesPath(), `${safe}.prompt.txt`)
+  }
+
+  ipcMain.handle('styleTemplate:readPrompt', async (_event, id: string) => {
+    try {
+      return await fs.readFile(safePromptPath(id), 'utf-8')
+    } catch { return null }
+  })
+
+  ipcMain.handle('styleTemplate:savePrompt', async (_event, id: string, content: string) => {
+    await ensureDir()
+    await fs.writeFile(safePromptPath(id), content, 'utf-8')
+  })
+
+  ipcMain.handle('styleTemplate:deletePrompt', async (_event, id: string) => {
+    try { await fs.unlink(safePromptPath(id)) } catch { /* not found */ }
+  })
+
+  // v12.12.0: Rule template handlers
+  function safeRulePath(id: string): string {
+    const safe = path.basename(id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64)
+    return path.join(getTemplatesPath(), `${safe}.rules.yaml`)
+  }
+
+  ipcMain.handle('styleTemplate:listRuleTemplates', async () => {
+    try {
+      await ensureDir()
+      const files = await fs.readdir(getTemplatesPath())
+      const yamlFiles = files.filter(f => f.endsWith('.rules.yaml'))
+      const templates: any[] = []
+      for (const f of yamlFiles) {
+        try {
+          const raw = await fs.readFile(path.join(getTemplatesPath(), f), 'utf-8')
+          templates.push(yaml.load(raw) as any)
+        } catch { /* skip */ }
+      }
+      return templates.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    } catch { return [] }
+  })
+
+  ipcMain.handle('styleTemplate:readRuleTemplate', async (_event, id: string) => {
+    try {
+      const raw = await fs.readFile(safeRulePath(id), 'utf-8')
+      return yaml.load(raw) as any
+    } catch { return null }
+  })
+
+  ipcMain.handle('styleTemplate:saveRuleTemplate', async (_event, template: any) => {
+    await ensureDir()
+    if (!template.id) template.id = `rt_${crypto.randomUUID().slice(0, 8)}`
+    template.updatedAt = new Date().toISOString()
+    if (!template.createdAt) template.createdAt = template.updatedAt
+    const clean = JSON.parse(JSON.stringify(template))
+    await fs.writeFile(safeRulePath(template.id), yaml.dump(clean, { indent: 2, lineWidth: 120 }), 'utf-8')
+    return template
+  })
+
+  ipcMain.handle('styleTemplate:deleteRuleTemplate', async (_event, id: string) => {
+    try { await fs.unlink(safeRulePath(id)) } catch { /* not found */ }
+  })
+
   ipcMain.handle('styleTemplate:listProject', async (_event, projectPath: string) => {
     const normalized = path.normalize(projectPath).toLowerCase()
     if (!normalized.startsWith(path.normalize(templatesPath).toLowerCase()) && !normalized.startsWith(path.normalize(basePath).toLowerCase())) {

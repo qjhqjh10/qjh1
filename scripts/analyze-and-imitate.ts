@@ -6,37 +6,32 @@
  *   npx tsx scripts/analyze-and-imitate.ts [原文文件路径]
  *
  * 环境变量:
- *   AI_API_KEY  - DeepSeek API key (默认内置)
- *   AI_MODEL    - 模型 (默认 deepseek-v4-flash)
+ *   TEST_RUN      - 测试轮次编号 (默认 '1'，所有输出文件以此编号为前缀)
+ *   AI_API_KEY    - DeepSeek API key (默认内置)
+ *   AI_MODEL      - 模型 (默认 deepseek-v4-flash)
+ *   AI_PROTOCOL   - 协议: anthropic(默认) | openai
+ *   AI_TEMPERATURE - temperature (默认 1.0)
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt, buildFewShotExcerpts } from '../src/services/extractionService/styleAnalysis'
 import { buildStylePrompt } from '../src/utils/styleInjector'
-import { classifyDimTiers, DIM_PRIORITY } from '../src/utils/dimTiers'
+import { classifyDimTiers } from '../src/utils/dimTiers'
 import { DIMENSION_META, NOVEL_TYPE_DIMS } from '../src/types/story/storyTypes'
 import type { StyleProfile, DimAnalysis, ChapterAnalysis, CategorizedVocab } from '../src/types/story/style'
+import { DIM_PRIORITY } from '../src/utils/dimTiers'
+import { chat } from './lib/chat'
 
 // ── Config ──
-const API_KEY = process.env.AI_API_KEY || 'sk-c9c30831df7243209435c60e811c879d'
-const MODEL = process.env.AI_MODEL || 'deepseek-v4-flash'
+const TEST_RUN = process.env.TEST_RUN || '1'
 const ANALYSIS_MODEL = process.env.AI_ANALYSIS_MODEL || 'deepseek-v4-flash'
-const BASE_URL = process.env.AI_BASE_URL || 'https://api.deepseek.com/v1'
-const NOVEL_TYPE_LONG = '情色小说'      // for DIM_PRIORITY and classifyDimTiers
-const NOVEL_TYPE_SHORT = '情色'           // for NOVEL_TYPE_DIMS lookup
+const NOVEL_TYPE_LONG = '情色小说'
+const NOVEL_TYPE_SHORT = '情色'
 const OUT_DIR = 'd:/3/风格蒸馏演示'
 
-// ── Utilities ──
-async function chat(messages: { role: string; content: string }[], maxTokens = 4096, model?: string): Promise<string> {
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-    body: JSON.stringify({ model: model || MODEL, messages, temperature: 0.7, max_tokens: maxTokens }),
-  })
-  if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`)
-  return ((await res.json()) as any).choices?.[0]?.message?.content || ''
-}
+// 输出文件命名: {轮次编号}{文件名}
+const N = (name: string) => path.join(OUT_DIR, `${TEST_RUN}${name}`)
 
 function splitChapters(content: string): { title: string; content: string }[] {
   const re = /^(第[一二三四五六七八九十百千\d]+[章回节]|序章|楔子|尾声|番外).*$/gm
@@ -53,7 +48,7 @@ function splitChapters(content: string): { title: string; content: string }[] {
 
 // ── Main ──
 async function main() {
-  const inputPath = process.argv[2] || path.join(OUT_DIR, 'sample-input.txt')
+  const inputPath = process.argv[2] || N('sample-input.txt')
   if (!fs.existsSync(inputPath)) { console.error('原文文件不存在:', inputPath); process.exit(1) }
   const sampleText = fs.readFileSync(inputPath, 'utf-8')
   const chapters = splitChapters(sampleText)
@@ -65,7 +60,7 @@ async function main() {
   console.log('═══════════════════════════════════════════')
   console.log(` 风格模板测试`)
   console.log(` 原文: ${path.basename(inputPath)} | 章节: ${chapters.length} | 维度: ${dims.length}`)
-  console.log(` 分析: ${ANALYSIS_MODEL} | 仿写: ${MODEL}`)
+  console.log(` 协议: ${process.env.AI_PROTOCOL || 'anthropic'} | 模型: ${ANALYSIS_MODEL} | 温度: ${process.env.AI_TEMPERATURE || '1.0'}`)
   console.log('═══════════════════════════════════════════')
 
   // ── Stage 1: 逐章分析 ──
@@ -78,7 +73,7 @@ async function main() {
 
 [${ch.title}]
 ${ch.content.slice(0, 8000)}`
-    const reply = await chat([{ role: 'user', content: msg }], 8192)
+    const reply = await chat([{ role: 'user', content: msg }], { maxTokens: 8192 })
     fs.writeFileSync(path.join(OUT_DIR, 'debug-raw-reply.txt'), reply, 'utf-8')
     const analysis = parseStyleAnalysisReply(reply, dims)
     const dCount = analysis.dimAnalyses ? Object.keys(analysis.dimAnalyses).length : 0
@@ -130,7 +125,7 @@ ${ch.content.slice(0, 8000)}`
       .join('\n')
   }).filter(Boolean).join('\n\n')
 
-  const summaryReply = await chat([{ role: 'user', content: buildSummarizePrompt(chapters.length, dimSummary, NOVEL_TYPE_LONG) }], 4096, ANALYSIS_MODEL)
+  const summaryReply = await chat([{ role: 'user', content: buildSummarizePrompt(chapters.length, dimSummary, NOVEL_TYPE_LONG) }], { maxTokens: 4096, model: ANALYSIS_MODEL })
   const summaryAnalysis = parseStyleAnalysisReply(summaryReply, dims)
   if (summaryAnalysis.dimAnalyses) {
     for (const [dk, da] of Object.entries(summaryAnalysis.dimAnalyses)) {
@@ -171,19 +166,35 @@ ${ch.content.slice(0, 8000)}`
     categorizedVocab: Object.values(aggregatedCategorizedVocab).some(a => a.length > 0) ? aggregatedCategorizedVocab : undefined,
   }
 
-  const dCount = Object.keys(aggregated).length
-  const eCount = Object.values(aggregated).reduce((s, d) => s + (d.examples?.length || 0), 0)
+  // Sort aggregated dims by priority tier
+  const priority = DIM_PRIORITY[NOVEL_TYPE_LONG] || {}
+  const sortedAggregated = Object.fromEntries(
+    Object.entries(aggregated).sort(([a], [b]) => (priority[a]?.tier ?? 99) - (priority[b]?.tier ?? 99))
+  )
+  // Also sort profile.dimAnalyses if present
+  let sortedProfileDims: Record<string, DimAnalysis> | undefined
+  if (profile.dimAnalyses) {
+    sortedProfileDims = Object.fromEntries(
+      Object.entries(profile.dimAnalyses).sort(([a], [b]) => (priority[a]?.tier ?? 99) - (priority[b]?.tier ?? 99))
+    )
+  }
+
+  const dCount = Object.keys(sortedAggregated).length
+  const eCount = Object.values(sortedAggregated).reduce((s, d) => s + (d.examples?.length || 0), 0)
   console.log(`  汇总: ${dCount}维度 ${eCount}例句 ${excerpts.length}摘录`)
 
+  // Build sorted profile
+  const sortedProfile = { ...profile, dimAnalyses: sortedProfileDims }
+
   // Save profile
-  fs.writeFileSync(path.join(OUT_DIR, '测试-StyleProfile.json'), JSON.stringify({ profile, aggregated, excerpts }, null, 2), 'utf-8')
+  fs.writeFileSync(N('测试-StyleProfile.json'), JSON.stringify({ profile: sortedProfile, aggregated: sortedAggregated, excerpts }, null, 2), 'utf-8')
 
   // ── Stage 3: 生成风格注入 Prompt ──
   console.log('\n[Stage 3] 生成风格注入 Prompt...')
   const stylePrompt = buildStylePrompt({ profile })
   const blockCount = (stylePrompt.match(/【/g) || []).length
   console.log(`  长度: ${stylePrompt.length} chars, ${blockCount} 约束块`)
-  fs.writeFileSync(path.join(OUT_DIR, '测试-风格注入Prompt.txt'), stylePrompt, 'utf-8')
+  fs.writeFileSync(N('测试-风格注入Prompt.txt'), stylePrompt, 'utf-8')
 
   // ── Stage 4: 风格迁移仿写 ──
   console.log('\n[Stage 4] 风格迁移仿写...')
@@ -220,8 +231,8 @@ ${stylePrompt}
   // ── Summary ──
   console.log('\n═══════════════════════════════════════════')
   console.log(' 完成！输出文件:')
-  console.log(`   ${OUT_DIR}/测试-StyleProfile.json`)
-  console.log(`   ${OUT_DIR}/测试-风格注入Prompt.txt`)
+  console.log(`   ${N('测试-StyleProfile.json')}`)
+  console.log(`   ${N('测试-风格注入Prompt.txt')}`)
   console.log(`   ${OUT_DIR}/测试-AI模仿生成.txt`)
   console.log(` 统计: ${dCount}维度 ${eCount}例句 ${excerpts.length}摘录 ${imitation.length}字生成`)
   console.log('═══════════════════════════════════════════')

@@ -62,7 +62,7 @@ export const fileTools: ToolDefinition[] = [
         '📁 全局: ../notes/*.md / ../knowledge_base/files/*.md / ../style_templates/* / ../scene_templates/* / ../uploads/*\n' +
         '📁 模板: ../.aiharness/templates/* (16个格式模板)\n' +
         '📁 规则: ../.aiharness/rules/*\n\n' +
-        '💡 不确定文件路径 → 用 find_files。修改前必须 read_file 确认原文再 edit_file。',
+        '💡 不确定文件路径 → 用 find_files。⚠️ 修改已有文件时必须 read_file 确认原文再 edit_file。创建新文件（文件尚不存在）时直接用 create_file，无需 read_file。',
       parameters: {
         type: 'object',
         properties: {
@@ -206,20 +206,20 @@ export const fileTools: ToolDefinition[] = [
       description:
         '创建新文件并写入内容。自动创建不存在的父目录。\n' +
         '\n📁 项目内预设路径:\n' +
-        '- 角色: {项目名}/characters/{中文名}.yaml（先读 ../.aiharness/templates/character.yaml）\n' +
-        '- 章节: {项目名}/chapters/chapter{N}.txt（先读 ../.aiharness/templates/chapter-body.txt）\n' +
-        '- 细纲: {项目名}/detailed_outline/chapter{N}.yaml（先读 ../.aiharness/templates/detailed-outline.yaml）\n' +
-        '- 摘要: {项目名}/summaries/chapter{N}.md（先读 ../.aiharness/templates/chapter-summary.md）\n' +
+        '- 角色: {项目名}/characters/{中文名}.yaml（格式参考 ../.aiharness/templates/character.yaml）\n' +
+        '- 章节: {项目名}/chapters/chapter{N}.txt（格式参考 ../.aiharness/templates/chapter-body.txt）\n' +
+        '- 细纲: {项目名}/detailed_outline/chapter{N}.yaml（格式参考 ../.aiharness/templates/detailed-outline.yaml）\n' +
+        '- 摘要: {项目名}/summaries/chapter{N}.md（格式参考 ../.aiharness/templates/chapter-summary.md）\n' +
         '\n📁 全局预设路径:\n' +
-        '- 知识库: ../knowledge_base/files/文件名.md（先读 ../.aiharness/templates/knowledge-base-file.md）\n' +
-        '- 笔记: ../notes/文件名.md（先读 ../.aiharness/templates/note-draft.md）\n' +
-        '- 风格模板: ../style_templates/模板名.yaml（先读 ../.aiharness/templates/style-template.yaml）\n' +
-        '- 场景模板: ../scene_templates/模板名.yaml（先读 ../.aiharness/templates/scene-template.yaml）\n' +
+        '- 知识库: ../knowledge_base/files/文件名.md（格式参考 ../.aiharness/templates/knowledge-base-file.md）\n' +
+        '- 笔记: ../notes/文件名.md（格式参考 ../.aiharness/templates/note-draft.md）\n' +
+        '- 风格模板: ../style_templates/模板名.yaml（格式参考 .aiharness/templates/style_templates/INDEX.yaml 找到对应小说类型的模板文件——共17种类型各有独立模板）\n' +
+        '- 场景模板: ../scene_templates/模板名.yaml（格式参考 ../.aiharness/templates/scene-template.yaml）\n' +
         '\n📁 用户自定义路径（用户说放哪就放哪）:\n' +
         '- 项目根目录: {项目名}/文件名.md — 简介、写作计划、灵感、修订记录等\n' +
         '- 全局目录: ../文件名.md — 跨项目共享的写作素材、技巧笔记\n' +
         '- 任意子目录: 系统自动创建不存在的父目录，支持嵌套路径\n' +
-        '\n⚠️ 已有模板的用模板格式。无模板的自由内容用 Markdown（# 标题 + ## 段落）。',
+        '\n⚠️ 模板路径仅供参考格式——创建新文件时直接 create_file，不需要先 read_file 模板。已有模板的用模板格式。无模板的自由内容用 Markdown（# 标题 + ## 段落）。',
       parameters: {
         type: 'object',
         properties: {

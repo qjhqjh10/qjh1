@@ -6,13 +6,24 @@ import type { StyleTemplate } from '@/types/styleTemplate'
 import { getTemplateDims } from '@/types/styleTemplate'
 import type { DimAnalysis } from '@/types/story'
 import { DIMENSION_META, NOVEL_TYPE_LABELS, NOVEL_TYPES, NOVEL_TYPE_DIMS } from '@/types/story'
+import { DIM_PRIORITY } from '@/utils/dimTiers'
 import { nanoid } from 'nanoid'
 import { buildStyleAnalyzePrompt, parseStyleAnalysisReply, buildSummarizePrompt, buildFewShotExcerpts } from '@/services/extractionService'
 import { logError } from '@/utils/logger'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
+import { safeJsonParseAs } from '@/utils/safeJsonParse'
 import type { StyleProject, StyleChapter, StyleProfile, StyleProjectMeta, ChapterAnalysis } from '@/types/story'
 import type { ViewMode, ResultTab, WorkspaceTab, SortKey } from '../constants'
-import { splitChapters, FEATURE_LABELS, SORT_OPTIONS, WORLD_TYPE_PRESETS, ATTITUDE_PRESETS } from '../constants'
+import { splitChapters, SORT_OPTIONS, WORLD_TYPE_PRESETS } from '../constants'
+
+function sortDimsByPriority(dims: Record<string, any>, novelType: string): Record<string, any> {
+  const priority = DIM_PRIORITY[novelType] || {}
+  const sorted = Object.entries(dims).sort(([a], [b]) => {
+    const ta = priority[a]?.tier ?? 99
+    const tb = priority[b]?.tier ?? 99
+    return ta - tb
+  })
+  return Object.fromEntries(sorted)
+}
 
 export function useStyleWorkshop() {
   const setActivePage = useStore(s => s.setActivePage)
@@ -50,18 +61,23 @@ export function useStyleWorkshop() {
   const [templateSearch, setTemplateSearch] = useState('')
   const [templateSort, setTemplateSort] = useState<SortKey>('updatedAt')
   const [expandedDims, setExpandedDims] = useState<Set<string>>(new Set())
+  const [aiFillDims, setAiFillDims] = useState<Set<string>>(new Set())
   const [customWorldType, setCustomWorldType] = useState('')
   const [customAttitude, setCustomAttitude] = useState('')
 
   const saveCounter = useRef(0)
   const isDirty = useRef(false)
 
-  // Auto-expand all dimensions when a template is opened for editing
+  // Auto-expand all dimensions ONLY for brand-new templates (no id = '__new__')
+  // For existing templates, keep previous collapsed state (don't override user preference)
   const prevEditId = useRef<string | undefined>(undefined)
   useEffect(() => {
     const currentId = editTemplate ? (editTemplate.id || '__new__') : undefined
     if (currentId && currentId !== prevEditId.current) {
-      setExpandedDims(new Set(getTemplateDims(editTemplate!.type)))
+      // Only auto-expand all for new templates; existing ones respect user state
+      if (!editTemplate!.id || currentId === '__new__') {
+        setExpandedDims(new Set(getTemplateDims(editTemplate!.type)))
+      }
     }
     prevEditId.current = currentId
   }, [editTemplate])
@@ -158,6 +174,57 @@ export function useStyleWorkshop() {
     list.splice(idx, 1)
     dims[dimKey] = { ...dims[dimKey], vocabularyList: list }
     setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const addExampleItem = (dimKey: string) => {
+    if (!editTemplate) return; markDirty()
+    const dims = { ...editTemplate.dimensions }
+    const existing = dims[dimKey] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
+    dims[dimKey] = { ...existing, examples: [...existing.examples, ''] }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const updateExampleItem = (dimKey: string, idx: number, value: string) => {
+    if (!editTemplate) return; markDirty()
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.examples || [])]
+    list[idx] = value
+    dims[dimKey] = { ...dims[dimKey], examples: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const removeExampleItem = (dimKey: string, idx: number) => {
+    if (!editTemplate) return; markDirty()
+    const dims = { ...editTemplate.dimensions }
+    const list = [...(dims[dimKey]?.examples || [])]
+    list.splice(idx, 1)
+    dims[dimKey] = { ...dims[dimKey], examples: list }
+    setEditTemplate({ ...editTemplate, dimensions: dims })
+  }
+
+  const updateCategorizedVocab = (category: string, words: string) => {
+    if (!editTemplate) return; markDirty()
+    const list = words.split(/[,，、\s]+/).map(w => w.trim()).filter(Boolean)
+    const cv = editTemplate.categorizedVocab || { sexBody: [], roleIdentity: [], actionTechnique: [], sceneCostume: [], moanOnomatopoeia: [] }
+    setEditTemplate({ ...editTemplate, categorizedVocab: { ...cv, [category]: list } })
+  }
+
+  // v12.11.0: Gap C — tone & fullDescription direct editing
+  const updateToneEditable = (field: 'word' | 'description' | 'attitude', value: string) => {
+    if (!editTemplate) return; markDirty()
+    const te = editTemplate.toneEditable || { word: '', description: '', attitude: '' }
+    setEditTemplate({ ...editTemplate, toneEditable: { ...te, [field]: value } })
+  }
+  const updateFullDescriptionEditable = (value: string) => {
+    if (!editTemplate) return; markDirty()
+    setEditTemplate({ ...editTemplate, fullDescriptionEditable: value || undefined })
+  }
+
+  // v12.11.0: Gap A — complex dimension YAML data
+  const updateComplexData = (dimKey: string, yamlText: string) => {
+    if (!editTemplate) return; markDirty()
+    const cd = editTemplate.complexData || {}
+    setEditTemplate({ ...editTemplate, complexData: { ...cd, [dimKey]: yamlText || undefined } })
   }
 
   const addRule = (dimKey: string) => {
@@ -414,7 +481,9 @@ export function useStyleWorkshop() {
         ).map(text => ({ text, note: '' })),
         analyzedAt: new Date().toISOString(),
         analyzedChapterCount: analyzedChapters.length,
-        dimAnalyses: Object.keys(aggregatedDimAnalyses).length > 0 ? aggregatedDimAnalyses : undefined,
+        dimAnalyses: Object.keys(aggregatedDimAnalyses).length > 0
+          ? sortDimsByPriority(aggregatedDimAnalyses as any, selectedProject.novelType || '情色小说')
+          : undefined,
       }
       const updated = { ...selectedProject, profile }
       setSelectedProject(updated)
@@ -442,7 +511,8 @@ export function useStyleWorkshop() {
   const handleSaveAsTemplate = async () => {
     if (!selectedProject?.profile) return
     const profile = selectedProject.profile
-    const dims = profile.dimAnalyses || {}
+    const rawDims = profile.dimAnalyses || {}
+    const dims = sortDimsByPriority(rawDims as any, selectedProject.novelType || '情色小说')
     const vocabList: string[] = []
     const rulesList: string[] = []
     for (const da of Object.values(dims)) {
@@ -450,6 +520,13 @@ export function useStyleWorkshop() {
       if ((da as any).writingRules) rulesList.push(...(da as any).writingRules)
     }
     const reverseTypeMap: Record<string, string> = {}
+    // v12.12.0: Extract tone from narrativeTone dim if available
+    const extractToneFromProfile = (p: any) => {
+      const ntDesc = p.dimAnalyses?.narrativeTone?.description || ''
+      const att = (p.dimAnalyses?.narrativeTone?.writingRules || []).find((r: string) => r.includes('态度'))?.replace(/.*态度[：:]\\s*/, '') || ''
+      const m = ntDesc.match(/基调[：:]\\s*"?([^"\\n，。]{2,12})"?/)
+      return { word: m?.[1] || '', description: ntDesc.slice(0, 200), attitude: att }
+    }
     for (const [label, short] of Object.entries(NOVEL_TYPE_LABELS)) { reverseTypeMap[short] = label }
     const templateType = (reverseTypeMap[selectedProject.novelType] || '普通小说') as StyleTemplate['type']
 
@@ -461,7 +538,8 @@ export function useStyleWorkshop() {
       dimensions: dims as any,
       vocabularyList: [...new Set(vocabList)].slice(0, 100),
       writingRules: [...new Set(rulesList)].slice(0, 50),
-      tone: { word: '', description: '', attitude: '' },
+      tone: extractToneFromProfile(profile),
+      categorizedVocab: profile.categorizedVocab || { sexBody: [], roleIdentity: [], actionTechnique: [], sceneCostume: [], moanOnomatopoeia: [] },
       source: 'ai-generated',
       sourceProjectId: selectedProject.id,
       createdAt: new Date().toISOString(),
@@ -473,6 +551,58 @@ export function useStyleWorkshop() {
       setWorkspaceTab('ws.templates')
       alert('已保存为风格模板！')
     } catch { alert('保存失败') }
+  }
+
+  const handleAIFillDimensions = async (desc: string, selectedDims?: string[]) => {
+    if (!editTemplate || !activeConfigId) return
+    setAiGenLoading(true)
+    try {
+      const dimKeys = selectedDims && selectedDims.length > 0 ? selectedDims : getTemplateDims(editTemplate.type)
+      const dimList = dimKeys.map(k => `${k}(${DIMENSION_META[k]?.label || k})`).join(', ')
+
+      const prompt = `你是专业的写作风格分析师。请根据以下风格描述，为${editTemplate.type}生成风格模板的维度数据。
+
+风格描述: ${desc}
+
+【选中填充的维度 — 仅输出以下维度，不要输出其他维度】
+${dimList}
+
+【输出JSON格式】
+{
+  "dimensions": { "维度key": { "description": "100-200字", "examples": ["例句1"], "writingRules": ["规则1"], "vocabularyList": ["词1"] } },
+  "fullDescription": "200-400字风格综述",
+  "tone": { "word": "基调词", "description": "基调描述", "attitude": "叙事态度" }
+}
+只输出JSON，不要markdown，不要尾逗号。`
+      const reply = await chatAI([{ role: 'user', content: prompt }], activeConfigId)
+      const json = safeJsonParseAs<{ fullDescription?: string; tone?: any; dimensions?: any }>(reply)
+      if (json) {
+        setEditTemplate((prev: any) => {
+          if (!prev) return prev
+          const merged = { ...prev.dimensions }
+          if (json.dimensions) {
+            for (const [dk, dimData] of Object.entries(json.dimensions)) {
+              const existing = merged[dk] || { description: '', examples: [], writingRules: [], vocabularyList: [] }
+              merged[dk] = {
+                description: (dimData as any).description || existing.description,
+                examples: [...new Set([...(existing as any).examples || [], ...((dimData as any).examples || [])])],
+                writingRules: [...new Set([...(existing as any).writingRules || [], ...((dimData as any).writingRules || [])])],
+                vocabularyList: [...new Set([...(existing as any).vocabularyList || [], ...((dimData as any).vocabularyList || [])])],
+              }
+            }
+          }
+          return {
+            ...prev,
+            fullDescription: json.fullDescription || prev.fullDescription,
+            tone: json.tone ? { ...prev.tone, ...json.tone } : prev.tone,
+            dimensions: merged,
+            source: prev.source === 'ai-generated' ? 'ai-generated' : 'manual',
+            description: prev.description || (json.fullDescription || '').slice(0, 100),
+          }
+        })
+      }
+    } catch (err) { logError('AI填充失败', err); alert('AI填充失败: ' + (err instanceof Error ? err.message : '未知错误')) }
+    setAiGenLoading(false)
   }
 
   const handleCloneTemplate = async (t: StyleTemplate) => {
@@ -491,6 +621,7 @@ export function useStyleWorkshop() {
       id: '', name: n, type: type as StyleTemplate['type'], worldType: '', description: '',
       fullDescription: '', dimensions: {}, vocabularyList: [], writingRules: [],
       tone: { word: '', description: '', attitude: '' }, source: 'manual',
+      categorizedVocab: { sexBody: [], roleIdentity: [], actionTechnique: [], sceneCostume: [], moanOnomatopoeia: [] },
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
     setShowCreateTemplate(false)
@@ -505,6 +636,7 @@ export function useStyleWorkshop() {
     const clean = { ...editTemplate }
     if (clean.worldType === '__custom__') clean.worldType = ''
     if (clean.tone?.attitude === '__custom__') clean.tone = { ...clean.tone, attitude: '' }
+    if (clean.toneEditable?.attitude === '__custom__') clean.toneEditable = { ...clean.toneEditable, attitude: '' }
     setTemplateSaving(true)
     try {
       const saved = await styleTemplateService.save({ ...clean, updatedAt: new Date().toISOString() })
@@ -517,6 +649,23 @@ export function useStyleWorkshop() {
       setCustomAttitude('')
     } catch { alert('保存失败') }
     setTemplateSaving(false)
+  }
+
+  // v12.12.0: Generate prompt TXT from template data, optionally using a rule template
+  const generatePrompt = async (id: string, ruleTemplateId?: string): Promise<string | null> => {
+    try {
+      const template = await styleTemplateService.read(id)
+      if (!template) return null
+      const { buildStylePrompt, convertTemplateToProfile } = await import('@/utils/styleInjector')
+      const profileWrapper = convertTemplateToProfile(template as any)
+      // Load rule template if specified
+      let rt: any = undefined
+      const rtId = ruleTemplateId || template.ruleTemplateId
+      if (rtId) {
+        try { rt = await styleTemplateService.readRuleTemplate(rtId) } catch {}
+      }
+      return buildStylePrompt(profileWrapper, rt)
+    } catch { return null }
   }
 
   const selectedChapter = selectedProject?.chapters.find(c => c.id === selectedChapterId)
@@ -532,6 +681,7 @@ export function useStyleWorkshop() {
     editTemplate, setEditTemplate,
     templateTab, setTemplateTab,
     aiGenLoading, setAiGenLoading,
+    aiFillDims, setAiFillDims,
     templateSearch, setTemplateSearch,
     templateSort, setTemplateSort,
     expandedDims,
@@ -542,7 +692,13 @@ export function useStyleWorkshop() {
     handleCloneTemplate, handleDeleteTemplate,
     handleCreateFromType, handleSaveTemplate, templateSaving, isDirty,
     toggleDimExpanded, updateDim,
+    setExpandedDims,
     addVocabItem, updateVocabItem, removeVocabItem,
+    addExampleItem, updateExampleItem, removeExampleItem,
+    updateCategorizedVocab,
+    updateToneEditable, updateFullDescriptionEditable,
+    updateComplexData,
+    generatePrompt,
     addRule, updateRule, removeRule,
     selectedProject, setSelectedProject,
     selectedChapterId, setSelectedChapterId,
@@ -561,7 +717,7 @@ export function useStyleWorkshop() {
     selectedChapter, analyzedChapters,
     toggleAnalyzeId, clearChapterAnalysis,
     handleAnalyze, handleSummarize, handleClearProfile,
-    handleApplyStyle, handleSaveAsTemplate,
+    handleApplyStyle, handleSaveAsTemplate, handleAIFillDimensions,
     projectsList, styleAssignments, activeConfigId,
     setActivePage,
   }

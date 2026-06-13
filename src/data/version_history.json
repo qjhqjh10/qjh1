@@ -1,7 +1,23 @@
 {
-  "currentVersion": "12.8.0",
+  "currentVersion": "12.9.0",
   "currentDate": "2026-06-13",
   "history": [
+    {
+      "version": "12.9.0",
+      "date": "2026-06-13",
+      "features": [
+        "规则模板系统: 8组可自定义的prompt规则模板,替换24个硬编码段落",
+        "Prompt直接编辑: 模板卡片新增Prompt编辑器,所见即所得编辑完整prompt",
+        "风格补充说明: 最高优先级自由文本注入prompt末尾",
+        "提示词优化: 修复create_file/read_file描述,优化分支决策,增强MINIMAL_SYSTEM_PROMPT",
+        "情色过滤修复: EROTIC_ONLY_HEADERS从4个扩展到16个,非情色场景不再泄漏情色内容",
+        "complexData YAML双向注入: 同时注入features和dimAnalyses",
+        "叙事态度下拉框: ATTITUDE_PRESETS从死代码恢复为可用UI",
+        "模板创建初始化修复: categorizedVocab不再为undefined",
+        "AI分析保存tone提取: handleSaveAsTemplate自动从narrativeTone提取基调",
+        "规则模板绑定: 模板编辑器可绑定ruleTemplateId,Prompt编辑器下拉切换"
+      ]
+    },
     {
       "version": "12.8.0",
       "date": "2026-06-13",

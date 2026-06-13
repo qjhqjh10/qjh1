@@ -144,51 +144,18 @@ export function DetailView({ ws }: { ws: any }) {
                                   规则: {da.writingRules.slice(0, 3).join('；')}{da.writingRules.length > 3 ? ` 等${da.writingRules.length}条` : ''}
                                 </div>
                               )}
+                              {da.examples && da.examples.length > 0 && (
+                                <div style={{ marginTop: 3, fontSize: 10, color: '#6b5e84', fontStyle: 'italic', borderLeft: '2px solid rgba(124,58,237,0.15)', paddingLeft: 6 }}>
+                                  例句: {da.examples.slice(0, 3).map((ex: string, i: number) => (
+                                    <span key={i}>「{ex.slice(0, 60)}{ex.length > 60 ? '…' : ''}」{i < Math.min(da.examples.length, 3) - 1 ? ' ' : ''}</span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
                       )
                     })()}
-                    {ch.analysis!.descriptionPattern && (
-                      <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#7c3aed' }}>描写结构:</span> {ch.analysis!.descriptionPattern.bodyOrder?.join('→')}
-                      </div>
-                    )}
-                    {ch.analysis!.corruptionArc && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(220,38,38,0.03)', border: '1px solid rgba(220,38,38,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#dc2626' }}>堕落弧线:</span> {ch.analysis!.corruptionArc.overallTrajectory?.slice(0, 80)}
-                      </div>
-                    )}
-                    {ch.analysis!.degradationRitual && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.03)', border: '1px solid rgba(245,158,11,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#e67e00' }}>仪式剧本:</span> {ch.analysis!.degradationRitual.sceneTemplate?.join(' → ')?.slice(0, 100)}
-                      </div>
-                    )}
-                    {ch.analysis!.narrativeVoice && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#3b82f6' }}>叙事声音:</span> {ch.analysis!.narrativeVoice.toneContrast?.slice(0, 80)}
-                      </div>
-                    )}
-                    {ch.analysis!.sceneMechanics && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#8b5cf6' }}>场景装置:</span> {ch.analysis!.sceneMechanics.sensoryCounterpoint?.slice(0, 80)}
-                      </div>
-                    )}
-                    {ch.analysis!.somaticTension && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#06b6d4' }}>躯体状态:</span> {ch.analysis!.somaticTension.bodyCondition?.slice(0, 80)}
-                      </div>
-                    )}
-                    {ch.analysis!.identityDissolution && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(34,197,94,0.03)', border: '1px solid rgba(34,197,94,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#22c55e' }}>身份溶解:</span> {ch.analysis!.identityDissolution.replacementIdentity?.slice(0, 80)}
-                      </div>
-                    )}
-                    {ch.analysis!.shameVoyeurLoop && (
-                      <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(250,204,21,0.03)', border: '1px solid rgba(250,204,21,0.08)', fontSize: 10, lineHeight: 1.5, color: '#4a3f38' }}>
-                        <span style={{ fontWeight: 700, color: '#eab308' }}>心理循环:</span> {ch.analysis!.shameVoyeurLoop.triggerPattern?.slice(0, 80)}
-                      </div>
-                    )}
                     {ch.analysis!.excerpt && (
                       <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84', fontStyle: 'italic' }}>摘录: "{ch.analysis!.excerpt}" — {ch.analysis!.excerptNote}</div>
                     )}
@@ -221,98 +188,7 @@ export function DetailView({ ws }: { ws: any }) {
                       </div>
                     ))}
                   </div>
-                  {ws.selectedProject.profile.features.corruptionArc && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.03)', border: '1px solid rgba(220,38,38,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>堕落弧线</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        <div>{ws.selectedProject.profile.features.corruptionArc.overallTrajectory}</div>
-                        {ws.selectedProject.profile.features.corruptionArc.characterStates?.map((cs: any, i: number) => (
-                          <div key={i} style={{ marginTop: 6, paddingLeft: 8, borderLeft: '2px solid rgba(220,38,38,0.3)' }}>
-                            <strong>{cs.characterName}</strong>: {cs.originalState} → {cs.currentState}
-                            {cs.progressionSteps?.length > 0 && <span style={{ fontSize: 10, color: '#9b8e84' }}> ({cs.progressionSteps.join(' → ')})</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.degradationRitual && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.03)', border: '1px solid rgba(245,158,11,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#e67e00', marginBottom: 8 }}>仪式剧本</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.degradationRitual.sceneTemplate?.length > 0 && <div>场景模板: {ws.selectedProject.profile.features.degradationRitual.sceneTemplate.join(' → ')}</div>}
-                        {ws.selectedProject.profile.features.degradationRitual.authorityEntryPattern && <div>权威入场: {ws.selectedProject.profile.features.degradationRitual.authorityEntryPattern}</div>}
-                        {ws.selectedProject.profile.features.degradationRitual.surrenderConfirmation && <div>屈服确认: {ws.selectedProject.profile.features.degradationRitual.surrenderConfirmation}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.narrativeVoice && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(59,130,246,0.03)', border: '1px solid rgba(59,130,246,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#3b82f6', marginBottom: 8 }}>叙事声音</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.narrativeVoice.toneContrast && <div>语态反差: {ws.selectedProject.profile.features.narrativeVoice.toneContrast}</div>}
-                        {ws.selectedProject.profile.features.narrativeVoice.internalMonologueRatio && <div>内心独白: {ws.selectedProject.profile.features.narrativeVoice.internalMonologueRatio}</div>}
-                        {ws.selectedProject.profile.features.narrativeVoice.worldBuildingStyle && <div>世界交代: {ws.selectedProject.profile.features.narrativeVoice.worldBuildingStyle}</div>}
-                        {ws.selectedProject.profile.features.narrativeVoice.routineCatalog && <div>日常编目: {ws.selectedProject.profile.features.narrativeVoice.routineCatalog}</div>}
-                        {ws.selectedProject.profile.features.narrativeVoice.powerResignation && <div>权力妥协: {ws.selectedProject.profile.features.narrativeVoice.powerResignation}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.sceneMechanics && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#8b5cf6', marginBottom: 8 }}>场景装置与感官对位</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.sceneMechanics.sensoryCounterpoint && <div>感官对位: {ws.selectedProject.profile.features.sceneMechanics.sensoryCounterpoint}</div>}
-                        {ws.selectedProject.profile.features.sceneMechanics.symbolicTool && <div>象征工具: {ws.selectedProject.profile.features.sceneMechanics.symbolicTool}</div>}
-                        {ws.selectedProject.profile.features.sceneMechanics.recurringVisualFormula && <div>视觉定型: {ws.selectedProject.profile.features.sceneMechanics.recurringVisualFormula}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.somaticTension && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#06b6d4', marginBottom: 8 }}>躯体状态与精确解剖</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.somaticTension.bodyCondition && <div>躯体状态: {ws.selectedProject.profile.features.somaticTension.bodyCondition}</div>}
-                        {ws.selectedProject.profile.features.somaticTension.anatomicalPrecision && <div>解剖精度: {ws.selectedProject.profile.features.somaticTension.anatomicalPrecision}</div>}
-                        {ws.selectedProject.profile.features.somaticTension.orchestrationPattern && <div>协作编排: {ws.selectedProject.profile.features.somaticTension.orchestrationPattern}</div>}
-                        {ws.selectedProject.profile.features.somaticTension.powerAnxiety && <div>权力焦虑: {ws.selectedProject.profile.features.somaticTension.powerAnxiety}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.identityDissolution && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(34,197,94,0.03)', border: '1px solid rgba(34,197,94,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 8 }}>身份溶解机制</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.identityDissolution.preExistingIdentity && <div>旧身份: {ws.selectedProject.profile.features.identityDissolution.preExistingIdentity}</div>}
-                        {ws.selectedProject.profile.features.identityDissolution.replacementIdentity && <div>新身份: {ws.selectedProject.profile.features.identityDissolution.replacementIdentity}</div>}
-                        {ws.selectedProject.profile.features.identityDissolution.selfGaslightingPattern && <div>自我合理化: {ws.selectedProject.profile.features.identityDissolution.selfGaslightingPattern}</div>}
-                        {ws.selectedProject.profile.features.identityDissolution.competitiveAbasement && <div>竞相自贬: {ws.selectedProject.profile.features.identityDissolution.competitiveAbasement}</div>}
-                        {ws.selectedProject.profile.features.identityDissolution.correctionFrame && <div>管教框架: {ws.selectedProject.profile.features.identityDissolution.correctionFrame}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.shameVoyeurLoop && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(250,204,21,0.03)', border: '1px solid rgba(250,204,21,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#eab308', marginBottom: 8 }}>羞耻-窥视心理循环</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        {ws.selectedProject.profile.features.shameVoyeurLoop.triggerPattern && <div>触发: {ws.selectedProject.profile.features.shameVoyeurLoop.triggerPattern}</div>}
-                        {ws.selectedProject.profile.features.shameVoyeurLoop.excitementResponse && <div>兴奋: {ws.selectedProject.profile.features.shameVoyeurLoop.excitementResponse}</div>}
-                        {ws.selectedProject.profile.features.shameVoyeurLoop.shameLayer && <div>羞耻: {ws.selectedProject.profile.features.shameVoyeurLoop.shameLayer}</div>}
-                        {ws.selectedProject.profile.features.shameVoyeurLoop.feedbackAmplification && <div>闭环: {ws.selectedProject.profile.features.shameVoyeurLoop.feedbackAmplification}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {ws.selectedProject.profile.features.descriptionPattern && (
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>描写结构模板</div>
-                      <div style={{ color: '#4a3f38', lineHeight: 1.8 }}>
-                        <div>扫描顺序: {ws.selectedProject.profile.features.descriptionPattern.bodyOrder?.join(' → ')}</div>
-                        {ws.selectedProject.profile.features.descriptionPattern.stockingDetail && <div>丝袜: {ws.selectedProject.profile.features.descriptionPattern.stockingDetail}</div>}
-                        {ws.selectedProject.profile.features.descriptionPattern.characterVisualProfile && <div>角色配置: {ws.selectedProject.profile.features.descriptionPattern.characterVisualProfile}</div>}
-                        {ws.selectedProject.profile.features.descriptionPattern.detailFingerprints?.length > 0 && <div>指纹: {ws.selectedProject.profile.features.descriptionPattern.detailFingerprints.join('、')}</div>}
-                      </div>
-                    </div>
-                  )}
-                  {/* dimAnalyses: 显示 features 复杂字段为 null、但 dimAnalyses 中有数据的维度 */}
+                  {/* dimAnalyses: 维度数据统一在此展示。complexKeys 仅用于颜色标记（区分情色专属/技法维度），不作过滤 */}
                   {ws.selectedProject.profile.dimAnalyses && Object.keys(ws.selectedProject.profile.dimAnalyses).length > 0 && (() => {
                     const v1ShownKeys = ['sentenceStyle','vocabularyStyle','rhetoricStyle','rhythmStyle','dialogueStyle','moodStyle','perspectiveStyle','bodyLanguageStyle','sensoryStyle','tensionStyle','subtextStyle']
                     const complexKeys = ['descriptionPattern','corruptionArc','degradationRitual','narrativeVoice','sceneMechanics','somaticTension','identityDissolution','shameVoyeurLoop']
@@ -340,6 +216,13 @@ export function DetailView({ ws }: { ws: any }) {
                                 {da.writingRules && da.writingRules.length > 0 && (
                                   <div style={{ marginTop: 4, fontSize: 10, color: '#9b8e84' }}>
                                     <strong>规则:</strong> {da.writingRules.slice(0, 5).map((r: string, i: number) => <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {r}</div>)}
+                                  </div>
+                                )}
+                                {da.examples && da.examples.length > 0 && (
+                                  <div style={{ marginTop: 4, fontSize: 10, color: '#6b5e84', fontStyle: 'italic', borderLeft: '2px solid rgba(124,58,237,0.15)', paddingLeft: 6 }}>
+                                    <strong>例句:</strong> {da.examples.slice(0, 3).map((ex: string, i: number) => (
+                                      <span key={i}>「{ex.slice(0, 60)}{ex.length > 60 ? '…' : ''}」{i < Math.min(da.examples.length, 3) - 1 ? ' ' : ''}</span>
+                                    ))}
                                   </div>
                                 )}
                               </div>

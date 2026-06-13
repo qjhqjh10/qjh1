@@ -1498,3 +1498,9 @@
 {"timestamp":"2026-06-11T14:08:08+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":362,"outputTokens":743,"cacheHitTokens":0,"cost":0.005544}
 {"timestamp":"2026-06-11T14:08:55+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":106,"outputTokens":673,"cacheHitTokens":256,"cost":0.00404056}
 {"timestamp":"2026-06-11T14:09:15+08:00","projectId":"__global__","configId":"UucfajvB","configName":"deepseek","model":"deepseek-v4-flash","inputTokens":106,"outputTokens":944,"cacheHitTokens":256,"cost":0.00566656}
+{"timestamp":"2026-06-13T18:27:46+08:00","projectId":"__global__","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":9726,"outputTokens":166,"cacheHitTokens":0,"cost":0.030174}
+{"timestamp":"2026-06-13T18:28:04+08:00","projectId":"__global__","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":2366,"outputTokens":346,"cacheHitTokens":0,"cost":0.009174}
+{"timestamp":"2026-06-13T18:28:35+08:00","projectId":"__global__","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":351,"outputTokens":997,"cacheHitTokens":2304,"cost":0.0060396}
+{"timestamp":"2026-06-13T18:29:03+08:00","projectId":"1","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":805,"outputTokens":143,"cacheHitTokens":2560,"cost":0.0009220000000000001}
+{"timestamp":"2026-06-13T18:29:15+08:00","projectId":"1","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":95,"outputTokens":167,"cacheHitTokens":3328,"cost":0.0010852000000000001}
+{"timestamp":"2026-06-13T18:29:29+08:00","projectId":"1","configId":"Bg8NruTn","configName":"deepseek-v4-pro","model":"deepseek-v4-pro","inputTokens":192,"outputTokens":136,"cacheHitTokens":3328,"cost":0.0008992}
