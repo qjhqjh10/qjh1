@@ -173,12 +173,23 @@ export class V4AgentChatBridge {
         toolTemperature: toolTemp,
       }, adapter)
 
-      // ── 2. 工具: 首条全量，后续核心7个（含tool_search按需发现）──
-      const { CORE_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      // ── 2. 工具: 首条全量，后续按消息类型选择（闲聊0个，有意图10个）──
+      const { CORE_TOOL_NAMES, SUBSEQUENT_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      const { isPureGreeting } = await import('./utils/taskDetection')
       const schemas = toolRegistry.getAllSchemas()
       const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
-      this.runtime.setTools(this._fullPromptSent ? coreTools : schemas)
-      diagnosticLogger.recordInfo(`Agent2: ${this._fullPromptSent ? coreTools.length : schemas.length} tools (full=${!this._fullPromptSent})`)
+      const subsequentTools = schemas.filter(s => SUBSEQUENT_TOOL_NAMES.has(s.function.name))
+
+      let toolsToSend: unknown[]
+      if (!this._fullPromptSent) {
+        toolsToSend = schemas
+      } else if (isPureGreeting(userMessage)) {
+        toolsToSend = []
+      } else {
+        toolsToSend = subsequentTools
+      }
+      this.runtime.setTools(toolsToSend)
+      diagnosticLogger.recordInfo(`Agent2: ${toolsToSend.length} tools (full=${!this._fullPromptSent})`)
 
       // ── 3. Wire Context Assembler ──
       const CORE_PROMPT = buildSystemPrompt()

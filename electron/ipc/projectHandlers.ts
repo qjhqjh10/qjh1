@@ -33,9 +33,9 @@ export function registerProjectHandlers(ipcMain: IpcMain, basePath: string) {
     for (const dir of PROJECT_DIRS) {
       await fs.mkdir(path.join(projectPath, dir), { recursive: true })
     }
-    // Create all 8 outline tab files with proper initial content
-    await fs.writeFile(path.join(projectPath, 'outline', 'plot.md'), '# 故事剧情\n\n> 梗概\n\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.md'), '# 世界观\n\n> 类型·基调\n\n', 'utf-8')
+    // Create all 8 outline tab files — plot.md/worldbuilding.md start empty
+    await fs.writeFile(path.join(projectPath, 'outline', 'plot.md'), '', 'utf-8')
+    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.md'), '', 'utf-8')
     await fs.writeFile(path.join(projectPath, 'outline', 'items.yaml'), 'items:\n  # - id: example\n  #   name: 示例道具\n  #   type: 武器\n  #   grade: 凡品\n  #   owner: 角色名\n', 'utf-8')
     await fs.writeFile(path.join(projectPath, 'outline', 'locations.yaml'), 'locations:\n  # - id: example\n  #   name: 示例地点\n  #   description: 描述\n  #   type: 宗门\n', 'utf-8')
     await fs.writeFile(path.join(projectPath, 'outline', 'factions.yaml'), 'factions:\n  # - id: example\n  #   name: 示例势力\n  #   description: 描述\n  #   type: 宗门内斗势力\n', 'utf-8')

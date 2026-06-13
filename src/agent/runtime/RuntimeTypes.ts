@@ -51,6 +51,7 @@ export interface V4AgentRunResult {
   toolCallSteps: Array<{
     tool: string; status: string; summary: string
     durationMs: number; iteration: number
+    arguments?: string
   }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
   iterationCount: number

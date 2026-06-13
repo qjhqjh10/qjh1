@@ -78,8 +78,8 @@ export class BridgeContextBuilder {
     // ── 7. Assemble system messages — 角色身份 + 核心规则 ──
     const systemMessages: Array<{ role: 'system'; content: string }> = []
 
-    // 注入用户选择的角色身份（预设或自定义）
-    const { useSettingsStore } = await import('@/store')
+    // 注入用户选择的角色身份（预设或自定义）+ 当前项目信息
+    const { useSettingsStore, useStore } = await import('@/store')
     const aiSettings = useSettingsStore.getState().aiSettings
     const selectedRole = aiSettings.customRoles?.find(r => r.id === aiSettings.defaultRole)
     if (selectedRole?.prompt) {
@@ -87,6 +87,20 @@ export class BridgeContextBuilder {
       // 去掉核心规则的默认身份行，让角色 prompt 成为唯一身份定义
       effectivePrompt = effectivePrompt.replace(/^你是青剑，一个小说创作对话助手。\n\n?/, '')
       effectivePrompt = effectivePrompt.replace(/^你是青剑，小说创作对话助手。/, '')
+    }
+
+    // 注入当前项目信息 — 让 AI 知道项目名(用户称呼)和目录名(路径用)
+    if (pid) {
+      const storeState = useStore.getState()
+      const project = storeState.projects.find(p => p.id === pid)
+      const displayName = project?.name || pid
+      const displayHint = displayName !== pid
+        ? `项目名: ${displayName}  (目录名: ${pid})
+- 用户可能用"${displayName}"称呼本项目，你需理解这个词指向此项目
+- 文件路径以 "${pid}/" 开头，如 "${pid}/outline/"、"${pid}/chapters/"、"${pid}/summaries/"`
+        : `项目名: ${displayName}
+- 文件路径以 "${pid}/" 开头，如 "${pid}/outline/"、"${pid}/chapters/"、"${pid}/summaries/"`
+      effectivePrompt = `当前项目: ${displayHint}\n\n` + effectivePrompt
     }
 
     systemMessages.push({ role: 'system', content: effectivePrompt })

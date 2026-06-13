@@ -40,7 +40,7 @@ export interface ToolExecContext {
   abortSignal: AbortSignal
   messagesForApi: Message[]
   toolsUsed: string[]
-  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string }>
   emitter: AgentEventEmitter
   _consecutiveReads: number
   iteration: number
@@ -97,7 +97,7 @@ export async function executeSingleTool(
   result = await Promise.race([execPromise, timeoutPromise])
 
   const durationMs = Date.now() - t0
-  ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration })
+  ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments })
 
   // Emit result
   if (result.status === 'success') {

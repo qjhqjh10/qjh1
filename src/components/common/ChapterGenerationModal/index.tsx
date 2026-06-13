@@ -183,7 +183,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       const summary = await chatAI([{ role: 'user' as const, content: summaryPrompt }], genConfigId, activeProjectId)
       if (summary) {
         await saveSummary(`${projectsBasePath}/${activeProjectId}`, chapterId, summary)
-        chapterSummaryMap[chapterId] = summary
+        setChapterSummary(chapterId, summary)
       }
     } catch { /* non-critical */ }
   }

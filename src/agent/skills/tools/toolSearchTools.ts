@@ -17,6 +17,15 @@ export const CORE_TOOL_NAMES = new Set([
   'tool_search',
 ])
 
+// v12.6.0: 后续消息扩展工具集 — 首条全量34个，后续发这10个常用工具
+// create_project/delete_project/kb_* 低频使用，通过 tool_search 按需发现
+export const SUBSEQUENT_TOOL_NAMES = new Set([
+  ...CORE_TOOL_NAMES,
+  'find_files',
+  'batch_replace',
+  'rename_file',
+])
+
 export const toolSearchTools: ToolDefinition[] = [{
   schema: {
     name: 'tool_search',

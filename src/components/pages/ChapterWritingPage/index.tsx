@@ -94,6 +94,10 @@ export default function ChapterWritingPage() {
   const [genWordCount, setGenWordCount] = useState(0)
   const [genDragPos, setGenDragPos] = useState({ x: 0, y: 0 })
   const genAbortRef = useRef<(() => void) | null>(null)
+  const summaryLoadedRef = useRef('')
+  const summaryRef = useRef(summaryContent)
+  summaryRef.current = summaryContent
+  const [summaryError, setSummaryError] = useState('')
 
   // Use ref to avoid detailedChapters triggering chapter content reload
   const detailedChaptersRef = useRef(detailedChapters)
@@ -129,14 +133,18 @@ export default function ChapterWritingPage() {
     })
     // Load chapter summary from standalone file
     loadSummary(pp, chapterId).then(s => {
+      summaryLoadedRef.current = s
       if (s) {
         setSummaryContent(s)
         setChapterSummary(chapterId, s)
       } else {
         setSummaryContent('')
+        setChapterSummary(chapterId, '')
       }
     }).catch(() => {
+      summaryLoadedRef.current = ''
       setSummaryContent('')
+      setChapterSummary(chapterId, '')
     })
     // Load characters if not already in store
     if (characters.length === 0) {
@@ -266,11 +274,19 @@ export default function ChapterWritingPage() {
     })
   }
 
-  // Auto-save summary content (debounced 2s)
+  // Summary change handler — update both local state and global store
+  const handleSummaryChange = (content: string) => {
+    setSummaryContent(content)
+    setChapterSummary(chapterId!, content)
+  }
+
+  // Auto-save summary content (debounced 2s) — saves even when cleared to empty
   useEffect(() => {
-    if (!projectPath || !chapterId || !summaryContent) return
+    if (!projectPath || !chapterId) return
+    if (summaryContent === summaryLoadedRef.current) return
     const timer = setTimeout(() => {
       saveSummary(projectPath, chapterId, summaryContent).catch(err => logError('摘要自动保存失败', err))
+      summaryLoadedRef.current = summaryContent
     }, 2000)
     return () => clearTimeout(timer)
   }, [summaryContent])
@@ -278,6 +294,10 @@ export default function ChapterWritingPage() {
   // Save then navigate
   const saveAndNavigate = async (targetChapterId: string) => {
     await handleSave()
+    if (projectPath && chapterId && summaryRef.current !== summaryLoadedRef.current) {
+      await saveSummary(projectPath, chapterId, summaryRef.current).catch(err => logError('导航前摘要保存失败', err))
+      summaryLoadedRef.current = summaryRef.current
+    }
     setActivePage('chapter')
     setCurrentChapterId(targetChapterId)
     navigate(`/chapter/${targetChapterId}`)
@@ -286,16 +306,26 @@ export default function ChapterWritingPage() {
   const handleAIExtract = async () => {
     if (!activeConfigId || !detailedChapter || !content.trim()) return
     setAiLoading(true)
+    setSummaryError('')
     try {
       const templatePrompt = selectedSummaryTemplate || '请用简洁的语言总结以下章节内容的核心情节、人物发展和关键转折点。'
       const messages = [
-        { role: 'user' as const, content: `${templatePrompt}\n\n章节标题: ${detailedChapter.title}\n\n章节内容:\n${content}` },
+        { role: 'user' as const, content: `${templatePrompt}\n\n章节标题: ${detailedChapter.title}\n\n章节内容:\n${content.slice(0, 30000)}` },
       ]
       const summary = await chatAI(messages, activeConfigId)
+      if (!summary || !summary.trim()) {
+        setSummaryError('AI 未返回有效摘要，请重试')
+        setAiLoading(false)
+        return
+      }
       setSummaryContent(summary)
       setChapterSummary(detailedChapter.id, summary)
+      summaryLoadedRef.current = summary
       if (projectPath) await saveSummary(projectPath, detailedChapter.id, summary).catch(() => {})
-    } catch (err) { logError('AI extract failed', err) }
+    } catch (err) {
+      logError('AI extract failed', err)
+      setSummaryError('AI 提取摘要失败，请检查网络和 API 配置后重试')
+    }
     setAiLoading(false)
   }
 
@@ -448,7 +478,7 @@ export default function ChapterWritingPage() {
 
           <ChapterSummaryPanel
             summaryContent={summaryContent}
-            onSummaryChange={setSummaryContent}
+            onSummaryChange={handleSummaryChange}
             enabledSummaryTemplate={enabledSummaryTemplate}
             aiLoading={aiLoading}
             activeConfigId={activeConfigId || ''}
@@ -456,6 +486,11 @@ export default function ChapterWritingPage() {
             onShowTemplateModal={() => setShowSummaryTemplate(true)}
             onAIExtract={handleAIExtract}
           />
+          {summaryError && (
+            <div style={{ margin: '4px 16px 0', padding: '6px 10px', borderRadius: 6, background: 'rgba(220,38,38,0.06)', fontSize: 11, color: '#dc2626', lineHeight: 1.4 }}>
+              {summaryError}
+            </div>
+          )}
           <div style={{ margin: '0 16px', height: 1, background: 'rgba(0,0,0,0.04)' }} />
 
           {/* Chapter Navigation */}

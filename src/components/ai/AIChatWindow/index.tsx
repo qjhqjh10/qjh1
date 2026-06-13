@@ -327,24 +327,76 @@ export default function AIChatWindow() {
   // Build history messages for the bridge. Preserves tool context from the last
   // assistant turn so the model knows what it already explored when user says "继续".
   function buildHistoryMessages(msgs: Message[]) {
-    // Exclude welcome message, compression summaries, display-only, and tool messages
-    // (tool messages need tool_call_id which is stripped → use toolCallSteps summary instead)
+    // v12.6.0: 保留最近5轮工具调用完整记录，让AI从错误中学习
+    // 更早的轮次使用压缩摘要格式
+
+    // Step 1: Filter out welcome, compression summaries, display-only
+    const PRESERVE_TOOL_TURNS = 5  // 保留最近5个user turn的完整工具记录
     let filtered = msgs.filter(m =>
-      (m.role === 'user' || m.role === 'assistant')
-      && !String(m.id).startsWith('welcome')
+      !String(m.id).startsWith('welcome')
       && !(m as any).compressedSummary
       && !(m as any).displayOnly
     )
-    // I6: Keep only last 20 user messages to prevent history bloat
-    if (filtered.length > 40) {
-      const userIndices: number[] = []
+
+    // Step 2: Identify last N user turns
+    const userIndices: number[] = []
+    filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
+
+    // Cap total user messages
+    if (userIndices.length > 20) {
+      const cutoff = userIndices[userIndices.length - 20]
+      filtered = filtered.slice(cutoff)
+      // Recalculate user indices
+      userIndices.length = 0
       filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
-      if (userIndices.length > 20) filtered = filtered.slice(userIndices[userIndices.length - 20])
     }
-    // Build history: for assistant messages that had tool calls, inject tool summary
-    // from toolCallSteps (set by onComplete) so model knows what it already did
-    const result: Array<{ role: string; content: string }> = []
+
+    // Determine which user turns to preserve tool details for
+    const preserveStartIdx = userIndices.length > PRESERVE_TOOL_TURNS
+      ? userIndices[userIndices.length - PRESERVE_TOOL_TURNS]
+      : 0
+
+    const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string }> = []
+
     for (const m of filtered) {
+      const msgIdx = filtered.indexOf(m)
+
+      // ── Preserve mode: 最近5轮 → 保留完整 tool_calls + tool results ──
+      if (msgIdx >= preserveStartIdx) {
+        if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+          // Keep assistant message with tool_calls intact
+          result.push({
+            role: 'assistant',
+            content: m.content || '',
+            tool_calls: m.tool_calls,
+          })
+          // Find and append corresponding tool result messages from original msgs
+          const tcIds = new Set(m.tool_calls.map(tc => tc.id))
+          for (const origMsg of msgs) {
+            if (origMsg.role === 'tool' && origMsg.tool_call_id && tcIds.has(origMsg.tool_call_id)) {
+              result.push({
+                role: 'tool',
+                tool_call_id: origMsg.tool_call_id,
+                content: origMsg.content || '{}',
+              })
+            }
+          }
+          continue
+        }
+        if (m.role === 'assistant') {
+          // Assistant message without tool_calls — pass through
+          result.push({ role: 'assistant', content: m.content || '' })
+          continue
+        }
+        if (m.role === 'user') {
+          result.push({ role: 'user', content: m.content || '' })
+          continue
+        }
+        // Skip standalone tool messages (they're attached to their parent assistant)
+        continue
+      }
+
+      // ── Compress mode: 更早的轮次 → 压缩摘要（原有逻辑）──
       if (m.role === 'assistant') {
         const steps = (m as any).toolCallSteps as Array<{ tool: string; status: string; summary: string }> | undefined
         if (steps && steps.length > 0) {
@@ -362,8 +414,11 @@ export default function AIChatWindow() {
           continue
         }
       }
-      result.push({ role: m.role, content: m.content })
+      if (m.role === 'user' || m.role === 'assistant') {
+        result.push({ role: m.role, content: m.content || '' })
+      }
     }
+
     return result
   }
 

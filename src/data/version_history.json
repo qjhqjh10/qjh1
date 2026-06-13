@@ -1,7 +1,37 @@
 {
-  "currentVersion": "12.9.0",
+  "currentVersion": "12.10.0",
   "currentDate": "2026-06-13",
   "history": [
+    {
+      "version": "12.10.0",
+      "date": "2026-06-13",
+      "features": [
+        "工具精简: 移除think工具(34工具),AI自身推理能力替代",
+        "Nudge系统重构: 3阶段梯度升级(温和→强制→注入),7次才放弃(原3次)",
+        "Nudge消息智能化: 根据用户意图推荐正确工具(create_project/delete_file/rename_file)",
+        "路径错误自动诊断: 检测projects/前缀等模式,单次失败即注入修正建议,连续2次强制目录诊断",
+        "连续路径错误独立计数: 不受部分成功归零影响",
+        "Prompt决策树扩展: 5分支→7分支(新增分支1B讨论查看/分支5信息检索/分支6文件整理)",
+        "操作失败处理重写: 从被动询问→连续自主恢复循环(失败→分析→学习→重试,不停下)",
+        "分支4探索限制: 最多读3个关键文件,读完即写,空文件直接创建",
+        "Prompt工具覆盖率: 25%→100%(新增扩展工具速查,覆盖32个工具),tool_search机制首次引入",
+        "项目名动态注入: BridgeContextBuilder注入项目显示名+目录名,AI理解用户称呼",
+        "后续消息工具集优化: 7→10常用工具,闲聊消息0工具",
+        "_userRequestedFileOp两层检测: 精确正则+TASK_KEYWORDS兜底,消除6个盲区",
+        "对话历史保留工具调用: 最近5轮完整tool_calls+tool_results保留,早前轮次压缩",
+        "Minimal Prompt强化: 40→80+tokens,包含路径格式+tool_search+自主恢复指引",
+        "Prompt内部矛盾修复: 4处(A-0vsA/多任务/双路径/FULL_REPLACE),快速判断关键词对齐",
+        "风格模板工作流完整重写: 5子流程(获取原文→分析→生成模板→PromptTXT→查看编辑)",
+        "格式模板路径修正: 15+17实际计数,区分用户模板与格式参考模板,find_files发现",
+        "批量替换指引: 文件操作指南+batch_replace效率提示",
+        "创建项目直接指令: 明确create_project参数(name/type/novelCategory),首条直接可用",
+        "摘要功能全面修复: Zustand直接修改→setter/手动编辑同步store/清空保存/空值loading修复/内容截断",
+        "plot.md/worldbuilding.md初始占位文字改为空白",
+        "章节/角色/笔记/知识库: 增加删除/重命名/修改等生命周期指引",
+        "联网搜索结果保存: browser_search→create_file存为草稿或知识库",
+        "tool_search作为核心机制引入Prompt,15个格式模板路径全部列出"
+      ]
+    },
     {
       "version": "12.9.0",
       "date": "2026-06-13",

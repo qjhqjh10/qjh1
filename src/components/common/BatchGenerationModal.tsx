@@ -145,7 +145,7 @@ export default function BatchGenerationModal({
       const summary = await chatAI([{ role: 'user' as const, content: summaryPrompt }], genConfigId, activeProjectId)
       if (summary) {
         await saveSummary(`${projectsBasePath}/${activeProjectId}`, chapterId, summary)
-        chapterSummaryMap[chapterId] = summary
+        useStore.getState().setChapterSummary(chapterId, summary)
       }
     } catch { /* non-critical, continue */ }
   }

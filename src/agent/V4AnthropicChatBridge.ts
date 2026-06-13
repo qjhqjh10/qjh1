@@ -146,11 +146,22 @@ export class V4AnthropicChatBridge {
       }, adapter)
 
       // ── 2.5. 工具准备 ──
-      // v11.7.1: 首条发全量，后续只发核心7个（含tool_search按需发现扩展工具）
-      const { CORE_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      // v12.6.0: 首条全量34个，后续根据消息类型选择工具数量
+      const { CORE_TOOL_NAMES, SUBSEQUENT_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
+      const { isPureGreeting } = await import('./utils/taskDetection')
       const schemas = toolRegistry.getAllSchemas()
       const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
-      this.runtime.setTools(this._fullPromptSent ? coreTools : schemas)
+      const subsequentTools = schemas.filter(s => SUBSEQUENT_TOOL_NAMES.has(s.function.name))
+
+      let toolsToSend: unknown[]
+      if (!this._fullPromptSent) {
+        toolsToSend = schemas  // 首条: 全量 34 个
+      } else if (isPureGreeting(userMessage)) {
+        toolsToSend = []       // 闲聊: 0 个工具
+      } else {
+        toolsToSend = subsequentTools  // 有操作意图: 10 个
+      }
+      this.runtime.setTools(toolsToSend)
 
       // ── 3. 注入 Context Assembler ──
       const CORE_PROMPT = buildSystemPrompt()

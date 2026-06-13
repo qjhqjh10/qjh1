@@ -14,11 +14,10 @@ import { httpTools } from './httpTools'
 import { browserTools } from './browserTools'
 import { shellTools } from './shellTools'
 import { lspTools } from './lspTools'
-import { thinkTools } from './thinkTools'
 import { toolSearchTools, CORE_TOOL_NAMES } from './toolSearchTools'
 import type { ToolDefinition } from '../types'
 
-// v11.7.1: 34+1=tool_search。核心7个每轮发，其余通过tool_search按需发现。
+// v12.6.1: 33+1=tool_search（移除 think 工具）。核心7个每轮发，其余通过tool_search按需发现。
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools
@@ -33,12 +32,11 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...browserTools,   // 2 tools
   ...shellTools,     // 2 tools
   ...lspTools,       // 1 tool
-  ...thinkTools,     // 1 tool
   ...toolSearchTools, // 1 tool: tool_search
 ]
 
 export {
   fileTools, kbTools, noteTools, imageTools, templateTools,
   projectTools, promptTools, harnessTools, httpTools, browserTools,
-  shellTools, lspTools, thinkTools, toolSearchTools,
+  shellTools, lspTools, toolSearchTools,
 }

@@ -398,9 +398,9 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具注册 ──
-  it('功能08: ToolRegistry — 35个工具全部可用 (v11.7.1: +tool_search)', () => {
+  it('功能08: ToolRegistry — 34个工具全部可用 (v12.6.1: -think)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(32)
+    expect(names.length).toBeGreaterThanOrEqual(30)
     expect(names).toContain('read_file')
     expect(names).toContain('create_file')
     expect(names).toContain('edit_file')

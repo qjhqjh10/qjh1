@@ -8,7 +8,7 @@ import { ContextCompressor } from '../context/ContextCompressor'
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
 import { executeSingleTool, classifyToolCalls } from './ToolExecutor'
-import { isKnowledgeOnly } from '../utils/taskDetection'
+import { isKnowledgeOnly, hasTaskKeywords } from '../utils/taskDetection'
 import type {
   V4AgentConfig,
   V4AgentRunInput,
@@ -32,6 +32,7 @@ export class V4UnifiedRuntime {
   private toolCallSteps: Array<{
     tool: string; status: string; summary: string
     durationMs: number; iteration: number
+    arguments?: string
   }> = []
   private compressor: ContextCompressor
   private compressedAt = 0
@@ -39,6 +40,7 @@ export class V4UnifiedRuntime {
   private _consecutiveReads = 0
   private _nudgeCount = 0       // v11.5.1: prevent infinite nudge loop
   private _consecutiveFailures = 0  // v12.4.0: detect path failure loops
+  private _consecutivePathErrors = 0  // v12.6.0: track path-specific errors separately
   private _userMessage = ''
   private _userRequestedFileOp = false  // v4: 用户是否明确要求文件操作
 
@@ -106,9 +108,13 @@ export class V4UnifiedRuntime {
     this._consecutiveReads = 0
     this._nudgeCount = 0      // reset per run
     this._consecutiveFailures = 0
+    this._consecutivePathErrors = 0
     this._userMessage = input.userMessage
-    // v4: 检测用户是否明确要求文件创建/修改（用于 Nudge 强化）
-    this._userRequestedFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要文件]|写.*[章节章入到成]|填充|追加|新建|create|save|write|edit|改成|输出.*[文件角色信息]|把.*写|整理成.*文件|导出|建一个)/.test(input.userMessage)
+    // v12.6.0: 两层检测文件操作意图（用于 Nudge 强化）
+    // 层1: 精确正则 — 明确的操作动词
+    const _explicitFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要文件]|写.*[章节章入到成个篇段名]|填充|追加|新建|create|save|write|edit|改成|输出.*[文件角色信息]|把.*写|整理成.*文件|导出|建一个|帮我.*(?:写|创建|生成|做|加|改|弄)|(?:添加|新增|补充|加入).*(?:一个|个|些|入|到|进))/.test(input.userMessage)
+    // 层2: 宽关键词兜底 — 精确正则没命中但有任务意图 → 也开启激进nudge
+    this._userRequestedFileOp = _explicitFileOp || hasTaskKeywords(input.userMessage)
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
     // v12.5.1: 阶段感知温度 — 初始为创作阶段
@@ -262,26 +268,58 @@ export class V4UnifiedRuntime {
         const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
         if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
 
-        // ── v4: 用户要求文件操作但模型没调用写工具 → 不接受纯文本，推动写入 ──
-        if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 3 && collectedText.length > 0) {
-          // Emit the text first so user sees what model said, then push for file op
+        // ── v12.6.0: 梯度升级 Nudge — 废除3次后break，改为三阶段梯度升级 ──
+        if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 7 && collectedText.length > 0) {
+          // Emit the text first so user sees what model said
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
           const userReq = this._userMessage.length > 150
             ? this._userMessage.slice(0, 150) + '…'
             : this._userMessage
-          const msgs = [
-            `⚠️ 用户要求操作文件：「${userReq}」。你已读取了相关文件，现在必须调用 create_file 或 edit_file 执行。不要只输出文字描述——文字描述不算完成。`,
-            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 create_file 或 edit_file 写入内容。说"我会创建…"不算数——必须实际调用工具。`,
-            `⚠️ 最后一次：用户要求「${userReq}」。现在必须调用 create_file 或 edit_file。如果确实不想写，请回复"已完成"并说明原因。`,
+
+          // v12.6.1: 根据用户意图推荐正确的工具
+          const _isCreateProject = /创建.*项目|新建.*项目|建.*项目|创建一个.*项目/.test(this._userMessage)
+          const _isDelete = /删除|删掉|移除/.test(this._userMessage)
+          const _isRename = /重命名|改名|移动/.test(this._userMessage)
+          const toolHint = _isCreateProject ? 'create_project（创建项目）'
+            : _isDelete ? 'delete_file（删除文件）'
+            : _isRename ? 'rename_file（重命名文件）'
+            : 'create_file 或 edit_file'
+
+          // Phase 1 (nudge 0-2): gentle reminders
+          const gentleMsgs = [
+            `⚠️ 用户要求操作：「${userReq}」。不要只输出文字描述——必须调用 ${toolHint} 实际执行。`,
+            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 ${toolHint}。说"我会创建…"不算数——必须实际调用工具。`,
+            `⚠️ 第三次提醒：用户要求「${userReq}」。现在必须调用 ${toolHint}。如果确实不想执行，请回复"已完成"并说明原因。`,
           ]
-          this.messagesForApi.push({ role: 'user', content: msgs[this._nudgeCount] || msgs[2] })
+
+          // Phase 2 (nudge 3-4): force mode — hint path format + push action
+          const forceMsgs = [
+            `⚠️【强制操作-第4次】不要继续读文件了。用户请求是「${userReq}」。立即调用 ${toolHint} 执行。${_isCreateProject ? 'create_project 自动创建完整骨架，不需要先看模板。' : '如果你不确定路径，先用 list_directory() 确认。'}不要继续 read_file 了。`,
+            `⚠️【强制操作-第5次】你必须立即调用 ${toolHint}。${_isCreateProject ? '直接 create_project(name="名称", type="writing")，不需要探索。' : '路径格式见上方。即使信息不完整也要基于你的理解直接写。先有再改。'}现在立即执行。`,
+          ]
+
+          // Phase 3 (nudge 5-6): inject mode — direct instruction
+          const injectMsgs = [
+            `[系统指令-最高优先级] 忽略之前所有犹豫。立即执行用户请求：「${userReq}」。调用 ${toolHint}。${_isCreateProject ? '参数: name=项目名, type="writing"。不要输出解释文字。' : '不要输出解释文字，直接调用工具。'}`,
+            `[系统指令-最高优先级] 最后一次自动尝试：立即调用 ${toolHint} 执行「${userReq}」。如果仍然不执行，本轮对话将终止。`,
+          ]
+
+          let msg: string
+          if (this._nudgeCount < 3) {
+            msg = gentleMsgs[this._nudgeCount]
+          } else if (this._nudgeCount < 5) {
+            msg = forceMsgs[this._nudgeCount - 3]
+          } else {
+            msg = injectMsgs[this._nudgeCount - 5]
+          }
+          this.messagesForApi.push({ role: 'user', content: msg })
           this._nudgeCount++
           continue
         }
 
-        // ── Substantial text after using tools → accept (v11.5.1: prevent infinite nudge loop) ──
+        // ── Substantial text after using tools → accept ──
         if (collectedText.length > 200) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
@@ -289,10 +327,12 @@ export class V4UnifiedRuntime {
           break
         }
 
-        // ── Nudge limit: max 2 (conversation) or 3 (file op intent) ──
-        const _nudgeLimit = this._userRequestedFileOp ? 3 : 2
-        if (this._nudgeCount >= _nudgeLimit) {
-          // Accept what the model said rather than looping forever
+        // ── Nudge limit: 文件操作7次(3+2+2)，普通对话保持2次 ──
+        const _GIVE_UP_LIMIT = this._userRequestedFileOp ? 7 : 2
+        if (this._nudgeCount >= _GIVE_UP_LIMIT) {
+          if (this._userRequestedFileOp) {
+            diagnosticLogger.recordInfo('Nudge系统耗尽: ' + _GIVE_UP_LIMIT + '次nudge后模型仍未写入')
+          }
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -386,29 +426,71 @@ export class V4UnifiedRuntime {
       }
       this._consecutiveReads = execCtx._consecutiveReads
 
-      // v12.4.0: 连续失败检测 — 防止任何原因导致的工具失败死循环
+      // v12.6.0: 分级失败检测 + 路径错误单独追踪 + 自动目录诊断
+      const PATH_ERROR_RE = /ENOENT|文件不存在|not found|no such file|路径|directory|path/i
       const allToolCalls = [...readOnlyCalls, ...writeCalls]
       if (allToolCalls.length > 0) {
-        const thisIterationFailed = allToolCalls.every(tc => {
+        // ── 分类统计 ──
+        const thisIterationFullFailed = allToolCalls.every(tc => {
           const step = this.toolCallSteps.find(s => s.tool === tc.name && s.iteration === iteration)
           return step?.status === 'error'
         })
-        if (thisIterationFailed) {
+        let pathErrorsThisIteration = 0
+        let lastFailedPath = ''
+        allToolCalls.forEach(tc => {
+          const step = this.toolCallSteps.find(s => s.tool === tc.name && s.iteration === iteration)
+          if (step?.status === 'error' && PATH_ERROR_RE.test(step.summary)) {
+            pathErrorsThisIteration++
+            // Extract failed path from arguments for diagnostic
+            try { const a = JSON.parse(step.arguments || '{}'); lastFailedPath = a.file_path || a.dir_path || lastFailedPath } catch {}
+          }
+        })
+
+        // ── 连续全失败计数（保持兼容）──
+        if (thisIterationFullFailed) {
           this._consecutiveFailures++
         } else {
           this._consecutiveFailures = 0
         }
-        // 干预 1: 连续 3 次失败 → 提醒 AI 停止重复尝试，转向询问用户
-        if (this._consecutiveFailures === 3) {
+
+        // ── 路径错误单独计数（不受部分成功归零影响）──
+        if (pathErrorsThisIteration > 0) {
+          this._consecutivePathErrors += pathErrorsThisIteration
+        } else if (writeCalls.length > 0) {
+          this._consecutivePathErrors = 0  // 写操作成功→重置
+        }
+        // 注意: 只读成功+只读路径失败 不重置 _consecutivePathErrors
+
+        // ── 干预 0: 单次路径失败 → 快速提示，不中断流程 ──
+        if (pathErrorsThisIteration === 1 && lastFailedPath) {
+          const hasProjectPrefix = lastFailedPath.includes('projects/')
+          const hint = hasProjectPrefix
+            ? `路径错误：不要用 "projects/" 前缀。直接用项目名开头，如 "${this.config.projectId || '项目名'}/outline/plot.md"。修正后继续。`
+            : `路径 "${lastFailedPath}" 未找到。list_directory() 看目录结构，修正后继续。不要停下来向我汇报。`
+          this.messagesForApi.push({ role: 'user', content: `⚠️ ${hint}` })
+        }
+
+        // ── 干预 1: 连续 2 次路径错误 → 强制诊断，仍然继续 ──
+        if (this._consecutivePathErrors >= 2) {
+          this.messagesForApi.push({
+            role: 'user',
+            content: `已连续 ${this._consecutivePathErrors} 次路径错误。立即 list_directory() 看目录结构——看完你就知道正确路径了。不要停，继续。`,
+          })
+          this._consecutivePathErrors = 0
+        }
+
+        // ── 干预 2: 连续 5 次全失败 → 提醒 AI 自主恢复 ──
+        if (this._consecutiveFailures === 5) {
           const recentErrors = this.toolCallSteps.filter(s => s.status === 'error').slice(-3)
             .map(s => s.tool + ': ' + s.summary).join('\n')
           this.messagesForApi.push({
             role: 'user',
-            content: '⚠️ 已连续 ' + this._consecutiveFailures + ' 轮工具调用全部失败。这说明当前操作方式可能有问题——不要继续重复同样的尝试了。\n\n最近的错误：\n' + recentErrors + '\n\n请直接询问用户，获取更具体的信息（如准确的文件路径、操作意图、目标内容），或者提出替代方案（如让用户粘贴内容到对话中、列出可用文件让用户选择、改用其他方式完成任务）。',
+            content: '⚠️ 已连续 ' + this._consecutiveFailures + ' 轮工具调用全部失败。最近的错误：\n' + recentErrors + '\n\n请先 list_directory() 了解目录结构，然后换一种完全不同的方法重试。如果所有方法都失败，直接输出文字回复告知用户。',
           })
         }
-        // 干预 2: 连续 5 次失败 → 强制终止循环，兜底回复
-        if (this._consecutiveFailures >= 5) {
+
+        // ── 干预 3: 连续 8 次全失败 → 强制终止 ──
+        if (this._consecutiveFailures >= 8) {
           const failedTools = this.toolCallSteps.filter(s => s.status === 'error').slice(-3)
             .map(s => s.tool + ': ' + s.summary).join('; ')
           collectedText = '抱歉，连续 ' + this._consecutiveFailures + ' 次工具调用都失败了。最近的错误：' + failedTools + '。\n\n请给我更具体的信息——比如准确的文件路径、你想做什么操作，或者直接把相关的内容粘贴到对话中，我来帮你处理。'
