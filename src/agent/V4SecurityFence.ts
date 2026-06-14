@@ -100,6 +100,17 @@ export class V4SecurityFence {
     const isJson = fp.endsWith('.json')
     if (!isYaml && !isJson) return { allowed: true, needsApproval: false }
 
+    // v12.13.0: edit_file 局部替换跳过格式校验
+    // new_string 是替换片段（非完整文档），独立解析必然失败
+    // 仅当 old_string 为非空且非 __FULL_REPLACE__ 时才确认是局部替换
+    if (toolName === 'edit_file') {
+      const oldStr = args.old_string as string | undefined
+      if (oldStr != null && oldStr !== '' && oldStr !== '__FULL_REPLACE__') {
+        return { allowed: true, needsApproval: false }
+      }
+      // old_string 缺失/为空/为 __FULL_REPLACE__ → 继续校验（可能是全量覆盖）
+    }
+
     const content = String(args.content || args.new_string || '')
     if (!content) return { allowed: true, needsApproval: false }
 

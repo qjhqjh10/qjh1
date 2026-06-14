@@ -159,26 +159,28 @@ export default function OutlinePage() {
   // AI direct edit via edit_file → reload editor with clean content
   useEffect(() => {
     if (!fileEditNotify || !projectPath) return
+    // fileEditNotify.filePath is project-relative (e.g. "1/outline/plot.md")
+    // Build relative paths for comparison instead of absolute paths
     const normalized = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
     const pp = projectPath.replace(/\\/g, '/').toLowerCase()
-    const outlinePath = `${pp}/outline/plot.md`
-    const outlineJsonPath = `${pp}/outline/plot.json` // backward compat
-    const outlineLegacyPath = `${pp}/outline/outline.json` // backward compat
-    const wbPath = `${pp}/outline/worldbuilding.md`
-    const wbJsonPath = `${pp}/outline/worldbuilding.json` // backward compat
-    const metaPath = `${pp}/outline/outline_meta.yaml`
-    const itemsPath = `${pp}/outline/items.yaml`
-    const locationsPath = `${pp}/outline/locations.yaml`
-    const factionsPath = `${pp}/outline/factions.yaml`
-    const powerPath = `${pp}/outline/power_system.yaml`
-    const emotionPath = `${pp}/outline/emotion.yaml`
+    const projectName = pp.split('/').filter(Boolean).pop() || ''
+    const rel = (sub: string) => `${projectName}/${sub}`.toLowerCase()
+    const outlinePath = rel('outline/plot.md')
+    const outlineLegacyPath = rel('outline/outline.json')
+    const wbPath = rel('outline/worldbuilding.md')
+    const metaPath = rel('outline/outline_meta.yaml')
+    const itemsPath = rel('outline/items.yaml')
+    const locationsPath = rel('outline/locations.yaml')
+    const factionsPath = rel('outline/factions.yaml')
+    const powerPath = rel('outline/power_system.yaml')
+    const emotionPath = rel('outline/emotion.yaml')
 
     let handled = false
-    if (normalized === outlinePath || normalized === outlineJsonPath || normalized === outlineLegacyPath) {
+    if (normalized === outlinePath || normalized === outlineLegacyPath) {
       handled = true
       loadOutlineContent(projectPath).then(setOutlineContent)
       fileService.read(`${pp}/outline/plot.md`).then(c => setRawOutline(c)).catch(() => {})
-    } else if (normalized === wbPath || normalized === wbJsonPath) {
+    } else if (normalized === wbPath) {
       handled = true
       loadWorldbuildingContent(projectPath).then(setWorldbuildingContent)
       fileService.read(`${pp}/outline/worldbuilding.md`).then(c => setRawWorldbuilding(c)).catch(() => {})

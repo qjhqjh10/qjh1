@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useStore, useSettingsStore } from "@/store";
 import { aiService, kbService, fileService, templateService, styleTemplateService, settingsService } from "@/services/fileService";
 import { chatAIWithUsage, chatAIStream, chatAI } from "@/utils/chatAI";
@@ -11,6 +11,7 @@ import { SparklesIcon, BookOpenIcon } from "@heroicons/react/24/outline";
 import type { DetailedChapter } from "@/types/chapter";
 import type { SceneTemplate } from "@/types/story";
 import { logError } from "@/utils/logger";
+import { htmlToPlainText } from "@/utils/textUtils";
 import { STATUS_LABELS, checkLabel, checkInput, miniActionLink, cardStyle, cardHeaderStyle } from "./constants";
 import type { VersionRecord, ChapterGenProps } from "./types";
 import { saveVersionRecord } from "./versionManager";
@@ -95,11 +96,39 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [selectedStyleTemplateId, setSelectedStyleTemplateId] = useState(cg.selectedStyleTemplateId)
   const selectedStyleTemplate = selectedStyleTemplateId ? styleTemplates.find((t: any) => t.id === selectedStyleTemplateId) : null
 
+  // 前文注入 state
+  const [prevTextEnabled, setPrevTextEnabled] = useState(cg.prevTextEnabled ?? true)
+  const [prevTextSourceChapterId, setPrevTextSourceChapterId] = useState(cg.prevTextSourceChapterId ?? '')
+  const [prevTextSelectedContent, setPrevTextSelectedContent] = useState(cg.prevTextSelectedContent ?? '')
+  const [prevTextModalOpen, setPrevTextModalOpen] = useState(false)
+  // 弹窗内：章节全文（异步加载）
+  const [prevTextFullContent, setPrevTextFullContent] = useState('')
+  const [prevTextFullLoading, setPrevTextFullLoading] = useState(false)
+  const [prevTextFullError, setPrevTextFullError] = useState('')
+  // 弹窗内：鼠标实时选中字数
+  const [prevTextSelectionCount, setPrevTextSelectionCount] = useState(0)
+  const prevTextSelectionRef = useRef('')
+  // 注入模式：手动选择 vs 自动选择结尾
+  const [prevTextInjectionMode, setPrevTextInjectionMode] = useState<'manual' | 'autoEnding'>('manual')
+  const [prevTextAutoEndingCount, setPrevTextAutoEndingCount] = useState(1000)
+
+  // 前文注入：解析生效的源章节 ID（空=自动选 N-1）
+  const effectiveSourceChapterId = useMemo(() => {
+    if (prevTextSourceChapterId) {
+      const found = prevChapters.find(c => c.id === prevTextSourceChapterId)
+      if (found) return prevTextSourceChapterId
+    }
+    const nMinus1 = prevChapters.find(c => c.order === (currentChapter?.order ?? 0) - 1)
+    return nMinus1?.id ?? ''
+  }, [prevTextSourceChapterId, currentChapter, prevChapters])
+  const effectiveSourceChapter = detailedChapters.find(c => c.id === effectiveSourceChapterId)
+
   // Persist settings whenever user changes them
   useEffect(() => { updateCg({ outlineTabs, detailedOutlineFields }) }, [outlineTabs, detailedOutlineFields])
   useEffect(() => { updateCg({ wordTarget, streamMode, replaceMode }) }, [wordTarget, streamMode, replaceMode])
   useEffect(() => { updateCg({ selectedCharacterIds: [...selectedCharacterIds], selectedSummaryIds: [...selectedSummaryIds], selectedKbFileIds: [...selectedKbFileIds] }) }, [selectedCharacterIds, selectedSummaryIds, selectedKbFileIds])
   useEffect(() => { updateCg({ selectedSceneId, selectedStyleTemplateId }) }, [selectedSceneId, selectedStyleTemplateId])
+  useEffect(() => { updateCg({ prevTextEnabled, prevTextSourceChapterId, prevTextSelectedContent }) }, [prevTextEnabled, prevTextSourceChapterId, prevTextSelectedContent])
 
   useEffect(() => {
     if (isOpen) {
@@ -128,6 +157,24 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       templateService.list().then(list => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => {})
     }
   }, [fileEditNotify])
+
+  // 前文注入文字选择弹窗：打开时加载章节全文
+  useEffect(() => {
+    if (!prevTextModalOpen || !effectiveSourceChapterId || !activeProjectId || !projectsBasePath) return
+    setPrevTextFullLoading(true)
+    setPrevTextFullError('')
+    setPrevTextFullContent('')
+    setPrevTextSelectionCount(0)
+    prevTextSelectionRef.current = ''
+    const pp = `${projectsBasePath}/${activeProjectId}`
+    fileService.read(`${pp}/chapters/${effectiveSourceChapterId}.txt`).then(text => {
+      setPrevTextFullContent(htmlToPlainText(text || ''))
+      setPrevTextFullLoading(false)
+    }).catch(e => {
+      setPrevTextFullError('读取失败: ' + (e instanceof Error ? e.message : '未知错误'))
+      setPrevTextFullLoading(false)
+    })
+  }, [prevTextModalOpen, effectiveSourceChapterId])
 
   const selectedScene = selectedSceneId ? sceneTemplates.find(t => t.id === selectedSceneId) : null
 
@@ -227,7 +274,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       let styleRuleTemplate: any = undefined
       if (selectedStyleTemplateId) {
         try {
-          const { styleTemplateService } = await import('@/services/fileService')
           const saved = await styleTemplateService.readPrompt(selectedStyleTemplateId)
           if (saved) stylePromptOverride = saved
           // Load rule template bound to this style template
@@ -238,6 +284,15 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         } catch {}
       }
 
+      // 前文注入：取用户选中的原文内容
+      let prevTextInjection: { chapterLabel: string; selectedContent: string } | undefined
+      if (prevTextEnabled && prevTextSelectedContent?.trim() && effectiveSourceChapter) {
+        prevTextInjection = {
+          chapterLabel: `第${effectiveSourceChapter.order + 1}章 ${effectiveSourceChapter.title || ''}`,
+          selectedContent: prevTextSelectedContent.trim(),
+        }
+      }
+
       let prompt = buildPrompt({
         outlineTabs, detailedOutlineFields, outlineContent, worldbuildingContent,
         selectedCharacterIds, characters, currentChapter,
@@ -245,7 +300,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         selectedKbFileIds, selectedScene, selectedStyleTemplateId,
         selectedStyleTemplate, styleStrength: cg.styleStrength || 'normal',
         stylePromptOverride, styleRuleTemplate,
-        chapterPrompt, wordTarget, replaceMode
+        chapterPrompt, wordTarget, replaceMode,
+        prevTextInjection,
       })
       const kbSearchQuery = [currentChapter?.description?.slice(0, 200), ...selectedCharacterIds].filter(Boolean).join(' ')
       prompt = await injectKBContents(prompt, selectedKbFileIds, kbSearchQuery, activeProjectId || undefined, genConfigId)
@@ -422,66 +478,146 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           }}>×</button>
         </div>
 
-        {/* === SECTION 1: Dimensions (combined: outline + detailed) === */}
-        <div className="section-card" style={{ padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)', flexShrink: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
-            关联大纲和细纲
+        {/* === SECTION 1: 关联大纲和细纲 (左) + 前文注入 (右) === */}
+        <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
+          {/* 左 50%：关联大纲和细纲 */}
+          <div className="section-card" style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
+              关联大纲和细纲
+            </div>
+            {/* Outline tabs — all on one line */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>大纲</span>
+                <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
+                <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {([
+                  ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
+                  ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
+                  ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
+                  ['plotThreads', '故事线'],
+                ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
+                  <label key={key} className="chip-check" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
+                    fontSize: 12, cursor: 'pointer',
+                    background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
+                    border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                    color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
+                    fontWeight: outlineTabs[key] ? 600 : 400,
+                  }}>
+                    <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={checkInput} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            {/* Detailed outline fields */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38' }}>细纲</span>
+                <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
+                <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {([
+                  ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
+                  ['location', '场景地点'], ['keyEvents', '关键事件'],
+                  ['eroticContent', '情色剧情'],
+                ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
+                  <label key={key} className="chip-check" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
+                    fontSize: 12, cursor: 'pointer',
+                    background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
+                    border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                    color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
+                    fontWeight: detailedOutlineFields[key] ? 600 : 400,
+                  }}>
+                    <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={checkInput} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
-          {/* Outline tabs — all on one line */}
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>大纲</span>
-              <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
-              <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
+
+          {/* 右 50%：前文注入 */}
+          <div className="section-card" style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(59,130,246,0.015), rgba(96,165,250,0.02))', border: '1px solid rgba(59,130,246,0.08)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
+              前文注入
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {([
-                ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
-                ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
-                ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
-                ['plotThreads', '故事线'],
-              ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
-                <label key={key} className="chip-check" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
-                  fontSize: 12, cursor: 'pointer',
-                  background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
-                  border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
-                  color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
-                  fontWeight: outlineTabs[key] ? 600 : 400,
-                }}>
-                  <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={checkInput} />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-          {/* Detailed outline fields */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38' }}>细纲</span>
-              <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
-              <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {([
-                ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
-                ['location', '场景地点'], ['keyEvents', '关键事件'],
-                ['eroticContent', '情色剧情'],
-              ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
-                <label key={key} className="chip-check" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
-                  fontSize: 12, cursor: 'pointer',
-                  background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
-                  border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
-                  color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
-                  fontWeight: detailedOutlineFields[key] ? 600 : 400,
-                }}>
-                  <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={checkInput} />
-                  {label}
-                </label>
-              ))}
-            </div>
+            {/* 启用开关 */}
+            <label style={{ ...checkLabel, fontSize: 12, gap: 4, marginBottom: 10, display: 'inline-flex' }}>
+              <input type="checkbox" checked={prevTextEnabled} onChange={() => setPrevTextEnabled(!prevTextEnabled)} style={checkInput} />
+              启用前文衔接
+            </label>
+            {prevTextEnabled && prevChapters.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#f59e0b', padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', lineHeight: 1.4 }}>
+                ⚠️ 这是第一章，无前文章节可注入
+              </div>
+            ) : prevTextEnabled ? (
+              <>
+                {/* 来源章节下拉 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>来源章节:</span>
+                  <select
+                    value={effectiveSourceChapterId}
+                    onChange={e => {
+                      setPrevTextSourceChapterId(e.target.value)
+                      setPrevTextSelectedContent('')
+                    }}
+                    style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 12, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', minWidth: 0 }}
+                  >
+                    {prevChapters.map(c => (
+                      <option key={c.id} value={c.id}>第{c.order + 1}章: {c.title || '未命名'}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* 已选内容预览 */}
+                {prevTextSelectedContent ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 3 }}>已选内容:</div>
+                    <div style={{
+                      padding: '8px 10px', borderRadius: 8, background: '#fff',
+                      border: '1px solid rgba(59,130,246,0.12)', fontSize: 11, lineHeight: 1.5,
+                      color: '#4a3f38', maxHeight: 60, overflow: 'hidden', position: 'relative',
+                    }}>
+                      {prevTextSelectedContent.slice(0, 80)}{prevTextSelectedContent.length > 80 ? '…' : ''}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                        <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 600 }}>共 {prevTextSelectedContent.length} 字</span>
+                        <button onClick={() => setPrevTextSelectedContent('')} style={{ ...miniActionLink, fontSize: 10, color: '#9b8e84' }}>清除选择</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 8 }}>尚未选择内容 — 点击下方按钮用鼠标选中文字</div>
+                )}
+                {/* 选择内容按钮 */}
+                <button
+                  onClick={() => {
+                    setPrevTextFullContent('')
+                    setPrevTextFullLoading(false)
+                    setPrevTextFullError('')
+                    setPrevTextSelectionCount(0)
+                    setPrevTextInjectionMode('manual')
+                    setPrevTextAutoEndingCount(1000)
+                    setPrevTextModalOpen(true)
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 14px',
+                    borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)',
+                    background: 'rgba(59,130,246,0.04)', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600, color: '#3b82f6', fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ fontSize: 13 }}>📝</span>
+                  {prevTextSelectedContent ? '重新选择前文内容...' : '选择前文内容...（鼠标选中文字）'}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -838,6 +974,170 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       }}
       onCancel={() => setKbDeleteConfirm(null)}
     />
+    {/* 前文注入 — 文字选择弹窗 */}
+    <Modal
+      isOpen={prevTextModalOpen}
+      onClose={() => setPrevTextModalOpen(false)}
+      title={`选择前文内容 — ${effectiveSourceChapter ? `第${effectiveSourceChapter.order + 1}章 ${effectiveSourceChapter.title || ''}` : ''}`}
+      width={720}
+      maxHeight="85vh"
+      closeOnBackdropClick
+      draggable
+      resizable
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* 模式选择：手动选择 vs 自动选择结尾 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '8px 12px', borderRadius: 8, background: 'rgba(59,130,246,0.04)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13, fontWeight: prevTextInjectionMode === 'manual' ? 600 : 400, color: prevTextInjectionMode === 'manual' ? '#3b82f6' : '#6b5e54' }}>
+            <input type="radio" name="prevTextInjectionMode" checked={prevTextInjectionMode === 'manual'} onChange={() => setPrevTextInjectionMode('manual')} style={checkInput} />
+            📝 手动选择（鼠标选中文字）
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13, fontWeight: prevTextInjectionMode === 'autoEnding' ? 600 : 400, color: prevTextInjectionMode === 'autoEnding' ? '#3b82f6' : '#6b5e54' }}>
+            <input type="radio" name="prevTextInjectionMode" checked={prevTextInjectionMode === 'autoEnding'} onChange={() => setPrevTextInjectionMode('autoEnding')} style={checkInput} />
+            ⚡ 自动选择结尾
+          </label>
+          {prevTextInjectionMode === 'autoEnding' && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input
+                type="number"
+                value={prevTextAutoEndingCount}
+                onChange={e => {
+                  const v = parseInt(e.target.value)
+                  if (!isNaN(v) && v >= 100 && v <= 10000) setPrevTextAutoEndingCount(v)
+                }}
+                onBlur={e => {
+                  const v = parseInt(e.target.value)
+                  if (isNaN(v) || v < 100) setPrevTextAutoEndingCount(100)
+                  else if (v > 10000) setPrevTextAutoEndingCount(10000)
+                }}
+                style={{ width: 70, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(59,130,246,0.2)', fontSize: 12, fontFamily: 'inherit', textAlign: 'center', color: '#3b82f6', fontWeight: 600, background: '#faf9f8' }}
+              />
+              <span style={{ fontSize: 12, color: '#3b82f6' }}>字</span>
+            </div>
+          )}
+        </div>
+
+        {/* 加载/空/错误状态 */}
+        {prevTextFullLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 40 }}>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(59,130,246,0.15)', borderTopColor: '#3b82f6', animation: 'spin 0.7s linear infinite' }} />
+            <span style={{ fontSize: 13, color: '#3b82f6' }}>加载章节内容中...</span>
+          </div>
+        ) : prevTextFullError ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 13, color: '#dc2626', marginBottom: 12 }}>{prevTextFullError}</div>
+            <button onClick={async () => {
+              if (!effectiveSourceChapterId || !activeProjectId || !projectsBasePath) return
+              setPrevTextFullLoading(true)
+              setPrevTextFullError('')
+              try {
+                const pp = `${projectsBasePath}/${activeProjectId}`
+                const text = await fileService.read(`${pp}/chapters/${effectiveSourceChapterId}.txt`)
+                setPrevTextFullContent(htmlToPlainText(text || ''))
+              } catch (e) { setPrevTextFullError('读取失败: ' + (e instanceof Error ? e.message : '未知错误')) }
+              setPrevTextFullLoading(false)
+            }} style={{
+              padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+              background: '#f8f7f5', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', color: '#4a3f38',
+            }}>重试</button>
+          </div>
+        ) : !prevTextFullContent ? (
+          <div style={{ textAlign: 'center', padding: 40, fontSize: 13, color: '#9b8e84' }}>
+            此章节暂无正文内容
+          </div>
+        ) : (
+          <>
+            {/* 全文展示区域 */}
+            <div
+              onMouseUp={() => {
+                if (prevTextInjectionMode !== 'manual') return
+                const sel = window.getSelection()?.toString() || ''
+                if (sel !== prevTextSelectionRef.current) {
+                  prevTextSelectionRef.current = sel
+                  setPrevTextSelectionCount(sel.length)
+                }
+              }}
+              style={{
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word',
+                userSelect: 'text', cursor: prevTextInjectionMode === 'manual' ? 'text' : 'default',
+                height: '50vh', overflowX: 'hidden', overflowY: 'auto', padding: '16px 18px',
+                borderRadius: 10, background: '#fff',
+                border: prevTextInjectionMode === 'autoEnding' ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(0,0,0,0.08)',
+                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.04)',
+                fontSize: 14, lineHeight: 1.8, fontFamily: 'inherit',
+                color: '#2d2520',
+              }}
+              className="custom-scrollbar"
+            >
+              {prevTextFullContent}
+            </div>
+
+            {/* 手动模式：实时字数 + 过长警告 */}
+            {prevTextInjectionMode === 'manual' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: prevTextSelectionCount > 0 ? '#3b82f6' : '#9b8e84' }}>
+                  已选中: {prevTextSelectionCount} 字
+                </span>
+                {prevTextSelectionCount > 5000 && (
+                  <span style={{ fontSize: 11, color: '#f59e0b' }}>
+                    ⚠️ 选中内容较长（&gt;5000字），会增加 token 消耗
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* 自动模式：预览将选中的结尾 */}
+            {prevTextInjectionMode === 'autoEnding' && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', marginBottom: 4 }}>
+                  ⚡ 将自动选取正文最后 {prevTextAutoEndingCount} 字作为前文注入：
+                </div>
+                <div style={{
+                  padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.04)',
+                  border: '1px solid rgba(245,158,11,0.12)', fontSize: 11, lineHeight: 1.5,
+                  color: '#6b5e54', maxHeight: 80, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                }} className="custom-scrollbar">
+                  {prevTextFullContent.slice(-prevTextAutoEndingCount) || '(正文不足所选字数)'}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Footer */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+          <button onClick={() => setPrevTextModalOpen(false)} style={{
+            padding: '8px 22px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+            background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b5e54', fontFamily: 'inherit',
+          }}>取消</button>
+          <button onClick={() => {
+            if (prevTextInjectionMode === 'autoEnding') {
+              const content = prevTextFullContent.slice(-prevTextAutoEndingCount)
+              if (!content.trim()) {
+                setPrevTextFullError('章节正文不足所选字数')
+                setTimeout(() => setPrevTextFullError(''), 3000)
+                return
+              }
+              setPrevTextSelectedContent(content)
+              setPrevTextModalOpen(false)
+            } else {
+              const sel = window.getSelection()?.toString() || ''
+              if (!sel.trim()) {
+                setPrevTextFullError('请先用鼠标选中文字，再点击确定')
+                setTimeout(() => setPrevTextFullError(''), 3000)
+                return
+              }
+              setPrevTextSelectedContent(sel)
+              setPrevTextModalOpen(false)
+            }
+          }} style={{
+            padding: '8px 22px', borderRadius: 8, border: 'none',
+            background: 'linear-gradient(135deg, #3b82f6, #6366f1)', cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: 'inherit',
+          }}>✓ 确定选中内容</button>
+        </div>
+      </div>
+    </Modal>
     </>
   )
 }

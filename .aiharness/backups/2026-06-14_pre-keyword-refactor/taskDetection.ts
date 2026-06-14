@@ -121,9 +121,7 @@ export function isPureGreeting(msg: string): boolean {
   return PURE_GREETING_RE.test(msg.trim())
 }
 
-/** 知识问答检测 — 宽匹配，用于决定是否跳过 nudge（理解类问题不需要操作文件）
- *  v12.14.0: 保留正则用于快速过滤明显的知识问答。路由判断由 prompt 意图描述 + LLM 完成。
- *  此正则只影响 Nudge 是否触发，不影响决策分支选择。 */
+/** 知识问答检测 — 宽匹配，用于决定是否跳过 nudge（理解类问题不需要操作文件） */
 const KNOWLEDGE_ONLY_RE = /^(你好|谢谢|再见|嗯|哦|哈哈|好的|知道了|ok|hi|hello|thanks|bye|早上好|晚上好|下午好|晚安|早|在吗|在不在|你是谁|你叫什么|你能做什么|你有什么功能|你了解|你知道|介绍一下|什么是|是什么意思|怎么[样么]|告诉我|解释一下|说明一下|有没有|检查.*(?:一下|自己|限制)|查一下)/i
 
 export function isKnowledgeOnly(msg: string): boolean {
@@ -134,8 +132,7 @@ export function isKnowledgeOnly(msg: string): boolean {
   return !hasCreationOp
 }
 
-/** 任务关键词检测 — 用于索引构建 + Runtime Nudge/死锁检测的门控
- *  v12.14.0: 作为 _userRequestedFileOp 的统一判断依据，替代旧的独立 _explicitFileOp 正则 */
+/** 任务关键词检测 — 用于决定是否构建全局索引 */
 const TASK_KEYWORDS_FOR_INDEX = /角色|人物|大纲|剧情|章节|写|创作|生成|续写|风格|文风|分析|模板|知识库|搜索|查找|创建|删除|编辑|导入|保存|整理|修改|改|图片|图|插图|搜|画|草稿|笔记|项目|世界|细纲|仿写/i
 
 export function hasTaskKeywords(msg: string): boolean {

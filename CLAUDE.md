@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v12.10.0
+# AI写作软件—青剑 v12.14.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
 
@@ -46,7 +46,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 1. **铁律**: 口头描述 ≠ 操作完成。只有 `status: "success"` 才算完成。
 2. **项目隔离**: 所有文件操作限于当前项目目录内。
 3. **精准执行**: 只做用户要求的操作，不确定时先询问。
-4. **修改前先读**: create/edit/delete 前必须 read_file。
+4. **修改前先读（按操作区分）**: create_file 新建不读、FULL_REPLACE 覆盖只确认存在、局部替换才读原文。已读取过的文件不重复读。
 5. **不要自动 push / 不要自动更新版本号**: 等用户明确指令。
 
 ## 导航

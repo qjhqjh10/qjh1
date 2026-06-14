@@ -22,6 +22,8 @@ export default function ContinuationDetailedPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const [project, setProject] = useState<ContinuationProject | null>(null)
   const [selectedSegIdx, setSelectedSegIdx] = useState(0)
   const [chapters, setChapters] = useState<DetailedChapter[]>([])
@@ -29,6 +31,10 @@ export default function ContinuationDetailedPage() {
   const [editSegment, setEditSegment] = useState<PlotDirectionSegment | null>(null)
 
   useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId, fileVersion])
+  useEffect(() => {
+    if (!fileEditNotify || !activeProjectId) return
+    if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase().includes('/detailed_outline/')) { load(); setFileEditNotify(null) }
+  }, [fileEditNotify, activeProjectId])
 
   const pp = `${projectsBasePath}/${activeProjectId}`
 

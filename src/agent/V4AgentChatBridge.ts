@@ -257,7 +257,10 @@ export class V4AgentChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      this._fullPromptSent = true  // v11.7.1: 首条已发，后续用精简版
+      // v12.10.0: 纯闲聊不消耗全量Prompt名额，留给真正有任务的消息
+      if (!isPureGreeting(userMessage)) {
+        this._fullPromptSent = true
+      }
       // V9.5.2: 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 

@@ -250,7 +250,10 @@ export class V4AnthropicChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      this._fullPromptSent = true  // v11.7.1: 首条已发，后续用精简版
+      // v12.10.0: 纯闲聊不消耗全量Prompt名额，留给真正有任务的消息
+      if (!isPureGreeting(userMessage)) {
+        this._fullPromptSent = true
+      }
       this.auditTrail.persist().catch(() => {})
 
       return {

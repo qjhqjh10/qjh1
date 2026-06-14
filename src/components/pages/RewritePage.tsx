@@ -26,6 +26,8 @@ export default function RewritePage() {
   const setActivePage = useStore(s => s.setActivePage)
   const setRewriteContent = useStore(s => s.setRewriteContent)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const [projects, setProjects] = useState<RewriteProject[]>([])
   const [projectId, setProjectId] = useState('')
@@ -67,6 +69,11 @@ export default function RewritePage() {
   useRewriteInsertion(() => chapterContent, setChapterContent)
 
   useEffect(() => { if (rewriteService) loadProjects() }, [fileVersion])
+  useEffect(() => {
+    if (!fileEditNotify) return
+    const fp = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    if (fp.includes('/chapters/') || fp.includes('/summaries/')) { loadProjects(); setFileEditNotify(null) }
+  }, [fileEditNotify])
 
   // AI 修改文件后刷新当前项目内容
   useEffect(() => {

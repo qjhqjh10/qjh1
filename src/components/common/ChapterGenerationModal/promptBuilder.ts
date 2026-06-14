@@ -193,6 +193,8 @@ export interface BuildPromptOptions {
   chapterPrompt: { title: string; content: string } | undefined
   wordTarget: number
   replaceMode: boolean
+  // 前文注入
+  prevTextInjection?: { chapterLabel: string; selectedContent: string }
 }
 
 export function buildPrompt(opts: BuildPromptOptions): string {
@@ -352,7 +354,7 @@ export function buildPrompt(opts: BuildPromptOptions): string {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 组装: 风格 → 剧情 → 场景 → 参考 → 硬约束
+  // 组装: 风格 → 剧情 → 场景 → 参考 → 前文衔接 → 硬约束
   // ════════════════════════════════════════════════════════════════
   const result: string[] = []
 
@@ -367,6 +369,23 @@ export function buildPrompt(opts: BuildPromptOptions): string {
   }
 
   result.push(refParts.join('\n\n'))
+
+  // ════════════════════════════════════════════════════════════════
+  // 前文衔接注入（独立区域，在参考材料之后、创作要求之前，优先级高于参考材料）
+  // ════════════════════════════════════════════════════════════════
+  if (opts.prevTextInjection?.selectedContent) {
+    const lines = [
+      '━━━ 前文衔接 — 以下是前文章节原文，请确保本章开头无缝衔接 ━━━',
+      `【${opts.prevTextInjection.chapterLabel}】选中内容：`,
+      opts.prevTextInjection.selectedContent,
+      `续写要求：
+- 本章第1段必须从以上内容自然延续
+- 场景/时间/地点不能跳跃
+- 人物对话和动作不能中断
+- 情绪基调自然过渡`,
+    ]
+    result.push(lines.join('\n\n'))
+  }
 
   // ── 硬约束 ──
   const template = chapterPrompt?.content || '根据以上核心剧情和风格要求，写出一章完整的小说正文。'

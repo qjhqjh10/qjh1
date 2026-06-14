@@ -17,10 +17,15 @@
 **规则**: 一个文件一个职责，不超过 500 行。
 **检查**: 新文件超过 500 行 → 拆分为 index.tsx + components/ 或 hooks/ 子目录。
 
-## 4. 修改前先读
+## 4. 修改前先读（按操作类型区分）
 
-**规则**: create_file / edit_file / delete_file 操作前，必须先 read_file 确认目标文件现状。
-**检查**: 工具调用序列中，写操作前必须有对应的读操作。
+**规则**: 
+- `create_file` 新建文件 → 不需要先 read_file（文件还不存在）。可选 list_directory 确认目录结构
+- `edit_file` 全量覆盖（__FULL_REPLACE__）→ list_directory 确认文件存在即可，不需要 read_file 读全文
+- `edit_file` 局部替换 → 必须 read_file 获取原文做 old_string
+- `delete_file` → 确认文件存在即可
+- **已读取过的文件/目录在对话历史中 → 不需要重复读取**
+**检查**: 同一目标文件/目录最多读取 1 次。重复 list_directory 同一目录视为违规。
 
 ## 5. 失败即记录
 

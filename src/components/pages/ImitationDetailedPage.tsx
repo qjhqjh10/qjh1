@@ -21,6 +21,8 @@ export default function ImitationDetailedPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const [extraction, setExtraction] = useState<NovelExtraction | null>(null)
   const [chapters, setChapters] = useState<DetailedChapter[]>([])
   const [detailResults, setDetailResults] = useState<DetailGenResult[]>([])
@@ -30,6 +32,10 @@ export default function ImitationDetailedPage() {
   const pp = activeProjectId ? `${projectsBasePath}/${activeProjectId}` : ''
 
   useEffect(() => { if (!activeProjectId) { navigate('/'); return }; loadData() }, [activeProjectId, fileVersion])
+  useEffect(() => {
+    if (!fileEditNotify || !activeProjectId) return
+    if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase().includes('/detailed_outline/')) { loadData(); setFileEditNotify(null) }
+  }, [fileEditNotify, activeProjectId])
 
   const loadData = async () => {
     const ext = await loadExtraction(pp)

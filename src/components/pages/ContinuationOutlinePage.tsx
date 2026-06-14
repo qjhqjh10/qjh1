@@ -25,6 +25,8 @@ export default function ContinuationOutlinePage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const [project, setProject] = useState<ContinuationProject | null>(null)
   const [showOriginal, setShowOriginal] = useState(false)
   const [showPlotCards, setShowPlotCards] = useState(false)
@@ -33,6 +35,10 @@ export default function ContinuationOutlinePage() {
   const [editTarget, setEditTarget] = useState<EditTarget>(null)
 
   useEffect(() => { if (!activeProjectId) { navigate('/continuation'); return }; load() }, [activeProjectId, fileVersion])
+  useEffect(() => {
+    if (!fileEditNotify || !activeProjectId) return
+    if (fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase().includes('/outline/')) { load(); setFileEditNotify(null) }
+  }, [fileEditNotify, activeProjectId])
 
   const load = async () => {
     const list = await continuationService.list() as ContinuationProject[]

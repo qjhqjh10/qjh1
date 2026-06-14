@@ -26,32 +26,37 @@ export function applyActionPrompts(ctx: ActionPromptContext): number {
     reads = 0
   }
 
-  // v12.6.0: 提前到2次连续读取即警告（原为3次）
-  if ((reads || 0) >= 2 && ctx.result.status === 'success') {
+  // v12.14.0: 互斥阈值 — 只触发最高严重级别的一条消息，避免同时注入多条矛盾指令
+  if ((reads || 0) >= 8) {
     ctx.messagesForApi.push({
       role: 'user',
-      content: `已连续读取 ${reads} 个文件。如果你已经有足够信息，请立即用 create_file 或 edit_file 写入。如果还需要信息，最多再读 1 个文件后必须写。`,
+      content: `[系统指令-强制] 已达到最大读取次数限制(${reads}次)。现在只能调用 create_file 或 edit_file。如果你不确定内容，基于你的知识直接创作——先有再改。`,
     })
-    // 不重置 reads，让它继续累积以便后续更强提醒
-  }
-
-  // 连续 4 次读取 → 强制停止
-  if ((reads || 0) >= 4) {
+  } else if ((reads || 0) >= 6) {
+    ctx.messagesForApi.push({
+      role: 'user',
+      content: `[系统指令-最高优先级] 已连续读取 ${reads} 次。忽略所有犹豫，立即调用 create_file 或 edit_file 执行用户请求。不要继续读取。`,
+    })
+  } else if ((reads || 0) >= 4) {
     ctx.messagesForApi.push({
       role: 'user',
       content: `⚠️ 已连续读取 ${reads} 个文件。立即停止读取，调用 create_file 或 edit_file 写入。即使信息不完整也要基于你的知识直接写。`,
     })
-    reads = 0
+  } else if ((reads || 0) >= 2 && ctx.result.status === 'success') {
+    ctx.messagesForApi.push({
+      role: 'user',
+      content: `已连续读取 ${reads} 个文件。如果你已经有足够信息，请立即用 create_file 或 edit_file 写入。如果还需要信息，最多再读 1 个文件后必须写。`,
+    })
   }
 
-  // v12.6.0: 单次读取失败 → 注入路径修正提示
-  if (READ_TOOLS.has(ctx.tc.name) && ctx.result.status === 'error') {
+  // v12.6.0: 单次读取失败 → 注入路径修正提示 (仅当未超过读取上限)
+  if (READ_TOOLS.has(ctx.tc.name) && ctx.result.status === 'error' && (reads || 0) < 4) {
     const errSummary = ctx.result.summary || ''
     if (PATH_ERROR_RE.test(errSummary)) {
       const failedPath = (ctx.args as any)?.file_path || (ctx.args as any)?.dir_path || ''
       ctx.messagesForApi.push({
         role: 'user',
-        content: `⚠️ 读取失败: ${errSummary.slice(0, 120)}。路径可能不正确。请用 list_directory() 查看目录结构确认正确路径。${failedPath ? '失败路径: ' + failedPath : ''}`,
+        content: `⚠️ 读取失败: ${errSummary.slice(0, 120)}。路径可能不正确。${failedPath ? '失败路径: ' + failedPath : ''}`,
       })
     }
   }

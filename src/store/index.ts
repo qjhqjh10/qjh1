@@ -338,6 +338,9 @@ export const useSettingsStore = create<SettingsState>()(
             selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
             selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
             styleStrength: (oldCG as any).styleStrength === 'light' || (oldCG as any).styleStrength === 'strong' ? (oldCG as any).styleStrength : 'normal',
+            prevTextEnabled: typeof (oldCG as any).prevTextEnabled === 'boolean' ? (oldCG as any).prevTextEnabled : true,
+            prevTextSourceChapterId: typeof (oldCG as any).prevTextSourceChapterId === 'string' ? (oldCG as any).prevTextSourceChapterId : '',
+            prevTextSelectedContent: typeof (oldCG as any).prevTextSelectedContent === 'string' ? (oldCG as any).prevTextSelectedContent : '',
           }
 
           return {

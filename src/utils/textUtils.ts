@@ -48,6 +48,47 @@ export function stripHtml(html: string): string {
   return html.replace(stripHtmlRegex, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
 }
 
+/** 将 HTML 转为保留段落结构的纯文本（<p>/<br> → 换行，其余标签删除） */
+export function htmlToPlainText(html: string): string {
+  if (!html) return ''
+  return html
+    // 先剥离 script/style 标签及其内容，防止代码泄露到输出
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    // 块级元素 → 换行
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<div[^>]*>/gi, '')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n')
+    .replace(/<h[1-6][^>]*>/gi, '')
+    // 删除剩余 HTML 标签
+    .replace(stripHtmlRegex, '')
+    // 解码数值字符引用 &#XXXX; 和 &#xXXXX;
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    // 解码命名实体
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
+    .replace(/&hellip;/g, '…')
+    .replace(/&lsquo;/g, '‘')
+    .replace(/&rsquo;/g, '’')
+    .replace(/&ldquo;/g, '“')
+    .replace(/&rdquo;/g, '”')
+    // 折叠多余换行
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // Count all non-whitespace characters (Chinese convention: each character = 1 word)
 export function countChineseWords(text: string): number {
   if (!text) return 0

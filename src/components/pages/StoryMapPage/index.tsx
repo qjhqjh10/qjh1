@@ -31,6 +31,9 @@ export default function StoryMapPage() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
   const setActivePage = useStore(s => s.setActivePage)
+  const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [detailedChapters, setDetailedChapters] = useState<DetailedChapter[]>([])
@@ -57,7 +60,7 @@ export default function StoryMapPage() {
   const characters: Character[] = [] // Story Map doesn't need character library
   const sortedChapters = [...detailedChapters].sort((a, b) => a.order - b.order)
 
-  // Initialize workspace
+  // Initialize + reload on file version bump
   useEffect(() => {
     setActivePage('story-map')
     appService.getStoryWorkspacePath().then(async (pp: string) => {
@@ -68,7 +71,21 @@ export default function StoryMapPage() {
       loadDetailedChapters(pp).then(setDetailedChapters)
       loadGraph(pp)
     })
-  }, [])
+  }, [fileVersion])
+
+  // Targeted refresh when AI edits story map files
+  useEffect(() => {
+    if (!fileEditNotify || !workspacePath) return
+    const normalized = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    const ws = workspacePath.replace(/\\/g, '/').toLowerCase()
+    // fileEditNotify uses project-relative paths; extract workspace name for matching
+    const wsName = ws.split('/').filter(Boolean).pop() || ''
+    if (normalized.startsWith(wsName + '/') || normalized.includes('/chapters/') || normalized.includes('/detailed_outline/')) {
+      loadDetailedChapters(workspacePath).then(setDetailedChapters)
+      loadGraph(workspacePath)
+      setFileEditNotify(null)
+    }
+  }, [fileEditNotify, workspacePath])
 
   const loadGraph = async (pp: string) => {
     try {

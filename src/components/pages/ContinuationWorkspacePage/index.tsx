@@ -30,6 +30,8 @@ export default function ContinuationWorkspacePage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const setActivePage = useStore(s => s.setActivePage)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
 
@@ -89,6 +91,16 @@ export default function ContinuationWorkspacePage() {
     if (!activeProjectId) { navigate('/continuation'); return }
     loadProject()
   }, [activeProjectId, fileVersion])
+
+  // Targeted refresh on AI file edits
+  useEffect(() => {
+    if (!fileEditNotify || !activeProjectId) return
+    const fp = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    if (fp.includes('/chapters/') || fp.includes('/detailed_outline/') || fp.includes('/summaries/') || fp.includes('/outline/')) {
+      loadProject()
+      setFileEditNotify(null)
+    }
+  }, [fileEditNotify, activeProjectId])
 
   const loadProject = async () => {
     if (!activeProjectId) return

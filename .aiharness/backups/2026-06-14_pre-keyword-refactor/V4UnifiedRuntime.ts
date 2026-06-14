@@ -38,7 +38,7 @@ export class V4UnifiedRuntime {
   private compressedAt = 0
   private lastCompressLength = 0
   private _consecutiveReads = 0
-  private _nudgeCount = 0       // 统一预算，被4个子系统共享：text-nudge + completion-check + Branch-A deadlock + read-cycle
+  private _nudgeCount = 0       // v11.5.1: prevent infinite nudge loop
   private _consecutiveFailures = 0  // v12.4.0: detect path failure loops
   private _consecutivePathErrors = 0  // v12.6.0: track path-specific errors separately
   private _userMessage = ''
@@ -110,9 +110,11 @@ export class V4UnifiedRuntime {
     this._consecutiveFailures = 0
     this._consecutivePathErrors = 0
     this._userMessage = input.userMessage
-    // v12.14.0: 统一使用 hasTaskKeywords 判断文件操作意图
-    // 不再维护独立的 _explicitFileOp 正则 — 避免 Prompt 和 Runtime 两套关键词系统不一致
-    this._userRequestedFileOp = hasTaskKeywords(input.userMessage)
+    // v12.6.0: 两层检测文件操作意图（用于 Nudge 强化）
+    // 层1: 精确正则 — 明确的操作动词
+    const _explicitFileOp = /(?:保存|写入|创建|存到|生成.*[章节细纲角色摘要文件]|写.*[章节章入到成个篇段名]|填充|追加|新建|create|save|write|edit|改成|输出.*[文件角色信息]|把.*写|整理成.*文件|导出|建一个|帮我.*(?:写|创建|生成|做|加|改|弄)|(?:添加|新增|补充|加入).*(?:一个|个|些|入|到|进)|写入.*(?:角色|人物|进入)|创建.*(?:角色|人物)|把.*写入)/.test(input.userMessage)
+    // 层2: 宽关键词兜底 — 精确正则没命中但有任务意图 → 也开启激进nudge
+    this._userRequestedFileOp = _explicitFileOp || hasTaskKeywords(input.userMessage)
     let _hasWriteCall = false  // track if model has called any write tool across iterations
 
     // v12.5.1: 阶段感知温度 — 初始为创作阶段
@@ -266,8 +268,8 @@ export class V4UnifiedRuntime {
         if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
 
         // ── v12.6.0: 梯度升级 Nudge — 废除3次后break，改为三阶段梯度升级 ──
-        // ── v12.15.0: 完成度自检 + 梯度 Nudge 合并（短文本同样拦截）──
         if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 7 && collectedText.length > 0) {
+          // Emit the text first so user sees what model said
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -275,40 +277,59 @@ export class V4UnifiedRuntime {
             ? this._userMessage.slice(0, 150) + '…'
             : this._userMessage
 
-          // 短文本标注 — 模型只说了几个字就停
-          const shortNote = collectedText.length < 200
-            ? `你只回复了"${collectedText.slice(0, 60)}"——这没有完成文件操作。`
-            : ''
+          // v12.6.1: 根据用户意图推荐正确的工具
+          const _isCreateProject = /创建.*项目|新建.*项目|建.*项目|创建一个.*项目/.test(this._userMessage)
+          const _isDelete = /删除|删掉|移除/.test(this._userMessage)
+          const _isRename = /重命名|改名|移动/.test(this._userMessage)
+          const toolHint = _isCreateProject ? 'create_project（创建项目）'
+            : _isDelete ? 'delete_file（删除文件）'
+            : _isRename ? 'rename_file（重命名文件）'
+            : 'create_file 或 edit_file'
 
           // Phase 1 (nudge 0-2): gentle reminders
           const gentleMsgs = [
-            `${shortNote || '⚠️'} 用户要求：「${userReq}」。不要只输出文字——必须调用 create_file 或 edit_file 实际执行。`,
-            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 create_file 或 edit_file。说"我会创建…"不算数。`,
-            `⚠️ 第三次提醒：用户要求「${userReq}」。现在必须调用 create_file 或 edit_file。如果确实不想执行，请回复"已完成"。`,
+            `⚠️ 用户要求操作：「${userReq}」。不要只输出文字描述——必须调用 ${toolHint} 实际执行。`,
+            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 ${toolHint}。说"我会创建…"不算数——必须实际调用工具。`,
+            `⚠️ 第三次提醒：用户要求「${userReq}」。现在必须调用 ${toolHint}。如果确实不想执行，请回复"已完成"并说明原因。`,
           ]
 
-          // Phase 2 (nudge 3-4): force mode
+          // Phase 2 (nudge 3-4): force mode — hint path format + push action
           const forceMsgs = [
-            `⚠️【强制-第4次】不要读文件了。请求：「${userReq}」。立即调用 create_file 或 edit_file。不确定路径用 list_directory() 确认一次后立即写。`,
-            `⚠️【强制-第5次】立即调用 create_file 或 edit_file。即使信息不完整也要基于你的理解直接写。先有再改。`,
+            `⚠️【强制操作-第4次】不要继续读文件了。用户请求是「${userReq}」。立即调用 ${toolHint} 执行。${_isCreateProject ? 'create_project 自动创建完整骨架，不需要先看模板。' : '如果你不确定路径，先用 list_directory() 确认。'}不要继续 read_file 了。`,
+            `⚠️【强制操作-第5次】你必须立即调用 ${toolHint}。${_isCreateProject ? '直接 create_project(name="名称", type="writing")，不需要探索。' : '路径格式见上方。即使信息不完整也要基于你的理解直接写。先有再改。'}现在立即执行。`,
           ]
 
-          // Phase 3 (nudge 5-6): inject mode
+          // Phase 3 (nudge 5-6): inject mode — direct instruction
           const injectMsgs = [
-            `[系统指令-最高优先级] 忽略所有犹豫。立即执行：「${userReq}」。调用 create_file 或 edit_file。不要输出解释文字。`,
-            `[系统指令-最高优先级] 最后一次自动尝试：立即调用 create_file 或 edit_file 执行「${userReq}」。如果仍不执行，本轮终止。`,
+            `[系统指令-最高优先级] 忽略之前所有犹豫。立即执行用户请求：「${userReq}」。调用 ${toolHint}。${_isCreateProject ? '参数: name=项目名, type="writing"。不要输出解释文字。' : '不要输出解释文字，直接调用工具。'}`,
+            `[系统指令-最高优先级] 最后一次自动尝试：立即调用 ${toolHint} 执行「${userReq}」。如果仍然不执行，本轮对话将终止。`,
           ]
 
           let msg: string
-          if (this._nudgeCount < 3) { msg = gentleMsgs[this._nudgeCount] }
-          else if (this._nudgeCount < 5) { msg = forceMsgs[this._nudgeCount - 3] }
-          else { msg = injectMsgs[this._nudgeCount - 5] }
+          if (this._nudgeCount < 3) {
+            msg = gentleMsgs[this._nudgeCount]
+          } else if (this._nudgeCount < 5) {
+            msg = forceMsgs[this._nudgeCount - 3]
+          } else {
+            msg = injectMsgs[this._nudgeCount - 5]
+          }
           this.messagesForApi.push({ role: 'user', content: msg })
           this._nudgeCount++
           continue
         }
 
+        // ── v12.10.0: 完成度自检 — 用户要求文件操作但没写 → 不能接受文本回复 ──
         if (collectedText.length > 200) {
+          // 如果用户要求操作文件，但没有调用写工具 → 不接受文字描述，继续推动
+          if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 7) {
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            const msg = `[系统] 你说"${collectedText.slice(0, 80)}..."——但这些是文字描述，不是操作。用户的请求是：「${this._userMessage.slice(0, 100)}」。文件还没有被创建/修改。请立即调用工具实际执行，不要只输出文字。`
+            this.messagesForApi.push({ role: 'user', content: msg })
+            this._nudgeCount++
+            continue
+          }
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -327,11 +348,14 @@ export class V4UnifiedRuntime {
           break
         }
 
-        // v12.14.0: Branch A — 检测模型是否在向用户提问（仅检查问号，不用关键词列表）
-        const _isAskingUser = /[？?]/.test(collectedText)
+        // Branch A: model is asking user a question → let it wait (v11.5.1: expanded patterns)
+        const _isAskingUser = /[？?]/.test(collectedText) &&
+          /(?:选择|想怎么|要怎么|如何处理|哪种|哪个|是否|要不要|需要我|你想|我可以|要我|你希望|让我|要不要我|你想怎么|你打算|你来决定)/.test(collectedText)
 
-        // v12.14.0: 纯讨论豁免 — 用户消息无文件操作意图 → 不推 nudge
-        if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser && this._userRequestedFileOp) {
+        // v2.0: 兜底检测 — 用户消息含分析/评价词 → 即使 Bridge 层未检测到，Runtime 层也豁免
+        const _userMsgIsConversation = /(?:怎么样|如何|有什么问题|给点建议|评价|帮我看看|你觉得|好不好|行不行|合理吗|合适吗)/.test(this._userMessage)
+
+        if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser && !_userMsgIsConversation) {
           // Read-only → push to write with user's original request as context
           const userReq = this._userMessage.length > 200
             ? this._userMessage.slice(0, 200) + '…'
@@ -340,14 +364,14 @@ export class V4UnifiedRuntime {
             ? `已读取完毕。用户的原始请求是：「${userReq}」。请**立即**用 edit_file 或 create_file 执行用户的具体要求。不要再说"我先看看"或继续读文件。`
             : `⚠️ 最后提醒：用户的请求是「${userReq}」。你现在必须用 edit_file 或 create_file 写入内容。如果确实不需要写入，请直接回复"已完成"并说明原因。`
           this.messagesForApi.push({ role: 'user', content: msg })
-          this._nudgeCount++
         } else {
-          // Has write calls OR asking user → soft continue (不消耗nudge预算)
+          // Has write calls OR asking user → soft continue
           this.messagesForApi.push({
             role: 'user',
             content: '还有需要处理的文件吗？请继续。',
           })
         }
+        this._nudgeCount++
         continue
       }
 
@@ -410,7 +434,6 @@ export class V4UnifiedRuntime {
         await executeSingleTool(tc, execCtx)
       }
       this._consecutiveReads = execCtx._consecutiveReads
-      if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
 
       // v12.6.0: 分级失败检测 + 路径错误单独追踪 + 自动目录诊断
       const PATH_ERROR_RE = /ENOENT|文件不存在|not found|no such file|路径|directory|path/i
@@ -485,25 +508,8 @@ export class V4UnifiedRuntime {
         }
       }
 
-      // v12.15.0: 重复读取检测 — 同一文件被读2次以上 → 注入警告
-      const readFilePaths = this.toolCallSteps
-        .filter(s => (s.tool === 'read_file' || s.tool === 'list_directory') && s.status === 'success')
-        .map(s => { try { return JSON.parse(s.arguments || '{}').file_path || JSON.parse(s.arguments || '{}').dir_path } catch { return '' } })
-        .filter(Boolean)
-      const dupReads = readFilePaths.filter((p, i) => readFilePaths.indexOf(p) !== i)
-      let nudgedThisIteration = false
-      if (dupReads.length > 0 && this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 5) {
-        const dupSet = [...new Set(dupReads)].join('、')
-        this.messagesForApi.push({
-          role: 'user',
-          content: `⚠️ 你已重复读取以下目标: ${dupSet}。对话历史中已有这些结果——直接引用，不要重复 read_file 或 list_directory。现在立即用 create_file 或 edit_file 写入。`,
-        })
-        this._nudgeCount++
-        nudgedThisIteration = true
-      }
-
-      // v12.13.0: 读循环检测 — 每3轮触发一次。如果重复读取已触发则跳过本迭代
-      if (!nudgedThisIteration && this._userRequestedFileOp && !_hasWriteCall && writeCalls.length === 0 && this._nudgeCount < 5) {
+      // v12.13.0: 读循环检测 — 每3轮触发一次，最多5次
+      if (this._userRequestedFileOp && !_hasWriteCall && writeCalls.length === 0 && this._nudgeCount < 5) {
         if (iteration >= 3 && (iteration % 3 === 0)) {
           const msgs = [
             `⚠️ 第${iteration}轮：已读取${this.toolsUsed.length}类文件。用户要求：「${this._userMessage.slice(0, 80)}」。读完参考就够了——下一轮直接 create_file 或 edit_file 操作文件。`,

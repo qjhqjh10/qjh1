@@ -65,6 +65,8 @@ export default function ImitationPage() {
   const setActiveProject = useStore(s => s.setActiveProject)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const fileVersion = useStore(s => s.fileVersion)
+  const fileEditNotify = useStore(s => s.fileEditNotify)
+  const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const setActivePage = useStore(s => s.setActivePage)
   const setCharacters = useStore(s => s.setCharacters)
   const setOutlineContent = useStore(s => s.setOutlineContent)
@@ -131,6 +133,13 @@ export default function ImitationPage() {
   const mountedRef = useRef(false)
 
   useEffect(() => { setActivePage("imitation"); handlers.loadProjects() }, [activeProjectId, projectsBasePath, fileVersion])
+  useEffect(() => {
+    if (!fileEditNotify || !activeProjectId) return
+    const fp = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
+    if (fp.includes('/chapters/') || fp.includes('/outline/') || fp.includes('/detailed_outline/') || fp.includes('/summaries/')) {
+      handlers.loadProjects(); setFileEditNotify(null)
+    }
+  }, [fileEditNotify, activeProjectId])
 
   // Sync previewTab to URL search params (skip mount to avoid overwriting sidebar deep-link)
   useEffect(() => {

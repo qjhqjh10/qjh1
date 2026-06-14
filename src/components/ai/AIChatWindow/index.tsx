@@ -327,33 +327,63 @@ export default function AIChatWindow() {
   // Build history messages for the bridge. Preserves tool context from the last
   // assistant turn so the model knows what it already explored when user says "继续".
   function buildHistoryMessages(msgs: Message[]) {
-    // v12.6.0: 保留最近5轮工具调用完整记录，让AI从错误中学习
-    // 更早的轮次使用压缩摘要格式
+    // v12.6.0: 保留最近5轮有工具调用的完整记录，让AI从错误中学习
+    // 更早的轮次使用压缩摘要格式，纯闲聊轮次不计入工具保留配额
 
     // Step 1: Filter out welcome, compression summaries, display-only
-    const PRESERVE_TOOL_TURNS = 5  // 保留最近5个user turn的完整工具记录
+    const PRESERVE_TOOL_TURNS = 5  // 保留最近5个"有工具调用"的user turn
     let filtered = msgs.filter(m =>
       !String(m.id).startsWith('welcome')
       && !(m as any).compressedSummary
       && !(m as any).displayOnly
     )
 
-    // Step 2: Identify last N user turns
-    const userIndices: number[] = []
-    filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
-
-    // Cap total user messages
-    if (userIndices.length > 20) {
-      const cutoff = userIndices[userIndices.length - 20]
-      filtered = filtered.slice(cutoff)
-      // Recalculate user indices
-      userIndices.length = 0
-      filtered.forEach((m, i) => { if (m.role === 'user') userIndices.push(i) })
+    // Step 2: Identify user turns that had tool calls
+    const toolTurnUserIndices: number[] = []
+    for (let i = 0; i < filtered.length; i++) {
+      if (filtered[i].role !== 'user') continue
+      // Look ahead: does the next assistant message have tool_calls?
+      for (let j = i + 1; j < filtered.length; j++) {
+        const fj = filtered[j]
+        if (!fj) continue
+        if (fj.role === 'assistant') {
+          if (fj.tool_calls && fj.tool_calls.length > 0) {
+            toolTurnUserIndices.push(i)
+          }
+          break
+        }
+        if (fj.role === 'user') break
+      }
     }
 
-    // Determine which user turns to preserve tool details for
-    const preserveStartIdx = userIndices.length > PRESERVE_TOOL_TURNS
-      ? userIndices[userIndices.length - PRESERVE_TOOL_TURNS]
+    // Cap total user messages
+    const allUserIndices: number[] = []
+    filtered.forEach((m, i) => { if (m.role === 'user') allUserIndices.push(i) })
+    if (allUserIndices.length > 20) {
+      const cutoff = allUserIndices[allUserIndices.length - 20]
+      filtered = filtered.slice(cutoff)
+      // Recalculate
+      toolTurnUserIndices.length = 0
+      allUserIndices.length = 0
+      for (let i = 0; i < filtered.length; i++) {
+        if (filtered[i].role === 'user') {
+          allUserIndices.push(i)
+          for (let j = i + 1; j < filtered.length; j++) {
+            const fj = filtered[j]
+            if (!fj) continue
+            if (fj.role === 'assistant') {
+              if (fj.tool_calls && fj.tool_calls.length > 0) toolTurnUserIndices.push(i)
+              break
+            }
+            if (fj.role === 'user') break
+          }
+        }
+      }
+    }
+
+    // Preserve: last N user turns that HAD tool calls (not just any N user turns)
+    const preserveStartIdx = toolTurnUserIndices.length > PRESERVE_TOOL_TURNS
+      ? toolTurnUserIndices[toolTurnUserIndices.length - PRESERVE_TOOL_TURNS]
       : 0
 
     const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string }> = []

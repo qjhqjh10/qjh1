@@ -123,6 +123,10 @@ export interface ChapterGenSettings {
   selectedSummaryIds: string[]
   styleStrength: 'light' | 'normal' | 'strong'
   selectedKbFileIds: string[]
+  // 前文注入
+  prevTextEnabled: boolean
+  prevTextSourceChapterId: string   // 空=自动选 N-1
+  prevTextSelectedContent: string   // 用户鼠标选中的原文
 }
 
 export const DEFAULT_OUTLINE_TABS: OutlineTabToggles = {
@@ -158,6 +162,9 @@ export const DEFAULT_CHAPTER_GEN: ChapterGenSettings = {
   selectedSummaryIds: [],
   selectedKbFileIds: [],
   styleStrength: 'normal',
+  prevTextEnabled: true,
+  prevTextSourceChapterId: '',
+  prevTextSelectedContent: '',
 }
 
 export interface AIAssistantSettings {
