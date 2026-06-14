@@ -37,8 +37,7 @@ export class V4UnifiedRuntime {
   private compressor: ContextCompressor
   private compressedAt = 0
   private lastCompressLength = 0
-  private _consecutiveReads = 0
-  private _nudgeCount = 0       // 统一预算，被4个子系统共享：text-nudge + completion-check + Branch-A deadlock + read-cycle
+  private _nudgeCount = 0       // 自愈恢复轮次计数
   private _consecutiveFailures = 0  // v12.4.0: detect path failure loops
   private _consecutivePathErrors = 0  // v12.6.0: track path-specific errors separately
   private _userMessage = ''
@@ -105,7 +104,6 @@ export class V4UnifiedRuntime {
     let collectedText = ''
     this.toolsUsed = []
     this.toolCallSteps = []
-    this._consecutiveReads = 0
     this._nudgeCount = 0      // reset per run
     this._consecutiveFailures = 0
     this._consecutivePathErrors = 0
@@ -125,6 +123,12 @@ export class V4UnifiedRuntime {
     this.messagesForApi = [
       ...contextResult.systemMessages,
       ...this.historyMessages,
+      // v12.16.1: 任务边界 — 阻止模型纠结之前失败的任务
+      // 原因: historyMessages 可能包含之前任务的残存上下文（失败、nudge、不完整的操作）
+      // 模型看到这些会认为之前任务仍需继续，导致忽略当前用户的新请求
+      ...(this.historyMessages.length > 0
+        ? [{ role: 'system' as const, content: '[任务边界] 以上是之前的对话历史，下面是用户的新请求。你可以参考历史中的信息（如已读取的文件内容、已创建的角色设定），但不要自动继续之前未完成的工具操作——只响应当前的新请求。' }]
+        : []),
       { role: 'user', content: input.userMessage },
     ]
 
@@ -163,8 +167,31 @@ export class V4UnifiedRuntime {
         this.compressedAt = iteration
       }
 
+      // ── 读操作计数：连续 N 次读取无写入时注入提醒 ──
+      const READ_TOOLS_RE = /^(read_file|list_directory|search_content|find_files)$/
+      const WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
+      let consecutiveReads = 0
+      let hasWritten = false
+      for (let s = this.toolCallSteps.length - 1; s >= 0; s--) {
+        const step = this.toolCallSteps[s]
+        if (WRITE_TOOLS_RE.test(step.tool)) { hasWritten = true; break }
+        if (READ_TOOLS_RE.test(step.tool)) consecutiveReads++
+        else break  // non-read, non-write tool → stop counting
+      }
+      if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp) {
+        this.messagesForApi.push({
+          role: 'system',
+          content: `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`,
+        })
+      } else if (!hasWritten && consecutiveReads >= 3 && this._userRequestedFileOp) {
+        this.messagesForApi.push({
+          role: 'system',
+          content: `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`,
+        })
+      }
+
       // ── API Call (with single retry for transient failures) ──
-      const API_TIMEOUT = 90_000
+      const API_TIMEOUT = 180_000  // v12.16.4: 大型上下文需要更多响应时间
       let response = undefined
       let lastApiErr: Error | null = null
 
@@ -242,21 +269,43 @@ export class V4UnifiedRuntime {
         }
 
         // ── Done detection (v11.5.1: expanded to cover natural completions) ──
-        if (/[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[了！。]?|已处理|上述.*完成|综上/.test(collectedText)) {
+        // v12.16.2: 必须实际执行了写工具才接受"完成"声明
+        // 防止模型说"全部完成！"但 create_file/edit_file 根本没调用
+        const donePhrase = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[！。]?|已处理|上述.*完成|综上/.test(collectedText)
+        if (donePhrase && (_hasWriteCall || !this._userRequestedFileOp)) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
           break
+        }
+        // 说了"完成"但没写 → 不通过，进入自愈恢复
+        if (donePhrase && this._userRequestedFileOp && !_hasWriteCall) {
+          this.messagesForApi.push({
+            role: 'user',
+            content: '你说"完成"了，但工具调用记录显示你没有调用 create_file 或 edit_file。任务未完成——请实际执行写入操作。',
+          })
+          continue
         }
 
         // ── Continuing detection removed in v12.13.0 ──
         // 之前的 "继续/接下来/下一步" 关键词会无限绕过 Nudge 系统，导致只读死锁。
         // 现在所有文本响应都经过 nudge → 死锁检测 → 完成度自检 的完整链路。
 
-        // ── No tools used → 模型自己选择不调工具，接受 ──
-        // v11.6.1: 工具始终发送(tool_choice:auto)，模型不调是自主判断，不强制推探索
-        if (this.toolsUsed.length === 0) {
+        // ── No tools used → 模型自己选择不调工具 ──
+        // v12.16.3: 用户要求了文件操作 → 不能接受"不用工具"，推入自愈恢复
+        // 之前这里直接 break，导致模型说"全部完成"但没调任何工具也被接受
+        if (this.toolsUsed.length === 0 && !this._userRequestedFileOp) {
+          // 纯聊天 → 接受模型的选择
           break
+        }
+        if (this.toolsUsed.length === 0 && this._userRequestedFileOp) {
+          // 用户要求了文件操作但模型完全没调工具 → 推入自愈恢复
+          this.messagesForApi.push({
+            role: 'user',
+            content: `用户要求了文件操作：「${this._userMessage.slice(0, 200)}」。你必须调用 create_file 或 edit_file 实际执行。不要只输出文字描述——真的去创建或修改文件。`,
+          })
+          this._nudgeCount++
+          continue
         }
 
         // ── Model used tools, now speaking text ──
@@ -265,61 +314,18 @@ export class V4UnifiedRuntime {
         const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
         if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
 
-        // ── v12.6.0: 梯度升级 Nudge — 废除3次后break，改为三阶段梯度升级 ──
-        // ── v12.15.0: 完成度自检 + 梯度 Nudge 合并（短文本同样拦截）──
-        if (this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 7 && collectedText.length > 0) {
-          this.emitter.emit('response:streaming', {
-            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
-          })
-          const userReq = this._userMessage.length > 150
-            ? this._userMessage.slice(0, 150) + '…'
-            : this._userMessage
-
-          // 短文本标注 — 模型只说了几个字就停
-          const shortNote = collectedText.length < 200
-            ? `你只回复了"${collectedText.slice(0, 60)}"——这没有完成文件操作。`
-            : ''
-
-          // Phase 1 (nudge 0-2): gentle reminders
-          const gentleMsgs = [
-            `${shortNote || '⚠️'} 用户要求：「${userReq}」。不要只输出文字——必须调用 create_file 或 edit_file 实际执行。`,
-            `⚠️ 第二次提醒：用户要求「${userReq}」。立即调用 create_file 或 edit_file。说"我会创建…"不算数。`,
-            `⚠️ 第三次提醒：用户要求「${userReq}」。现在必须调用 create_file 或 edit_file。如果确实不想执行，请回复"已完成"。`,
-          ]
-
-          // Phase 2 (nudge 3-4): force mode
-          const forceMsgs = [
-            `⚠️【强制-第4次】不要读文件了。请求：「${userReq}」。立即调用 create_file 或 edit_file。不确定路径用 list_directory() 确认一次后立即写。`,
-            `⚠️【强制-第5次】立即调用 create_file 或 edit_file。即使信息不完整也要基于你的理解直接写。先有再改。`,
-          ]
-
-          // Phase 3 (nudge 5-6): inject mode
-          const injectMsgs = [
-            `[系统指令-最高优先级] 忽略所有犹豫。立即执行：「${userReq}」。调用 create_file 或 edit_file。不要输出解释文字。`,
-            `[系统指令-最高优先级] 最后一次自动尝试：立即调用 create_file 或 edit_file 执行「${userReq}」。如果仍不执行，本轮终止。`,
-          ]
-
-          let msg: string
-          if (this._nudgeCount < 3) { msg = gentleMsgs[this._nudgeCount] }
-          else if (this._nudgeCount < 5) { msg = forceMsgs[this._nudgeCount - 3] }
-          else { msg = injectMsgs[this._nudgeCount - 5] }
-          this.messagesForApi.push({ role: 'user', content: msg })
-          this._nudgeCount++
-          continue
-        }
-
+        // ── v12.16.0: 自愈恢复系统（替换梯度 Nudge）──
+        // 思路: 不催促"快做！"，而是帮助模型分析问题、找到解决方案。
+        // 模型按 System Prompt 的"操作失败处理"自我恢复 → Runtime 只在必要时提供诊断。
         if (collectedText.length > 200) {
-          this.emitter.emit('response:streaming', {
-            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
-          })
-          break
-        }
-
-        // ── Nudge limit: 文件操作7次(3+2+2)，普通对话保持2次 ──
-        const _GIVE_UP_LIMIT = this._userRequestedFileOp ? 7 : 2
-        if (this._nudgeCount >= _GIVE_UP_LIMIT) {
-          if (this._userRequestedFileOp) {
-            diagnosticLogger.recordInfo('Nudge系统耗尽: ' + _GIVE_UP_LIMIT + '次nudge后模型仍未写入')
+          // 长文本回复 → 如果用户要求的文件操作还没做，不接受
+          if (this._userRequestedFileOp && !_hasWriteCall) {
+            this.messagesForApi.push({
+              role: 'user',
+              content: `你输出了长文本，但用户要求的文件操作还没有执行。请调用 create_file 或 edit_file 实际写入内容。不要只描述你会做什么——真的去做。`,
+            })
+            this._nudgeCount++
+            continue
           }
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
@@ -327,27 +333,62 @@ export class V4UnifiedRuntime {
           break
         }
 
-        // v12.14.0: Branch A — 检测模型是否在向用户提问（仅检查问号，不用关键词列表）
-        const _isAskingUser = /[？?]/.test(collectedText)
+        // 已写入 → 任务完成
+        if (_hasWriteCall) break
 
-        // v12.14.0: 纯讨论豁免 — 用户消息无文件操作意图 → 不推 nudge
-        if (!_hasWriteCall && this.toolsUsed.length > 0 && !_isAskingUser && this._userRequestedFileOp) {
-          // Read-only → push to write with user's original request as context
-          const userReq = this._userMessage.length > 200
-            ? this._userMessage.slice(0, 200) + '…'
-            : this._userMessage
-          const msg = this._nudgeCount === 0
-            ? `已读取完毕。用户的原始请求是：「${userReq}」。请**立即**用 edit_file 或 create_file 执行用户的具体要求。不要再说"我先看看"或继续读文件。`
-            : `⚠️ 最后提醒：用户的请求是「${userReq}」。你现在必须用 edit_file 或 create_file 写入内容。如果确实不需要写入，请直接回复"已完成"并说明原因。`
-          this.messagesForApi.push({ role: 'user', content: msg })
-          this._nudgeCount++
-        } else {
-          // Has write calls OR asking user → soft continue (不消耗nudge预算)
-          this.messagesForApi.push({
-            role: 'user',
-            content: '还有需要处理的文件吗？请继续。',
+        // ── 以下: 用户要求了文件操作，但模型还没写 ──
+        this._nudgeCount++
+
+        // 向用户提问 → 不干预（等用户回答）
+        if (/[？?]/.test(collectedText)) {
+          this.emitter.emit('response:streaming', {
+            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
+          break
         }
+
+        const userReq = this._userMessage.length > 200
+          ? this._userMessage.slice(0, 200) + '…'
+          : this._userMessage
+
+        // 诊断数据
+        const failedTools = this.toolCallSteps.filter(s => s.status === 'error')
+        const readTools = this.toolCallSteps.filter(s => /^(read_file|list_directory|search_content|find_files)$/.test(s.tool))
+        const writeTools = this.toolCallSteps.filter(s => /^(create_file|edit_file|batch_replace|delete_file|rename_file)$/.test(s.tool))
+
+        let recoveryMsg: string
+
+        if (this._nudgeCount >= 8) {
+          // 8 轮仍未写入 → 最后诊断
+          const errSummary = failedTools.slice(-3).map(s => `${s.tool}: ${s.summary.slice(0, 80)}`).join(' | ')
+          recoveryMsg = `[自愈诊断-最终] 用户要求：「${userReq}」。已尝试 ${this._nudgeCount} 轮（${readTools.length} 读/${writeTools.length} 写），${failedTools.length} 个失败。${errSummary ? '失败摘要: ' + errSummary : ''}
+请坦诚回复：如果任务可以完成 → 现在就做。如果确实无法完成 → 明确说明原因（不是"我做不到"而是"因为X导致Y所以无法Z"），让用户决定下一步。`
+        } else if (failedTools.length >= 2 && this._nudgeCount >= 4) {
+          // 重复失败 → 诊断分析
+          const errSummary = failedTools.slice(-3).map(s => `${s.tool}: ${s.summary.slice(0, 80)}`).join(' | ')
+          recoveryMsg = `[自愈诊断] 多个工具调用失败：${errSummary}
+请分析失败原因，换一种完全不同的方法。例如：
+- edit_file 匹配失败 → 用 __FULL_REPLACE__ 覆盖全文
+- 路径错误 → list_directory() 确认目录结构后修正
+- 文件不存在 → 直接用 create_file 新建
+- 重复尝试相同参数无效 → 改变策略。分析后立即行动，不要重复同样的错误。`
+        } else if (readTools.length >= 5 && writeTools.length === 0 && this._nudgeCount >= 3) {
+          // 读太多不写
+          recoveryMsg = `[自愈诊断] 已读取 ${readTools.length} 个文件但还未写入。用户要求：「${userReq}」。
+信息应该已经足够。现在基于已有信息 + 你的知识直接创建内容。不确定的地方用你的判断填充——先有再改。不要再读文件了。`
+        } else if (this._nudgeCount >= 5) {
+          // 多轮无进展
+          recoveryMsg = `[自愈诊断] 已尝试 ${this._nudgeCount} 轮，用户要求：「${userReq}」。
+请分析当前状态：哪些成功了？哪些失败了？换一种方法继续推进。不要重复已经失败的操作。`
+        } else {
+          // 前几轮: 不干预，让 System Prompt 的自我恢复逻辑工作
+          continue
+        }
+
+        this.emitter.emit('response:streaming', {
+          text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+        })
+        this.messagesForApi.push({ role: 'user', content: recoveryMsg })
         continue
       }
 
@@ -390,7 +431,6 @@ export class V4UnifiedRuntime {
         toolsUsed: this.toolsUsed,
         toolCallSteps: this.toolCallSteps,
         emitter: this.emitter,
-        _consecutiveReads: this._consecutiveReads,
         iteration,
         store: {
           addToolExecution: (id: string, name: string) => store.addToolExecution(id, name),
@@ -409,7 +449,6 @@ export class V4UnifiedRuntime {
         if (this.config.abortSignal.aborted) break
         await executeSingleTool(tc, execCtx)
       }
-      this._consecutiveReads = execCtx._consecutiveReads
       if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
 
       // v12.6.0: 分级失败检测 + 路径错误单独追踪 + 自动目录诊断
@@ -485,37 +524,18 @@ export class V4UnifiedRuntime {
         }
       }
 
-      // v12.15.0: 重复读取检测 — 同一文件被读2次以上 → 注入警告
+      // v12.16.5: 重复读取提醒 — 同一文件被读2次以上 → 提醒直接引用历史
       const readFilePaths = this.toolCallSteps
         .filter(s => (s.tool === 'read_file' || s.tool === 'list_directory') && s.status === 'success')
         .map(s => { try { return JSON.parse(s.arguments || '{}').file_path || JSON.parse(s.arguments || '{}').dir_path } catch { return '' } })
         .filter(Boolean)
       const dupReads = readFilePaths.filter((p, i) => readFilePaths.indexOf(p) !== i)
-      let nudgedThisIteration = false
-      if (dupReads.length > 0 && this._userRequestedFileOp && !_hasWriteCall && this._nudgeCount < 5) {
+      if (dupReads.length > 0 && this._userRequestedFileOp && !_hasWriteCall) {
         const dupSet = [...new Set(dupReads)].join('、')
         this.messagesForApi.push({
           role: 'user',
-          content: `⚠️ 你已重复读取以下目标: ${dupSet}。对话历史中已有这些结果——直接引用，不要重复 read_file 或 list_directory。现在立即用 create_file 或 edit_file 写入。`,
+          content: `已重复读取: ${dupSet}。对话历史中已有这些结果——直接引用，不要重复。现在用 create_file 或 edit_file 写入。`,
         })
-        this._nudgeCount++
-        nudgedThisIteration = true
-      }
-
-      // v12.13.0: 读循环检测 — 每3轮触发一次。如果重复读取已触发则跳过本迭代
-      if (!nudgedThisIteration && this._userRequestedFileOp && !_hasWriteCall && writeCalls.length === 0 && this._nudgeCount < 5) {
-        if (iteration >= 3 && (iteration % 3 === 0)) {
-          const msgs = [
-            `⚠️ 第${iteration}轮：已读取${this.toolsUsed.length}类文件。用户要求：「${this._userMessage.slice(0, 80)}」。读完参考就够了——下一轮直接 create_file 或 edit_file 操作文件。`,
-            `⚠️ 第${iteration}轮第二次提醒：现在必须调用 create_file 或 edit_file 执行用户请求。不要再读文件了。`,
-            `⚠️ 第${iteration}轮第三次提醒：忽略所有犹豫，立即调用 create_file 或 edit_file。即使参考信息不完整也要基于你的知识直接写。`,
-            `⚠️ 第${iteration}轮第四次提醒：立即用 create_file 创建文件。先有再改。不要继续探索目录。`,
-            `[系统指令-强制] 第${iteration}轮最后警告：已达到读取上限。必须立即写入，否则本轮终止。`,
-          ]
-          const idx = Math.min(Math.floor((iteration - 3) / 3), msgs.length - 1)
-          this.messagesForApi.push({ role: 'user', content: msgs[idx] })
-          this._nudgeCount++
-        }
       }
     }
 

@@ -1,4 +1,0 @@
-{"timestamp":1780797715924,"sessionId":"ant_mq34zbo4_gv9o","event":"session:start","data":{}}
-{"timestamp":1780797717868,"sessionId":"ant_mq34zbo4_gv9o","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"257 个匹配"}}
-{"timestamp":1780797737001,"sessionId":"ant_mq34zbo4_gv9o","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"30 字符"}}
-{"timestamp":1780797737002,"sessionId":"ant_mq34zbo4_gv9o","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"34 字符"}}

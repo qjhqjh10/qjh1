@@ -1,6 +1,0 @@
-{"timestamp":1780817662922,"sessionId":"ant_mq3guuve_5v4e","event":"session:start","data":{}}
-{"timestamp":1780817664924,"sessionId":"ant_mq3guuve_5v4e","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"9 个匹配"}}
-{"timestamp":1780817666382,"sessionId":"ant_mq3guuve_5v4e","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"2 个匹配"}}
-{"timestamp":1780817668982,"sessionId":"ant_mq3guuve_5v4e","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
-{"timestamp":1780817668982,"sessionId":"ant_mq3guuve_5v4e","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
-{"timestamp":1780817668982,"sessionId":"ant_mq3guuve_5v4e","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"43 字符"}}

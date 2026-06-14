@@ -1,11 +1,26 @@
 {
-  "currentVersion": "12.10.0",
-  "currentDate": "2026-06-13",
+  "currentVersion": "12.17.0",
+  "currentDate": "2026-06-14",
   "history": [
     {
-      "version": "12.10.0",
-      "date": "2026-06-13",
+      "version": "12.17.0",
+      "date": "2026-06-14",
       "features": [
+        "Nudge系统完全移除: ToolActionPrompter.ts删除(66行),梯度Nudge→自愈诊断恢复系统",
+        "自愈恢复系统: 不催促(快做!),改为诊断(分析了什么/为什么失败/换什么方法)",
+        "Runtime安全网三层: 完成检测+零工具拦截+长文本检查,全部验证_hasWriteCall",
+        "假完成拦截: 模型说全部完成但工具=0→拒绝+推入自愈恢复",
+        "读操作计数器: ≥3次连续读取无写入→注入系统提醒,≥5次→强制写入提醒",
+        "任务边界隔离: 新用户消息到达时注入[任务边界],防止跨任务失败污染",
+        "跨轮记忆优化: System Prompt要求操作确认中提及关键信息,后续轮无需重读文件",
+        "ToolExecutor修复: tool_result在nudge之前推送;AnthropicAdapter合并连续tool消息",
+        "API超时: 90s→180s,适配大型上下文",
+        "taskDetection精度修复: hasTaskKeywords移除单字词避免聊天误判",
+        "上下文: contextWindow支持1M tokens(deepseek-v4-flash)",
+        "对话测试脚本: test-ai-conversation.mjs,19场景,真实Bridge→Runtime→Adapter,mock window.electron",
+        "测试覆盖: 读取分析/跨轮记忆/多任务/编辑/删除重建/探索创建/内容转化/联网搜索/知识库"
+      ]
+    },
         "工具精简: 移除think工具(34工具),AI自身推理能力替代",
         "Nudge系统重构: 3阶段梯度升级(温和→强制→注入),7次才放弃(原3次)",
         "Nudge消息智能化: 根据用户意图推荐正确工具(create_project/delete_file/rename_file)",

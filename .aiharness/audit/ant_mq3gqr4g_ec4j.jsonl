@@ -1,4 +1,0 @@
-{"timestamp":1780817471440,"sessionId":"ant_mq3gqr4g_ec4j","event":"session:start","data":{}}
-{"timestamp":1780817474049,"sessionId":"ant_mq3gqr4g_ec4j","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"43 字符"}}
-{"timestamp":1780817474049,"sessionId":"ant_mq3gqr4g_ec4j","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"0 字符"}}
-{"timestamp":1780817474051,"sessionId":"ant_mq3gqr4g_ec4j","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}

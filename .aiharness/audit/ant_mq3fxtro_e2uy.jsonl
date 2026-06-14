@@ -1,4 +1,0 @@
-{"timestamp":1780816121844,"sessionId":"ant_mq3fxtro_e2uy","event":"session:start","data":{}}
-{"timestamp":1780816124707,"sessionId":"ant_mq3fxtro_e2uy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
-{"timestamp":1780816125962,"sessionId":"ant_mq3fxtro_e2uy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"45 个匹配"}}
-{"timestamp":1780816125963,"sessionId":"ant_mq3fxtro_e2uy","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"45 个匹配"}}

@@ -1,4 +1,0 @@
-{"timestamp":1780797840120,"sessionId":"ant_mq351zi0_fs0o","event":"session:start","data":{}}
-{"timestamp":1780797842632,"sessionId":"ant_mq351zi0_fs0o","event":"tool:result","data":{"toolName":"list_prompts","status":"success","summary":"11 个提示词模板"}}
-{"timestamp":1780797842640,"sessionId":"ant_mq351zi0_fs0o","event":"tool:result","data":{"toolName":"list_rules","status":"success","summary":"3 条规则"}}
-{"timestamp":1780797842641,"sessionId":"ant_mq351zi0_fs0o","event":"tool:result","data":{"toolName":"read_file","status":"success","summary":"1358 字符"}}

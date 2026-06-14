@@ -134,9 +134,13 @@ export function isKnowledgeOnly(msg: string): boolean {
   return !hasCreationOp
 }
 
-/** 任务关键词检测 — 用于索引构建 + Runtime Nudge/死锁检测的门控
- *  v12.14.0: 作为 _userRequestedFileOp 的统一判断依据，替代旧的独立 _explicitFileOp 正则 */
-const TASK_KEYWORDS_FOR_INDEX = /角色|人物|大纲|剧情|章节|写|创作|生成|续写|风格|文风|分析|模板|知识库|搜索|查找|创建|删除|编辑|导入|保存|整理|修改|改|图片|图|插图|搜|画|草稿|笔记|项目|世界|细纲|仿写/i
+/** 任务关键词检测 — 用于 Runtime _userRequestedFileOp 门控
+ *  v12.16.5: 移除单字关键词(写|改|搜|画|图)避免聊天误判
+ *  只保留明确表示文件操作的多字动词 */
+/** 任务关键词检测 — 用于 Runtime _userRequestedFileOp 门控
+ *  v12.16.5: 移除单字关键词(写|改|搜|画|图)避免聊天误判。
+ *  匹配写操作动词(创建/修改/删除等)和任务短语(帮我X/写到/存到等) */
+const TASK_KEYWORDS_FOR_INDEX = /帮我写|帮我改|帮我创建|帮我做|创建|新建|生成|写入|修改|编辑|删除|追加|保存|填充|导入|导出|整理|替换|重命名|续写|仿写|润色|扩充|精简|重写|写到|存到|放入|写一下|改一下|写第|改第|填一下|做一下|生成一下|创建一下|加到|补给|补上|更新|覆盖|全部写|全部改|都写|都改|填充一下/i
 
 export function hasTaskKeywords(msg: string): boolean {
   return TASK_KEYWORDS_FOR_INDEX.test(msg)

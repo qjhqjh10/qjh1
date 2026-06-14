@@ -1,4 +1,0 @@
-{"timestamp":1780816087203,"sessionId":"ant_mq3fx31f_2dk9","event":"session:start","data":{}}
-{"timestamp":1780816088599,"sessionId":"ant_mq3fx31f_2dk9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"0 个匹配"}}
-{"timestamp":1780816089814,"sessionId":"ant_mq3fx31f_2dk9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"45 个匹配"}}
-{"timestamp":1780816091731,"sessionId":"ant_mq3fx31f_2dk9","event":"tool:result","data":{"toolName":"list_directory","status":"success","summary":"45 个匹配"}}

@@ -1,10 +1,7 @@
 // ── Tool Executor ──
-// Extracted from executeSingleTool in both runtimes (~90% identical).
-// Handles: tool argument parsing, execution with timeout, event emission,
-// result filtering, and delegation to ToolActionPrompter for skill orchestration.
+// Handles: tool argument parsing, execution with timeout, event emission, result filtering.
 
 import { ContractExecutor } from '../context/ContractExecutor'
-import { applyActionPrompts } from './ToolActionPrompter'
 import type { ToolExecutorFn } from './RuntimeTypes'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 import type { AgentEventEmitter } from './AgentEventEmitter'
@@ -42,7 +39,6 @@ export interface ToolExecContext {
   toolsUsed: string[]
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string }>
   emitter: AgentEventEmitter
-  _consecutiveReads: number
   iteration: number
   /** v9.5.5: Store for tool progress tracking */
   store: {
@@ -53,8 +49,8 @@ export interface ToolExecContext {
 }
 
 /**
- * Execute a single tool call with timeout, event emission, and skill orchestration.
- * Modifies ctx.messagesForApi, ctx.toolsUsed, ctx.toolCallSteps, ctx._consecutiveReads.
+ * Execute a single tool call with timeout, event emission.
+ * Modifies ctx.messagesForApi, ctx.toolsUsed, ctx.toolCallSteps.
  */
 export async function executeSingleTool(
   tc: ToolCallRequest,
@@ -116,16 +112,9 @@ export async function executeSingleTool(
     })
   }
 
-  // ── v9.5.5: Skill orchestration (delegated to ToolActionPrompter) ──
-  const newReads = applyActionPrompts({
-    messagesForApi: ctx.messagesForApi,
-    _consecutiveReads: ctx._consecutiveReads,
-    tc, result, args,
-  })
-  ctx._consecutiveReads = newReads
-
   // Filter result for API context (ContractExecutor: strip verbose detail)
   const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
   const finalResult = note ? { ...resultForApi, note } : resultForApi
   ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
+
 }

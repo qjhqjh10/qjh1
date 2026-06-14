@@ -59,30 +59,39 @@ function toAnthropicTools(openaiTools: unknown[]): AnthropicToolDef[] {
 // ── Message format conversion ──
 
 // v11.7.1: 统一使用 AnthropicContentBlock 类型，消除 as any 断言
+// v12.14.1: 合并连续 tool 消息 → 一个 user 消息含多个 tool_result 块
+// Anthropic API 要求: assistant(tool_use×N) 后的 user 必须含全部 N 个 tool_result
 function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: AnthropicContentBlock[] }> {
   const result: Array<{ role: string; content: AnthropicContentBlock[] }> = []
 
-  for (const m of msgs) {
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
     if (m.role === 'system') continue // system as top-level parameter
 
     const content: AnthropicContentBlock[] = []
 
     if (m.role === 'tool') {
-      // Tool result → user message (Anthropic requirement)
-      // v11.7.0: parse status to set is_error — model needs this to self-correct
-      const contentStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-      let isError = false
-      try {
-        const parsed = JSON.parse(contentStr)
-        isError = parsed.status === 'error'
-      } catch { /* not valid JSON, keep isError=false */ }
-      content.push({
-        type: 'tool_result',
-        tool_use_id: (m as any).tool_call_id || '',
-        content: contentStr,
-        ...(isError ? { is_error: true } : {}),
-      })
-      result.push({ role: 'user', content })
+      // 收集连续的所有 tool 消息，合并为一个 user 消息
+      const toolResultBlocks: AnthropicContentBlock[] = []
+      let j = i
+      while (j < msgs.length && msgs[j].role === 'tool') {
+        const tm = msgs[j]
+        const contentStr = typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content)
+        let isError = false
+        try {
+          const parsed = JSON.parse(contentStr)
+          isError = parsed.status === 'error'
+        } catch { /* not valid JSON, keep isError=false */ }
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: (tm as any).tool_call_id || '',
+          content: contentStr,
+          ...(isError ? { is_error: true } : {}),
+        })
+        j++
+      }
+      result.push({ role: 'user', content: toolResultBlocks })
+      i = j - 1  // 跳过合并的消息
     } else if (m.role === 'assistant' && (m as any).tool_calls) {
       // Assistant with tool calls
       if (m.content && typeof m.content === 'string' && m.content.trim()) {

@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v12.14.0
+# AI写作软件—青剑 v12.17.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
 
@@ -73,26 +73,21 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | `npx vitest run` | 全量单元测试 (~530 用例) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (217 用例) |
 
-## 15 场景集成测试
+## 19 场景对话测试
 
 ```bash
 cd /d/3/novel-writing-app
-export AI_API_KEY=sk-c9c30831df7243209435c60e811c879d
+export AI_API_KEY=sk-xxx  # 替换为你的 DeepSeek API key
 
-# 全部 15 场景 (~10分钟)
-node scripts/comprehensive-test-suite.mjs
-
-# 仅高优先 5 场景
-node scripts/comprehensive-test-suite.mjs --phase=high
+# 全部 19 场景 (~20分钟)
+npx tsx scripts/test-ai-conversation.mjs
 
 # 指定场景
-node scripts/comprehensive-test-suite.mjs --scenario=T1,T2,T3
+npx tsx scripts/test-ai-conversation.mjs --scenario=S1,S2,S10
 
-# 保留测试项目文件 (手动检查)
-node scripts/comprehensive-test-suite.mjs --phase=high --keep
-
-# 用 v4-pro 模型
-AI_MODEL=deepseek-v4-pro node scripts/comprehensive-test-suite.mjs --phase=high
+# 仅新能力测试
+npx tsx scripts/test-ai-conversation.mjs --scenario=S15,S16,S17,S18,S19
 ```
 
-测试在每个场景最多 120s 内完成。失败原因通常是 AI 模型输出不满足验证条件（非代码问题）。T3 (ENOENT) 和 T15 (EISDIR) 是测试脚本预存问题。
+测试通过真实 Bridge → Runtime → Adapter 运行，mock window.electron IPC 层。
+场景覆盖：读取分析/跨轮记忆/多任务/编辑/删除重建/内容转化/联网搜索/知识库。
