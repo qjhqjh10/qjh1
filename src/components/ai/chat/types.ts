@@ -27,6 +27,8 @@ export interface Message {
   totalIterations?: number
   /** V9.5.2: 软件功能/能力自述消息 — 仅显示，不进入对话上下文 */
   displayOnly?: boolean
+  /** v13.0: 多角色系统 — 发送此消息的角色卡片ID */
+  characterId?: string
 }
 
 export interface Conversation {
@@ -37,4 +39,6 @@ export interface Conversation {
   totalTokens: number
   lastPromptTokens: number
   peakPromptTokens: number
+  /** v13.0: 该会话绑定的角色模板ID — 首条消息发送后锁定 */
+  roleTemplateId?: string
 }

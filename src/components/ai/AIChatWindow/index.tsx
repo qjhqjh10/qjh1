@@ -7,7 +7,7 @@ import {
   BookOpenIcon, GlobeAltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
-  ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
+  DocumentTextIcon, PhotoIcon,
   TrashIcon, Square2StackIcon, WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
@@ -19,6 +19,15 @@ import { useToast } from '@/components/common/Toast'
 import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
+import { loadAvatar } from '@/utils/imageCompress'
+
+// v13.0: 多角色头像组件
+function CharAvatar({ charId, charAvatarMap, role, onClick }: { charId?: string; charAvatarMap: Record<string, string>; role: string; onClick: (src: string) => void }) {
+  const src = charId ? charAvatarMap[charId] || '' : ''
+  if (role === 'tool') return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>🔧</div>
+  if (src) return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', cursor: 'pointer' }} onClick={() => onClick(src)}><img src={src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+  return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>{role === 'user' ? '✍️' : '📖'}</div>
+}
 
 import { makeConversation, parsePopupCommand } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
@@ -252,6 +261,7 @@ export default function AIChatWindow() {
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number; cacheHitTokens?: number; cacheCreationTokens?: number } | null>(null)
   const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
+  const [charAvatarMap, setCharAvatarMap] = useState<Record<string, string>>({})
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
   const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
@@ -309,6 +319,15 @@ export default function AIChatWindow() {
 
   const activeConversation = conversations.find(c => c.id === activeConversationId) || conversations[0]
   const messages = activeConversation.messages
+
+  // v13.0: 预加载角色头像
+  useEffect(() => {
+    const tplId = activeConversation.roleTemplateId || useSettingsStore.getState().aiSettings.activeRoleTemplateId
+    const tpl = tplId ? useSettingsStore.getState().aiSettings.roleTemplates?.find(t => t.id === tplId) : undefined
+    if (!tpl) { setCharAvatarMap({}); return }
+    const map: Record<string, string> = {}
+    Promise.all(tpl.characters.map(async (c) => { if (c.avatar) try { map[c.id] = await loadAvatar(c.avatar) } catch { map[c.id] = "" } })).then(() => setCharAvatarMap({ ...map }))
+  }, [activeConversation.roleTemplateId, useSettingsStore.getState().aiSettings.activeRoleTemplateId])
 
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
     setConversations(prev => prev.map(c => {
@@ -453,7 +472,7 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); setCurrentContextTokens(savedTokens); conversationToolNames.current = new Set(); pendingCorrection.current = null } }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); setCurrentContextTokens(savedTokens); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
   const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); return }; setActiveConversationId(remaining[0].id); setConversations(remaining) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
@@ -613,7 +632,7 @@ export default function AIChatWindow() {
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 32 个工具（核心7+扩展25，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n🗺️ 故事脉络 — 多维度分析 + 冲突检测\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 32 个工具（核心7+扩展25，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
         : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 15 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/润色/续写\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
@@ -953,6 +972,22 @@ export default function AIChatWindow() {
                 </option>
               ))}
             </select>
+
+            {/* v13.0: 角色模板选择器 */}
+            {(() => {
+              const roleTemplates = useSettingsStore.getState().aiSettings.roleTemplates || []
+              const isLocked = !!activeConversation.roleTemplateId && activeConversation.messages.some(m => m.role === "user" && !m.displayOnly)
+              if (roleTemplates.length === 0) return null
+              return (
+                <select value={isLocked ? activeConversation.roleTemplateId : (useSettingsStore.getState().aiSettings.activeRoleTemplateId || "")}
+                  disabled={isLocked}
+                  onChange={e => { if (e.target.value) useSettingsStore.getState().setActiveRoleTemplate(e.target.value) }}
+                  style={{ padding: "3px 6px", borderRadius: 6, border: isLocked ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(0,0,0,0.1)", fontSize: 10, color: isLocked ? "#d97706" : "#4a3f38", background: isLocked ? "rgba(245,158,11,0.04)" : "#fff", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: "inherit", maxWidth: 130 }}
+                  title={isLocked ? "角色模板已锁定" : "切换角色模板"}>
+                  {roleTemplates.map(tpl => <option key={tpl.id} value={tpl.id}>🎭 {tpl.name}</option>)}
+                </select>
+              )
+            })()}
           </div>
 
           <ContextUsageBar

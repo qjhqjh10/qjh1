@@ -78,15 +78,58 @@ export class BridgeContextBuilder {
     // ── 7. Assemble system messages — 角色身份 + 核心规则 ──
     const systemMessages: Array<{ role: 'system'; content: string }> = []
 
-    // 注入用户选择的角色身份（预设或自定义）+ 当前项目信息
+    // 读取 settings store（角色模板 + 旧 customRoles 共用）
     const { useSettingsStore, useStore } = await import('@/store')
     const aiSettings = useSettingsStore.getState().aiSettings
-    const selectedRole = aiSettings.customRoles?.find(r => r.id === aiSettings.defaultRole)
-    if (selectedRole?.prompt) {
-      systemMessages.push({ role: 'system', content: selectedRole.prompt })
-      // 去掉核心规则的默认身份行，让角色 prompt 成为唯一身份定义
-      effectivePrompt = effectivePrompt.replace(/^你是青剑，一个小说创作对话助手。\n\n?/, '')
-      effectivePrompt = effectivePrompt.replace(/^你是青剑，小说创作对话助手。/, '')
+
+    // v13.0: 注入角色模板 — "语气外壳"，不替换写作助手内核
+    const activeTplId = aiSettings.activeRoleTemplateId
+    const activeTpl = activeTplId ? aiSettings.roleTemplates?.find(t => t.id === activeTplId) : undefined
+    if (activeTpl && activeTpl.characters.length > 0) {
+      const userChars = activeTpl.characters.filter(c => c.isUser)
+      const aiChars = activeTpl.characters.filter(c => !c.isUser)
+
+      if (aiChars.length > 0) {
+        const charLines: string[] = []
+        if (activeTpl.worldSetting) {
+          charLines.push(`世界背景：${activeTpl.worldSetting}`)
+        }
+        if (activeTpl.scenarioSetting) {
+          charLines.push(`场景设定：${activeTpl.scenarioSetting}`)
+        }
+        userChars.forEach(c => {
+          const parts = [`"${c.name}"（${c.identity}，${c.gender}，由用户扮演）`]
+          if (c.personality) parts.push(`- 设定：${c.personality}`)
+          if (c.relationship) parts.push(`- 关系：${c.relationship}`)
+          charLines.push(parts.join('\n'))
+        })
+        aiChars.forEach(c => {
+          const parts = [`"${c.name}"（${c.identity}，${c.gender}，由你扮演）`]
+          if (c.personality) parts.push(`- 设定：${c.personality}`)
+          if (c.relationship) parts.push(`- 关系：${c.relationship}`)
+          if (c.firstMessage) parts.push(`- 首次发言风格参考："${c.firstMessage}"`)
+          charLines.push(parts.join('\n'))
+        })
+
+        if (isFirstMessage) {
+          charLines.unshift('[角色扮演设定 — 这是你的人格外壳，你的核心写作助手能力（文件操作、知识库搜索、章节创作等全部工具）保持不变]')
+          systemMessages.push({ role: 'system', content: charLines.join('\n\n') })
+        } else {
+          const summary = aiChars.map(c => `你扮演"${c.name}"（${c.identity}）`).join('；')
+          systemMessages.push({ role: 'system', content: `[角色扮演] ${summary}。用户是${userChars.map(c => `"${c.name}"`).join('、')}。保持角色语气，保留全部工具能力。` })
+        }
+      }
+    }
+
+    // 注入用户选择的角色身份（旧兼容，仅在没有角色模板时生效） + 当前项目信息
+    const hasRoleTemplate = !!activeTplId && (aiSettings.roleTemplates?.some(t => t.id === activeTplId))
+    if (!hasRoleTemplate) {
+      const selectedRole = aiSettings.customRoles?.find(r => r.id === aiSettings.defaultRole)
+      if (selectedRole?.prompt) {
+        systemMessages.push({ role: 'system', content: selectedRole.prompt })
+        effectivePrompt = effectivePrompt.replace(/^你是青剑，一个小说创作对话助手。\n\n?/, '')
+        effectivePrompt = effectivePrompt.replace(/^你是青剑，小说创作对话助手。/, '')
+      }
     }
 
     // 注入当前项目信息 — 让 AI 知道项目名(用户称呼)和目录名(路径用)

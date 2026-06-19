@@ -22,7 +22,8 @@ import ImageLightbox from '@/components/common/ImageLightbox'
 
 export function makeConversation(id: string, title: string): Conversation {
   const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false
-  return { id, title, messages: showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${id}` }] : [], createdAt: Date.now(), totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 }
+  const activeTemplateId = useSettingsStore.getState().aiSettings.activeRoleTemplateId || ''
+  return { id, title, messages: showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${id}` }] : [], createdAt: Date.now(), totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0, roleTemplateId: activeTemplateId || undefined }
 }
 
 export function parsePopupCommand(text: string): { text: string; popup?: { type: 'outline' | 'worldbuilding' | 'draft' | 'kb'; title: string; documentKey?: string }; genTrigger?: string } {

@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
-import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
+import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles, RoleTemplate } from '@/types/settings'
 import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS, DEFAULT_OUTLINE_TABS, DEFAULT_DETAILED_OUTLINE_TOGGLES } from '@/types/settings'
 
 export interface PopupWindow {
@@ -254,6 +254,11 @@ export interface SettingsState {
   removePrompt: (id: string) => void
   setAISettings: (settings: Partial<AIAssistantSettings>) => void
   setDisplaySettings: (settings: Partial<DisplaySettings>) => void
+  // v13.0: 角色模板
+  addRoleTemplate: (template: RoleTemplate) => void
+  updateRoleTemplate: (id: string, updates: Partial<RoleTemplate>) => void
+  removeRoleTemplate: (id: string) => void
+  setActiveRoleTemplate: (id: string) => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -286,10 +291,26 @@ export const useSettingsStore = create<SettingsState>()(
       }),
       setAISettings: (settings) => set(s => { Object.assign(s.aiSettings, settings) }),
       setDisplaySettings: (settings) => set(s => { Object.assign(s.displaySettings, settings) }),
+      // v13.0: 角色模板
+      addRoleTemplate: (template) => set(s => {
+        s.aiSettings.roleTemplates.push(template)
+        if (!s.aiSettings.activeRoleTemplateId) s.aiSettings.activeRoleTemplateId = template.id
+      }),
+      updateRoleTemplate: (id, updates) => set(s => {
+        const idx = s.aiSettings.roleTemplates.findIndex(t => t.id === id)
+        if (idx !== -1) Object.assign(s.aiSettings.roleTemplates[idx], updates)
+      }),
+      removeRoleTemplate: (id) => set(s => {
+        s.aiSettings.roleTemplates = s.aiSettings.roleTemplates.filter(t => t.id !== id)
+        if (s.aiSettings.activeRoleTemplateId === id) {
+          s.aiSettings.activeRoleTemplateId = s.aiSettings.roleTemplates[0]?.id || ''
+        }
+      }),
+      setActiveRoleTemplate: (id) => set(s => { s.aiSettings.activeRoleTemplateId = id }),
     })),
     {
       name: 'novel-writer-settings',
-      version: 4,
+      version: 5,
       partialize: (state) => ({
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
@@ -361,6 +382,44 @@ export const useSettingsStore = create<SettingsState>()(
           // v4: ModelConfig type restructured — clear old configs to avoid immer proxy errors
           const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
           return { ...p, configs: [], activeConfigId: null }
+        }
+        if (version < 5) {
+          // v5 (v13.0): 多角色系统 — 从旧 customRoles 迁移到 roleTemplates
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+          const oldRoles = Array.isArray(ai.customRoles) ? ai.customRoles as { id: string; name: string; prompt: string }[] : []
+          const hasTemplates = Array.isArray(ai.roleTemplates) && (ai.roleTemplates as unknown[]).length > 0
+          if (oldRoles.length > 0 && !hasTemplates) {
+            // 内联 createDefaultCharacter + createDefaultRoleTemplate（migrate 必须同步）
+            const makeChar = (isUser: boolean, name: string, identity: string, personality = '', relationship = ''): Record<string, unknown> => ({
+              id: `char_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              name, identity, gender: '男', personality,
+              avatar: '', relationship: relationship || (isUser ? '' : 'AI助手'),
+              isUser, firstMessage: isUser ? undefined : `你好！我是${name}，有什么可以帮你的？`,
+              exampleDialogue: '',
+            })
+            const aiChars = oldRoles.map(r => makeChar(false, r.name, '助手', r.prompt))
+            const template: Record<string, unknown> = {
+              id: `rt_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              name: '经典模式',
+              characters: [makeChar(true, '写作者', '作者'), ...aiChars],
+              worldSetting: '',
+              scenarioSetting: '',
+            }
+            return {
+              ...p,
+              aiSettings: {
+                ...ai,
+                roleTemplates: [template],
+                activeRoleTemplateId: template.id,
+              },
+            }
+          }
+          // 确保字段存在
+          const updatedAi = { ...ai }
+          if (!Array.isArray(updatedAi.roleTemplates)) (updatedAi as any).roleTemplates = []
+          if (typeof updatedAi.activeRoleTemplateId !== 'string') (updatedAi as any).activeRoleTemplateId = ''
+          return { ...p, aiSettings: updatedAi }
         }
         return persisted
       },

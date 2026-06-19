@@ -4,4 +4,4 @@ export {
   buildOutlineMergePrompt, buildContinuationPlanPrompt, buildContinuationWritingPrompt,
   buildSegmentChapterPlansPrompt,
 } from './continuationService/analysisPrompts'
-export { buildConflictDetectionPrompt, buildRewriteAnalysisPrompt } from './continuationService/rewritePrompts'
+export { buildRewriteAnalysisPrompt } from './continuationService/rewritePrompts'

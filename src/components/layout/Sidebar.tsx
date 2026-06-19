@@ -6,7 +6,6 @@ import {
   DocumentTextIcon,
   ListBulletIcon,
   BookOpenIcon,
-  FlagIcon,
   PaintBrushIcon,
   SparklesIcon,
   DocumentMagnifyingGlassIcon,
@@ -29,7 +28,6 @@ interface NavItem {
 // Always-visible items (no project required)
 const COMMON_ITEMS: NavItem[] = [
   { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
-  { path: '/story-map', label: '故事脉络', icon: FlagIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
   { path: '/rewrite', label: '剧情改写', icon: PencilIcon },

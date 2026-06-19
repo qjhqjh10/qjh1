@@ -167,6 +167,64 @@ export const DEFAULT_CHAPTER_GEN: ChapterGenSettings = {
   prevTextSelectedContent: '',
 }
 
+// ── 多角色系统 (v13.0) ──
+// 借鉴 SillyTavern 酒馆的角色卡片 + 群组架构
+
+/** 角色卡片 — 借鉴酒馆 Character Card */
+export interface CharacterCard {
+  id: string
+  name: string                    // 姓名
+  identity: string                // 身份：男主/女主/男配/女配/反派/路人/自定义
+  gender: '男' | '女'
+  personality: string             // 性格/背景设定（酒馆 description + personality 合并）
+  avatar: string                  // 头像文件路径 (空字符串=默认emoji)
+  relationship: string            // 与用户/其他角色的关系
+  isUser: boolean                 // true=用户扮演, false=AI扮演
+  firstMessage?: string           // 开场白（借鉴酒馆 first_mes）
+  exampleDialogue?: string        // 示例对话（借鉴酒馆 mes_example，帮助AI把握语气）
+}
+
+/** 角色模板 — 借鉴酒馆 Group + World Info */
+export interface RoleTemplate {
+  id: string
+  name: string                    // 模板名称，如"双人写作"
+  characters: CharacterCard[]     // 角色卡片列表（最少1个用户+1个AI角色）
+  worldSetting: string            // 世界观背景（借鉴酒馆 World Info 常开条目）
+  scenarioSetting: string         // 场景/对话补充设定
+}
+
+export const CHARACTER_IDENTITIES = ['男主', '女主', '男配', '女配', '反派', '路人', '自定义'] as const
+
+/** 创建默认角色卡片 */
+export function createDefaultCharacter(isUser: boolean, name: string, identity: string): CharacterCard {
+  return {
+    id: `char_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name,
+    identity,
+    gender: '男',
+    personality: isUser ? '' : '一位专业的写作助手，擅长文学创作与角色塑造。',
+    avatar: '',
+    relationship: isUser ? '' : '写作搭档',
+    isUser,
+    firstMessage: isUser ? undefined : '你好！我是你的写作助手，很高兴能与你一起创作。',
+    exampleDialogue: '',
+  }
+}
+
+/** 创建默认角色模板 */
+export function createDefaultRoleTemplate(name?: string): RoleTemplate {
+  return {
+    id: `rt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name: name || '双人写作',
+    characters: [
+      createDefaultCharacter(true, '写作者', '作者'),
+      createDefaultCharacter(false, '写作助手', '助手'),
+    ],
+    worldSetting: '',
+    scenarioSetting: '',
+  }
+}
+
 export interface AIAssistantSettings {
   defaultRole: string
   responseStyle: 'concise' | 'normal' | 'detailed'
@@ -179,14 +237,17 @@ export interface AIAssistantSettings {
   budgetWarning: boolean
   contextPriority: ContextPriority
   kbFileSelections: Record<string, string[]>
-  customRoles: { id: string; name: string; prompt: string }[]
+  customRoles: { id: string; name: string; prompt: string }[]   // @deprecated v13.0 — 迁移到 roleTemplates
   styleAssignments: Record<string, string>  // targetProjectId → styleProjectId
   workMode: 'plan' | 'action'               // Plan=只读分析 Action=全部工具
-  userAvatar: string                         // 用户头像 base64 data URI (空字符串=默认emoji)
-  assistantAvatar: string                    // AI助手头像 base64 data URI (空字符串=默认emoji)
+  userAvatar: string                         // @deprecated v13.0 — 迁移到角色卡片头像
+  assistantAvatar: string                    // @deprecated v13.0 — 迁移到角色卡片头像
   chapterGen: ChapterGenSettings
   showWelcome: boolean                        // 是否显示新会话欢迎信息
   useAgent: boolean                            // 启用 Agent 模式（替代旧 handleSend）
+  // v13.0: 多角色系统
+  roleTemplates: RoleTemplate[]               // 角色模板列表
+  activeRoleTemplateId: string                // 当前激活的角色模板ID
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -213,6 +274,9 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
     { id: 'role-editor', name: '文学编辑', prompt: '你是一位资深的文学编辑，擅长发现作品中的问题并提出建设性的修改意见。先 read_file 审读作品，从结构、语言、人物、节奏等角度输出分析。修改时用 edit_file 精确替换，而非全量重写。' },
     { id: 'role-partner', name: '写作伙伴', prompt: '你是一位热情的写作伙伴，像朋友一样与作者交流想法，提供灵感碰撞和轻松愉快的创作陪伴。多提问、多鼓励，帮助作者理清思路。只在用户明确要求时才操作文件——你的首要任务是激发灵感，而非代笔。' },
   ],
+  // v13.0: 多角色系统 — 默认一个"双人写作"模板
+  roleTemplates: [],
+  activeRoleTemplateId: '',
 }
 
 export type ThemeId = 'warm-purple' | 'cyberpunk' | 'steampunk' | 'british' | 'ink-wash' | 'neon-dark'

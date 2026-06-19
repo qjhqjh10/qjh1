@@ -18,7 +18,6 @@ import DetailedOutlinePage from '@/components/pages/DetailedOutlinePage'
 import ChapterWritingPage from '@/components/pages/ChapterWritingPage'
 import KnowledgeBasePage from '@/components/pages/KnowledgeBasePage'
 import SystemSettingsPage from '@/components/pages/SystemSettingsPage'
-import StoryMapPage from '@/components/pages/StoryMapPage'
 import StyleWorkshopPage from '@/components/pages/StyleWorkshopPage'
 import ContinuationPage from '@/components/pages/ContinuationPage'
 import ContinuationWorkspacePage from '@/components/pages/ContinuationWorkspacePage'
@@ -67,7 +66,6 @@ function AnimatedRoutes() {
           <Route path="/detailed-outline" element={<DetailedOutlinePage />} />
           <Route path="/chapter/:chapterId" element={<ChapterWritingPage />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
-          <Route path="/story-map" element={<StoryMapPage />} />
           <Route path="/style-workshop" element={<StyleWorkshopPage />} />
           <Route path="/style-templates" element={<Navigate to="/style-workshop" replace />} />
           <Route path="/continuation" element={<ContinuationPage />} />
