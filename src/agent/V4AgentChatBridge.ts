@@ -55,16 +55,16 @@ export interface BridgeSendResult {
   text: string
   toolCalls: number
   totalTokens: number
+  promptTokens: number
+  completionTokens: number
+  cacheHitTokens: number
+  cacheCreationTokens: number
+  cost: number
   phase: string
   toolsUsed: string[]
+  iterationCount: number
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
-  /** v11.7.0: prompt caching 命中的 tokens 数 */
-  cacheHitTokens?: number
-  /** v11.7.0: cache 创建 tokens（首轮，仍计费但显示为缓存） */
-  cacheCreationTokens?: number
-  /** v11.7.0: API 调用成本 */
-  cost?: number
 }
 
 // ── Bridge ──
@@ -95,7 +95,7 @@ export class V4AgentChatBridge {
     this.configId = options.configId
     this.projectId = options.projectId
     this.maxIterations = options.maxIterations ?? 30
-    this.contextWindow = options.contextWindow ?? 128_000
+    this.contextWindow = Math.max(1, options.contextWindow ?? 128_000)
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
     this._fullPromptSent = false
@@ -257,10 +257,8 @@ export class V4AgentChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      // v12.10.0: 纯闲聊不消耗全量Prompt名额，留给真正有任务的消息
-      if (!isPureGreeting(userMessage)) {
-        this._fullPromptSent = true
-      }
+      // 首条消息后始终标记已发送全量，避免第二条仍发全部工具 schema
+      this._fullPromptSent = true
       // V9.5.2: 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 
@@ -270,11 +268,16 @@ export class V4AgentChatBridge {
         text: result.text || collectedText,
         toolCalls: result.toolCalls,
         totalTokens: result.totalTokens,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        cacheHitTokens: result.cacheHitTokens || 0,
+        cacheCreationTokens: result.cacheCreationTokens || 0,
+        cost: result.cost || 0,
         phase: result.phase,
         toolsUsed: result.toolsUsed,
+        iterationCount: result.iterationCount,
         toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
-        cacheHitTokens: result.cacheHitTokens || 0,
       }
 
     } catch (err) {
@@ -282,7 +285,7 @@ export class V4AgentChatBridge {
       store.setLastError(errMsg)
       store.endRun()
       this.auditTrail.persist().catch(() => {})
-      return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, phase: 'ERROR', toolsUsed: [], toolCallSteps: [] }
+      return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, phase: 'ERROR', toolsUsed: [], iterationCount: 0, toolCallSteps: [] }
     } finally {
       // Clean up all emitter listeners to prevent leaks on re-send
       for (const unsub of unsubscribes) {

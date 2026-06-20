@@ -27,11 +27,10 @@ interface NavItem {
 
 // Always-visible items (no project required)
 const COMMON_ITEMS: NavItem[] = [
-  { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
-  { path: '/rewrite', label: '剧情改写', icon: PencilIcon },
   { path: '/operation-history', label: '操作记录', icon: ClockIcon },
+  { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/scratchpad', label: '草稿本', icon: ClipboardDocumentIcon },
 ]
 
@@ -63,6 +62,7 @@ export default function Sidebar() {
     // Always show imitation and continuation entry points
     items.push({ path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon })
     items.push({ path: '/continuation', label: '小说续写', icon: BookOpenIcon })
+    items.push({ path: '/rewrite', label: '小说改写', icon: PencilIcon })
 
     // Show project-specific nav only when a project is active
     if (activeProjectId) {
@@ -224,7 +224,7 @@ export default function Sidebar() {
                   setActiveProject(project.id, project.type)
                 }
                 setActivePage('home')
-                navigate(project.type === 'imitation' ? '/imitation' : '/')
+                navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation' : '/')
               }}
               title={collapsed ? project.name : undefined}
               style={{
@@ -252,8 +252,6 @@ export default function Sidebar() {
               {!collapsed && (
                 <>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {project.type === 'imitation' && <span style={{ fontSize: 10, color: '#7c3aed', marginRight: 4, fontWeight: 600 }}>仿</span>}
-                    {project.type === 'continuation' && <span style={{ fontSize: 10, color: '#16a34a', marginRight: 4, fontWeight: 600 }}>续</span>}
                     {project.name}
                   </span>
                   <span style={{ fontSize: 11, color: '#9b8e84', flexShrink: 0 }}>

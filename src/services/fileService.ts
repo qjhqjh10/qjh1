@@ -205,6 +205,8 @@ export const dialogService = {
 
 export const appService = {
   getProjectsBasePath: () => e().app.getProjectsBasePath(),
+  getImitationProjectsPath: () => e().app.getImitationProjectsPath(),
+  getContinuationProjectDirsPath: () => e().app.getContinuationProjectDirsPath(),
   getStoryWorkspacePath: () => e().app.getStoryWorkspacePath(),
 }
 

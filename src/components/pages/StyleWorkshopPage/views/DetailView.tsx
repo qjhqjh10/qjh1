@@ -7,6 +7,7 @@ import Button from '@/components/common/Button';
 import ScrollArea from '@/components/common/ScrollArea';
 import GlassCard from '@/components/common/GlassCard';
 import Modal from '@/components/common/Modal';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import { inputStyle } from '@/components/common/styles';
 import { ArrowLeftIcon, TrashIcon, SparklesIcon, CheckCircleIcon, XMarkIcon, ArrowPathIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 import { FEATURE_LABELS, parsePromptDescription, presetBtn, linkBtn, labelStyle, cardActionBtn } from '../constants';
@@ -249,7 +250,7 @@ export function DetailView({ ws }: { ws: any }) {
       </Modal>
 
       {/* Dimension Detail Modal */}
-      <Modal isOpen={ws.showDimDetail} onClose={() => ws.setShowDimDetail(false)} title="分析维度详情" width={720}>
+      <Modal isOpen={ws.showDimDetail} onClose={() => ws.setShowDimDetail(false)} title="分析维度详情" width={1000} maxHeight="92vh">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {NOVEL_TYPES.map(t => {
@@ -301,7 +302,7 @@ export function DetailView({ ws }: { ws: any }) {
       </Modal>
 
       {/* Dimension Config Modal */}
-      <Modal isOpen={ws.showDimConfig} onClose={() => ws.setShowDimConfig(false)} title={`选择分析维度 (${ws.enabledDimensions.length})`} width={580}>
+      <Modal isOpen={ws.showDimConfig} onClose={() => ws.setShowDimConfig(false)} title={`选择分析维度 (${ws.enabledDimensions.length})`} width={800} maxHeight="88vh">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Presets */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -365,6 +366,19 @@ export function DetailView({ ws }: { ws: any }) {
           </div>
         </div>
       </Modal>
+
+      {/* 删除确认弹窗 */}
+      {ws.deleteConfirm && (
+        <ConfirmModal
+          isOpen={true}
+          title={ws.deleteConfirm.type === 'template' ? '删除风格模板' : '删除风格档案'}
+          message={`确定要删除${ws.deleteConfirm.type === 'template' ? '风格模板' : '风格档案'}「${ws.deleteConfirm.name}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={ws.confirmDelete}
+          onCancel={ws.cancelDelete}
+        />
+      )}
     </div>
   );
 }

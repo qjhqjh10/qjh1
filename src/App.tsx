@@ -91,6 +91,8 @@ function AnimatedRoutes() {
 
 export default function App() {
   const setProjectsBasePath = useStore(s => s.setProjectsBasePath)
+  const setImitationProjectsPath = useStore(s => s.setImitationProjectsPath)
+  const setContinuationProjectDirsPath = useStore(s => s.setContinuationProjectDirsPath)
   const setConnectionStatus = useStore(s => s.setConnectionStatus)
   const setProjects = useStore(s => s.setProjects)
   const projectsBasePath = useStore(s => s.projectsBasePath)
@@ -115,7 +117,9 @@ export default function App() {
 
   useEffect(() => {
     appService.getProjectsBasePath().then(setProjectsBasePath)
-  }, [setProjectsBasePath])
+    appService.getImitationProjectsPath().then(setImitationProjectsPath)
+    appService.getContinuationProjectDirsPath().then(setContinuationProjectDirsPath)
+  }, [setProjectsBasePath, setImitationProjectsPath, setContinuationProjectDirsPath])
 
   // Load configs from electron-store into Zustand on startup.
   // electron-store is authoritative (stores encrypted API keys); localStorage is a mirror.
@@ -143,13 +147,26 @@ export default function App() {
   }, [])
 
   // Load projects on startup so sidebar is never empty
+  // v13.1.0: projects now split across writing/imitation/continuation dirs
+  const imitationProjectsPath = useStore(s => s.imitationProjectsPath)
+  const continuationProjectDirsPath = useStore(s => s.continuationProjectDirsPath)
+
   const loadProjects = useCallback(async () => {
     if (!projectsBasePath) return
     try {
       const names = await projectService.listProjects(projectsBasePath)
       const projList: Project[] = []
       for (const name of names) {
-        const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
+        // Try each base path to locate the project directory
+        let meta = null
+        for (const bp of [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath]) {
+          if (!bp) continue
+          try {
+            meta = await projectService.getMeta(`${bp}/${name}`)
+            if (meta) break
+          } catch { /* try next path */ }
+        }
+        if (!meta) continue
         const pt = (meta.type as string) === 'imitation' ? 'imitation' : (meta.type as string) === 'continuation' ? 'continuation' : 'writing'
         projList.push({ id: name, ...meta, type: pt })
       }
@@ -170,11 +187,11 @@ export default function App() {
       } catch { /* continuation service unavailable */ }
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }
-  }, [projectsBasePath, setProjects])
+  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, setProjects])
 
   useEffect(() => {
-    if (projectsBasePath) loadProjects()
-  }, [projectsBasePath, loadProjects])
+    if (projectsBasePath && imitationProjectsPath && continuationProjectDirsPath) loadProjects()
+  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, loadProjects])
 
   // Check API connection (re-checks when config changes)
   useEffect(() => {

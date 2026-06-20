@@ -35,6 +35,16 @@ function getProjectsBasePath(): string {
   return join(app.getPath('userData'), 'projects')
 }
 
+function getImitationProjectsPath(): string {
+  const parentDir = dirname(getProjectsBasePath())
+  return join(parentDir, 'imitation_projects')
+}
+
+function getContinuationProjectDirsPath(): string {
+  const parentDir = dirname(getProjectsBasePath())
+  return join(parentDir, 'continuation_project_dirs')
+}
+
 /** Ensure all runtime directories exist before handlers start */
 async function ensureRuntimeDirectories(parentDir: string, projectsPath: string) {
   // All global dirs now unified at parentDir level (userData in prod)
@@ -195,6 +205,8 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   const projectsPath = getProjectsBasePath()
   const parentDir = dirname(projectsPath)
+  const imitationProjectsPath = getImitationProjectsPath()
+  const continuationProjectDirsPath = getContinuationProjectDirsPath()
 
   // Ensure all runtime directories exist (notes, uploads, .appdata, .aiharness)
   await ensureRuntimeDirectories(parentDir, projectsPath)
@@ -203,7 +215,7 @@ app.whenReady().then(async () => {
   await syncAiharnessResources(parentDir, projectsPath)
 
   registerFileHandlers(ipcMain, undefined, projectsPath)
-  registerProjectHandlers(ipcMain, projectsPath)
+  registerProjectHandlers(ipcMain, projectsPath, imitationProjectsPath, continuationProjectDirsPath)
   registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
   registerAiHandlers(ipcMain, safeStorage, projectsPath)
   registerAnthropicHandlers(ipcMain, safeStorage, projectsPath)  // Anthropic 协议（独立通道）

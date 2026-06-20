@@ -22,6 +22,8 @@ export interface AppState {
   activeProjectId: string | null
   activeProjectName: string | null
   projectsBasePath: string
+  imitationProjectsPath: string
+  continuationProjectDirsPath: string
 
   // Worldbuilding
   worldbuildingContent: string
@@ -69,6 +71,8 @@ export interface AppState {
 
   // Actions - Project
   setProjectsBasePath: (p: string) => void
+  setImitationProjectsPath: (p: string) => void
+  setContinuationProjectDirsPath: (p: string) => void
   setProjects: (projects: Project[]) => void
   setActiveProject: (id: string | null, type?: string) => void
   setActiveProjectName: (name: string) => void
@@ -137,6 +141,8 @@ export const useStore = create<AppState>()(
     activeProjectId: null,
     activeProjectName: null,
     projectsBasePath: '',
+    imitationProjectsPath: '',
+    continuationProjectDirsPath: '',
     ...initialProjectState,
     activePage: 'home',
     chapterGenTrigger: null as string | null,
@@ -146,6 +152,8 @@ export const useStore = create<AppState>()(
     connectionStatus: 'checking',
     connectedModel: '',
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
+    setImitationProjectsPath: (p) => set({ imitationProjectsPath: p }),
+    setContinuationProjectDirsPath: (p) => set({ continuationProjectDirsPath: p }),
     setProjects: (projects) => set(s => {
       // Preserve non-writing projects that are in the store but not on disk
       const existingIds = new Set(projects.map(p => p.id))
@@ -301,9 +309,11 @@ export const useSettingsStore = create<SettingsState>()(
         if (idx !== -1) Object.assign(s.aiSettings.roleTemplates[idx], updates)
       }),
       removeRoleTemplate: (id) => set(s => {
+        const prevIdx = s.aiSettings.roleTemplates.findIndex(t => t.id === id)
         s.aiSettings.roleTemplates = s.aiSettings.roleTemplates.filter(t => t.id !== id)
         if (s.aiSettings.activeRoleTemplateId === id) {
-          s.aiSettings.activeRoleTemplateId = s.aiSettings.roleTemplates[0]?.id || ''
+          const fallbackIdx = Math.min(prevIdx, s.aiSettings.roleTemplates.length - 1)
+          s.aiSettings.activeRoleTemplateId = s.aiSettings.roleTemplates[fallbackIdx]?.id || ''
         }
       }),
       setActiveRoleTemplate: (id) => set(s => { s.aiSettings.activeRoleTemplateId = id }),

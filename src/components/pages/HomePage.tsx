@@ -35,7 +35,6 @@ export default function HomePage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
-  const [newProjectType, setNewProjectType] = useState<'writing' | 'imitation' | 'continuation'>('writing')
   const [newNovelCategory, setNewNovelCategory] = useState('general')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -84,31 +83,14 @@ projList.push({ id: name, ...meta, type: pt })
       return
     }
     try {
-      await projectService.create(name, projectsBasePath, newProjectType)
-      // Set initial novel category for writing projects
-      if (newProjectType === 'writing') {
-        await projectService.updateCategory(`${projectsBasePath}/${name}`, newNovelCategory)
-      }
+      await projectService.create(name, projectsBasePath, 'writing')
+      await projectService.updateCategory(`${projectsBasePath}/${name}`, newNovelCategory)
       const meta = await projectService.getMeta(`${projectsBasePath}/${name}`)
-      addProject({ id: name, ...meta, type: newProjectType })
-      // For continuation projects, also create the ContinuationProject entry (with same ID)
-      if (newProjectType === 'continuation') {
-        try {
-          await continuationService.save({
-            id: name, name, sourceFileName: '', sourceChapters: [], writtenChapters: [],
-            status: 'imported', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          })
-        } catch (err) { logError('创建续写项目记录失败', err) }
-      }
+      addProject({ id: name, ...meta, type: 'writing' })
       setNewProjectName('')
       setShowCreate(false)
-      // Navigate to imitation page if imitation project
-      if (newProjectType === 'imitation') {
-        setActiveProject(name, newProjectType)
-        navigate('/imitation')
-      } else {
-        navigate('/outline')
-      }
+      setActiveProject(name, 'writing')
+      navigate('/outline')
     } catch (err) {
       logError('Failed to create project', err)
       const msg = err instanceof Error ? err.message : '创建项目失败'
@@ -149,7 +131,7 @@ projList.push({ id: name, ...meta, type: pt })
     try {
       const result = await projectService.importProject(zipPath)
       await loadProjects()
-      alert(`项目"${result.name}"导入成功（类型: ${result.type === 'imitation' ? '仿写' : result.type === 'continuation' ? '续写' : '写作'}）`)
+      alert(`项目"${result.name}"导入成功`)
     } catch (err) {
       logError('Failed to import project', err)
       alert('导入失败：' + (err instanceof Error ? err.message : '未知错误'))
@@ -157,7 +139,7 @@ projList.push({ id: name, ...meta, type: pt })
   }
 
   const handleEnterProject = (project: Project) => {
-    setActiveProject(project.id, project.type)
+    setActiveProject(project.id, project.type || 'writing')
     navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation-workspace' : '/outline')
   }
 
@@ -251,13 +233,6 @@ projList.push({ id: name, ...meta, type: pt })
                   <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
                     <span>{project.chapterCount}章</span>
                     <span>{formatWordCount(project.wordCount)}字</span>
-                    <span style={{
-                      padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 600,
-                      background: project.type === 'imitation' ? 'rgba(22,163,74,0.1)' : project.type === 'continuation' ? 'rgba(217,119,6,0.1)' : 'rgba(124,58,237,0.1)',
-                      color: project.type === 'imitation' ? '#16a34a' : project.type === 'continuation' ? '#d97706' : '#7c3aed',
-                    }}>
-                      {project.type === 'imitation' ? '仿写' : project.type === 'continuation' ? '续写' : '写作'}
-                    </span>
                   </div>
                 </div>
               </div>
@@ -325,8 +300,8 @@ projList.push({ id: name, ...meta, type: pt })
                 </div>
                 <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
                 <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.type === 'imitation' ? '仿写' : activeProject.type === 'continuation' ? '续写' : '写作'}</div>
-                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>项目类型</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{activeProject.novelCategory ? NOVEL_CATEGORIES.find(c => c.value === activeProject.novelCategory)?.label : '通用'}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>小说类型</div>
                 </div>
               </div>
 
@@ -403,60 +378,27 @@ projList.push({ id: name, ...meta, type: pt })
               }}
             />
           </div>
+          {/* Novel category selector */}
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>
-              项目类型
+              小说类型
             </label>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setNewProjectType('writing')} style={{
-                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-                border: newProjectType === 'writing' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
-                background: newProjectType === 'writing' ? 'rgba(124,58,237,0.04)' : '#fff',
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'writing' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📝 普通写作</div>
-                <div style={{ fontSize: 11, color: '#9b8e84' }}>常规小说创作，从零开始写作</div>
-              </button>
-              <button onClick={() => setNewProjectType('imitation')} style={{
-                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-                border: newProjectType === 'imitation' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
-                background: newProjectType === 'imitation' ? 'rgba(124,58,237,0.04)' : '#fff',
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'imitation' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📋 小说仿写</div>
-                <div style={{ fontSize: 11, color: '#9b8e84' }}>导入小说 → AI分析结构 → 模仿生成新作</div>
-              </button>
-              <button onClick={() => setNewProjectType('continuation')} style={{
-                flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-                border: newProjectType === 'continuation' ? '2px solid #7c3aed' : '2px solid rgba(0,0,0,0.06)',
-                background: newProjectType === 'continuation' ? 'rgba(124,58,237,0.04)' : '#fff',
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: newProjectType === 'continuation' ? '#7c3aed' : '#2d2520', marginBottom: 4 }}>📖 小说续写</div>
-                <div style={{ fontSize: 11, color: '#9b8e84' }}>导入未完结小说 → AI理解剧情 → 沿着原作逻辑续写</div>
-              </button>
-            </div>
+            <select
+              value={newNovelCategory}
+              onChange={e => setNewNovelCategory(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 12,
+                border: '1px solid rgba(124,58,237,0.2)',
+                background: 'rgba(124,58,237,0.04)',
+                color: '#7c3aed', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
+              }}
+            >
+              {NOVEL_CATEGORIES.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
           </div>
-          {/* Novel category selector — only for writing projects */}
-          {newProjectType === 'writing' && (
-            <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>
-                小说类型
-              </label>
-              <select
-                value={newNovelCategory}
-                onChange={e => setNewNovelCategory(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 12,
-                  border: '1px solid rgba(124,58,237,0.2)',
-                  background: 'rgba(124,58,237,0.04)',
-                  color: '#7c3aed', fontSize: 13, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
-                }}
-              >
-                {NOVEL_CATEGORIES.map(c => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button variant="secondary" onClick={() => setShowCreate(false)}>取消</Button>
             <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>创建</Button>

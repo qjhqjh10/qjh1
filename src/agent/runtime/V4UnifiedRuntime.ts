@@ -71,6 +71,9 @@ export class V4UnifiedRuntime {
     const runStartTime = Date.now()
     const RUN_TIMEOUT = 300_000
 
+    if (this.config.maxIterations < 1) {
+      this.config.maxIterations = 30
+    }
     if (!this.toolExecutor) {
       return {
         success: false, text: '工具执行器未配置',

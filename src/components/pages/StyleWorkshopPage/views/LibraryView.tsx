@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '@/components/common/GlassCard';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import ScrollArea from '@/components/common/ScrollArea';
 import { inputStyle } from '@/components/common/styles';
 import { DIMENSION_META, NOVEL_TYPE_DIMS, NOVEL_TYPES, NOVEL_TYPE_LABELS } from '@/types/story';
@@ -409,8 +410,8 @@ export function LibraryView({ ws }: { ws: any }) {
         {/* ───── 编辑模板 Modal ───── */}
         <AnimatePresence>
           {ws.editTemplate !== null && (() => { const editTemplate = ws.editTemplate!; return (
-            <Modal isOpen={true} onClose={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={960}>
-              <div style={{ maxHeight: '72vh', overflowY: 'auto', paddingRight: 8 }} className="custom-scrollbar">
+            <Modal isOpen={true} onClose={() => { if (ws.isDirty.current && !confirm('有未保存的修改，确定关闭？')) return; ws.isDirty.current = false; ws.setEditTemplate(null); ws.setExpandedDims(new Set()); ws.setCustomWorldType(''); ws.setCustomAttitude(''); ws.setAiGenLoading(false) }} title={editTemplate.id ? `编辑模板 — ${editTemplate.name}` : '新建模板'} width={1200} maxHeight="92vh">
+              <div style={{ maxHeight: '84vh', overflowY: 'auto', paddingRight: 8 }} className="custom-scrollbar">
                 {/* Basic info */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -825,8 +826,8 @@ export function LibraryView({ ws }: { ws: any }) {
           const t = promptTarget
           return (
             <Modal isOpen={true} onClose={() => { setPromptTarget(null) }}
-              title={`📝 Prompt 编辑 — ${t.name}`} width={900}>
-              <div style={{ maxHeight: '65vh', overflow: 'auto', padding: '0 8px' }}>
+              title={`📝 Prompt 编辑 — ${t.name}`} width={1100} maxHeight="92vh">
+              <div style={{ maxHeight: '82vh', overflow: 'auto', padding: '0 8px' }}>
                 {/* Toolbar */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                   <select value={selectedRuleId || t.ruleTemplateId || ''}
@@ -884,6 +885,19 @@ export function LibraryView({ ws }: { ws: any }) {
             </Modal>
           )
         })()}
+
+        {/* 删除确认弹窗 */}
+        {ws.deleteConfirm && (
+          <ConfirmModal
+            isOpen={true}
+            title={ws.deleteConfirm.type === 'template' ? '删除风格模板' : '删除风格档案'}
+            message={`确定要删除${ws.deleteConfirm.type === 'template' ? '风格模板' : '风格档案'}「${ws.deleteConfirm.name}」吗？此操作不可撤销。`}
+            confirmLabel="删除"
+            danger
+            onConfirm={ws.confirmDelete}
+            onCancel={ws.cancelDelete}
+          />
+        )}
       </div>
   );
 }

@@ -150,6 +150,8 @@ const api = {
   },
   app: {
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),
+    getImitationProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getImitationProjectsPath'),
+    getContinuationProjectDirsPath: (): Promise<string> => ipcRenderer.invoke('app:getContinuationProjectDirsPath'),
     getStoryWorkspacePath: (): Promise<string> => ipcRenderer.invoke('app:getStoryWorkspacePath'),
   },
   kb: {

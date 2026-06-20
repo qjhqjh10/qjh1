@@ -65,7 +65,7 @@ export async function createChatBridge(
   const { useSettingsStore } = await import('@/store')
   const configs = useSettingsStore.getState().configs
   const activeId = useSettingsStore.getState().activeConfigId
-  const config = configs.find(c => c.id === activeId)
+  const config = activeId ? configs.find(c => c.id === activeId) : undefined
   const protocol = (config as any)?.protocol as string | undefined
 
   if (protocol === 'anthropic') {

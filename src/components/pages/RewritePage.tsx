@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, rewriteService, extractionService } from '@/services/fileService'
+import { rewriteService, extractionService } from '@/services/fileService'
 import { chatAI } from '@/utils/chatAI'
-// 注意: rewriteService 和 extractionService 来自 @/services/fileService 封装层，不是 window.electron 直接调用。
-// Service 层提供了完整的类型安全和错误处理，请勿改为 (window as any).electron?.xxx 的访问方式。
 import { splitChaptersByHeadings } from '@/utils/textUtils'
 import { buildRewriteAnalysisPrompt } from '@/services/continuationService'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import AIPolishDialog from '@/components/common/AIPolishDialog'
-import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline'
+import EmptyState from '@/components/common/EmptyState'
+import ProjectHubLayout from '@/components/common/ProjectHubLayout'
+import Modal from '@/components/common/Modal'
+import { ArrowLeftIcon, SparklesIcon, CheckCircleIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
 import { safeJsonParseAs } from '@/utils/safeJsonParse'
 import { useRewriteInsertion } from '@/hooks/useRewriteInsertion'
@@ -39,10 +40,13 @@ export default function RewritePage() {
   const [analyses, setAnalyses] = useState<Record<string, ChapterAnalysis>>({})
   const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
-  // AI 改写/润色/续写 — 统一使用 AIPolishDialog
   const [polishMode, setPolishMode] = useState<'改写' | '润色' | '续写'>('改写')
   const [polishOpen, setPolishOpen] = useState(false)
   const [selectedRewriteText, setSelectedRewriteText] = useState('')
+
+  // v13.1.0: New project creation
+  const [showNewDialog, setShowNewDialog] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
 
   const prompts = useSettingsStore(s => s.prompts)
 
@@ -54,18 +58,12 @@ export default function RewritePage() {
     setPolishOpen(true)
   }
   const handlePolishInsert = (text: string) => {
-    if (polishMode === '续写') {
-      setChapterContent(prev => prev + '\n\n' + text)
-    } else {
-      setChapterContent(text)
-    }
+    if (polishMode === '续写') { setChapterContent(prev => prev + '\n\n' + text) }
+    else { setChapterContent(text) }
     setPolishOpen(false)
   }
 
-  // Set activePage for AI assistant
   useEffect(() => { setActivePage('rewrite') }, [])
-
-  // Handle insertion action from AI assistant (rewrite: red/blue annotation)
   useRewriteInsertion(() => chapterContent, setChapterContent)
 
   useEffect(() => { if (rewriteService) loadProjects() }, [fileVersion])
@@ -75,7 +73,6 @@ export default function RewritePage() {
     if (fp.includes('/chapters/') || fp.includes('/summaries/')) { loadProjects(); setFileEditNotify(null) }
   }, [fileEditNotify])
 
-  // AI 修改文件后刷新当前项目内容
   useEffect(() => {
     if (!projectId || !fileVersion) return
     const ch = chapters[selectedChIdx]
@@ -95,7 +92,6 @@ export default function RewritePage() {
     const meta = await rewriteService.readMeta(id)
     setProject(meta)
     setProjectId(id)
-    // Load chapters + analyses
     const chs: Chapter[] = []
     const ans: Record<string, ChapterAnalysis> = {}
     for (let i = 1; i <= (meta.chapterCount || 0); i++) {
@@ -113,10 +109,18 @@ export default function RewritePage() {
   const handleSelectProject = (p: RewriteProject) => { loadProject(p.id) }
 
   const handleDeleteProject = async (p: RewriteProject) => {
-    if (!confirm(`删除项目「${p.name}」？`)) return
     await rewriteService.delete(p.id)
     if (projectId === p.id) { setProjectId(''); setProject(null); setChapters([]) }
     loadProjects()
+  }
+
+  const handleCreateEmpty = async () => {
+    if (!newProjectName.trim()) return
+    const proj = await rewriteService.create(newProjectName.trim())
+    setNewProjectName('')
+    setShowNewDialog(false)
+    loadProjects()
+    loadProject(proj.id)
   }
 
   const handleImport = async () => {
@@ -173,36 +177,100 @@ export default function RewritePage() {
   const analysis = ch ? analyses[ch.id] : null
   const analyzedCount = Object.keys(analyses).length
 
-  // ====================== Project list screen ======================
+  // v13.1.0: Hub-selected project (for detail card) vs workspace projectId
+  const [hubSelectedId, setHubSelectedId] = useState<string | null>(null)
+
+  // ====================== Project list screen (v13.1.0: refactored with ProjectHubLayout) ======================
   if (!projectId) {
     return (
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ width: 260, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#2d2520' }}>改写项目</span>
-            <span style={{ fontSize: 10, color: '#9b8e84' }}>{projects.length}个</span>
-          </div>
-          <ScrollArea style={{ flex: 1 }}>
-            {projects.map(p => (
-              <div key={p.id} onClick={() => handleSelectProject(p)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(0,0,0,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#2d2520' }}>{p.name}</div>
-                  <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 2 }}>{p.chapterCount}章 · 已分析{p.analyzedCount || 0}</div>
-                </div>
-                <button onClick={e => { e.stopPropagation(); handleDeleteProject(p) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 2 }}><TrashIcon style={{ width: 14, height: 14 }} /></button>
+      <>
+        <ProjectHubLayout
+          title="小说改写"
+          projects={projects}
+          activeProjectId={hubSelectedId}
+          onSelectProject={(p) => setHubSelectedId(p.id)}
+          onCreateProject={() => setShowNewDialog(true)}
+          onImportProject={handleImport}
+          importLabel={importing ? '导入中...' : '导入 TXT'}
+          createLabel="新建"
+          onDeleteProject={(p) => { handleDeleteProject(p); if (hubSelectedId === p.id) setHubSelectedId(null) }}
+          deleteTitle="删除改写项目"
+          deleteMessage={(name) => `确定要删除改写项目「${name}」吗？此操作不可撤销。`}
+          emptyIcon="📖"
+          emptyTitle="暂无改写项目"
+          emptyDescription="导入 TXT 文件，AI 将逐章分析剧情并支持改写操作"
+          renderProjectItem={(p, active) => (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#7c3aed' : '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
               </div>
-            ))}
-            {projects.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#9b8e84', fontSize: 12 }}>暂无项目</div>}
-          </ScrollArea>
-        </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>📖</div>
-            <div style={{ fontSize: 15, color: '#9b8e84', marginBottom: 16 }}>导入 TXT 文件开始剧情改写</div>
-            <Button size="sm" onClick={handleImport} disabled={importing || !activeConfigId} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{importing ? '导入中...' : '导入 TXT'}</Button>
+              <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
+                {p.chapterCount}章 · 已分析{p.analyzedCount || 0} · {p.charCount.toLocaleString()}字
+              </div>
+            </div>
+          )}
+          renderEmptyState={() => (
+            <EmptyState icon="📖" title="选择左侧改写项目" description="或新建 / 导入一个项目开始改写" />
+          )}
+          renderProjectDetail={(p) => (
+            <div style={{
+              width: '82%', minWidth: 520, maxWidth: 880, minHeight: '60vh', margin: '40px auto',
+              padding: '44px 48px', borderRadius: 24,
+              background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255,255,255,0.6)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+            }}>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: '0 0 24px' }}>{p.name}</h3>
+
+              <div style={{ display: 'flex', gap: 0, marginBottom: 28, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.06)', overflow: 'hidden' }}>
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.chapterCount}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>章节数</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.analyzedCount || 0}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>已分析</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.charCount.toLocaleString()}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>总字数</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                <Button variant="accent-gradient" onClick={() => handleSelectProject(p)} icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}
+                  style={{ flex: 1, justifyContent: 'center', padding: '12px 0', fontSize: 14 }}>
+                  进入项目
+                </Button>
+                <Button variant="secondary" onClick={handleImport} disabled={importing}
+                  style={{ padding: '12px 24px' }}>
+                  导入 TXT
+                </Button>
+              </div>
+            </div>
+          )}
+        />
+
+        {/* Create Modal */}
+        <Modal isOpen={showNewDialog} onClose={() => setShowNewDialog(false)} title="新建改写项目" width={440}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>项目名称</label>
+              <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
+                placeholder="输入项目名称..." autoFocus className="focus-ring"
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateEmpty() }}
+                style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10,
+                  border: '1px solid #e5e0da', outline: 'none', background: '#faf9f8', fontFamily: 'inherit' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+              <Button variant="secondary" onClick={() => setShowNewDialog(false)}>取消</Button>
+              <Button onClick={handleCreateEmpty} disabled={!newProjectName.trim()}>创建</Button>
+            </div>
           </div>
-        </div>
-      </div>
+        </Modal>
+      </>
     )
   }
 
@@ -212,7 +280,7 @@ export default function RewritePage() {
       {/* Header */}
       <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={() => { setProjectId(''); setProject(null); setChapters([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84' }}><ArrowLeftIcon style={{ width: 18, height: 18 }} /></button>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>剧情改写</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>小说改写</span>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>{project?.name}</span>
         <span style={{ fontSize: 11, color: '#9b8e84' }}>{chapters.length}章</span>
         <span style={{ fontSize: 11, color: '#16a34a' }}>已分析{analyzedCount}</span>
@@ -311,7 +379,6 @@ export default function RewritePage() {
         {/* Step 3: Rewrite */}
         {step === 3 && (
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {/* Left: chapter list */}
             <div style={{ width: 140, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '8px 10px', fontSize: 10, fontWeight: 600, color: '#6b5e54', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>章节</div>
               <ScrollArea style={{ flex: 1 }}>
@@ -322,7 +389,6 @@ export default function RewritePage() {
                 ))}
               </ScrollArea>
             </div>
-            {/* Center: editable content */}
             <div style={{ flex: 1, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>第{ch?.chapterNumber}章</span>
@@ -337,7 +403,6 @@ export default function RewritePage() {
                 <RichTextEditor content={chapterContent} onContentChange={(c) => { setChapterContent(c); setRewriteContent(c) }} placeholder="章节内容..." />
               </div>
             </div>
-            {/* Right: analysis cards */}
             <ScrollArea style={{ width: 340, padding: '12px' }}>
               {analysis ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

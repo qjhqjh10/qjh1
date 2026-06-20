@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
-import { extractionService, aiService, fileService, styleProjectService, exportService, dialogService } from '@/services/fileService'
+import { extractionService, aiService, fileService, styleProjectService, exportService, dialogService, projectService } from '@/services/fileService'
 import { loadCharacters, saveCharacter } from '@/services/characterService'
 import { saveDetailedChapter } from '@/services/chapterService'
 import { saveOutlineContent, saveWorldbuildingContent } from '@/services/outlineService'
@@ -19,6 +19,9 @@ import GlassCard from '@/components/common/GlassCard'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
 import Modal from '@/components/common/Modal'
+import EmptyState from '@/components/common/EmptyState'
+import ConfirmModal from '@/components/common/ConfirmModal'
+import ProjectHubLayout from '@/components/common/ProjectHubLayout'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import ReviewModal from '@/components/common/ReviewModal'
 import ReviewResultsModal from '@/components/common/ReviewResultsModal'
@@ -39,7 +42,7 @@ import { styleTemplateService } from '@/services/fileService'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import {
   SparklesIcon, TrashIcon, PlayIcon, StopIcon, FolderOpenIcon,
-  ArrowLeftIcon, BookOpenIcon, DocumentArrowDownIcon,
+  ArrowLeftIcon, BookOpenIcon, DocumentArrowDownIcon, PlusIcon, ArrowRightIcon,
 } from '@heroicons/react/24/outline'
 import type { ViewMode, NovelType, Step, PreviewTab, DimKey } from './types'
 import { TABS, STATUS_LABELS, STATUS_COLORS, TYPE_LABELS, TYPE_DIM_PRESETS, DIM_LABELS, normalizeRole, NOVEL_TYPE_CARDS } from './constants'
@@ -64,6 +67,7 @@ export default function ImitationPage() {
   const activeProjectId = useStore(s => s.activeProjectId)
   const setActiveProject = useStore(s => s.setActiveProject)
   const projectsBasePath = useStore(s => s.projectsBasePath)
+  const imitationProjectsPath = useStore(s => s.imitationProjectsPath)
   const fileVersion = useStore(s => s.fileVersion)
   const fileEditNotify = useStore(s => s.fileEditNotify)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
@@ -76,6 +80,10 @@ export default function ImitationPage() {
   const [novelType, setNovelType] = useState<NovelType>('general')
   const [projects, setProjects] = useState<{ id: string; name: string; chapterCount: number; status: string; createdAt: string; novelType: string }[]>([])
   const [importLoading, setImportLoading] = useState(false)
+  const [showCreateProject, setShowCreateProject] = useState(false)
+  const [newImitationName, setNewImitationName] = useState('')
+  const [confirmClearData, setConfirmClearData] = useState(false)
+  const [hubConfirmed, setHubConfirmed] = useState(false)
   const [extraction, setExtraction] = useState<NovelExtraction | null>(null)
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
   const [step, setStep] = useState<Step>('import')
@@ -177,7 +185,7 @@ export default function ImitationPage() {
     outlineResults, detailGenResults, detailsResults, chapterContents,
     selectedChapterId,
     abortRef, pausedRef, styleAbortRef, stylePausedRef, detailGenAbortRef,
-    activeConfigId, activeProjectId, projectsBasePath,
+    activeConfigId, activeProjectId, imitationProjectsPath,
     setCharacters, setOutlineContent, setWorldbuildingContent, setActiveProject,
     navigate,
   });
@@ -193,6 +201,41 @@ export default function ImitationPage() {
   const ag = extraction?.aggregated || null
 
 
+  // v13.1.0: 在仿写界面直接创建/删除/导入仿写项目
+  const handleCreateImitationProject = async () => {
+    if (!newImitationName.trim() || !imitationProjectsPath) return
+    const name = newImitationName.trim()
+    try {
+      await projectService.create(name, imitationProjectsPath, 'imitation')
+      const meta = await projectService.getMeta(`${imitationProjectsPath}/${name}`)
+      const { useStore } = await import('@/store')
+      useStore.getState().addProject({ id: name, ...meta, type: 'imitation' })
+      setNewImitationName(''); setShowCreateProject(false)
+      setActiveProject(name, 'imitation')
+    } catch (err) { alert('创建项目失败：' + (err instanceof Error ? err.message : '未知错误')) }
+  }
+
+  const handleDeleteImitationProject = async (p: { id: string; name: string }) => {
+    try {
+      const { useStore } = await import('@/store')
+      const projectPath = `${imitationProjectsPath}/${p.id}`
+      try { await projectService.delete(projectPath) } catch (err) { logError('删除项目目录失败', err) }
+      useStore.getState().removeProject(p.id)
+    } catch (err) { alert('删除失败') }
+  }
+
+  const handleImportImitationProject = async () => {
+    try {
+      const { dialogService, projectService: ps } = await import('@/services/fileService')
+      const zipPath = await dialogService.openZip()
+      if (!zipPath) return
+      await ps.importProject(zipPath)
+      // Force reload via fileVersion
+      const { useStore: us } = await import('@/store')
+      us.getState().setFileEditNotify?.({ filePath: 'projects/', newContent: '' })
+    } catch (err) { alert('导入失败') }
+  }
+
   // ---- Views ----
 
   // Guard: need an imitation project selected
@@ -200,38 +243,93 @@ export default function ImitationPage() {
   const allProjects = useStore(s => s.projects)
   const imitationProjects = allProjects.filter(p => p.type === 'imitation')
 
-  if (!activeProjectId || !projectsBasePath || project?.type !== 'imitation') {
+  if (!activeProjectId || !imitationProjectsPath || project?.type !== 'imitation' || !hubConfirmed) {
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 32 }}>
-        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
-          <h2 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>小说仿写</h2>
-          <p style={{ fontSize: 14, color: '#9b8e84', marginBottom: 24 }}>
-            {imitationProjects.length === 0 ? '还没有仿写项目，请先在首页新建一个仿写类型项目' : '选择一个仿写项目开始工作'}
-          </p>
-          {imitationProjects.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {imitationProjects.map(p => (
-                <div key={p.id} onClick={() => { setActiveProject(p.id, 'imitation') }} style={{
-                  padding: '16px 20px', borderRadius: 14, background: '#fff', border: '1px solid rgba(0,0,0,0.06)',
-                  cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#2d2520' }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 4 }}>
-                      {p.chapterCount}章 · {p.wordCount.toLocaleString()}字 · 仿写
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>进入 →</span>
-                </div>
-              ))}
+      <>
+        <ProjectHubLayout
+          title="小说仿写"
+          projects={imitationProjects as any}
+          activeProjectId={activeProjectId && !hubConfirmed ? activeProjectId : null}
+          onSelectProject={(p) => { setActiveProject(p.id, 'imitation') }}
+          onCreateProject={() => setShowCreateProject(true)}
+          onImportProject={handleImportImitationProject}
+          importLabel="导入项目"
+          createLabel="新建"
+          onDeleteProject={handleDeleteImitationProject}
+          deleteTitle="删除仿写项目"
+          deleteMessage={(name) => `确定要删除仿写项目「${name}」吗？此操作不可撤销。`}
+          emptyIcon="📝"
+          emptyTitle="暂无仿写项目"
+          emptyDescription="创建仿写项目开始模仿你喜欢的作家风格"
+          renderProjectItem={(p, active) => (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#7c3aed' : '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
+              </div>
+              <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
+                {(p as any).chapterCount}章 · {((p as any).wordCount || 0).toLocaleString()}字
+              </div>
             </div>
           )}
-          <div style={{ marginTop: 24, textAlign: 'center' }}>
-            <Button onClick={() => navigate('/')}>返回首页新建项目</Button>
+          renderEmptyState={() => (
+            <EmptyState icon="📝" title="选择左侧仿写项目" description="或新建 / 导入一个项目开始仿写" />
+          )}
+          renderProjectDetail={(p) => (
+            <div style={{
+              width: '82%', minWidth: 520, maxWidth: 880, minHeight: '60vh', margin: '40px auto',
+              padding: '44px 48px', borderRadius: 24,
+              background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255,255,255,0.6)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+            }}>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: '0 0 24px' }}>{p.name}</h3>
+
+              <div style={{ display: 'flex', gap: 0, marginBottom: 28, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.06)', overflow: 'hidden' }}>
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{(p as any).chapterCount || 0}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>章节数</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{((p as any).wordCount || 0).toLocaleString()}</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>总字数</div>
+                </div>
+                <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+                <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>仿写</div>
+                  <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>项目类型</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                <Button variant="accent-gradient" onClick={() => setHubConfirmed(true)}
+                  icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}
+                  style={{ flex: 1, justifyContent: 'center', padding: '12px 0', fontSize: 14 }}>
+                  进入项目
+                </Button>
+              </div>
+            </div>
+          )}
+        />
+
+        {/* 新建仿写项目弹窗 */}
+        <Modal isOpen={showCreateProject} onClose={() => setShowCreateProject(false)} title="新建仿写项目" width={440}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>项目名称</label>
+              <input type="text" value={newImitationName} onChange={e => setNewImitationName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateImitationProject() }}
+                placeholder="输入项目名称..." autoFocus className="focus-ring"
+                style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10,
+                  border: '1px solid #e5e0da', outline: 'none', background: '#faf9f8', fontFamily: 'inherit' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
+              <Button variant="secondary" onClick={() => setShowCreateProject(false)}>取消</Button>
+              <Button onClick={handleCreateImitationProject} disabled={!newImitationName.trim()}>创建</Button>
+            </div>
           </div>
-        </div>
-      </div>
+        </Modal>
+      </>
     )
   }
 
@@ -300,7 +398,7 @@ export default function ImitationPage() {
           {styleLoading && <Button size="sm" variant="danger" onClick={() => { styleAbortRef.current = true; setStylePaused(false); stylePausedRef.current = false }} icon={<StopIcon style={{ width: 14, height: 14 }} />}>停止</Button>}
           {extraction.styleProfile && !extraction.generatedNovel && <Button size="sm" variant="secondary" onClick={() => setPreviewTab('generate')} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>模仿生成</Button>}
           <Button size="sm" variant="ghost" onClick={handlers.handleSendToStyleWorkshop} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>深度风格</Button>
-          <Button size="sm" variant="ghost" onClick={() => { if (confirm('确定清除仿写数据？')) { setExtraction(null); setStep('import') } }} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除</Button>
+          <Button size="sm" variant="ghost" onClick={() => setConfirmClearData(true)} icon={<TrashIcon style={{ width: 14, height: 14 }} />}>删除</Button>
         </div>
       </div>
 
@@ -705,6 +803,18 @@ export default function ImitationPage() {
               )}
             </Modal>
 
+      {/* 清除数据确认 */}
+      {confirmClearData && (
+        <ConfirmModal
+          isOpen={true}
+          title="清除仿写数据"
+          message="确定清除仿写数据？此操作不可撤销。"
+          confirmLabel="清除"
+          danger
+          onConfirm={() => { setExtraction(null); setStep('import'); setConfirmClearData(false) }}
+          onCancel={() => setConfirmClearData(false)}
+        />
+      )}
     </div>
   )
 }

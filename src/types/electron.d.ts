@@ -94,6 +94,8 @@ export interface DialogAPI {
 
 export interface AppAPI {
   getProjectsBasePath: () => Promise<string>
+  getImitationProjectsPath: () => Promise<string>
+  getContinuationProjectDirsPath: () => Promise<string>
   getStoryWorkspacePath: () => Promise<string>
 }
 

@@ -1,7 +1,26 @@
 {
-  "currentVersion": "13.0.0",
-  "currentDate": "2026-06-20",
+  "currentVersion": "13.1.0",
+  "currentDate": "2026-06-21",
   "history": [
+    {
+      "version": "13.1.0",
+      "date": "2026-06-21",
+      "features": [
+        "提示词库: 卡片+弹窗编辑模式(80%屏幕),卡片只展示摘要,点击弹窗编辑,删除加ConfirmModal确认",
+        "AI写作助手: 角色模板卡片删除加ConfirmModal确认弹窗",
+        "场景工坊: 段编辑弹窗加大(700→1100w,65→90vh),模板删除改用ConfirmModal",
+        "风格工坊: 编辑模板弹窗加大(960→1200w,72→92vh),Prompt编辑/维度详情/维度配置弹窗统一加大",
+        "风格工坊: 模板/档案删除改用ConfirmModal,useStyleWorkshop hook新增deleteConfirm状态",
+        "操作记录功能接入: ToolExecutor中每次工具调用自动写入OpHistoryEntry,持久化到localStorage",
+        "导航栏: 剧情改写→小说改写,移至小说续写下方,知识库移至草稿本上方",
+        "项目入口三页全面改造: ContinuationPage/RewritePage/ImitationPage使用ProjectHubLayout主从布局",
+        "共享布局组件: ProjectHubLayout(左280px项目列表+右玻璃拟态详情卡),内建ConfirmModal删除",
+        "项目详情卡: 三个页面右栏统一玻璃拟态卡片(项目名+统计块+操作按钮),与首页风格一致",
+        "项目类型简化: 首页创建仅普通小说,仿写/续写在各自界面创建项目",
+        "项目文件夹分离: imitation_projects/和continuation_project_dirs/独立目录,Electron→IPC→Store全链路",
+        "代码清理: 移除window.confirm()(全部替换为ConfirmModal),清理未使用导入,TypeScript零错误"
+      ]
+    },
     {
       "version": "13.0.0",
       "date": "2026-06-20",

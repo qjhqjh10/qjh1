@@ -4,6 +4,7 @@ import { templateService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { SkeletonList } from '@/components/common/Skeleton'
 import EmptyState from '@/components/common/EmptyState'
@@ -59,6 +60,7 @@ export default function SceneWorkshopPage() {
   const [editingNovelSection, setEditingNovelSection] = useState<number | null>(null)
   const [editTagMode, setEditTagMode] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   useEffect(() => { setActivePage('scene-workshop'); loadTemplates() }, [])
 
   // Reload templates when AI creates scene templates
@@ -145,9 +147,12 @@ export default function SceneWorkshopPage() {
     setSaving(false)
   }
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('确定删除此模板？')) return
-    await templateService.delete(id); loadTemplates()
+  const handleDeleteTemplate = (id: string) => setDeleteConfirmId(id)
+
+  const handleDeleteConfirmed = async () => {
+    if (!deleteConfirmId) return
+    await templateService.delete(deleteConfirmId); loadTemplates()
+    setDeleteConfirmId(null)
   }
 
   const handleDuplicateTemplate = (tpl: SceneTemplate) => {
@@ -286,9 +291,9 @@ export default function SceneWorkshopPage() {
                   </div>
                 </div>
               </ScrollArea>
-              <Modal isOpen={showSectionModal} onClose={() => { setShowSectionModal(false); setEditTagMode(false) }} title={editingSection ? (SECTIONS.find(s => s.id === editingSection)?.label || '') : ''} width={700}>
+              <Modal isOpen={showSectionModal} onClose={() => { setShowSectionModal(false); setEditTagMode(false) }} title={editingSection ? (SECTIONS.find(s => s.id === editingSection)?.label || '') : ''} width={1100} maxHeight="90vh">
                 {editingSection && (
-                  <div style={{ maxHeight: '65vh', overflowY: 'auto' }} className="custom-scrollbar">
+                  <div style={{ maxHeight: '82vh', overflowY: 'auto' }} className="custom-scrollbar">
                     {editingSection !== null && <EroticSectionEditor section={editingSection} eroticConfig={eroticConfig} editTagMode={editTagMode} onUpdateConfig={setEroticConfig} onToggleAuto={toggleEroticAuto} />}
                   </div>
                 )}
@@ -314,9 +319,9 @@ export default function SceneWorkshopPage() {
                   </div>
                 </div>
               </ScrollArea>
-              <Modal isOpen={showNovelSectionModal} onClose={() => { setShowNovelSectionModal(false); setEditTagMode(false) }} title={editingNovelSection ? (NOVEL_SECTIONS.find(s => s.id === editingNovelSection)?.label || '') : ''} width={700}>
+              <Modal isOpen={showNovelSectionModal} onClose={() => { setShowNovelSectionModal(false); setEditTagMode(false) }} title={editingNovelSection ? (NOVEL_SECTIONS.find(s => s.id === editingNovelSection)?.label || '') : ''} width={1100} maxHeight="90vh">
                 {editingNovelSection && (
-                  <div style={{ maxHeight: '65vh', overflowY: 'auto' }} className="custom-scrollbar">
+                  <div style={{ maxHeight: '82vh', overflowY: 'auto' }} className="custom-scrollbar">
                     {editingNovelSection !== null && <NovelSectionEditor section={editingNovelSection} novelConfig={novelConfig} characters={characters} novelGenreType={novelGenreType} editTagMode={editTagMode} onUpdateConfig={setNovelConfig} onSetNovelGenreType={setNovelGenreType} onToggleAuto={toggleNovelAuto} />}
                   </div>
                 )}
@@ -329,6 +334,19 @@ export default function SceneWorkshopPage() {
           )}
         </div>
       </div>
+
+      {/* 删除确认弹窗 */}
+      {deleteConfirmId && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除场景模板"
+          message={`确定要删除场景模板「${templates.find(t => t.id === deleteConfirmId)?.name || ''}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
     </div>
   )
 }

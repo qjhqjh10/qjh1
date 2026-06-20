@@ -48,7 +48,7 @@ export class BridgeContextBuilder {
       try {
         const { kbService } = await import('@/services/fileService')
         const results = await kbService.search(
-          msg, this.opts.projectId, this.opts.configId, 3, this.opts.selectedKbFileIds,
+          msg.slice(0, 4000), this.opts.projectId, this.opts.configId, 3, this.opts.selectedKbFileIds,
         )
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[知识库]\n' +
@@ -67,13 +67,11 @@ export class BridgeContextBuilder {
       } catch { /* unavailable */ }
     }
 
-    // ── 6. Token estimation ──
-    const coreTokens = estimateTokens(effectivePrompt)
+    // ── 6. Token estimation (仅动态内容，核心提示词延后到项目信息注入后计算) ──
     const searchTokens = searchContext ? estimateTokens(searchContext) : 0
     const historyTokens = hist.reduce(
       (s, m) => s + estimateTokens(m.content || '') + 4, 0,
     )
-    const fullTotal = coreTokens + searchTokens + historyTokens + estimateTokens(msg)
 
     // ── 7. Assemble system messages — 角色身份 + 核心规则 ──
     const systemMessages: Array<{ role: 'system'; content: string }> = []
@@ -132,7 +130,8 @@ export class BridgeContextBuilder {
       }
     }
 
-    // 注入当前项目信息 — 让 AI 知道项目名(用户称呼)和目录名(路径用)
+    // 注入当前项目信息 — 先算项目 token，再合并到 effectivePrompt
+    let projectTokens = 0
     if (pid) {
       const storeState = useStore.getState()
       const project = storeState.projects.find(p => p.id === pid)
@@ -143,14 +142,18 @@ export class BridgeContextBuilder {
 - 文件路径以 "${pid}/" 开头，如 "${pid}/outline/"、"${pid}/chapters/"、"${pid}/summaries/"`
         : `项目名: ${displayName}
 - 文件路径以 "${pid}/" 开头，如 "${pid}/outline/"、"${pid}/chapters/"、"${pid}/summaries/"`
+      projectTokens = estimateTokens(`当前项目: ${displayHint}\n\n`)
       effectivePrompt = `当前项目: ${displayHint}\n\n` + effectivePrompt
     }
 
     systemMessages.push({ role: 'system', content: effectivePrompt })
 
-    // ── 8. Breakdown ──
+    // ── 8. Token 统计 + Breakdown ──
+    const coreTokens = estimateTokens(effectivePrompt)
+    const fullTotal = coreTokens + searchTokens + historyTokens + estimateTokens(msg)
     const breakdown: Array<{ domain: string; tokens: number }> = [
-      { domain: sendFullRules ? '核心规则(全量)' : '核心规则(精简)', tokens: coreTokens },
+      { domain: sendFullRules ? '核心规则(全量)' : '核心规则(精简)', tokens: coreTokens - projectTokens },
+      ...(projectTokens > 0 ? [{ domain: '项目信息', tokens: projectTokens }] : []),
       ...(searchContext ? [{ domain: '知识库/网络搜索', tokens: searchTokens }] : []),
       { domain: '对话历史', tokens: historyTokens },
       { domain: '当前消息', tokens: estimateTokens(msg) },

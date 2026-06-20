@@ -595,7 +595,8 @@ export default function AIChatWindow() {
         const imgPath = `${base}/uploads/images/${attachment.name}`
         try {
           await fileService.ensureDir(`${base}/uploads/images`)
-          const imgData = (attachment.previewUrl || '').split(',')[1]
+          const preview = attachment.previewUrl || ''
+          const imgData = preview.startsWith('data:') ? preview.split(',')[1] : ''
           if (imgData) {
             await fileService.writeBinary(imgPath, imgData)
             attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
@@ -612,10 +613,10 @@ export default function AIChatWindow() {
     // fileService.write auto-caches via shared fileReadCache
     // This ensures AI can reference it later even if conversation context is compressed
     let pasteClipPath = ''
-    if (!attachment && input.trim().length > 3000) {
+    if (input.trim().length > 3000) {
       try {
         const ts = Date.now().toString(36)
-        const b2 = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
+        const b2 = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '') || 'user_data'
         pasteClipPath = `${b2}/uploads/clips/clip_${ts}.txt`
         await fileService.ensureDir(`${b2}/uploads/clips`)
         await fileService.write(pasteClipPath, input.trim())
@@ -624,7 +625,7 @@ export default function AIChatWindow() {
 
     const capturedInputLength = input.trim().length
     const pasteRef = pasteClipPath ? `[粘贴文本已保存: ../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}。要精准修改内容，使用 read_file("../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}") 读取后用 edit_file 替换。]\n\n` : ''
-    const fullContent = isRetry ? pendingCorrection.current! : (attachText ? `${attachText}\n\n${input.trim()}` : pasteRef + input.trim())
+    const fullContent = isRetry ? `${attachText || ''}${pasteRef}${pendingCorrection.current!}` : `${attachText || ''}${pasteRef}${input.trim()}`
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
@@ -632,7 +633,7 @@ export default function AIChatWindow() {
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 32 个工具（核心7+扩展25，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
         : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 15 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/润色/续写\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
@@ -739,7 +740,7 @@ export default function AIChatWindow() {
       const billedTokens = Math.max(0, (result.totalTokens || 0) - (result.cacheHitTokens || 0))
       setCumulativeTokens(prev => {
         const newTotal = prev + billedTokens
-        setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal } : c))
+        setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: result.promptTokens || 0, peakPromptTokens: Math.max(c.peakPromptTokens || 0, result.promptTokens || 0) } : c))
         // 上下文进度条显示全部消息累计消耗，非单条消息
         setCurrentContextTokens(newTotal)
         return newTotal
@@ -750,6 +751,8 @@ export default function AIChatWindow() {
     } finally {
       setLoading(false)
       sendLockRef.current = false
+      autoRetryRef.current = false
+      pendingCorrection.current = null
     }
   }
 

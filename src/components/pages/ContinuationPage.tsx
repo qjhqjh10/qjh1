@@ -5,21 +5,20 @@ import { continuationService, extractionService } from '@/services/fileService'
 import { splitChaptersByHeadings, countChineseWords } from '@/utils/textUtils'
 import { logError } from '@/utils/logger'
 import Button from '@/components/common/Button'
-import ScrollArea from '@/components/common/ScrollArea'
 import Modal from '@/components/common/Modal'
-import { PlusIcon, SparklesIcon, TrashIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
+import EmptyState from '@/components/common/EmptyState'
+import ProjectHubLayout from '@/components/common/ProjectHubLayout'
+import { ArrowRightIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import type { ContinuationProject, ContinuationChapter } from '@/types/continuation'
-import { inputStyle } from '@/components/common/styles'
 
 export default function ContinuationPage() {
   const navigate = useNavigate()
-  const setActivePage = useStore(s => s.setActivePage)
   const setActiveProject = useStore(s => s.setActiveProject)
   const setActiveProjectName = useStore(s => s.setActiveProjectName)
   const removeProject = useStore(s => s.removeProject)
   const [projects, setProjects] = useState<ContinuationProject[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
-  const [showDeleteId, setShowDeleteId] = useState<string | null>(null)
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
 
@@ -71,13 +70,14 @@ export default function ContinuationPage() {
     await loadProjects()
     setShowNewDialog(false)
     setNewProjectName('')
-    handleEnterProject(saved)
+    setActiveId(saved.id)
   }
 
-  const handleDelete = async (id: string) => {
-    await continuationService.delete(id)
-    removeProject(id)
-    setShowDeleteId(null)
+  const handleDelete = async (proj: ContinuationProject) => {
+    await continuationService.delete(proj.id)
+    removeProject(proj.id)
+    if (activeId === proj.id) setActiveId(null)
+    await loadProjects()
   }
 
   const statusColor = (s: string) =>
@@ -85,88 +85,120 @@ export default function ContinuationPage() {
   const statusLabel = (s: string) =>
     s === 'writing' ? '续写中' : s === 'planned' ? '已计划' : s === 'merged' ? '已融合' : s === 'outlining' ? '大纲中' : s === 'analyzed' ? '已分析' : s === 'analyzing' ? '分析中' : '已导入'
 
-  return (
-    <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '20px 24px 12px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#2d2520', margin: 0 }}>小说续写</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button size="sm" variant="secondary" onClick={() => setShowNewDialog(true)} icon={<PlusIcon style={{ width: 14, height: 14 }} />}>新建</Button>
-          <Button size="sm" onClick={handleImport} disabled={importing} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>{importing ? '导入中...' : '导入小说'}</Button>
-        </div>
-      </div>
+  const activeProject = activeId ? projects.find(p => p.id === activeId) : null
 
-      <ScrollArea style={{ flex: 1, padding: '16px 24px' }}>
-        {/* Base card */}
-        <div style={{
-          padding: projects.length === 0 ? '24px 20px' : '20px',
-          borderRadius: 20, minHeight: 200,
-          background: 'linear-gradient(135deg, rgba(124,58,237,0.03) 0%, rgba(236,72,153,0.02) 100%)',
-          border: '1px solid rgba(124,58,237,0.08)',
-          boxShadow: '0 4px 20px rgba(124,58,237,0.04)',
-        }}>
-          <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: projects.length > 0 ? 16 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', display: 'inline-block' }} />
-            续写项目 · {projects.length}
-          </div>
-          {projects.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#9b8e84' }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📖</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#4a3f38', marginBottom: 4 }}>开始你的续写之旅</div>
-              <div style={{ fontSize: 12 }}>导入一本未完结的小说，AI 理解剧情后沿着原作逻辑继续创作</div>
-              <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <Button size="sm" variant="secondary" onClick={() => setShowNewDialog(true)} icon={<PlusIcon style={{ width: 12, height: 12 }} />}>新建空项目</Button>
-                <Button size="sm" onClick={handleImport} disabled={importing} icon={<SparklesIcon style={{ width: 12, height: 12 }} />}>{importing ? '导入中...' : '导入小说'}</Button>
+  return (
+    <>
+      <ProjectHubLayout
+        title="小说续写"
+        projects={projects}
+        activeProjectId={activeId}
+        onSelectProject={(p) => setActiveId(p.id)}
+        onCreateProject={() => setShowNewDialog(true)}
+        onImportProject={handleImport}
+        importLabel={importing ? '导入中...' : '导入小说'}
+        createLabel="新建"
+        onDeleteProject={handleDelete}
+        deleteTitle="删除续写项目"
+        deleteMessage={(name) => `确定要删除续写项目「${name}」吗？此操作不可撤销。`}
+        emptyIcon="📖"
+        emptyTitle="暂无续写项目"
+        emptyDescription="导入一本未完结的小说，AI 理解剧情后沿着原作逻辑继续创作"
+        renderProjectItem={(p, active) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? '#7c3aed' : '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
+              </div>
+              <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
+                {p.sourceFileName && `来源: ${p.sourceFileName} · `}
+                {p.sourceChapters.length}章
+                {p.writtenChapters.length > 0 && ` · 已续写 ${p.writtenChapters.length}章`}
               </div>
             </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-              {projects.map(p => (
-                <div key={p.id} onClick={() => handleEnterProject(p)} style={{
-                  padding: '16px 18px', borderRadius: 14, background: '#fff',
-                  border: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
-                }} onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(124,58,237,0.2)')} onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)')}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>
-                      {p.sourceFileName && `来源: ${p.sourceFileName} · `}
-                      {p.sourceChapters.length}章 · 已分析 {p.sourceChapters.filter(c => c.analysis).length}章
-                      {p.writtenChapters.length > 0 && ` · 已续写 ${p.writtenChapters.length}章`}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `${statusColor(p.status)}15`, color: statusColor(p.status), fontWeight: 600 }}>{statusLabel(p.status)}</span>
-                    <button onClick={e => { e.stopPropagation(); setShowDeleteId(p.id) }} style={{ background: 'none', border: 'none', color: '#9b8e84', cursor: 'pointer', padding: 2 }}>
-                      <TrashIcon style={{ width: 14, height: 14 }} />
-                    </button>
-                    <ChevronRightIcon style={{ width: 14, height: 14, color: '#d9d2cc' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `${statusColor(p.status)}15`, color: statusColor(p.status), fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {statusLabel(p.status)}
+            </span>
+          </div>
+        )}
+        renderEmptyState={() => (
+          <EmptyState icon="📖" title="选择左侧续写项目" description="或新建 / 导入一个项目开始续写" />
+        )}
+        renderProjectDetail={(p) => (
+          <div style={{
+            width: '82%', minWidth: 520, maxWidth: 880, minHeight: '65vh', margin: '40px auto',
+            padding: '44px 48px', borderRadius: 24,
+            background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255,255,255,0.6)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+          }}>
+            {/* Project name */}
+            <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: '0 0 8px' }}>
+              {p.name}
+            </h3>
+            {p.sourceFileName && (
+              <p style={{ fontSize: 13, color: '#9b8e84', margin: '0 0 24px' }}>
+                来源文件: {p.sourceFileName}
+              </p>
+            )}
 
-      <Modal isOpen={showNewDialog} onClose={() => setShowNewDialog(false)} title="新建续写项目" width={400}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)} placeholder="项目名称" style={inputStyle as any} onKeyDown={e => { if (e.key === 'Enter') handleCreateEmpty() }} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            {/* Stats row */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 28, borderRadius: 16, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.06)', overflow: 'hidden' }}>
+              <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.sourceChapters.length}</div>
+                <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>源章节</div>
+              </div>
+              <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+              <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.sourceChapters.filter(c => c.analysis).length}</div>
+                <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>已分析</div>
+              </div>
+              <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+              <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed' }}>{p.writtenChapters.length}</div>
+                <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>已续写</div>
+              </div>
+              <div style={{ width: 1, background: 'rgba(124,58,237,0.06)' }} />
+              <div className="stagger-item" style={{ flex: 1, textAlign: 'center', padding: '16px 12px' }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: statusColor(p.status) }}>
+                  {statusLabel(p.status)}
+                </div>
+                <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>状态</div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+              <Button
+                variant="accent-gradient"
+                onClick={() => handleEnterProject(p)}
+                icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />}
+                style={{ flex: 1, justifyContent: 'center', padding: '12px 0', fontSize: 14 }}
+              >
+                进入项目
+              </Button>
+            </div>
+          </div>
+        )}
+      />
+
+      {/* Create Modal */}
+      <Modal isOpen={showNewDialog} onClose={() => setShowNewDialog(false)} title="新建续写项目" width={440}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 6 }}>项目名称</label>
+            <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
+              placeholder="输入项目名称..." autoFocus className="focus-ring"
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateEmpty() }}
+              style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10,
+                border: '1px solid #e5e0da', outline: 'none', background: '#faf9f8', fontFamily: 'inherit' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
             <Button variant="secondary" onClick={() => setShowNewDialog(false)}>取消</Button>
             <Button onClick={handleCreateEmpty} disabled={!newProjectName.trim()}>创建</Button>
           </div>
         </div>
       </Modal>
-
-      <Modal isOpen={!!showDeleteId} onClose={() => setShowDeleteId(null)} title="删除项目" width={360}>
-        <div style={{ fontSize: 13, color: '#6b5e54', marginBottom: 16 }}>确定删除此续写项目？此操作不可撤销。</div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button variant="secondary" onClick={() => setShowDeleteId(null)}>取消</Button>
-          <Button variant="danger" onClick={() => showDeleteId && handleDelete(showDeleteId)}>删除</Button>
-        </div>
-      </Modal>
-    </div>
+    </>
   )
 }

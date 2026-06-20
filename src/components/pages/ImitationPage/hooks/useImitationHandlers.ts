@@ -113,7 +113,7 @@ interface ImitationHandlersDeps {
   // Other
   activeConfigId: string | null
   activeProjectId: string | null
-  projectsBasePath: string | null
+  imitationProjectsPath: string | null
   setCharacters: (chars: Character[]) => void
   setOutlineContent: (content: string) => void
   setWorldbuildingContent: (content: string) => void
@@ -133,7 +133,7 @@ export function useImitationHandlers(d: ImitationHandlersDeps) {
     outlineResults, detailGenResults, detailsResults, chapterContents,
     selectedChapterId,
     abortRef, pausedRef, styleAbortRef, stylePausedRef, detailGenAbortRef,
-    activeConfigId, activeProjectId, projectsBasePath,
+    activeConfigId, activeProjectId, imitationProjectsPath: projectsBasePath,
     setCharacters, setOutlineContent, setWorldbuildingContent, setActiveProject,
     navigate } = d;
 

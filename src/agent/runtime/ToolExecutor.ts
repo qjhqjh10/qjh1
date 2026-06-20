@@ -5,6 +5,25 @@ import { ContractExecutor } from '../context/ContractExecutor'
 import type { ToolExecutorFn } from './RuntimeTypes'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 import type { AgentEventEmitter } from './AgentEventEmitter'
+import { nanoid } from 'nanoid'
+
+/** Extract file path from tool args — best-effort across all tool naming conventions. */
+function extractFilePath(args: Record<string, unknown>): string {
+  // Direct file path keys (ordered by most common)
+  const keys = ['filePath', 'path', 'targetPath', 'sourcePath', 'filepath', 'file_path',
+    'target', 'dest', 'destination', 'projectPath', 'kbPath', 'notePath', 'templatePath']
+  for (const k of keys) {
+    const v = args[k]
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  // Fallback: check any key ending with "Path" or "path"
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v === 'string' && v.length > 0 && (k.endsWith('Path') || k.endsWith('path'))) {
+      return v
+    }
+  }
+  return ''
+}
 
 /** Tools that write — executed sequentially. */
 export const WRITE_TOOLS = new Set([
@@ -73,6 +92,16 @@ export async function executeSingleTool(
     const errResult = { status: 'error' as const, summary: '工具参数 JSON 解析失败' }
     ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(errResult) })
     ctx.store.completeTool(tc.id, 'error', errResult.summary)
+    // v13.1.0: 记录解析失败
+    try {
+      const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
+      useOpHistoryStore.getState().addEntry({
+        id: nanoid(8), timestamp: new Date().toISOString(),
+        conversationId: ctx.projectId || 'global', toolName: tc.name,
+        filePath: '', args: {}, status: 'error',
+        summary: '工具参数 JSON 解析失败', detail: tc.arguments,
+      })
+    } catch { /* ignore */ }
     return
   }
 
@@ -94,6 +123,22 @@ export async function executeSingleTool(
 
   const durationMs = Date.now() - t0
   ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments })
+
+  // ── v13.1.0: 操作记录持久化 ──
+  try {
+    const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
+    useOpHistoryStore.getState().addEntry({
+      id: nanoid(8),
+      timestamp: new Date().toISOString(),
+      conversationId: ctx.projectId || 'global',
+      toolName: tc.name,
+      filePath: extractFilePath(args),
+      args,
+      status: result.status === 'success' ? 'success' : 'error',
+      summary: result.summary || '',
+      detail: result.detail || '',
+    })
+  } catch { /* 记录写入失败不影响主流程 */ }
 
   // Emit result
   if (result.status === 'success') {

@@ -67,7 +67,7 @@ export class V4AnthropicChatBridge {
     this.configId = options.configId
     this.projectId = options.projectId
     this.maxIterations = options.maxIterations ?? 30
-    this.contextWindow = options.contextWindow ?? 128_000
+    this.contextWindow = Math.max(1, options.contextWindow ?? 128_000)
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
     this._fullPromptSent = false
@@ -250,10 +250,8 @@ export class V4AnthropicChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      // v12.10.0: 纯闲聊不消耗全量Prompt名额，留给真正有任务的消息
-      if (!isPureGreeting(userMessage)) {
-        this._fullPromptSent = true
-      }
+      // 首条消息后始终标记已发送全量，避免第二条仍发全部工具 schema
+      this._fullPromptSent = true
       this.auditTrail.persist().catch(() => {})
 
       return {
@@ -261,12 +259,16 @@ export class V4AnthropicChatBridge {
         text: result.text || collectedText,
         toolCalls: result.toolCalls,
         totalTokens: result.totalTokens,
-        phase: result.phase,
-        toolsUsed: result.toolsUsed,
-        toolCallSteps: result.toolCallSteps,
-        contextBreakdown: result.contextBreakdown,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
         cacheHitTokens: result.cacheHitTokens || 0,
         cacheCreationTokens: result.cacheCreationTokens || 0,
+        cost: result.cost || 0,
+        phase: result.phase,
+        toolsUsed: result.toolsUsed,
+        iterationCount: result.iterationCount,
+        toolCallSteps: result.toolCallSteps,
+        contextBreakdown: result.contextBreakdown,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
@@ -274,13 +276,11 @@ export class V4AnthropicChatBridge {
       store.endRun()
       this.auditTrail.persist().catch(() => {})
       return {
-        success: false,
-        text: `错误: ${errMsg}`,
-        toolCalls: 0,
-        totalTokens: 0,
-        phase: 'ERROR',
-        toolsUsed: [],
-        toolCallSteps: [],
+        success: false, text: `错误: ${errMsg}`,
+        toolCalls: 0, totalTokens: 0,
+        promptTokens: 0, completionTokens: 0,
+        cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0,
+        phase: 'ERROR', toolsUsed: [], iterationCount: 0, toolCallSteps: [],
       }
     } finally {
       for (const unsub of unsubscribes) {

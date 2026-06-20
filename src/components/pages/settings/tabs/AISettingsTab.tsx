@@ -604,6 +604,7 @@ export function AISettingsTab() {
 
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null)
+  const [cardDeleteConfirmId, setCardDeleteConfirmId] = useState<string | null>(null)
 
   // 加载头像
   const [userAvatarSrc, setUserAvatarSrc] = useState('')
@@ -721,7 +722,7 @@ export function AISettingsTab() {
                     </div>
                     <button onClick={(e) => {
                       e.stopPropagation()
-                      removeRoleTemplate(tpl.id)
+                      setCardDeleteConfirmId(tpl.id)
                     }} style={{
                       background: 'none', border: 'none', cursor: 'pointer', padding: 4,
                       color: '#d4ccc4', flexShrink: 0,
@@ -887,6 +888,22 @@ export function AISettingsTab() {
         open={detailModalOpen}
         onClose={() => setDetailModalOpen(false)}
       />
+
+      {/* 卡片删除确认弹窗 */}
+      {cardDeleteConfirmId && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除角色模板"
+          message={`确定要删除角色模板「${roleTemplates.find(t => t.id === cardDeleteConfirmId)?.name || ''}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            removeRoleTemplate(cardDeleteConfirmId)
+            setCardDeleteConfirmId(null)
+          }}
+          onCancel={() => setCardDeleteConfirmId(null)}
+        />
+      )}
     </div>
   )
 }

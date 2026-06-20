@@ -289,11 +289,8 @@ export function useStyleWorkshop() {
     setLoading(false)
   }
 
-  const handleDeleteProject = async (meta: StyleProjectMeta) => {
-    if (!confirm(`确定删除「${meta.name}」？`)) return
-    await styleProjectService.deleteProject(meta.id)
-    await loadProjects()
-    if (selectedProject?.id === meta.id) { setSelectedProject(null); setView('library') }
+  const handleDeleteProject = (meta: StyleProjectMeta) => {
+    setDeleteConfirm({ type: 'project', id: meta.id, name: meta.name })
   }
 
   const toggleAnalyzeId = (id: string) => {
@@ -610,10 +607,27 @@ ${dimList}
     try { await styleTemplateService.save(clone); await loadTemplates() } catch { alert('复制失败') }
   }
 
-  const handleDeleteTemplate = async (t: StyleTemplate) => {
-    if (!confirm(`确定删除模板「${t.name}」？`)) return
-    try { await styleTemplateService.delete(t.id); await loadTemplates() } catch { alert('删除失败') }
+  const handleDeleteTemplate = (t: StyleTemplate) => {
+    setDeleteConfirm({ type: 'template', id: t.id, name: t.name })
   }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return
+    const { type, id } = deleteConfirm
+    try {
+      if (type === 'template') {
+        await styleTemplateService.delete(id)
+        await loadTemplates()
+      } else {
+        await styleProjectService.deleteProject(id)
+        await loadProjects()
+        if (selectedProject?.id === id) { setSelectedProject(null); setView('library') }
+      }
+    } catch { alert('删除失败') }
+    setDeleteConfirm(null)
+  }
+
+  const cancelDelete = () => setDeleteConfirm(null)
 
   const handleCreateFromType = (type: string, name: string) => {
     const n = name.trim() || '新模板'
@@ -630,6 +644,8 @@ ${dimList}
   }
 
   const [templateSaving, setTemplateSaving] = useState(false)
+  // v13.1.0: ConfirmModal state for style/project deletion
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'template' | 'project'; id: string; name: string } | null>(null)
 
   const handleSaveTemplate = async () => {
     if (!editTemplate || templateSaving) return
@@ -690,6 +706,7 @@ ${dimList}
     filteredAndSortedTemplates,
     loadTemplates,
     handleCloneTemplate, handleDeleteTemplate,
+    deleteConfirm, confirmDelete, cancelDelete,
     handleCreateFromType, handleSaveTemplate, templateSaving, isDirty,
     toggleDimExpanded, updateDim,
     setExpandedDims,

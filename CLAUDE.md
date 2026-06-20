@@ -1,12 +1,25 @@
-# AI写作软件—青剑 v13.0.0
+# AI写作软件—青剑 v13.1.0
 
-Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→风格→场景→知识库。
+Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
 ## 技术栈
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / G6 + Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v12.8.0)
+## 当前架构 (v13.1.0)
+
+### 项目目录分离
+- `projects/` — 普通写作项目
+- `imitation_projects/` — 仿写项目独立目录
+- `continuation_project_dirs/` — 续写项目独立目录
+- `continuation_projects/` — 续写 JSON 数据
+- `rewrite_projects/` — 改写项目（独立 service）
+- ProjectHubLayout 统一三个入口页的主从布局
+
+### 操作记录 (v13.1.0)
+- ToolExecutor 执行每个工具后自动写入 OpHistoryEntry
+- Zustand persist 持久化到 localStorage
+- 页面路径: /operation-history
 
 ### 风格模板 v5 — 全类型维度分层系统 (27维)
 - **全类型覆盖**: 17种小说类型各有 DIM_PRIORITY 分层（T0总基调/T1技法核心/T2结构支撑/T3辅助）
