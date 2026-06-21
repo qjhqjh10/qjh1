@@ -32,6 +32,8 @@ export interface AnthropicToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
   content: string  // DeepSeek 要求必须是字符串
+  /** v13.x: Prompt caching on stable history turns */
+  cache_control?: { type: 'ephemeral' }
 }
 
 /** DeepSeek V4 thinking block — 必须原样回传 */
@@ -39,6 +41,7 @@ export interface AnthropicThinkingBlock {
   type: 'thinking'
   thinking: string
   signature: string
+  cache_control?: { type: 'ephemeral' }
 }
 
 /** Anthropic 格式的工具定义 */

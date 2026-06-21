@@ -17,13 +17,14 @@ export const CORE_TOOL_NAMES = new Set([
   'tool_search',
 ])
 
-// v12.6.0: 后续消息扩展工具集 — 首条全量34个，后续发这10个常用工具
-// create_project/delete_project/kb_* 低频使用，通过 tool_search 按需发现
+// v13.2.0: 后续消息扩展工具集 — 首条全量34个，后续发这12个高频工具
+// kb_search 是知识库场景最高频工具，加入后续集合避免额外 tool_search 往返
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   'find_files',
   'batch_replace',
   'rename_file',
+  'kb_search',
 ])
 
 export const toolSearchTools: ToolDefinition[] = [{
@@ -71,6 +72,8 @@ export const toolSearchTools: ToolDefinition[] = [{
       status: 'success',
       summary: `找到 ${matches.length} 个工具匹配 "${query}"`,
       detail: `${detail}\n\n调用时使用上述工具名（不含中文描述部分）。`,
+      // v13.2.0: 结构化返回匹配工具名 → Runtime 动态加载其完整 schema
+      matchedTools: matches.map(t => t.schema.name),
     }
   },
 }]

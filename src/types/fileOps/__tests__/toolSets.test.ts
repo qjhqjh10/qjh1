@@ -24,8 +24,8 @@ describe('DANGEROUS_TOOLS', () => {
 })
 
 describe('READ_ONLY_TOOLS', () => {
-  it('contains 14 tools', () => {
-    expect(READ_ONLY_TOOLS.size).toBe(14)
+  it('contains 13 tools (list_audit removed in v13.2.0)', () => {
+    expect(READ_ONLY_TOOLS.size).toBe(13)
   })
 
   it('contains read-only file tools', () => {
@@ -129,7 +129,7 @@ describe('summarizeFileOp', () => {
       'search_images', 'generate_image',
       'list_prompts', 'toggle_prompt', 'update_prompt',
       'create_style_template', 'create_scene_template',
-      'analyze_text_style', 'tool_search', 'list_rules', 'list_audit', 'update_config',
+      'analyze_text_style', 'tool_search', 'list_rules',
     ]
     for (const name of allNames) {
       const result = summarizeFileOp(name, {})

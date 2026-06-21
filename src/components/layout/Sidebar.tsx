@@ -62,7 +62,7 @@ export default function Sidebar() {
     // Always show imitation and continuation entry points
     items.push({ path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon })
     items.push({ path: '/continuation', label: '小说续写', icon: BookOpenIcon })
-    items.push({ path: '/rewrite', label: '小说改写', icon: PencilIcon })
+
 
     // Show project-specific nav only when a project is active
     if (activeProjectId) {

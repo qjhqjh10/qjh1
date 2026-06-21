@@ -29,7 +29,7 @@ function extractFilePath(args: Record<string, unknown>): string {
 export const WRITE_TOOLS = new Set([
   'create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
   'kb_append_file',
-  'shell_exec','shell_run_script','generate_image','http_get','http_fetch','browser_open','browser_search',
+  'generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
 /** Split tool calls into read-only (parallel) and write (sequential) groups. */
@@ -56,7 +56,7 @@ export interface ToolExecContext {
   abortSignal: AbortSignal
   messagesForApi: Message[]
   toolsUsed: string[]
-  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string }>
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string; matchedTools?: string[] }>
   emitter: AgentEventEmitter
   iteration: number
   /** v9.5.5: Store for tool progress tracking */
@@ -122,7 +122,7 @@ export async function executeSingleTool(
   result = await Promise.race([execPromise, timeoutPromise])
 
   const durationMs = Date.now() - t0
-  ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments })
+  ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments, matchedTools: (result as any).matchedTools })
 
   // ── v13.1.0: 操作记录持久化 ──
   try {

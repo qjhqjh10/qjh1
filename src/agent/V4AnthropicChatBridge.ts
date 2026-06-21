@@ -55,8 +55,8 @@ export class V4AnthropicChatBridge {
   private history: Message[] = []
   private abortController = new AbortController()
   private runId = ''
-  // v11.7.1: 首条消息全量注入跟踪
-  private _fullPromptSent = false
+
+
 
   constructor(projectId: string | null) {
     this.securityFence = new V4SecurityFence(projectId)
@@ -70,13 +70,9 @@ export class V4AnthropicChatBridge {
     this.contextWindow = Math.max(1, options.contextWindow ?? 128_000)
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
-    this._fullPromptSent = false
     this.initialized = true
   }
 
-  resetFullPromptState(): void {
-    this._fullPromptSent = false
-  }
 
   updateProject(projectId: string | null): void {
     if (this.projectId && this.projectId !== projectId) {
@@ -146,26 +142,12 @@ export class V4AnthropicChatBridge {
       }, adapter)
 
       // ── 2.5. 工具准备 ──
-      // v12.6.0: 首条全量34个，后续根据消息类型选择工具数量
-      const { CORE_TOOL_NAMES, SUBSEQUENT_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
-      const { isPureGreeting } = await import('./utils/taskDetection')
+      // v12.6.0→v13.x: 始终全量 34 个工具 — 前缀缓存使重复传输几乎免费
       const schemas = toolRegistry.getAllSchemas()
-      const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
-      const subsequentTools = schemas.filter(s => SUBSEQUENT_TOOL_NAMES.has(s.function.name))
-
-      let toolsToSend: unknown[]
-      if (!this._fullPromptSent) {
-        toolsToSend = schemas  // 首条: 全量 34 个
-      } else if (isPureGreeting(userMessage)) {
-        toolsToSend = []       // 闲聊: 0 个工具
-      } else {
-        toolsToSend = subsequentTools  // 有操作意图: 10 个
-      }
-      this.runtime.setTools(toolsToSend)
+      this.runtime.setTools(schemas)
 
       // ── 3. 注入 Context Assembler ──
-      const CORE_PROMPT = buildSystemPrompt()
-      const isFirst = !this._fullPromptSent
+      const CORE_PROMPT = await buildSystemPrompt()
       const contextBuilder = new BridgeContextBuilder({
         projectId: this.projectId,
         configId: this.configId,
@@ -176,7 +158,7 @@ export class V4AnthropicChatBridge {
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT, isFirst)
+        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
         return result
       })
 
@@ -250,8 +232,6 @@ export class V4AnthropicChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      // 首条消息后始终标记已发送全量，避免第二条仍发全部工具 schema
-      this._fullPromptSent = true
       this.auditTrail.persist().catch(() => {})
 
       return {

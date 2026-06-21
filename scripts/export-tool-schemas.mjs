@@ -62,11 +62,10 @@ function generateSchemas() {
     { name: 'list_prompts', description: '列出提示词库中的提示词。', params: {}, required: [] },
     { name: 'toggle_prompt', description: '启用或禁用提示词。', params: { prompt_name: { type: 'string', description: '提示词名称' }, enabled: { type: 'boolean', description: '启用/禁用' } }, required: ['prompt_name'] },
     { name: 'update_prompt', description: '修改提示词内容。', params: { prompt_name: { type: 'string', description: '提示词名称' }, new_content: { type: 'string', description: '新提示词内容' } }, required: ['prompt_name'] },
-    // ── Harness/self-management tools (4) ──
+    // ── Harness/self-management tools (2) ──
     { name: 'list_rules', description: '列出 .aiharness/ 中的已学习规则。', params: {}, required: [] },
     { name: 'learn_rule', description: '从经验中学习并持久化规则，防止以后再犯同样错误。', params: { trigger: { type: 'string', description: '触发条件' }, problem: { type: 'string', description: '问题描述' }, solution: { type: 'string', description: '解决方案' }, category: { type: 'string', description: '错误分类' } }, required: ['trigger', 'problem', 'solution'] },
-    { name: 'update_config', description: '更新 .aiharness 配置（权限/预算/Hook）。', params: { section: { type: 'string', description: '配置节' }, changes: { type: 'string', description: 'JSON 格式的变更内容' } }, required: ['section', 'changes'] },
-    { name: 'list_audit', description: '查询 Agent 自身的操作审计日志，用于自观测和调试。', params: { limit: { type: 'number', description: '返回最近 N 条，默认 20' } }, required: [] },
+    // update_config, list_audit removed in v13.2.0
     // ── HTTP tools (2) ──
     { name: 'http_get', description: '发起 HTTP GET 请求获取网页或 API 数据。', params: { url: { type: 'string', description: '完整的 URL' } }, required: ['url'] },
     { name: 'http_fetch', description: '发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。', params: { url: { type: 'string' }, method: { type: 'string', description: 'GET 或 POST' }, headers: { type: 'string', description: 'JSON 格式请求头' }, body: { type: 'string' } }, required: ['url'] },
@@ -76,8 +75,7 @@ function generateSchemas() {
     // ── Shell tools (2) ──
     { name: 'shell_exec', description: '执行系统命令（仅允许 node/python/git/npm/npx）。需要双确认。', params: { command: { type: 'string' }, cwd: { type: 'string' } }, required: ['command'] },
     { name: 'shell_run_script', description: '执行 .aiharness/scripts/ 下的预置脚本。', params: { name: { type: 'string' } }, required: ['name'] },
-    // ── LSP tools (1) ──
-    { name: 'lsp_diagnose', description: '运行 TypeScript 类型检查，返回诊断错误。', params: { file_path: { type: 'string' } }, required: [] },
+    // lsp_diagnose removed in v13.2.0
   ]
 
   return tools.map(t => ({

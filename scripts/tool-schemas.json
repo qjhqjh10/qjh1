@@ -656,47 +656,6 @@
   {
     "type": "function",
     "function": {
-      "name": "update_config",
-      "description": "更新 .aiharness 配置（权限/预算/Hook）。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "section": {
-            "type": "string",
-            "description": "配置节"
-          },
-          "changes": {
-            "type": "string",
-            "description": "JSON 格式的变更内容"
-          }
-        },
-        "required": [
-          "section",
-          "changes"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "list_audit",
-      "description": "查询 Agent 自身的操作审计日志，用于自观测和调试。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "返回最近 N 条，默认 20"
-          }
-        },
-        "required": []
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "http_get",
       "description": "发起 HTTP GET 请求获取网页或 API 数据。",
       "parameters": {
@@ -816,22 +775,6 @@
         "required": [
           "name"
         ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "lsp_diagnose",
-      "description": "运行 TypeScript 类型检查，返回诊断错误。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "file_path": {
-            "type": "string"
-          }
-        },
-        "required": []
       }
     }
   }

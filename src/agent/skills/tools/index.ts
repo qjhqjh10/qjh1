@@ -12,31 +12,27 @@ import { promptTools } from './promptTools'
 import { harnessTools } from './harnessTools'
 import { httpTools } from './httpTools'
 import { browserTools } from './browserTools'
-import { shellTools } from './shellTools'
-import { lspTools } from './lspTools'
 import { toolSearchTools, CORE_TOOL_NAMES } from './toolSearchTools'
 import type { ToolDefinition } from '../types'
 
-// v12.6.1: 33+1=tool_search（移除 think 工具）。核心7个每轮发，其余通过tool_search按需发现。
+// v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续12核心。
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools
-  ...kbTools,        // 2 tools
+  ...kbTools,        // 3 tools
   ...noteTools,      // 1 tool
   ...imageTools,     // 2 tools
-  ...templateTools,  // 2 tools
+  ...templateTools,  // 1 tool
   ...projectTools,   // 2 tools
   ...promptTools,    // 3 tools
-  ...harnessTools,   // 5 tools
+  ...harnessTools,   // 1 tool
   ...httpTools,      // 2 tools
   ...browserTools,   // 2 tools
-  ...shellTools,     // 2 tools
-  ...lspTools,       // 1 tool
   ...toolSearchTools, // 1 tool: tool_search
 ]
 
 export {
   fileTools, kbTools, noteTools, imageTools, templateTools,
   projectTools, promptTools, harnessTools, httpTools, browserTools,
-  shellTools, lspTools, toolSearchTools,
+  toolSearchTools,
 }

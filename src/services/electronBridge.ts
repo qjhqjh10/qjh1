@@ -18,9 +18,9 @@ import { templateService } from './fileService'
 import { continuationService } from './fileService'
 import { extractionService } from './fileService'
 import { storyService } from './fileService'
-import { rewriteService } from './fileService'
 
-// Browser, shell, MCP, and LSP services — previously only accessible via (fileService as any)
+
+// Browser, MCP, and LSP services — previously only accessible via (fileService as any)
 function e() {
   if (!window.electron) throw new Error('Electron bridge not available - run in Electron environment')
   return window.electron
@@ -29,11 +29,6 @@ function e() {
 export const browserService = {
   open: (url: string) => e().browser.open(url),
   search: (query: string) => e().browser.search(query),
-}
-
-export const shellService = {
-  exec: (command: string, cwd?: string) => e().shell.exec(command, cwd),
-  runScript: (name: string) => e().shell.runScript(name),
 }
 
 export const mcpService = {
@@ -55,9 +50,7 @@ export const agentService = {
     e().agent.optimize(configId, command),
 }
 
-export const lspService = {
-  diagnose: (filePath?: string) => e().lsp.diagnose(filePath),
-}
+// lspService removed in v13.2.0 — lsp_diagnose tool deleted
 
 // Centralized bridge — all IPC services in one typed object
 export const bridge = {
@@ -74,12 +67,11 @@ export const bridge = {
   continuation: continuationService,
   extraction: extractionService,
   story: storyService,
-  rewrite: rewriteService,
+
   agent: agentService,
   browser: browserService,
-  shell: shellService,
   mcp: mcpService,
-  lsp: lspService,
+  // lsp removed in v13.2.0
 }
 
 export type ElectronBridge = typeof bridge

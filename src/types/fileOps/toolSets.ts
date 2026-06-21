@@ -1,7 +1,7 @@
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project', 'batch_replace']) as ReadonlySet<string>
 
 // Plan 模式工具集（只读+安全写操作）
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_index_file', 'list_rules', 'list_audit', 'tool_search']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_index_file', 'list_rules', 'tool_search']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -29,8 +29,6 @@ export function summarizeFileOp(
     case 'toggle_prompt': return `${args.enabled ? '启用' : '关闭'}提示词: ${args.prompt_id}`
     case 'update_prompt': return `修改提示词: ${args.prompt_id}`
     case 'list_rules': return '列出规则'
-    case 'list_audit': return '列出审计'
-    case 'update_config': return `更新配置`
     case 'tool_search': return `搜索工具: ${args.query}`
     case 'analyze_text_style': return `风格分析: ${(args.dimensions as string[] || []).join(',')}`
     case 'create_style_template': return `创建风格模板: ${args.name}`
@@ -39,9 +37,6 @@ export function summarizeFileOp(
     case 'http_fetch': return `HTTP FETCH: ${args.url}`
     case 'browser_open': return `打开浏览器: ${args.url}`
     case 'browser_search': return `浏览器搜索: ${args.query}`
-    case 'shell_exec': return `执行命令: ${(args.command as string || '').slice(0, 40)}`
-    case 'shell_run_script': return `运行脚本: ${args.scriptName}`
-    case 'lsp_diagnose': return 'LSP诊断'
     default: return `未知操作: ${toolName}`
   }
 }

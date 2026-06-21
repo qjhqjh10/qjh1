@@ -65,6 +65,8 @@ export interface BridgeSendResult {
   iterationCount: number
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
+  /** v13.2.0: 下一次 API 请求的预估上下文 token 数 */
+  estimatedContextTokens?: number
 }
 
 // ── Bridge ──
@@ -82,9 +84,8 @@ export class V4AgentChatBridge {
   private history: Message[] = []
   private abortController = new AbortController()
   private runId = ''
-  private _toolCache: { key: string; tools: any[] } | null = null  // v4: reuse identical tool arrays for caching
-  // v11.7.1: 首条消息全量注入跟踪
-  private _fullPromptSent = false
+
+
 
   constructor(projectId: string | null) {
     this.securityFence = new V4SecurityFence(projectId)
@@ -98,7 +99,6 @@ export class V4AgentChatBridge {
     this.contextWindow = Math.max(1, options.contextWindow ?? 128_000)
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
-    this._fullPromptSent = false
     this.initialized = true
   }
 
@@ -173,27 +173,12 @@ export class V4AgentChatBridge {
         toolTemperature: toolTemp,
       }, adapter)
 
-      // ── 2. 工具: 首条全量，后续按消息类型选择（闲聊0个，有意图10个）──
-      const { CORE_TOOL_NAMES, SUBSEQUENT_TOOL_NAMES } = await import('./skills/tools/toolSearchTools')
-      const { isPureGreeting } = await import('./utils/taskDetection')
+      // ── 2. 工具: 始终全量 34 个 — 前缀缓存使重复传输几乎免费 ──
       const schemas = toolRegistry.getAllSchemas()
-      const coreTools = schemas.filter(s => CORE_TOOL_NAMES.has(s.function.name))
-      const subsequentTools = schemas.filter(s => SUBSEQUENT_TOOL_NAMES.has(s.function.name))
-
-      let toolsToSend: unknown[]
-      if (!this._fullPromptSent) {
-        toolsToSend = schemas
-      } else if (isPureGreeting(userMessage)) {
-        toolsToSend = []
-      } else {
-        toolsToSend = subsequentTools
-      }
-      this.runtime.setTools(toolsToSend)
-      diagnosticLogger.recordInfo(`Agent2: ${toolsToSend.length} tools (full=${!this._fullPromptSent})`)
+      this.runtime.setTools(schemas)
 
       // ── 3. Wire Context Assembler ──
-      const CORE_PROMPT = buildSystemPrompt()
-      const isFirst = !this._fullPromptSent
+      const CORE_PROMPT = await buildSystemPrompt()
       const contextBuilder = new BridgeContextBuilder({
         projectId: this.projectId,
         configId: this.configId,
@@ -204,7 +189,7 @@ export class V4AgentChatBridge {
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
-        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT, isFirst)
+        const result = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
         return result
       })
 
@@ -257,8 +242,6 @@ export class V4AgentChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
-      // 首条消息后始终标记已发送全量，避免第二条仍发全部工具 schema
-      this._fullPromptSent = true
       // V9.5.2: 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 
@@ -278,6 +261,7 @@ export class V4AgentChatBridge {
         iterationCount: result.iterationCount,
         toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
+        estimatedContextTokens: result.estimatedContextTokens,
       }
 
     } catch (err) {

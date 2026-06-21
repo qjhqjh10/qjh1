@@ -201,7 +201,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Semantic search
-  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, configId: string, topK: number = 3, fileIds?: string[]) => {
+  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, configId: string, topK: number = 5, fileIds?: string[]) => {
     // Look up config from electron-store (like ai:chat does)
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]

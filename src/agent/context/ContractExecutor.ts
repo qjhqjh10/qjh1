@@ -38,9 +38,6 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Browser tools ──
   browser_open:   ['status', 'summary'],
   browser_search: ['status', 'summary'],
-  // ── Shell tools ──
-  shell_exec:     ['status', 'summary'],
-  shell_run_script: ['status', 'summary'],
   // ── Image tools ──
   search_images:  ['status', 'summary', 'detail'],
   generate_image: ['status', 'summary', 'detail'],
@@ -51,13 +48,11 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Project tools ──
   create_project: ['status', 'summary'],
   delete_project: ['status', 'summary'],
-  // ── LSP ──
-  lsp_diagnose:   ['status', 'summary'],
   // ── Harness tools ──
   think:          ['status', 'summary', 'detail'],  // v9.5.3: thought content
   list_rules:     ['status', 'summary', 'detail'],
-  list_audit:     ['status', 'summary', 'detail'],
-  update_config:  ['status', 'summary'],
+  tool_search:    ['status', 'summary', 'detail'],
+  // lsp_diagnose, update_config, list_audit removed in v13.2.0
 }
 
 export class ContractExecutor {

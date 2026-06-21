@@ -131,6 +131,17 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
     }
   }
 
+  // v13.x: 分段缓存对话历史 — 每条已完成消息自成一个 cache segment
+  // 最后一条（当前用户消息）不标记，其余全部标记 → 历史轮次稳定不变=每次命中
+  for (let i = 0; i < result.length - 1; i++) {
+    const blocks = result[i].content
+    if (blocks.length > 0) {
+      const last = blocks[blocks.length - 1]
+      // cache_control on AnthropicTextBlock already typed; cast for other block types
+      ;(last as any).cache_control = { type: 'ephemeral' }
+    }
+  }
+
   return result
 }
 

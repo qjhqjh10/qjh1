@@ -153,6 +153,7 @@ const api = {
     getImitationProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getImitationProjectsPath'),
     getContinuationProjectDirsPath: (): Promise<string> => ipcRenderer.invoke('app:getContinuationProjectDirsPath'),
     getStoryWorkspacePath: (): Promise<string> => ipcRenderer.invoke('app:getStoryWorkspacePath'),
+    getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('app:getSystemPrompt'),
   },
   kb: {
     list: (): Promise<KnowledgeMetadata> => ipcRenderer.invoke('kb:list'),
@@ -248,17 +249,8 @@ const api = {
     writeGraph: (id: string, content: string): Promise<void> => ipcRenderer.invoke('story:writeGraph', id, content),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('story:delete', id),
   },
-  rewrite: {
-    list: (): Promise<any[]> => ipcRenderer.invoke('rewrite:list'),
-    create: (name: string): Promise<any> => ipcRenderer.invoke('rewrite:create', name),
-    readMeta: (id: string): Promise<any> => ipcRenderer.invoke('rewrite:readMeta', id),
-    saveMeta: (id: string, meta: any): Promise<void> => ipcRenderer.invoke('rewrite:saveMeta', id, meta),
-    readChapter: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('rewrite:readChapter', id, chId),
-    writeChapter: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('rewrite:writeChapter', id, chId, content),
-    readAnalysis: (id: string, chId: string): Promise<string> => ipcRenderer.invoke('rewrite:readAnalysis', id, chId),
-    writeAnalysis: (id: string, chId: string, content: string): Promise<void> => ipcRenderer.invoke('rewrite:writeAnalysis', id, chId, content),
-    delete: (id: string): Promise<void> => ipcRenderer.invoke('rewrite:delete', id),
-  },
+
+
   appendDebugLog: (name: string, line: string): Promise<void> => ipcRenderer.invoke('debug:append-log', name, line),
   agent: {
     sessionSave: (id: string, data: string): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:session-save', id, data),
@@ -278,10 +270,6 @@ const api = {
     open: (url: string): Promise<any> => ipcRenderer.invoke('browser:open', url),
     screenshot: (url: string, path?: string): Promise<any> => ipcRenderer.invoke('browser:screenshot', url, path),
     search: (query: string): Promise<any> => ipcRenderer.invoke('browser:search', query),
-  },
-  shell: {
-    exec: (command: string, cwd?: string): Promise<any> => ipcRenderer.invoke('shell:exec', command, cwd),
-    runScript: (name: string): Promise<any> => ipcRenderer.invoke('shell:run-script', name),
   },
   mcp: {
     listServers: (): Promise<any> => ipcRenderer.invoke('mcp:list-servers'),

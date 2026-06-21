@@ -20,6 +20,8 @@ export interface ContextBuilderOptions {
 
 export interface ContextBuilderResult {
   systemMessages: Array<{ role: 'system'; content: string }>
+  /** v13.x: 搜索上下文（KB+Web），注入 user message 而非 system → 保持缓存前缀稳定 */
+  searchContext: string
   totalTokens: number
   domains: string[]
   breakdown: Array<{ domain: string; tokens: number }>
@@ -35,12 +37,9 @@ export class BridgeContextBuilder {
     hist: Message[],
     pid: string | null,
     corePrompt: string,
-    /** v11.7.1: 是否首条消息（首条发全量规则，后续精简） */
-    isFirstMessage: boolean,
   ): Promise<ContextBuilderResult> {
-    // ── 1. 确定是否发全量规则 ──
-    const sendFullRules = isFirstMessage
-    let effectivePrompt = sendFullRules ? corePrompt : (await import('../V4SystemPrompt')).MINIMAL_SYSTEM_PROMPT
+    // ── 1. 始终全量规则（前缀缓存使重复传输几乎免费，且模型每轮都需要完整规则）──
+    let effectivePrompt = corePrompt
 
     // ── 2. KB search + Web search（始终执行，动态内容）──
     let searchContext = ''
@@ -48,11 +47,11 @@ export class BridgeContextBuilder {
       try {
         const { kbService } = await import('@/services/fileService')
         const results = await kbService.search(
-          msg.slice(0, 4000), this.opts.projectId, this.opts.configId, 3, this.opts.selectedKbFileIds,
+          msg.slice(0, 4000), this.opts.projectId, this.opts.configId, 5, this.opts.selectedKbFileIds,
         )
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[知识库]\n' +
-            results.map((r: any) => r.content || '').join('\n---\n')
+            results.map((r: any) => `📄 ${r.fileName || '(未知文件)'}\n${r.content || ''}`).join('\n---\n')
         }
       } catch { /* unavailable */ }
     }
@@ -109,13 +108,8 @@ export class BridgeContextBuilder {
           charLines.push(parts.join('\n'))
         })
 
-        if (isFirstMessage) {
-          charLines.unshift('[角色扮演设定 — 这是你的人格外壳，你的核心写作助手能力（文件操作、知识库搜索、章节创作等全部工具）保持不变]')
-          systemMessages.push({ role: 'system', content: charLines.join('\n\n') })
-        } else {
-          const summary = aiChars.map(c => `你扮演"${c.name}"（${c.identity}）`).join('；')
-          systemMessages.push({ role: 'system', content: `[角色扮演] ${summary}。用户是${userChars.map(c => `"${c.name}"`).join('、')}。保持角色语气，保留全部工具能力。` })
-        }
+        charLines.unshift('[角色扮演设定 — 这是你的人格外壳，你的核心写作助手能力（文件操作、知识库搜索、章节创作等全部工具）保持不变]')
+        systemMessages.push({ role: 'system', content: charLines.join('\n\n') })
       }
     }
 
@@ -152,7 +146,7 @@ export class BridgeContextBuilder {
     const coreTokens = estimateTokens(effectivePrompt)
     const fullTotal = coreTokens + searchTokens + historyTokens + estimateTokens(msg)
     const breakdown: Array<{ domain: string; tokens: number }> = [
-      { domain: sendFullRules ? '核心规则(全量)' : '核心规则(精简)', tokens: coreTokens - projectTokens },
+      { domain: '核心规则(全量)', tokens: coreTokens - projectTokens },
       ...(projectTokens > 0 ? [{ domain: '项目信息', tokens: projectTokens }] : []),
       ...(searchContext ? [{ domain: '知识库/网络搜索', tokens: searchTokens }] : []),
       { domain: '对话历史', tokens: historyTokens },
@@ -161,6 +155,7 @@ export class BridgeContextBuilder {
 
     return {
       systemMessages,
+      searchContext,
       totalTokens: fullTotal,
       domains: ['core-prompt'],
       breakdown,

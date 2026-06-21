@@ -192,6 +192,10 @@ export function registerAnthropicHandlers(
                 b.thinking = block.thinking || ''
                 b.signature = block.signature || ''
               }
+              // v13.x: 透传 cache_control（历史消息分段缓存）
+              if ((block as any).cache_control) {
+                b.cache_control = (block as any).cache_control
+              }
               return b
             }),
           })),

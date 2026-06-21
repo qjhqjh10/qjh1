@@ -52,8 +52,11 @@ export interface V4AgentRunResult {
     tool: string; status: string; summary: string
     durationMs: number; iteration: number
     arguments?: string
+    matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
   }>
   contextBreakdown?: Array<{ domain: string; tokens: number }>
+  /** v13.2.0: 下一次 API 请求的预估上下文 token 数（含 system/history/工具结果等） */
+  estimatedContextTokens?: number
   iterationCount: number
   /** v9.5.3: Skill 任务完成进度 */
   skillProgress?: { completed: number; total: number }
@@ -74,6 +77,8 @@ export interface ContextAssemblerFn {
     projectId: string | null,
   ): Promise<{
     systemMessages: Array<{ role: 'system'; content: string }>
+    /** v13.x: KB/Web 搜索结果 — 注入消息体而非 system 块 */
+    searchContext?: string
     totalTokens: number
     domains: string[]
     breakdown?: Array<{ domain: string; tokens: number }>

@@ -97,6 +97,7 @@ export function createMockElectronBridge() {
     app: {
       getProjectsBasePath: vi.fn().mockResolvedValue('/mock/projects'),
       getAppPath: vi.fn().mockReturnValue('/mock/app'),
+      getSystemPrompt: vi.fn().mockRejectedValue(new Error('not available')),
     },
     settings: {
       loadConfigs: vi.fn().mockResolvedValue([]),
@@ -126,17 +127,7 @@ export function createMockElectronBridge() {
       load: vi.fn().mockResolvedValue({}),
       save: vi.fn().mockResolvedValue(undefined),
     },
-    rewrite: {
-      list: vi.fn().mockResolvedValue([]),
-      create: vi.fn().mockResolvedValue(undefined),
-      readMeta: vi.fn().mockResolvedValue({}),
-      saveMeta: vi.fn().mockResolvedValue(undefined),
-      readChapter: vi.fn().mockResolvedValue(''),
-      writeChapter: vi.fn().mockResolvedValue(undefined),
-      readAnalysis: vi.fn().mockResolvedValue(''),
-      writeAnalysis: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    },
+
   }
 
   // Stub window.electron for test environment

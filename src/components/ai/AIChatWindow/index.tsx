@@ -34,6 +34,7 @@ import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
 import { ContextCompressor } from '@/agent/context/ContextCompressor'
+import { estimateTokens, estimateMessages } from '@/agent/utils/tokenEstimation'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStateBar } from './components/AgentStateBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
@@ -213,8 +214,18 @@ export default function AIChatWindow() {
         if (stored.length > 0) {
           setConversations(stored)
           const lastId = await loadLastActiveId()
-          if (lastId && stored.some(c => c.id === lastId)) setActiveConversationId(lastId)
-          else if (stored.length > 0) setActiveConversationId(stored[stored.length - 1].id)
+          const activeId = (lastId && stored.some(c => c.id === lastId)) ? lastId : stored[stored.length - 1].id
+          setActiveConversationId(activeId)
+          // v13.2.0: 恢复累计 token 和上下文估算（修复启动后进度条归零问题）
+          const activeConv = stored.find(c => c.id === activeId)
+          if (activeConv) {
+            const savedTokens = activeConv.totalTokens || 0
+            setCumulativeTokens(savedTokens)
+            // 基于对话消息估算当前上下文占用（不含 system prompt，后续首次 API 调用后会更新为精确值）
+            const msgEstimate = estimateMessages(activeConv.messages.filter(m => m.role !== 'tool'))
+            // 加上系统提示词和工具定义的大致开销 (~3500 tokens)
+            setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0)
+          }
         }
         finalizeMigration()
       } catch (e) { logError('IndexedDB 加载对话失败', e) }
@@ -472,7 +483,7 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); setCurrentContextTokens(savedTokens); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
   const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); return }; setActiveConversationId(remaining[0].id); setConversations(remaining) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
@@ -692,10 +703,11 @@ export default function AIChatWindow() {
             ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
             : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
           // Token breakdown — initial context only (first API call).
+          // v13.2.0: 直接用 tokens 字段，避免 chars→tokens 重复转换导致低估 45%
           if (runResult.contextBreakdown && runResult.contextBreakdown.length > 0) {
             setTokenBreakdown([
-              ...runResult.contextBreakdown.map(b => ({ label: b.domain, chars: b.tokens })),
-              { label: `API输入 (${runResult.iterationCount || 1}轮)`, chars: runResult.promptTokens || 0 },
+              ...runResult.contextBreakdown.map(b => ({ label: b.domain, tokens: b.tokens, chars: 0 })),
+              { label: `API输入 (${runResult.iterationCount || 1}轮)`, tokens: runResult.promptTokens || 0, chars: 0 },
             ])
           }
           // v11.5.1: 本轮用量将在累积更新后再设置（见下方 billedTokens 计算处）
@@ -741,10 +753,11 @@ export default function AIChatWindow() {
       setCumulativeTokens(prev => {
         const newTotal = prev + billedTokens
         setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: result.promptTokens || 0, peakPromptTokens: Math.max(c.peakPromptTokens || 0, result.promptTokens || 0) } : c))
-        // 上下文进度条显示全部消息累计消耗，非单条消息
-        setCurrentContextTokens(newTotal)
         return newTotal
       })
+      // v13.2.0: 进度条用 Runtime 估算的下次请求上下文 token 数（非累计计费值）
+      // 累计值会因每轮重复计入历史而虚高；estimatedContextTokens 基于 messagesForApi 真实大小
+      setCurrentContextTokens(result.estimatedContextTokens ?? (cumulativeTokens + billedTokens))
       useAgentStore.getState().addTokens(billedTokens)
     } catch (err) {
       setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])

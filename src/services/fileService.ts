@@ -287,14 +287,5 @@ export const storyService = {
   delete: (id: string) => e().story.delete(id),
 }
 
-export const rewriteService = {
-  list: () => e().rewrite.list(),
-  create: (name: string) => e().rewrite.create(name),
-  readMeta: (id: string) => e().rewrite.readMeta(id),
-  saveMeta: (id: string, meta: any) => e().rewrite.saveMeta(id, meta),
-  readChapter: (id: string, chId: string) => e().rewrite.readChapter(id, chId),
-  writeChapter: (id: string, chId: string, content: string) => e().rewrite.writeChapter(id, chId, content),
-  readAnalysis: (id: string, chId: string) => e().rewrite.readAnalysis(id, chId),
-  writeAnalysis: (id: string, chId: string, content: string) => e().rewrite.writeAnalysis(id, chId, content),
-  delete: (id: string) => e().rewrite.delete(id),
-}
+
+

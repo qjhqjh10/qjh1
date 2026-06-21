@@ -97,13 +97,8 @@ export const aiCapability = {
     }
   },
 
-  /** 改写文本 */
-  async rewrite(text: string, configId: string, projectId?: string): Promise<AICallResult> {
-    return aiCapability.generate(
-      `请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。\n\n${text}`,
-      { configId, projectId }
-    )
-  },
+
+
 
   /** 润色文本 */
   async polish(text: string, configId: string, projectId?: string): Promise<AICallResult> {
@@ -121,15 +116,8 @@ export const aiCapability = {
     )
   },
 
-  /** 提取章节信息 */
-  async extractChapterInfo(
-    chapterTitle: string, chapterContent: string, chapterNumber: number,
-    configId: string, projectId?: string
-  ): Promise<AICallResult> {
-    const { buildRewriteAnalysisPrompt } = await import('./continuationService')
-    const prompt = buildRewriteAnalysisPrompt(chapterTitle, chapterContent, chapterNumber)
-    return aiCapability.generate(prompt, { configId, projectId })
-  },
+
+
 
   /** 生成章节内容(完整上下文) */
   async generateChapter(

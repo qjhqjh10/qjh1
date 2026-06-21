@@ -472,8 +472,7 @@ async function executeSingleFileTool(callId, toolName, args) {
 
     // ── Harness tools ──
     case 'list_rules': return ok('规则列表', 'golden-rules.md\nproject-structure.md\nnovel-constraints.md')
-    case 'update_config': return ok('配置已更新')
-    case 'list_audit': return ok('审计列表', '')
+    // update_config, list_audit removed in v13.2.0
 
     default:
       return err(`未知工具: ${toolName}`)
@@ -714,6 +713,64 @@ function listTree(dir, indent = '') {
 // ═══════════════════════════════════════════════════════════
 // 5. 测试场景
 // ═══════════════════════════════════════════════════════════
+// 5.5 角色模板辅助函数
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 设置角色模板到 Zustand store，模拟用户在 UI 中选择角色模板。
+ * 会在 settingsStore 中创建模板并设为活跃，AI 会在 system prompt 中看到角色信息。
+ */
+async function setActiveRoleTemplate(activate = true) {
+  const { useSettingsStore } = await import('../src/store/index.ts')
+  const store = useSettingsStore.getState()
+
+  if (!activate) {
+    // 停用角色模板
+    store.setActiveRoleTemplate('')
+    return
+  }
+
+  // 创建测试角色模板：江月白（嘴毒但真心的师姐）
+  const template = {
+    id: 'rt_test_jianga',
+    name: '江月白·剑宗师姐',
+    characters: [
+      {
+        id: 'user_writer',
+        name: '写作者',
+        identity: '外门弟子',
+        gender: '男',
+        personality: '专注写作，喜欢探讨剧情',
+        relationship: '江月白的师弟，正在被师姐督促修炼',
+        isUser: true,
+      },
+      {
+        id: 'ai_jianga',
+        name: '江月白',
+        identity: '剑宗大师姐',
+        gender: '女',
+        personality: '嘴硬心软，说话带刺但处处为师弟着想。评价作品会先毒舌再给真诚建议。口头禅"就这？"但会熬夜帮你改稿。',
+        relationship: '写作者的师姐，既是严厉的前辈也是可靠的同伴',
+        isUser: false,
+        firstMessage: '又在憋文？拿来我看看——先说好，要是写得跟上次一样烂，今晚别想吃饭。',
+      },
+    ],
+    worldSetting: '修仙世界·剑宗山门。灵气充沛的仙山上，有一座千年剑宗。山门规矩森严，但师姐弟之间情谊深厚。',
+    scenarioSetting: '师姐江月白正在督促师弟写作。师弟想偷懒时会被师姐踢，但师姐其实最护着师弟。',
+  }
+
+  // 写入角色模板到 settingsStore
+  const currentSettings = store.aiSettings || {}
+  const templates = currentSettings.roleTemplates || []
+  const existingIdx = templates.findIndex(t => t.id === template.id)
+  if (existingIdx >= 0) {
+    store.updateRoleTemplate(template.id, template)
+  } else {
+    store.addRoleTemplate(template)
+  }
+  store.setActiveRoleTemplate(template.id)
+  console.log('   🎭 已激活角色模板: 江月白·剑宗师姐')
+}
 
 const SCENARIOS = [
   // ═══ 完整创作会话：跨轮记忆 + 多任务 + 文件操作深度测试 ═══
@@ -773,6 +830,41 @@ const SCENARIOS = [
       { type: 'hasText', minChars: 150, desc: '应深入讨论角色塑造' },
     ],
   },
+
+  // ═══ v13.2.0: 角色扮演测试 ═══
+  // S_R1: 角色身份+纯聊天 | S_R2: 角色身份+工具操作（验证角色外壳不影响核心能力）
+
+  {
+    id: 'S_R1',
+    name: '🎭 角色扮演：以角色身份纯聊天',
+    desc: '激活角色模板"江月白·剑宗师姐"后纯聊天。AI应以师姐口吻回复，但不应触发任何工具。',
+    setup: async () => { await setActiveRoleTemplate(true) },
+    teardown: async () => { await setActiveRoleTemplate(false) },
+    userMessages: [
+      '师姐，我最近写的剑道长生卡住了。主角陆沉在矿坑里发现古剑那段，我总觉得太平淡了，你说怎么办？',
+    ],
+    checks: [
+      // 用户提到项目内容→分支1B允许读取辅助讨论。核心验证：角色身份+纯聊天，不触发写操作
+      { type: 'noToolCalls', desc: '纯聊天不应触发写工具' },
+      { type: 'hasText', minChars: 100, desc: '应以师姐口吻给出有内容的建议' },
+    ],
+  },
+  {
+    id: 'S_R2',
+    name: '🎭 角色扮演+工具：角色外壳不影响核心操作',
+    desc: '以角色身份执行文件操作。即使以江月白口吻说话，仍应正确调用create_file/edit_file等工具。',
+    setup: async () => { await setActiveRoleTemplate(true) },
+    teardown: async () => { await setActiveRoleTemplate(false) },
+    userMessages: [
+      '师姐教训得对！帮我把刚才的想法记下来吧——在notes里创建一个"江月白的写作批注.md"，把你对我第一章的建议写进去。另外帮我把characters/陆沉.yaml里的personality字段改一下，加上"在矿坑里意外发现古剑后，开始对上古文字产生异常的感知能力"',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'create_file', minCount: 1, desc: '应创建笔记文件' },
+      { type: 'hasAnyTool', names: ['edit_file', 'read_file'], minCount: 1, desc: '应编辑角色文件' },
+      { type: 'hasText', minChars: 30, desc: '应以角色口吻确认完成' },
+    ],
+  },
+
   {
     id: 'S5',
     name: '精确编辑+追加：一个文件两处修改',
@@ -838,7 +930,8 @@ const SCENARIOS = [
       'outline下面还有几个YAML tab基本是空的——locations.yaml、factions.yaml、emotion.yaml。帮我把这三个一次性填了。locations写这个世界的主要地点：废弃矿坑（古剑发现地）、青云宗（表面正派实际藏着秘密）、古剑宗遗址（三千年前的真相所在地）。factions写两个势力：青云宗和古剑宗残部。emotion写第一章的情绪曲线——从平淡到震撼到疑惑。直接用你的知识写，别一个一个读文件确认了，全部写好',
     ],
     checks: [
-      { type: 'hasTool', name: 'edit_file', minCount: 3, desc: '应修改3个YAML文件（用edit_file非create_file，因为文件已存在）' },
+      // v13.2.0: 空占位文件用 create_file 覆盖是正确行为
+      { type: 'hasAnyTool', names: ['create_file', 'edit_file'], minCount: 3, desc: '应填充3个YAML（空占位用create覆盖亦可）' },
       { type: 'fileNotEmpty', path: '剑道长生/outline/locations.yaml', desc: 'locations 应有内容' },
       { type: 'fileNotEmpty', path: '剑道长生/outline/factions.yaml', desc: 'factions 应有内容' },
       { type: 'fileNotEmpty', path: '剑道长生/outline/emotion.yaml', desc: 'emotion 应有内容' },
@@ -976,6 +1069,22 @@ const SCENARIOS = [
       { type: 'hasText', minChars: 30, desc: '应确认保存完成' },
     ],
   },
+
+  // ═══ v13.2.0: 渐进披露压力测试 ═══
+  // 验证 tool_search → 发现 → 调用的完整链路（非核心工具需动态加载 schema）
+
+  {
+    id: 'S_PD',
+    name: '🔍 渐进披露：tool_search发现非核心工具→调用',
+    desc: '要求搜索图片。search_images不在12核心工具中，需通过tool_search("图片")发现后动态加载schema。',
+    userMessages: [
+      '帮我在网上搜一下"上古仙剑概念图"的参考图片，我想给剑道长生的古剑找个视觉参考',
+    ],
+    checks: [
+      { type: 'hasAnyTool', names: ['search_images', 'browser_search'], minCount: 1, desc: '应使用搜索/图片工具' },
+      { type: 'hasText', minChars: 50, desc: '应展示或说明搜索结果' },
+    ],
+  },
 ]
 
 // ═══════════════════════════════════════════════════════════
@@ -1010,6 +1119,11 @@ function checkResult(scenario, result, scenarioTools) {
         const writes = scenarioTools.filter(t => writeTools.includes(t))
         if (writes.length > 0)
           failures.push(`❌ ${check.desc}: 调用了写工具 ${writes.join(', ')}`)
+        break
+      }
+      case 'hasNoTools': {
+        if (scenarioTools.length > 0)
+          failures.push(`❌ ${check.desc}: 不应调用任何工具，实际调用了 ${scenarioTools.join(', ')}`)
         break
       }
       case 'hasText': {
@@ -1052,6 +1166,7 @@ function checkResult(scenario, result, scenarioTools) {
 async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
   // 追踪该场景的工具调用
   const toolsCalled = []
+  let lastEstimatedContextTokens = 0  // v13.2.0: 最终上下文估算
 
   for (const userMsg of scenario.userMessages) {
     // 发送消息到 Bridge（像真实用户一样）
@@ -1091,6 +1206,8 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
     const toolSummary = response.toolsUsed?.length
       ? `[${response.toolsUsed.join(', ')}]`
       : '[无工具]'
+    // v13.2.0: 捕获上下文估算（最终一条消息的估算值）
+    lastEstimatedContextTokens = response.estimatedContextTokens || 0
     console.log(`   工具: ${toolSummary} | 回复: ${lastText.slice(0, 100).replace(/\n/g, ' ')}...`)
   }
 
@@ -1104,7 +1221,7 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
     }
   }
 
-  return { toolsCalled, text, success: true }
+  return { toolsCalled, text, success: true, _estimatedContextTokens: lastEstimatedContextTokens }
 }
 
 async function main() {
@@ -1167,6 +1284,11 @@ async function main() {
     console.log(`\n📋 ${scenario.id}: ${scenario.name}`)
     console.log(`   用户: ${scenario.userMessages[0].slice(0, 80)}...`)
 
+    // v13.2.0: 场景前置 setup（如激活角色模板）
+    if (scenario.setup) {
+      try { await scenario.setup() } catch (e) { console.log(`   ⚠️ setup 失败: ${e.message}`) }
+    }
+
     // ── 跨轮记忆：将累积的对话历史传给 Bridge ──
     // 这样下一个场景的模型能看到之前所有对话（包括助手回复中提到的文件内容）
     bridge.updateHistory([...sharedMessages])
@@ -1178,7 +1300,11 @@ async function main() {
     const failures = checkResult(scenario, result, result.toolsCalled)
 
     if (failures.length === 0) {
-      console.log(`   ✅ 通过 (${elapsed}s)`)
+      // v13.2.0: 显示上下文用量（验证压缩/清理机制）
+      const ctxPct = result._estimatedContextTokens
+        ? ` | 上下文≈${(result._estimatedContextTokens / 1000).toFixed(0)}K`
+        : ''
+      console.log(`   ✅ 通过 (${elapsed}s${ctxPct})`)
       passed++
     } else {
       console.log(`   ❌ 失败 (${elapsed}s, ${failures.length}项)`)
@@ -1197,7 +1323,12 @@ async function main() {
     }
 
     // 重置 Bridge 的全量 prompt 状态（让下一个场景也用 CORE prompt）
-    bridge.resetFullPromptState()
+    try { bridge.resetFullPromptState?.() } catch { /* v13.x: method removed */ }
+
+    // v13.2.0: 场景后置 teardown（如停用角色模板）
+    if (scenario.teardown) {
+      try { await scenario.teardown() } catch (e) { console.log(`   ⚠️ teardown 失败: ${e.message}`) }
+    }
   }
 
   // 汇总

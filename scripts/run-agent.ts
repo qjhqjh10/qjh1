@@ -383,7 +383,7 @@ class NodeFSToolExecutor {
       case 'browser_search': return { status: 'error', summary: '浏览器工具在 CLI 中不可用' }
       case 'shell_exec':
       case 'shell_run_script': return { status: 'error', summary: 'Shell 工具在 CLI 中不可用' }
-      case 'lsp_diagnose': return { status: 'success', summary: 'LSP 检查通过（CLI 模式）' }
+      // lsp_diagnose removed in v13.2.0
       case 'http_get':
       case 'http_fetch': {
         const url = String(args.url || '')
@@ -414,8 +414,7 @@ class NodeFSToolExecutor {
         await fsp.writeFile(lp, JSON.stringify(rules, null, 2), 'utf-8')
         return { status: 'success', summary: '规则已记录' }
       }
-      case 'update_config': return { status: 'success', summary: '配置更新（CLI 模式）' }
-      case 'list_audit': return { status: 'success', summary: '审计日志仅在 GUI 中可用' }
+      // update_config, list_audit removed in v13.2.0
 
       default:
         return { status: 'error', summary: `未知工具: ${toolName}` }

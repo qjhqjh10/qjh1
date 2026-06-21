@@ -85,9 +85,9 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 33个工具 (模板工具合并为analyze_text_style)', () => {
+  it('工具注册: 27个工具 (v13.2.0: -lsp_diagnose/-update_config/-list_audit)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(31)
+    expect(names.length).toBeGreaterThanOrEqual(25)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('read_file')
@@ -96,12 +96,13 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 6. 系统提示词 (v10.2.0: Skill-First) ──
-  it('系统提示词 v11.7.1: 核心+写作规范手册', () => {
-    const prompt = buildSystemPrompt()
+  it('系统提示词 v13.2.0: 核心+写作规范手册引用', async () => {
+    const prompt = await buildSystemPrompt()
     expect(prompt).toContain('青剑')
     expect(prompt).toContain('写作规范手册')
     expect(prompt).toContain('list_directory')
-    expect(prompt).toContain('大纲创作')
+    // v13.2.0: 手册内容已移到外部文件，此处仅剩索引
+    expect(prompt).toContain('writing-handbook')
   })
 
   // ── 8. Context Assembler ──

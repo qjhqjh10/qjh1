@@ -14,11 +14,11 @@ import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
-import { registerRewriteHandlers } from './ipc/rewriteHandlers'
+
 import { registerAgentHandlers } from './ipc/agentHandlers'
 import { registerHttpHandlers } from './ipc/httpHandlers'
 import { registerBrowserHandlers } from './ipc/browserHandlers'
-import { registerShellHandlers } from './ipc/shellHandlers'
+
 import { registerMCPHandlers } from './ipc/mcpHandlers'
 import { registerLSPHandlers } from './ipc/lspHandlers'
 import { logError } from './ipc/logger'
@@ -89,7 +89,7 @@ async function syncAiharnessResources(parentDir: string, projectsPath: string) {
   const toCopy = [
     { src: 'templates', dest: 'templates' },
     { src: 'rules', dest: 'rules' },
-    { src: 'scripts', dest: 'scripts' },
+    { src: 'prompts', dest: 'prompts' },
     { src: 'aiharness.json', dest: 'aiharness.json' },
     { src: 'AGENTS.md', dest: 'AGENTS.md' },
   ]
@@ -233,7 +233,7 @@ app.whenReady().then(async () => {
   registerExtractionHandlers(ipcMain, parentDir)
   registerContinuationHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
-  registerRewriteHandlers(ipcMain)
+
   registerAgentHandlers(ipcMain, projectsPath)
   // Load HTTP config from aiharness.json (synced from extraResources at startup)
   let httpConfig = { allowPrivateIPs: false }
@@ -245,9 +245,23 @@ app.whenReady().then(async () => {
   } catch { /* use defaults */ }
   registerHttpHandlers(ipcMain, httpConfig)
   registerBrowserHandlers(ipcMain, httpConfig)
-  registerShellHandlers(ipcMain, projectsPath, parentDir)
+
   registerMCPHandlers(ipcMain)
   registerLSPHandlers(ipcMain)
+
+  // ── 系统提示词文件读取 ──
+  // 用户可在 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 中查看和编辑
+  const promptsDir = join(parentDir, '.aiharness', 'prompts')
+  const DEFAULT_SYSTEM_PROMPT = '你是青剑，一个小说创作对话助手。'
+  ipcMain.handle('app:getSystemPrompt', async () => {
+    try {
+      return await import('fs/promises').then(fs =>
+        fs.readFile(join(promptsDir, 'CORE_SYSTEM_PROMPT.md'), 'utf-8'),
+      )
+    } catch {
+      return DEFAULT_SYSTEM_PROMPT
+    }
+  })
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {

@@ -5,6 +5,7 @@ export interface ToolResult {
   status: 'success' | 'error' | 'pending_confirm'
   summary: string
   detail?: string
+  matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
 }
 
 export interface ToolExecutionContext {

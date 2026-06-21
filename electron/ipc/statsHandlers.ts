@@ -507,7 +507,6 @@ function describeOperation(toolName: string, args?: Record<string, unknown>): st
     case 'delete_note': return '删除笔记'
     case 'create_style_template': return '创建风格模板'
     case 'create_scene_template': return '创建场景模板'
-    case 'shell_exec': return '执行命令'
     case 'browser_search': return '浏览器搜索'
     case 'http_get': return 'HTTP请求'
     default: return toolName

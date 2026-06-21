@@ -1,7 +1,26 @@
 {
-  "currentVersion": "13.1.0",
+  "currentVersion": "13.2.0",
   "currentDate": "2026-06-21",
   "history": [
+    {
+      "version": "13.2.0",
+      "date": "2026-06-21",
+      "features": [
+        "System Prompt 瘦身: 写作规范手册12节约6,200字符→7个外部模板文件(引用索引约400字符),固定开销-37%",
+        "渐进披露实际切换: V4UnifiedRuntime首轮全量27工具→后续12核心工具(含tool_search按需发现)",
+        "渐进披露动态加载: tool_search返回matchedTools→Runtime._discoveredToolNames→后续轮次动态加入schema",
+        "上下文进度条精准化: 改用estimatedContextTokens(基于messagesForApi真实大小估算),替代累计计费值",
+        "上下文进度条初始化修复: IndexedDB加载后恢复cumulativeTokens+消息估算上下文占用",
+        "上下文进度条分解数值修复: ContextUsageBar的tokenBreakdown用tokens字段替代chars,消除54%低估",
+        "工具删除4个: lsp_diagnose(纯开发工具)+update_config+list_audit(用户可手动操作),工具34→27",
+        "角色扮演测试: 测试脚本新增S_R1(角色+纯聊天)/S_R2(角色+工具操作),验证角色外壳不影响核心能力",
+        "渐进披露测试: 测试脚本新增S_PD场景,验证非核心工具(search_images)的tool_search→发现→调用链路",
+        "测试脚本增强: setup/teardown回调+hasNoTools断言+上下文用量实时显示(_estimatedContextTokens)",
+        "代码清理: electronBridge.lspService移除,ToolDetailPanel标签更新(+补全缺失标签),ContractExecutor新增tool_search契约",
+        "类型完善: ToolResult/ToolExecContext/RuntimeTypes/V4AgentRunResult新增matchedTools/estimatedContextTokens字段",
+        "脚本清理: export-tool-schemas.mjs/run-agent.ts/test-ai-conversation.mjs移除已删除工具引用"
+      ]
+    },
     {
       "version": "13.1.0",
       "date": "2026-06-21",

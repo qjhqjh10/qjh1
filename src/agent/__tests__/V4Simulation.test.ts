@@ -398,9 +398,9 @@ describe('Agent 功能全景验证', () => {
   })
 
   // ── 工具注册 ──
-  it('功能08: ToolRegistry — 34个工具全部可用 (v12.6.1: -think)', () => {
+  it('功能08: ToolRegistry — 27个工具全部可用 (v13.2.0: -lsp/update_config/list_audit)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(30)
+    expect(names.length).toBeGreaterThanOrEqual(25)
     expect(names).toContain('read_file')
     expect(names).toContain('create_file')
     expect(names).toContain('edit_file')
@@ -410,9 +410,9 @@ describe('Agent 功能全景验证', () => {
     expect(names).toContain('search_notes')
   })
 
-  it('功能09: ToolRegistry — 全量Schema可获取', () => {
+  it('功能09: ToolRegistry — 全量Schema可获取 (v13.2.0: 27工具)', () => {
     const schemas = toolRegistry.getAllSchemas()
-    expect(schemas.length).toBeGreaterThanOrEqual(30)
+    expect(schemas.length).toBeGreaterThanOrEqual(25)
     schemas.forEach(s => {
       expect(s.type).toBe('function')
       expect(s.function.name).toBeTruthy()
@@ -420,21 +420,20 @@ describe('Agent 功能全景验证', () => {
     })
   })
 
-  // ── 工具描述质量 ──
-  it('功能10: 工具描述 — 核心工具含使用指引', () => {
+  // ── 工具描述质量 (去重后: 使用指引在 System Prompt, 工具描述精简) ──
+  it('功能10: 工具描述 — 核心工具有意义', () => {
     const coreTools = ['read_file', 'create_file', 'edit_file', 'search_content', 'list_directory', 'delete_file']
     for (const name of coreTools) {
       const def = toolRegistry.get(name)
       expect(def).toBeDefined()
-      expect(def!.schema.description.length).toBeGreaterThan(10)
-      expect(def!.schema.description).toMatch(/何时使用|用于|使用此工具|默认|支持|Glob|搜索|替换|读取/)
+      expect(def!.schema.description.length).toBeGreaterThanOrEqual(5)
     }
   })
 
   // ── 上下文组装 ──
   it('功能11: ContextAssembler — 系统提示词注入', async () => {
     const { buildSystemPrompt, CORE_SYSTEM_PROMPT } = await import('../V4SystemPrompt')
-    const p = buildSystemPrompt()
+    const p = await buildSystemPrompt()
     expect(p).toContain('青剑')
     expect(p).toContain('list_directory')
     expect(p).toContain('__FULL_REPLACE__')

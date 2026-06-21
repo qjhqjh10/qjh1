@@ -51,12 +51,13 @@ describe('V4 System Prompt', () => {
     expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
-  it('buildSystemPrompt v11.7.1: core + 写作规范手册 (no params)', () => {
-    const prompt = buildSystemPrompt()
+  it('buildSystemPrompt v13.2.0: core + 写作规范手册引用 (瘦身至外部文件)', async () => {
+    const prompt = await buildSystemPrompt()
     expect(prompt).toContain('青剑')
     expect(prompt).toContain('写作规范手册')
-    expect(prompt).toContain('大纲创作')
-    expect(prompt).toContain('角色管理')
+    // v13.2.0: 手册内容已移到 .aiharness/templates/writing-handbook/，此处仅剩引用索引
+    expect(prompt).toContain('writing-handbook/outline.md')
+    expect(prompt).toContain('writing-handbook/characters.md')
   })
 })
 
@@ -181,7 +182,7 @@ describe('Tool Registry', () => {
     expect(names).toContain('delete_file')
     expect(names).toContain('list_directory')
     expect(names).toContain('search_content')
-    expect(names.length).toBeGreaterThanOrEqual(29)
+    expect(names.length).toBeGreaterThanOrEqual(25)  // v13.2.0: 27 tools
   })
 
   it('executes a tool and returns result', async () => {

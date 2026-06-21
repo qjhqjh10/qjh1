@@ -115,6 +115,6 @@ describe('module exports', () => {
     expect(mod.continuationService).toBeDefined()
     expect(mod.extractionService).toBeDefined()
     expect(mod.storyService).toBeDefined()
-    expect(mod.rewriteService).toBeDefined()
+
   })
 })

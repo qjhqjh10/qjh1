@@ -9,6 +9,7 @@ import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
 import { executeSingleTool, classifyToolCalls } from './ToolExecutor'
 import { isKnowledgeOnly, hasTaskKeywords } from '../utils/taskDetection'
+import { SUBSEQUENT_TOOL_NAMES } from '../skills/tools/toolSearchTools'
 import type {
   V4AgentConfig,
   V4AgentRunInput,
@@ -19,13 +20,53 @@ import type {
 import type { ProtocolAdapter } from './adapters/ProtocolAdapter'
 import type { Message } from '../state/types'
 
+// v13.x: 超过 N 轮的 read_file 结果 → 保留摘要+前200字，可重读
+const MAX_READ_RESULT_TURNS = 5
+function cleanOldReadResults(history: Message[]): Message[] {
+  if (history.length === 0) return history
+
+  // 从末尾向前数 user 消息（每轮一个 user）
+  const userTurnIndices: number[] = []
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'user') userTurnIndices.push(i)
+  }
+
+  // 前 5 轮保持完整，更早的 read_file 结果压缩
+  const keepFrom = userTurnIndices.length > MAX_READ_RESULT_TURNS
+    ? userTurnIndices[MAX_READ_RESULT_TURNS - 1]
+    : 0
+
+  return history.map((m, i) => {
+    if (i >= keepFrom) return m  // 最近 5 轮不动
+    if (m.role !== 'tool' || (m as any).toolName !== 'read_file') return m
+
+    // 压缩: 保留概要信息+前200字，告知可重读
+    let content = typeof m.content === 'string' ? m.content : ''
+    try {
+      const parsed = JSON.parse(content)
+      const detail = parsed.detail || parsed.summary || ''
+      const summary = parsed.summary || ''
+      const preview = detail.length > 200 ? detail.slice(0, 200) + '…' : detail
+      content = JSON.stringify({
+        ...parsed,
+        detail: `[历史轮次，完整内容已压缩。如需原文请 re-read。摘要: ${summary}]\n预览: ${preview}`,
+      })
+    } catch {
+      const preview = content.length > 200 ? content.slice(0, 200) + '…' : content
+      content = `[历史轮次，内容已压缩。如需原文请重新 read_file。预览: ${preview}]`
+    }
+    return { ...m, content }
+  })
+}
+
 export class V4UnifiedRuntime {
   private config: V4AgentConfig
   private adapter: ProtocolAdapter
   private emitter = new AgentEventEmitter()
   private toolExecutor: ToolExecutorFn | null = null
   private contextAssembler: ContextAssemblerFn | null = null
-  private tools: unknown[] = []
+  private tools: unknown[] = []        // 首轮全量，后续轮次核心子集
+  private fullTools: unknown[] = []    // v13.2.0: 始终保存全量工具，用于 tool_search 等需要完整列表的场景
   private messagesForApi: Message[] = []
   private historyMessages: Message[] = []
   private toolsUsed: string[] = []
@@ -33,6 +74,7 @@ export class V4UnifiedRuntime {
     tool: string; status: string; summary: string
     durationMs: number; iteration: number
     arguments?: string
+    matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
   }> = []
   private compressor: ContextCompressor
   private compressedAt = 0
@@ -42,6 +84,7 @@ export class V4UnifiedRuntime {
   private _consecutivePathErrors = 0  // v12.6.0: track path-specific errors separately
   private _userMessage = ''
   private _userRequestedFileOp = false  // v4: 用户是否明确要求文件操作
+  private _discoveredToolNames = new Set<string>()  // v13.2.0: tool_search 发现的工具名，动态加入后续轮次
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -52,7 +95,7 @@ export class V4UnifiedRuntime {
   // ── Dependency Injection ──
   setToolExecutor(fn: ToolExecutorFn): void { this.toolExecutor = fn }
   setContextAssembler(fn: ContextAssemblerFn): void { this.contextAssembler = fn }
-  setTools(tools: unknown[]): void { this.tools = tools }
+  setTools(tools: unknown[]): void { this.fullTools = tools; this.tools = tools }  // v13.2.0: 首轮全量
   setHistory(messages: Message[]): void { this.historyMessages = messages }
   setMaxIterations(n: number): void { this.config.maxIterations = n }
   /** v11.3: skill system removed — kept as no-op for backward compat */
@@ -108,31 +151,36 @@ export class V4UnifiedRuntime {
     this.toolsUsed = []
     this.toolCallSteps = []
     this._nudgeCount = 0      // reset per run
+    this._discoveredToolNames = new Set()  // v13.2.0: reset per run
     this._consecutiveFailures = 0
     this._consecutivePathErrors = 0
     this._userMessage = input.userMessage
     // v12.14.0: 统一使用 hasTaskKeywords 判断文件操作意图
-    // 不再维护独立的 _explicitFileOp 正则 — 避免 Prompt 和 Runtime 两套关键词系统不一致
     this._userRequestedFileOp = hasTaskKeywords(input.userMessage)
-    let _hasWriteCall = false  // track if model has called any write tool across iterations
+    let _hasWriteCall = false
 
     // v12.5.1: 阶段感知温度 — 初始为创作阶段
     let isExecutionPhase = false
 
     const contextResult = this.contextAssembler
       ? await this.contextAssembler(input.userMessage, this.historyMessages, this.config.projectId)
-      : { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
+      : { systemMessages: [] as Array<{ role: 'system'; content: string }>, totalTokens: 0, domains: [] as string[], breakdown: [] as Array<{ domain: string; tokens: number }> }
+
+    // v13.x: 清除超过 5 轮的 read_file 结果 → 旧文件内容不再占用上下文
+    const cleanedHistory = cleanOldReadResults(this.historyMessages)
+
+    // v13.x: 搜索上下文注入 user message（保持 system 前缀稳定 → 缓存命中）
+    const userContent = contextResult.searchContext
+      ? `[参考信息]\n${contextResult.searchContext}\n\n[用户消息]\n${input.userMessage}`
+      : input.userMessage
 
     this.messagesForApi = [
       ...contextResult.systemMessages,
-      ...this.historyMessages,
-      // v12.16.1: 任务边界 — 阻止模型纠结之前失败的任务
-      // 原因: historyMessages 可能包含之前任务的残存上下文（失败、nudge、不完整的操作）
-      // 模型看到这些会认为之前任务仍需继续，导致忽略当前用户的新请求
-      ...(this.historyMessages.length > 0
+      ...cleanedHistory,
+      ...(cleanedHistory.length > 0
         ? [{ role: 'system' as const, content: '[任务边界] 以上是之前的对话历史，下面是用户的新请求。你可以参考历史中的信息（如已读取的文件内容、已创建的角色设定），但不要自动继续之前未完成的工具操作——只响应当前的新请求。' }]
         : []),
-      { role: 'user', content: input.userMessage },
+      { role: 'user', content: userContent },
     ]
 
     // ── ② Main loop ──
@@ -158,6 +206,14 @@ export class V4UnifiedRuntime {
       this.emitter.emit('thinking:start', {
         intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now(),
       })
+
+      // v13.2.0: 渐进披露 — 首轮全量，后续核心12 + tool_search动态发现的工具
+      if (iteration === 2) {
+        this.tools = (this.fullTools as any[]).filter((t: any) => {
+          const name = t.function?.name || ''
+          return SUBSEQUENT_TOOL_NAMES.has(name) || this._discoveredToolNames.has(name)
+        })
+      }
 
       // ── Context Compression ──
       const estimatedTokens = this.compressor.estimateMessages(this.messagesForApi)
@@ -454,6 +510,12 @@ export class V4UnifiedRuntime {
       }
       if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
 
+      // v13.2.0: 跟踪 tool_search 发现的工具 → 动态加入后续轮次可用集
+      const tsStep = this.toolCallSteps.find(s => s.tool === 'tool_search' && s.iteration === iteration)
+      if (tsStep?.status === 'success' && tsStep.matchedTools?.length) {
+        for (const name of tsStep.matchedTools) this._discoveredToolNames.add(name)
+      }
+
       // v12.6.0: 分级失败检测 + 路径错误单独追踪 + 自动目录诊断
       const PATH_ERROR_RE = /ENOENT|文件不存在|not found|no such file|路径|directory|path/i
       const allToolCalls = [...readOnlyCalls, ...writeCalls]
@@ -546,6 +608,9 @@ export class V4UnifiedRuntime {
     store.setIsStreaming(false)
     store.endRun()
 
+    // v13.2.0: 估算下一次 API 请求的上下文 token 数（进度条用）
+    const estimatedContextTokens = this.compressor.estimateMessages(this.messagesForApi)
+
     // Fallback text: prefer last assistant message with actual content
     if (!collectedText) {
       for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
@@ -584,6 +649,7 @@ export class V4UnifiedRuntime {
       toolsUsed: this.toolsUsed,
       toolCallSteps: this.toolCallSteps,
       contextBreakdown: contextResult.breakdown,
+      estimatedContextTokens,
       iterationCount: iteration,
     }
   }

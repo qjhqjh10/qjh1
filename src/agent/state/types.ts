@@ -33,6 +33,7 @@ export interface ToolResult {
   summary: string
   detail?: string
   confirmArgs?: Record<string, unknown>
+  matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
 }
 
 export interface ToolExecutionContext {

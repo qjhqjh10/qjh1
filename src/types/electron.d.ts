@@ -97,6 +97,7 @@ export interface AppAPI {
   getImitationProjectsPath: () => Promise<string>
   getContinuationProjectDirsPath: () => Promise<string>
   getStoryWorkspacePath: () => Promise<string>
+  getSystemPrompt: () => Promise<string>
 }
 
 export interface SettingsAPI {
@@ -226,17 +227,6 @@ export interface StoryAPI {
   delete: (id: string) => Promise<void>
 }
 
-export interface RewriteAPI {
-  list: () => Promise<any[]>
-  create: (name: string) => Promise<any>
-  readMeta: (id: string) => Promise<any>
-  saveMeta: (id: string, meta: any) => Promise<void>
-  readChapter: (id: string, chId: string) => Promise<string>
-  writeChapter: (id: string, chId: string, content: string) => Promise<void>
-  readAnalysis: (id: string, chId: string) => Promise<string>
-  writeAnalysis: (id: string, chId: string, content: string) => Promise<void>
-  delete: (id: string) => Promise<void>
-}
 
 export interface ElectronAPI {
   files: FileAPI
@@ -255,10 +245,9 @@ export interface ElectronAPI {
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
   extractions: ExtractionAPI
   story: StoryAPI
-  rewrite: RewriteAPI
+
   http: { fetch: (url: string, options?: Record<string, unknown>) => Promise<any>; get: (url: string) => Promise<any> }
   browser: { open: (url: string) => Promise<any>; screenshot: (url: string, path?: string) => Promise<any>; search: (query: string) => Promise<any> }
-  shell: { exec: (command: string, cwd?: string) => Promise<any>; runScript: (name: string) => Promise<any> }
   mcp: {
     listServers: () => Promise<any>
     connectServer: (name: string, config: { name: string; command: string; args: string[]; env?: Record<string, string> }) => Promise<any>

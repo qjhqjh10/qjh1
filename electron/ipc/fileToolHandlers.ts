@@ -443,6 +443,20 @@ export async function executeFileTool(
         try { content = await readFileWithEncoding(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         }
+        // v13.x: 支持 offset/limit 部分读取 — 大文件只看需要的内容
+        const offset = Math.max(0, Number(args.offset) || 0)
+        const limit = Number(args.limit) || 0
+        let sliced: string
+        if (offset > 0 || limit > 0) {
+          const start = Math.min(offset, content.length)
+          const end = limit > 0 ? Math.min(start + limit, content.length) : content.length
+          sliced = content.slice(start, end)
+          if (start > 0) sliced = `...(前${start}字符已省略)\n\n` + sliced
+          if (end < content.length) sliced = sliced + `\n\n...(后${content.length - end}字符已省略)`
+          const rangeInfo = offset > 0 || limit > 0 ? ` [${start}-${end}/${content.length}字符]` : ''
+          return { callId, toolName, status: 'success', summary: `${end - start} 字符${rangeInfo}`, detail: sliced }
+        }
+        // 无 offset/limit: 读全文（50万字符截断）
         const truncated = content.length > MAX_READ_CHARS
           ? content.slice(0, MAX_READ_CHARS) + `\n\n... (内容过长，已截断至 ${MAX_READ_CHARS} 字符)`
           : content
