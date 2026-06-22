@@ -4,6 +4,7 @@ import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import type { ModelPrice, SessionStatsResult } from '@/types/electron'
 import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
+import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import { getFileCache, setFileCache, invalidateFileCache, invalidateDirCache } from '@/utils/fileReadCache'
 
 function e() {
@@ -207,6 +208,7 @@ export const appService = {
   getProjectsBasePath: () => e().app.getProjectsBasePath(),
   getImitationProjectsPath: () => e().app.getImitationProjectsPath(),
   getContinuationProjectDirsPath: () => e().app.getContinuationProjectDirsPath(),
+  getRewriteProjectsPath: () => e().app.getRewriteProjectsPath(),
   getStoryWorkspacePath: () => e().app.getStoryWorkspacePath(),
 }
 
@@ -266,6 +268,39 @@ export const continuationService = {
   read: (id: string) => e().continuation.read(id),
   save: (project: any) => e().continuation.save(project),
   delete: (id: string) => e().continuation.delete(id),
+}
+
+export const rewriteService = {
+  list: () => e().rewrite.list(),
+  read: (id: string) => e().rewrite.read(id),
+  save: (project: any) => e().rewrite.save(project),
+  delete: (id: string) => e().rewrite.delete(id),
+  create: (arg: { name: string; sourceFileName: string; content: string }) => e().rewrite.create(arg),
+  importFile: () => e().rewrite.importFile(),
+  saveChapters: (arg: { projectId: string; sourceWordCount: number; chapters: { title: string; content: string }[] }) => e().rewrite.saveChapters(arg),
+  getProjectPath: (id: string) => e().rewrite.getProjectPath(id),
+  readChapter: (id: string, fileName: string) => e().rewrite.readChapter(id, fileName),
+  // Stage 2+3: Analysis
+  saveAnalysis: (id: string, fileName: string, content: string) => e().rewrite.saveAnalysis(id, fileName, content),
+  readAnalysis: (id: string, fileName: string) => e().rewrite.readAnalysis(id, fileName),
+  deleteAnalysis: (id: string, fileName: string) => e().rewrite.deleteAnalysis(id, fileName),
+  // Stage 4: Rewrites
+  saveRewrite: (id: string, fileName: string, content: string) => e().rewrite.saveRewrite(id, fileName, content),
+  readRewrite: (id: string, fileName: string) => e().rewrite.readRewrite(id, fileName),
+  deleteRewrite: (id: string, fileName: string) => e().rewrite.deleteRewrite(id, fileName),
+  // Stage 5: Merge
+  mergeRewrites: (id: string, outputPath: string, chapterIds?: string[]) => e().rewrite.mergeRewrites(id, outputPath, chapterIds),
+}
+
+// ── 提示词模板 service ──
+
+export const rewriteTemplateService = {
+  list: (): Promise<RewritePromptTemplate[]> => e().rewrite.templates.list(),
+  read: (id: string): Promise<RewritePromptTemplate | null> => e().rewrite.templates.read(id),
+  save: (template: RewritePromptTemplate): Promise<RewritePromptTemplate> => e().rewrite.templates.save(template),
+  delete: (id: string): Promise<void> => e().rewrite.templates.delete(id),
+  import: (): Promise<RewritePromptTemplate | null> => e().rewrite.templates.import(),
+  export: (id: string): Promise<string | null> => e().rewrite.templates.export(id),
 }
 
 export const extractionService = {

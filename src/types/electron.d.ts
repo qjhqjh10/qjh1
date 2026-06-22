@@ -96,6 +96,7 @@ export interface AppAPI {
   getProjectsBasePath: () => Promise<string>
   getImitationProjectsPath: () => Promise<string>
   getContinuationProjectDirsPath: () => Promise<string>
+  getRewriteProjectsPath: () => Promise<string>
   getStoryWorkspacePath: () => Promise<string>
   getSystemPrompt: () => Promise<string>
 }
@@ -243,6 +244,7 @@ export interface ElectronAPI {
   styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void>; readPrompt: (id: string) => Promise<string | null>; savePrompt: (id: string, content: string) => Promise<void>; deletePrompt: (id: string) => Promise<void>; listRuleTemplates: () => Promise<RuleTemplate[]>; readRuleTemplate: (id: string) => Promise<RuleTemplate | null>; saveRuleTemplate: (template: RuleTemplate) => Promise<RuleTemplate>; deleteRuleTemplate: (id: string) => Promise<void> }
   templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<SceneTemplate>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }
+  rewrite: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (p: any) => Promise<any>; delete: (id: string) => Promise<void>; create: (arg: { name: string; sourceFileName: string; content: string }) => Promise<any>; importFile: () => Promise<{ name: string; content: string; sourceFileName: string } | null>; saveChapters: (arg: { projectId: string; sourceWordCount: number; chapters: { title: string; content: string }[] }) => Promise<any>; getProjectPath: (id: string) => Promise<string>; readChapter: (id: string, fileName: string) => Promise<string>; saveAnalysis: (id: string, fileName: string, content: string) => Promise<void>; readAnalysis: (id: string, fileName: string) => Promise<string>; deleteAnalysis: (id: string, fileName: string) => Promise<void>; saveRewrite: (id: string, fileName: string, content: string) => Promise<void>; readRewrite: (id: string, fileName: string) => Promise<string>; deleteRewrite: (id: string, fileName: string) => Promise<void>; mergeRewrites: (id: string, outputPath: string, chapterIds?: string[]) => Promise<any>; templates: { list: () => Promise<any[]>; read: (id: string) => Promise<any>; save: (t: any) => Promise<any>; delete: (id: string) => Promise<void>; import: () => Promise<any>; export: (id: string) => Promise<string | null> } }
   extractions: ExtractionAPI
   story: StoryAPI
 

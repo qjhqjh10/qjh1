@@ -1,7 +1,26 @@
 {
-  "currentVersion": "13.2.0",
-  "currentDate": "2026-06-21",
+  "currentVersion": "13.5.0",
+  "currentDate": "2026-06-22",
   "history": [
+    {
+      "version": "13.5.0",
+      "date": "2026-06-22",
+      "features": [
+        "小说改写: 场景分段改写机制——仅提取startText/endText标记段落发给AI→改写后插入回原文(非场景文字原样保留)",
+        "小说改写: 提示词模板完整集成——系统破甲(systemPrompt)/场景识别规则(sceneRules)/通用指导(universalGuidance)/场景特定规则(sceneGuidance)全链路注入",
+        "小说改写: sceneGuidance键映射修复——buildSceneGuidanceMap支持id和name双向查找,修复sxsy导入模板场景规则不生效Bug",
+        "小说改写: 字数目标按模板规则分配——核心性交互场景不限字数额情发挥,暧昧场景1000-2000字,轻度场景扩展50-100%",
+        "小说改写: 移除流式输出——全部改写调用使用非流式chatAI,章节完成后一次性输出",
+        "小说改写: RewriteEditor轻量编辑器——中间区域TipTap编辑器(无工具栏),右键改写选中段落/续写,自动保存,只读/编辑切换",
+        "小说改写: 呼吸灯状态指示——Stage 2总结+Stage 4改写章列表彩色dot(绿闪=进行中/绿=完成/红=失败/黄=无场景/橙=字数不达标/灰=未处理)",
+        "小说改写: 布局+字体全面优化——左240→280右200→250,章节正文17px,全文fontSize+2-4px fontWeight提升,中间白底",
+        "小说改写: Stage 3默认仅显示需改写章节——保留原文章节一键折叠/展开,标题改为需改写N章",
+        "小说改写: Stage 4三栏字数(原文/改写加料/总字数)+CompareModal左右面板字数显示",
+        "小说改写: Stage 2角色信息两列网格(maxHeight 560)+失败章节重新总结按钮+Stage 3继续按钮",
+        "小说改写: 向导步骤5模板详情滚动修复(RewriteCreateWizard)+模板列表搜索过滤(RewritePromptModal)+sxsy导入\\n unescape",
+        "小说改写: RewritePage查看设置弹窗+右侧面板布局对齐+Stage 3自动标记为已识别"
+      ]
+    },
     {
       "version": "13.2.0",
       "date": "2026-06-21",
