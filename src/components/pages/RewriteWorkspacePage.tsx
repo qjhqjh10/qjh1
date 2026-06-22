@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { rewriteService, fileService, dialogService, rewriteTemplateService } from '@/services/fileService'
 import { STAGE_STEPS, STAGE_NAMES, STEP_KEY_TO_STAGE, STAGE_ORDER } from '@/types/rewrite'
@@ -17,7 +17,6 @@ import {
   SparklesIcon,
   ArrowDownTrayIcon,
   XMarkIcon,
-  CheckIcon,
   ExclamationTriangleIcon,
   ArrowPathIcon,
   EyeIcon,
@@ -34,8 +33,11 @@ const stageColors: Record<string, string> = {
   merged: '#10b981',
 }
 
-// ── Word count threshold (80% of original chapter word count) ──
-const WORD_COUNT_THRESHOLD = 0.8
+// ── Word count pass check: must ≥ original words; if target set, must achieve ≥50% of target ──
+function calcIsPassing(rewriteWc: number, chapterWc: number, rewriteTarget?: number): boolean {
+  const minExpected = chapterWc + (rewriteTarget && rewriteTarget > 0 ? rewriteTarget * 0.5 : 0)
+  return rewriteWc >= Math.max(chapterWc, minExpected)
+}
 
 // ── Analysis prompt builder ──
 function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTemplate | null): string {
@@ -424,11 +426,15 @@ export default function RewriteWorkspacePage() {
   const [analyses, setAnalyses] = useState<Map<string, ChapterAnalysis>>(new Map())
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisQueue, setAnalysisQueue] = useState<{ done: number; total: number; failed: number }>({ done: 0, total: 0, failed: 0 })
+  const [analyzePaused, setAnalyzePaused] = useState(false)
+  const analyzePausedRef = useRef(false)
 
   // ── Stage 4: Rewrite state ──
   const [rewrites, setRewrites] = useState<Map<string, ChapterRewrite>>(new Map())
   const [rewriting, setRewriting] = useState(false)
   const [rewriteQueue, setRewriteQueue] = useState<{ done: number; total: number; failed: number }>({ done: 0, total: 0, failed: 0 })
+  const [rewritePaused, setRewritePaused] = useState(false)
+  const rewritePausedRef = useRef(false)
   const [rewriteStreaming, setRewriteStreaming] = useState('')
   const [showOriginal, setShowOriginal] = useState(false)
   const [editorReadOnly, setEditorReadOnly] = useState(true)
@@ -534,7 +540,7 @@ export default function RewriteWorkspacePage() {
             content,
             wordCount: countChinese(content),
             targetWordCount: ch.wordCount,
-            isPassing: countChinese(content) >= ch.wordCount * WORD_COUNT_THRESHOLD,
+            isPassing: calcIsPassing(countChinese(content), ch.wordCount),
             rewrittenAt: '',
           })
         }
@@ -678,12 +684,16 @@ export default function RewriteWorkspacePage() {
     if (!project || !effectiveConfigId) { setError('请先配置AI模型'); return }
     setAnalyzing(true)
     setError('')
+    analyzePausedRef.current = false
+    setAnalyzePaused(false)
     // Reset breathing light state
     setActiveAnalyzingIds(new Set())
     setFailedAnalyzingIds(new Set())
     setNoSceneIds(new Set())
 
-    const chs = project.chapters
+    // Only process chapters that haven't been analyzed yet
+    const chs = project.chapters.filter(ch => !analyses.has(ch.id))
+    if (chs.length === 0) { setError('所有章节已完成总结'); setAnalyzing(false); return }
     let done = 0; let failed = 0
     setAnalysisQueue({ done: 0, total: chs.length, failed: 0 })
 
@@ -749,6 +759,8 @@ export default function RewriteWorkspacePage() {
         return next
       })
       setAnalysisQueue({ done, total: chs.length, failed })
+      // Check pause
+      if (analyzePausedRef.current) break
     }
 
     // Update project stage
@@ -953,7 +965,7 @@ export default function RewriteWorkspacePage() {
           const rewrite: ChapterRewrite = {
             chapterId: chapter.id, content: finalContent, wordCount: wc,
             targetWordCount: chapter.wordCount,
-            isPassing: wc >= chapter.wordCount * WORD_COUNT_THRESHOLD,
+            isPassing: calcIsPassing(wc, chapter.wordCount, project?.rewriteWordTarget),
             rewrittenAt: new Date().toISOString(),
           }
           setRewrites(prev => {
@@ -988,7 +1000,7 @@ export default function RewriteWorkspacePage() {
         content: rewrittenContent,
         wordCount: wc,
         targetWordCount: chapter.wordCount,
-        isPassing: wc >= chapter.wordCount * WORD_COUNT_THRESHOLD,
+        isPassing: calcIsPassing(wc, chapter.wordCount, project?.rewriteWordTarget),
         rewrittenAt: new Date().toISOString(),
       }
 
@@ -1014,9 +1026,13 @@ export default function RewriteWorkspacePage() {
     if (!project || !effectiveConfigId) { setError('请先配置AI模型'); return }
     setRewriting(true)
     setError('')
+    rewritePausedRef.current = false
+    setRewritePaused(false)
     setActiveRewritingIds(new Set())
     setFailedRewritingIds(new Set())
-    const chs = project.chapters
+    // Only process chapters that haven't been rewritten yet
+    const chs = project.chapters.filter(ch => !rewrites.has(ch.id))
+    if (chs.length === 0) { setError('所有章节已完成改写'); setRewriting(false); return }
     let done = 0; let failed = 0
     setRewriteQueue({ done: 0, total: chs.length, failed: 0 })
 
@@ -1111,7 +1127,7 @@ export default function RewriteWorkspacePage() {
               content: rewrittenContent,
               wordCount: wc,
               targetWordCount: ch.wordCount,
-              isPassing: wc >= ch.wordCount * WORD_COUNT_THRESHOLD,
+              isPassing: calcIsPassing(wc, ch.wordCount, project?.rewriteWordTarget),
               rewrittenAt: new Date().toISOString(),
             } as ChapterRewrite,
           }
@@ -1141,9 +1157,11 @@ export default function RewriteWorkspacePage() {
         return next
       })
       setRewriteQueue({ done, total: chs.length, failed })
+      // Check pause
+      if (rewritePausedRef.current) break
     }
 
-    if (project) {
+    if (project && done > 0) {
       const updated = { ...project, stage: 'rewritten' as const, updatedAt: new Date().toISOString() }
       await rewriteService.save(updated)
       setProject(updated)
@@ -1250,7 +1268,7 @@ export default function RewriteWorkspacePage() {
               content: rewrittenContent,
               wordCount: wc,
               targetWordCount: ch.wordCount,
-              isPassing: wc >= ch.wordCount * WORD_COUNT_THRESHOLD,
+              isPassing: calcIsPassing(wc, ch.wordCount, project?.rewriteWordTarget),
               rewrittenAt: new Date().toISOString(),
             } as ChapterRewrite,
           }
@@ -1284,50 +1302,6 @@ export default function RewriteWorkspacePage() {
     setRewriting(false)
   }, [project, projectId, effectiveConfigId, activeTemplate, rewrites])
 
-  // ── Editor AI callbacks ──
-  const handleEditorRewrite = useCallback(async (selectedText: string): Promise<string | null> => {
-    if (!effectiveConfigId) return null
-    try {
-      const prompt = `你是一位专业的小说改写助手。请改写以下段落，按照提示词模板的要求进行加料改写。
-
-原文段落：
-${selectedText}
-
-改写要求：
-- 保持核心剧情不变
-- 增加详细的感官描写（视觉、触觉、听觉）
-- 丰富细节和情绪渲染
-- 直接输出改写后的段落，不要包含解释或标记。`
-
-      const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
-      return reply.trim()
-    } catch {
-      return null
-    }
-  }, [effectiveConfigId, activeTemplate?.systemPrompt])
-
-  const handleEditorContinue = useCallback(async (contextText: string): Promise<string | null> => {
-    if (!effectiveConfigId) return null
-    try {
-      const prompt = `你是一位专业的小说续写助手。请基于以下内容进行续写。
-
-前文内容：
-${contextText}
-
-续写要求：
-- 保持与前文一致的风格和人物性格
-- 自然推进剧情发展
-- 增加感官描写和细节
-- 续写500-1000字
-- 直接输出续写内容，不要包含解释或标记。`
-
-      const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
-      return reply.trim()
-    } catch {
-      return null
-    }
-  }, [effectiveConfigId, activeTemplate?.systemPrompt])
-
   // ── Editor content change → save ──
   const handleEditorChange = useCallback(async (plainText: string) => {
     if (!selectedChapterId || !projectId) return
@@ -1340,7 +1314,7 @@ ${contextText}
       content: plainText,
       wordCount: wc,
       targetWordCount: ch.wordCount,
-      isPassing: wc >= ch.wordCount * WORD_COUNT_THRESHOLD,
+      isPassing: calcIsPassing(wc, ch.wordCount, project?.rewriteWordTarget),
       rewrittenAt: new Date().toISOString(),
     }
 
@@ -1355,6 +1329,29 @@ ${contextText}
       await rewriteService.saveRewrite(projectId, ch.fileName, plainText)
     } catch { /* ignore */ }
   }, [selectedChapterId, projectId, project?.chapters])
+
+  // ── Pause / Continue handlers (defined after batch handlers) ──
+  const handleToggleAnalyzePause = useCallback(() => {
+    if (analyzePausedRef.current) {
+      analyzePausedRef.current = false
+      setAnalyzePaused(false)
+      handleAnalyzeAll()
+    } else {
+      analyzePausedRef.current = true
+      setAnalyzePaused(true)
+    }
+  }, [handleAnalyzeAll])
+
+  const handleToggleRewritePause = useCallback(() => {
+    if (rewritePausedRef.current) {
+      rewritePausedRef.current = false
+      setRewritePaused(false)
+      handleRewriteAll()
+    } else {
+      rewritePausedRef.current = true
+      setRewritePaused(true)
+    }
+  }, [handleRewriteAll])
 
   const handleOpenCompare = useCallback(async (chapter: RewriteChapter) => {
     try {
@@ -1429,7 +1426,7 @@ ${contextText}
         {/* Chapter content */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
               {selectedChapterId
                 ? `第${project!.chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${project!.chapters.find(c => c.id === selectedChapterId)?.title}`
                 : hasChapters ? '请选择左侧章节' : '章节内容'}
@@ -1492,7 +1489,7 @@ ${contextText}
     const chapters = project!.chapters
     const selectedAnalysis = selectedChapterId ? analyses.get(selectedChapterId) : null
     const analyzedCount = analyses.size
-    const failedCount = analysisQueue.failed
+    const failedCount = chapters.length - analyzedCount
 
     return (
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -1557,7 +1554,7 @@ ${contextText}
         {/* Center: Analysis display */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
               {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title} · 总结` : '选择左侧章节查看总结'}
             </span>
             {selectedAnalysis && (
@@ -1668,25 +1665,30 @@ ${contextText}
               </div>
             )}
 
-            {/* Retry failed chapters */}
-            {chapters.length > analyzedCount && (
-              <div style={{ marginBottom: 8 }}>
-                <button onClick={handleRetryFailedAnalyses} disabled={analyzing} style={{
-                  width: '100%', padding: '8px 0', borderRadius: 8,
-                  border: '1px solid #dc2626', cursor: analyzing ? 'not-allowed' : 'pointer',
-                  background: 'rgba(220,38,38,0.06)', color: '#dc2626',
-                  fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                  opacity: analyzing ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                  transition: 'all 0.15s ease',
-                }}
-                  onMouseEnter={e => { if (!analyzing) e.currentTarget.style.background = 'rgba(220,38,38,0.12)' }}
-                  onMouseLeave={e => { if (!analyzing) e.currentTarget.style.background = 'rgba(220,38,38,0.06)' }}
-                >
-                  <ArrowPathIcon style={{ width: 13, height: 13 }} /> 失败章节重新总结 ({chapters.length - analyzedCount})
-                </button>
-              </div>
-            )}
+            {/* Retry failed chapters — always visible */}
+            {(() => {
+              const retryCount = chapters.length - analyzedCount
+              const canRetry = retryCount > 0 && !analyzing
+              return (
+                <div style={{ marginBottom: 8 }}>
+                  <button onClick={handleRetryFailedAnalyses} disabled={!canRetry} style={{
+                    width: '100%', padding: '8px 0', borderRadius: 8,
+                    border: '1px solid #dc2626', cursor: canRetry ? 'pointer' : 'default',
+                    background: 'rgba(220,38,38,0.06)', color: '#dc2626',
+                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                    opacity: canRetry ? 1 : 0.4,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    transition: 'all 0.15s ease',
+                  }}
+                    onMouseEnter={e => { if (canRetry) e.currentTarget.style.background = 'rgba(220,38,38,0.12)' }}
+                    onMouseLeave={e => { if (canRetry) e.currentTarget.style.background = 'rgba(220,38,38,0.06)' }}
+                  >
+                    <ArrowPathIcon style={{ width: 13, height: 13 }} />
+                    {retryCount > 0 ? `失败章节重新总结 (${retryCount})` : '无需重新总结'}
+                  </button>
+                </div>
+              )
+            })()}
 
             {/* Export button */}
             {analyzedCount > 0 && (
@@ -1713,6 +1715,35 @@ ${contextText}
 
           {/* Action buttons - bottom right */}
           <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Progress bar + pause */}
+            {analyzing && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
+                  {analysisQueue.done}/{analysisQueue.total} 章
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4,
+                    background: 'linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)',
+                    backgroundSize: '200% 100%',
+                    animation: analyzePaused ? 'none' : 'gradientShift 1.5s linear infinite',
+                    width: analysisQueue.total > 0 ? `${(analysisQueue.done / analysisQueue.total) * 100}%` : '0%',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <button onClick={handleToggleAnalyzePause} style={{
+                  width: '100%', padding: '6px 0', borderRadius: 6,
+                  border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
+                  background: analyzePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                  color: analyzePaused ? '#10b981' : '#d97706',
+                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                }}>
+                  {analyzePaused ? '▶ 继续总结' : '⏸ 暂停'}
+                </button>
+              </>
+            )}
+
             {/* Batch analyze all chapters */}
             <button onClick={handleAnalyzeAll} disabled={analyzing || chapters.length === 0} style={{
               width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
@@ -1849,7 +1880,7 @@ ${contextText}
         {/* Center: Identification display */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
               {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title} · 识别` : '选择左侧章节查看识别结果'}
             </span>
             {selectedAnalysis && (
@@ -1990,6 +2021,11 @@ ${contextText}
     const rewriteCount = rewrites.size
     const failedCount = rewriteQueue.failed
     const wordCountFailures = Array.from(rewrites.values()).filter(r => !r.isPassing)
+    // Total chapters needing rewrite (based on analysis)
+    const needsRewriteTotal = chapters.filter(ch => {
+      const analysis = analyses.get(ch.id)
+      return !analysis || analysis.needsRewrite
+    }).length
 
     // Determine what to show in center
     const showOriginalContent = showOriginal && selectedChapterId
@@ -2062,7 +2098,7 @@ ${contextText}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Action bar */}
           <div style={{ padding: '8px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
               {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title}` : '选择左侧章节'}
             </span>
             {selectedChapterId && (() => {
@@ -2173,8 +2209,8 @@ ${contextText}
               <RewriteEditor
                 content={selectedRewrite.content}
                 onContentChange={handleEditorChange}
-                onRewriteSelection={handleEditorRewrite}
-                onContinueSelection={handleEditorContinue}
+                configId={effectiveConfigId}
+                projectId={projectId}
                 readOnly={editorReadOnly}
               />
             ) : (
@@ -2203,22 +2239,7 @@ ${contextText}
               </div>
             </div>
 
-            {/* Progress */}
-            {rewriting && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 4 }}>
-                  改写进度 {rewriteQueue.done}/{rewriteQueue.total}
-                </div>
-                <div style={{ height: 6, borderRadius: 3, background: '#e5e0da', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 3,
-                    background: 'linear-gradient(90deg, #ec4899, #f472b6)',
-                    width: rewriteQueue.total > 0 ? `${(rewriteQueue.done / rewriteQueue.total) * 100}%` : '0%',
-                    transition: 'width 0.3s ease',
-                  }} />
-                </div>
-              </div>
-            )}
+            {/* Progress — removed, now in bottom bar */}
 
             {/* Word count failing chapters detail */}
             {wordCountFailures.length > 0 && (
@@ -2238,26 +2259,78 @@ ${contextText}
               </div>
             )}
 
-            {/* Retry button */}
+            {/* Retry word-count failures */}
             {wordCountFailures.length > 0 && (
               <button onClick={handleRetryWordCountFailures} disabled={rewriting} style={{
                 width: '100%', padding: '8px 0', borderRadius: 8,
                 border: '1px solid #f59e0b', cursor: rewriting ? 'not-allowed' : 'pointer',
                 background: 'rgba(245,158,11,0.06)', color: '#d97706',
-                fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
                 opacity: rewriting ? 0.5 : 1, transition: 'all 0.15s ease',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               }}
                 onMouseEnter={e => { if (!rewriting) e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
                 onMouseLeave={e => { if (!rewriting) e.currentTarget.style.background = 'rgba(245,158,11,0.06)' }}
               >
-                <ArrowPathIcon style={{ width: 13, height: 13 }} /> 重试字数不达标章节
+                <ArrowPathIcon style={{ width: 13, height: 13 }} /> 重试字数不达标章节 ({wordCountFailures.length})
               </button>
             )}
+
+            {/* Retry failed rewrites — always visible */}
+            {(() => {
+              const failedRewriteCount = chapters.filter(ch => !rewrites.has(ch.id)).length
+              const canRetry = failedRewriteCount > 0 && !rewriting
+              return (
+                <button onClick={handleRewriteAll} disabled={!canRetry} style={{
+                  width: '100%', padding: '8px 0', borderRadius: 8, marginTop: 6,
+                  border: '1px solid #dc2626', cursor: canRetry ? 'pointer' : 'default',
+                  background: 'rgba(220,38,38,0.06)', color: '#dc2626',
+                  fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                  opacity: canRetry ? 1 : 0.4,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                  transition: 'all 0.15s ease',
+                }}
+                  onMouseEnter={e => { if (canRetry) e.currentTarget.style.background = 'rgba(220,38,38,0.12)' }}
+                  onMouseLeave={e => { if (canRetry) e.currentTarget.style.background = 'rgba(220,38,38,0.06)' }}
+                >
+                  <ArrowPathIcon style={{ width: 13, height: 13 }} />
+                  {failedRewriteCount > 0 ? `重新改写失败章节 (${failedRewriteCount})` : '无需重新改写'}
+                </button>
+              )
+            })()}
           </div>
 
           {/* Batch rewrite all chapters */}
-          <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+          <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Progress bar + pause */}
+            {rewriting && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
+                  {rewriteQueue.done}/{needsRewriteTotal} 章（需改写）
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4,
+                    background: 'linear-gradient(90deg, #ec4899, #f472b6, #ec4899)',
+                    backgroundSize: '200% 100%',
+                    animation: rewritePaused ? 'none' : 'gradientShift 1.5s linear infinite',
+                    width: needsRewriteTotal > 0 ? `${(rewriteQueue.done / needsRewriteTotal) * 100}%` : '0%',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <button onClick={handleToggleRewritePause} style={{
+                  width: '100%', padding: '6px 0', borderRadius: 6,
+                  border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
+                  background: rewritePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                  color: rewritePaused ? '#10b981' : '#d97706',
+                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                }}>
+                  {rewritePaused ? '▶ 继续改写' : '⏸ 暂停'}
+                </button>
+              </>
+            )}
+
             <button onClick={handleRewriteAll} disabled={rewriting || chapters.length === 0} style={{
               width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
               cursor: rewriting || chapters.length === 0 ? 'not-allowed' : 'pointer',
@@ -2267,7 +2340,7 @@ ${contextText}
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}>
               <SparklesIcon style={{ width: 15, height: 15 }} />
-              {rewriting ? '改写中...' : `全部改写 (${chapters.length}章)`}
+              {rewriting ? '改写中...' : `全部改写 (${needsRewriteTotal}章)`}
             </button>
           </div>
         </div>
@@ -2352,7 +2425,7 @@ ${contextText}
         {/* Center: Merge preview */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>合并预览</span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>合并预览</span>
             <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 12 }}>{previewLines.join('').length} 字</span>
           </div>
           <ScrollArea style={{ flex: 1, padding: '20px 24px', background: '#fff' }}>
