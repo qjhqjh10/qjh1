@@ -1,12 +1,17 @@
 const stripHtmlRegex = /<[^>]*>/g
 
 // Shared chapter splitting patterns and logic (used by extractionService & StyleWorkshopPage)
+// v13.3.0: 修复章节正则 — 支持全角冒号/中点/短线等分隔符，支持第X节/第X回/第X集
 export const CHAPTER_PATTERNS: { regex: RegExp; type: string }[] = [
   { regex: /^楔子\s*$/, type: 'prologue' }, { regex: /^序章\s*$/, type: 'prologue' },
   { regex: /^引子\s*$/, type: 'prologue' }, { regex: /^前言\s*$/, type: 'prologue' },
   { regex: /^终章\s*$/, type: 'epilogue' }, { regex: /^尾声\s*$/, type: 'epilogue' },
-  { regex: /^后记\s*$/, type: 'afterword' }, { regex: /^番外[一二三四五六七八九十百千零\d]+\s*$/, type: 'sideStory' },
-  { regex: /^第[一二三四五六七八九十百千零\d]+[章卷节回](\s+.{1,40})?$/, type: 'chapter' },
+  { regex: /^后记\s*$/, type: 'afterword' },
+  // 番外：支持 "番外一 标题" 格式，分隔符不限空格/冒号
+  { regex: /^番外[一二三四五六七八九十百千零\d]+[\s：:\-—·]?.{0,40}$/, type: 'sideStory' },
+  // 第X章/卷/节/回/集：支持 "第一章" "第一章：开篇" "第一章-序" "第 一 章" 等
+  // 关键保护：必须包含 [章卷节回集] 之一，防止匹配 "第一次" "第二天" 等内容文本
+  { regex: /^第\s*[一二三四五六七八九十百千零\d]+\s*[章卷节回集][\s：:\-—·]?.{0,40}$/, type: 'chapter' },
 ]
 
 export interface ChapterSplitResult {
@@ -95,6 +100,16 @@ export function countChineseWords(text: string): number {
   // Strip HTML and decode entities before counting
   const clean = stripHtml(text).replace(/\s/g, '')
   return clean.length
+}
+
+/** Count CJK unified ideographs only (U+4E00–U+9FFF) — excludes punctuation, ASCII, whitespace */
+export function countCJKChars(text: string): number {
+  let count = 0
+  for (const char of text) {
+    const code = char.charCodeAt(0)
+    if (code >= 0x4e00 && code <= 0x9fff) count++
+  }
+  return count
 }
 
 const AI_ERROR_PREFIXES = ['[CONTENT_POLICY]', '[RATE_LIMIT]', '[AUTH_ERROR]', '[NETWORK]', '[API_ERROR]', '[UNSUPPORTED_OPERATION]']

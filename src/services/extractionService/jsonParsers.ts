@@ -8,7 +8,6 @@ import type {
   CharacterArchetype, EmotionCurve,
 } from '@/types/story'
 import { DIMENSION_META } from '@/types/story'
-import { splitChaptersByHeadings } from '@/utils/textUtils'
 
 // Helper: find outermost balanced-brace JSON object (handles nested objects in AI responses)
 function findBalancedJSON(text: string): string | null {

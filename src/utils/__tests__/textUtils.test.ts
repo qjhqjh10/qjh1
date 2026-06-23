@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripHtml, countChineseWords, formatWordCount } from '@/utils/textUtils'
+import { stripHtml, countChineseWords, countCJKChars, formatWordCount } from '@/utils/textUtils'
 
 describe('stripHtml', () => {
   it('removes HTML tags', () => {
@@ -38,6 +38,28 @@ describe('countChineseWords', () => {
 
   it('counts mixed content', () => {
     expect(countChineseWords('Hello世界')).toBe(7)
+  })
+})
+
+describe('countCJKChars', () => {
+  it('counts Chinese characters only', () => {
+    expect(countCJKChars('你好世界')).toBe(4)
+  })
+
+  it('excludes ASCII characters', () => {
+    expect(countCJKChars('Hello世界')).toBe(2)
+  })
+
+  it('excludes Chinese punctuation', () => {
+    expect(countCJKChars('你好，世界！')).toBe(4)
+  })
+
+  it('returns 0 for empty string', () => {
+    expect(countCJKChars('')).toBe(0)
+  })
+
+  it('returns 0 for pure ASCII', () => {
+    expect(countCJKChars('Hello')).toBe(0)
   })
 })
 

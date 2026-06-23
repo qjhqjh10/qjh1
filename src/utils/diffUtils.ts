@@ -57,3 +57,51 @@ export function lineDiff(oldText: string, newText: string): { type: 'same' | 're
   }
   return result
 }
+
+// ── Paragraph-level diff for rewrite compare view ──
+
+/** Simple bigram similarity between two strings */
+export function paragraphSimilarity(a: string, b: string): number {
+  if (a === b) return 1
+  if (!a || !b) return 0
+  const bigramsA = new Set<string>()
+  for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2))
+  const bigramsB = new Set<string>()
+  for (let i = 0; i < b.length - 1; i++) bigramsB.add(b.slice(i, i + 2))
+  const intersection = new Set([...bigramsA].filter(x => bigramsB.has(x)))
+  const union = new Set([...bigramsA, ...bigramsB])
+  return union.size === 0 ? 0 : intersection.size / union.size
+}
+
+export interface DiffParagraph { text: string; changed: boolean }
+
+/** Compute paragraph-level diff between original and rewritten text */
+export function computeParagraphDiff(original: string, rewritten: string): {
+  originalPars: DiffParagraph[]
+  rewrittenPars: DiffParagraph[]
+} {
+  // Normalize paragraph separators — AI may output paragraphs separated only by 　　on same line
+  const normalizeParas = (text: string): string[] => {
+    return text
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/([^　\n])(　　)/g, '$1\n\n$2')
+      .split(/\n+/)
+      .map(p => p.replace(/^[　]+/, '').trim())
+      .filter(Boolean)
+  }
+
+  const op = normalizeParas(original)
+  const rp = normalizeParas(rewritten)
+
+  const origResult: DiffParagraph[] = op.map(text => {
+    const found = rp.some(r => paragraphSimilarity(text, r) > 0.35)
+    return { text, changed: !found }
+  })
+
+  const rewResult: DiffParagraph[] = rp.map(text => {
+    const found = op.some(o => paragraphSimilarity(text, o) > 0.35)
+    return { text, changed: !found }
+  })
+
+  return { originalPars: origResult, rewrittenPars: rewResult }
+}

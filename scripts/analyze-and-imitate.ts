@@ -34,14 +34,17 @@ const OUT_DIR = 'd:/3/风格蒸馏演示'
 const N = (name: string) => path.join(OUT_DIR, `${TEST_RUN}${name}`)
 
 function splitChapters(content: string): { title: string; content: string }[] {
-  const re = /^(第[一二三四五六七八九十百千\d]+[章回节]|序章|楔子|尾声|番外).*$/gm
+  // v13.3.0: 与 src/utils/textUtils.ts CHAPTER_PATTERNS 保持同步
+  const re = /^(第\s*[一二三四五六七八九十百千\d]+\s*[章卷节回集]|序章|楔子|尾声|番外|引子|前言|终章|后记).*$/gm
   const matches = Array.from(content.matchAll(re))
   if (!matches.length) return [{ title: '全文', content }]
   const out: { title: string; content: string }[] = []
   for (let i = 0; i < matches.length; i++) {
     const s = matches[i].index!
     const e = i + 1 < matches.length ? matches[i + 1].index! : content.length
-    out.push({ title: matches[i][0].trim(), content: content.slice(s, e).trim() })
+    const body = content.slice(s, e).trim()
+    if (body.length < 10) continue
+    out.push({ title: matches[i][0].trim(), content: body })
   }
   return out
 }

@@ -4,6 +4,7 @@ import { kbService } from '@/services/fileService'
 import Modal from './Modal'
 import Button from './Button'
 import ScrollArea from './ScrollArea'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { TrashIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 
 interface ReviewFile {
@@ -22,6 +23,7 @@ export default function ReviewResultsModal({ isOpen, onClose }: Props) {
   const [reviews, setReviews] = useState<ReviewFile[]>([])
   const [selectedReview, setSelectedReview] = useState<{ id: string; content: string; name: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen) { loadReviews() }
@@ -47,9 +49,14 @@ export default function ReviewResultsModal({ isOpen, onClose }: Props) {
   }
 
   const handleDelete = async (fileId: string) => {
-    if (!confirm('确定删除此审稿结果？')) return
-    await kbService.delete(fileId)
+    setFileToDelete(fileId)
+  }
+
+  const confirmDelete = async () => {
+    if (!fileToDelete) return
+    await kbService.delete(fileToDelete)
     setSelectedReview(null)
+    setFileToDelete(null)
     loadReviews()
   }
 
@@ -67,6 +74,7 @@ export default function ReviewResultsModal({ isOpen, onClose }: Props) {
   const scores = selectedReview ? parseScores(selectedReview.content) : []
 
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title="审稿结果" width={selectedReview ? 760 : 560} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {selectedReview ? (
@@ -124,5 +132,18 @@ export default function ReviewResultsModal({ isOpen, onClose }: Props) {
         )}
       </div>
     </Modal>
+      {/* 审稿结果删除确认 */}
+      {fileToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除审稿结果"
+          message="确定要删除此审稿结果？此操作不可撤销。"
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setFileToDelete(null)}
+        />
+      )}
+    </>
   )
 }

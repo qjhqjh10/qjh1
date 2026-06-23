@@ -13,6 +13,7 @@ import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
+import { registerRewriteHandlers } from './ipc/rewriteHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
 
 import { registerAgentHandlers } from './ipc/agentHandlers'
@@ -45,11 +46,17 @@ function getContinuationProjectDirsPath(): string {
   return join(parentDir, 'continuation_project_dirs')
 }
 
+function getRewriteProjectsPath(): string {
+  const parentDir = dirname(getProjectsBasePath())
+  return join(parentDir, 'rewrite_projects')
+}
+
 /** Ensure all runtime directories exist before handlers start */
 async function ensureRuntimeDirectories(parentDir: string, projectsPath: string) {
   // All global dirs now unified at parentDir level (userData in prod)
   // AI accesses via ../ prefix (from projects/ up to app root)
   const globalDirs = [
+    join(parentDir, 'rewrite_projects'),
     join(parentDir, 'notes'),
     join(parentDir, 'style_templates'),
     join(parentDir, 'scene_templates'),
@@ -232,6 +239,7 @@ app.whenReady().then(async () => {
 
   registerExtractionHandlers(ipcMain, parentDir)
   registerContinuationHandlers(ipcMain, parentDir)
+  registerRewriteHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
 
   registerAgentHandlers(ipcMain, projectsPath)

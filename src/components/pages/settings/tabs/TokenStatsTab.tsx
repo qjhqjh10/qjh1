@@ -8,6 +8,7 @@ import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { UsageResult, SessionStatsResult, SessionStatEntry } from '@/types/electron'
 import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { FormField, StatCard } from '../shared';
 
 export function TokenStatsTab() {
@@ -29,6 +30,7 @@ export function TokenStatsTab() {
   const [filterDay, setFilterDay] = useState<number | undefined>(undefined)
   const [viewMode, setViewMode] = useState<'summary' | 'byDay' | 'byConfig'>('summary')
   const [showDetail, setShowDetail] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   useEffect(() => {
     const opts: Record<string, unknown> = {}
@@ -53,6 +55,7 @@ export function TokenStatsTab() {
   const days = Array.from({ length: 31 }, (_, i) => i + 1)
 
   return (
+    <>
     <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }} className="custom-scrollbar page-enter" >
       <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>Token 用量统计</h4>
 
@@ -79,7 +82,7 @@ export function TokenStatsTab() {
           {days.map(d => <option key={d} value={d}>{d}日</option>)}
         </select>
         <button onClick={() => { setFilterConfigId(''); setFilterModel(''); setFilterYear(undefined); setFilterMonth(undefined); setFilterDay(undefined) }} className="interactive" style={{ ...miniSelect, cursor: 'pointer', border: 'none', background: 'rgba(124,58,237,0.06)', color: '#7c3aed' }}>重置筛选</button>
-        <button onClick={async () => { if (!confirm('确定清空所有 Token 统计数据？此操作不可撤销。')) return; try { await statsService.reset(); setUsage(null); setSessionStats(null); setTimeout(() => { statsService.getUsage().then(data => setUsage(data)).catch(() => {}); statsService.getSessionStats().then(data => setSessionStats(data)).catch(() => {}); }, 100); } catch (e) { logError('清除统计数据失败', e); alert('清除失败，请重试'); } }} className="interactive" style={{ ...miniSelect, cursor: 'pointer', border: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.04)', color: '#dc2626', fontWeight: 600 }}>清空数据</button>
+        <button onClick={() => setConfirmAction({ title: '清空统计', message: '确定清空所有 Token 统计数据？此操作不可撤销。', onConfirm: async () => { try { await statsService.reset(); setUsage(null); setSessionStats(null); setTimeout(() => { statsService.getUsage().then(data => setUsage(data)).catch(() => {}); statsService.getSessionStats().then(data => setSessionStats(data)).catch(() => {}); }, 100); } catch (e) { logError('清除统计数据失败', e); alert('清除失败，请重试'); } } })} className="interactive" style={{ ...miniSelect, cursor: 'pointer', border: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.04)', color: '#dc2626', fontWeight: 600 }}>清空数据</button>
       </div>
 
       {/* View mode tabs */}
@@ -177,16 +180,14 @@ export function TokenStatsTab() {
                     <span style={{ marginLeft: 6, color: '#16a34a' }}>出 {e.outputTokens.toLocaleString()}</span>
                     <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>{cSym}{((e as { cost?: number }).cost ?? 0).toFixed(4)}</span>
                     <button
-                      onClick={() => {
-                        if (!confirm('删除此条记录？')) return
-                        statsService.deleteByLine(e._line).then(() => {
+                      onClick={() => setConfirmAction({ title: '删除记录', message: '确定要删除此条 Token 统计记录？', onConfirm: () => { statsService.deleteByLine(e._line).then(() => {
                           const filter = activeProjectId ? { projectId: activeProjectId } : {}
                           if (filterConfigId) Object.assign(filter, { configId: filterConfigId })
                           if (filterModel) Object.assign(filter, { model: filterModel })
                           if (filterYear !== undefined) Object.assign(filter, { year: filterYear, month: filterMonth, day: filterDay })
                           statsService.getUsage(filter).then((data: unknown) => setUsage(data as typeof usage))
                         })
-                      }}
+                      }})}
                       title="删除此条"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#d4ccc4', flexShrink: 0, marginLeft: 'auto' }}
                     >
@@ -213,12 +214,7 @@ export function TokenStatsTab() {
           <span style={{ fontSize: 11, color: '#9b8e84' }}>
             基于审计日志，按 Agent 会话聚合
           </span>
-          <button onClick={async () => {
-            if (!confirm('确定清空所有会话统计记录？此操作不可撤销。')) return
-            await statsService.resetSessions()
-            setSessionStats(null)
-            setTimeout(() => statsService.getSessionStats().then(setSessionStats).catch(() => {}), 200)
-          }} className="interactive" style={{ ...miniSelect, cursor: 'pointer', marginLeft: 'auto', border: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.04)', color: '#dc2626', fontWeight: 600 }}>
+          <button onClick={() => setConfirmAction({ title: '清空会话统计', message: '确定清空所有会话统计记录？此操作不可撤销。', onConfirm: async () => { await statsService.resetSessions(); setSessionStats(null); setTimeout(() => statsService.getSessionStats().then(setSessionStats).catch(() => {}), 200) } })} className="interactive" style={{ ...miniSelect, cursor: 'pointer', marginLeft: 'auto', border: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.04)', color: '#dc2626', fontWeight: 600 }}>
             🗑 清空会话
           </button>
         </div>
@@ -290,12 +286,7 @@ export function TokenStatsTab() {
                             </span>
                           )}
                           <button
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              if (!confirm(`删除会话 ${s.sessionId.slice(0, 8)}... 的记录？`)) return
-                              await statsService.deleteSession(s.sessionId)
-                              statsService.getSessionStats().then(setSessionStats).catch(() => {})
-                            }}
+                            onClick={(e) => { e.stopPropagation(); setConfirmAction({ title: '删除会话记录', message: `确定删除会话 ${s.sessionId.slice(0, 8)}... 的记录？`, onConfirm: async () => { await statsService.deleteSession(s.sessionId); statsService.getSessionStats().then(setSessionStats).catch(() => {}) } }) }}
                             title="删除此会话"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#d4ccc4', marginLeft: 'auto', flexShrink: 0 }}
                           >
@@ -366,6 +357,19 @@ export function TokenStatsTab() {
         )}
       </div>
     </div>
+    {/* 通用确认弹窗 */}
+    {confirmAction && (
+      <ConfirmModal
+        isOpen={true}
+        title={confirmAction.title}
+        message={confirmAction.message}
+        confirmLabel="确定"
+        danger
+        onConfirm={() => { confirmAction.onConfirm(); setConfirmAction(null) }}
+        onCancel={() => setConfirmAction(null)}
+      />
+    )}
+    </>
   )
 }
 

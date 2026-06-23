@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { rewriteService, rewriteTemplateService } from '@/services/fileService'
-import { STAGE_NAMES, STAGE_STEPS } from '@/types/rewrite'
+import { STAGE_NAMES, STAGE_STEPS, STEP_KEY_TO_STAGE, STAGE_ORDER } from '@/types/rewrite'
 import type { RewriteProject } from '@/types/rewrite'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import { formatWordCount } from '@/utils/textUtils'
@@ -290,10 +290,8 @@ export default function RewritePage() {
             {/* Stage progress */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 48 }}>
               {STAGE_STEPS.map(step => {
-                const stageMap: Record<string, string> = { splitting: 'split', summarizing: 'summarized', rewriting: 'rewritten', merging: 'merged' }
-                const reqStage = stageMap[step.key]
-                const stageOrder = ['imported', 'split', 'summarized', 'rewritten', 'merged']
-                const isReached = stageOrder.indexOf(active.stage) >= stageOrder.indexOf(reqStage)
+                const reqStage = STEP_KEY_TO_STAGE[step.key]
+                const isReached = STAGE_ORDER.indexOf(active.stage) >= STAGE_ORDER.indexOf(reqStage)
                 return (
                   <div key={step.key} style={{ textAlign: 'center' }}>
                     <div style={{

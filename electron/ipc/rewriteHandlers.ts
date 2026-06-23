@@ -6,10 +6,10 @@ import type { RewriteProject, RewriteChapter } from '../../src/types/rewrite'
 
 let projectsPath = ''
 
-function countChineseWords(text: string): number {
+function countCJKChars(text: string): number {
   let count = 0
-  for (const ch of text) {
-    const code = ch.charCodeAt(0)
+  for (const char of text) {
+    const code = char.charCodeAt(0)
     if (code >= 0x4e00 && code <= 0x9fff) count++
   }
   return count
@@ -129,7 +129,7 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
       stage: 'imported',
       chapters: [],
       chapterCount: 0,
-      wordCount: countChineseWords(arg.content),
+      wordCount: countCJKChars(arg.content),
       createdAt: now,
       updatedAt: now,
     }
@@ -168,7 +168,7 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
         chapterNumber: i + 1,
         title: ch.title,
         fileName,
-        wordCount: countChineseWords(ch.content),
+        wordCount: countCJKChars(ch.content),
       })
     }
 
@@ -198,17 +198,6 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
   // ── Get project dir path (for file operations) ──
   ipcMain.handle('rewrite:getProjectPath', async (_event, id: string) => {
     return projectDir(id)
-  })
-
-  // ── List chapters (returns chapter file contents) ──
-  ipcMain.handle('rewrite:listChapterFiles', async (_event, id: string) => {
-    const dir = path.join(projectDir(id), 'chapters')
-    try {
-      const files = await fs.readdir(dir)
-      return files.filter(f => f.endsWith('.txt')).sort()
-    } catch {
-      return []
-    }
   })
 
   // ── Read chapter content ──
@@ -417,7 +406,7 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
 
         // Build sceneGuidance from rewriteTemplate.categoryPrompts (keyed by sceneId)
         const sceneGuidance: Record<string, string> = {}
-        const catPrompts = rewrite.categoryPrompts || rewrite.categoryPrompts || {}
+        const catPrompts = rewrite.categoryPrompts || {}
         for (const [key, value] of Object.entries(catPrompts)) {
           sceneGuidance[key] = unescape(String(value))
         }

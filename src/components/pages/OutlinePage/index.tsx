@@ -16,6 +16,7 @@ import ScrollArea from '@/components/common/ScrollArea'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import CharactersPanel from '@/components/panels/CharactersPanel'
 import { EntityEditModal } from '@/components/common/EntityEditModal'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { loadOutlineData, saveOutlineData } from '@/utils/outlineData'
 import {
   DocumentTextIcon, GlobeAltIcon, ListBulletIcon, FlagIcon, LightBulbIcon,
@@ -58,6 +59,8 @@ export default function OutlinePage() {
   // Editing state for threads and foreshadowing
   const [editingThread, setEditingThread] = useState<PlotThread | null>(null)
   const [editingForeshadow, setEditingForeshadow] = useState<ForeshadowItem | null>(null)
+  const [threadToDelete, setThreadToDelete] = useState<PlotThread | null>(null)
+  const [foreshadowToDelete, setForeshadowToDelete] = useState<ForeshadowItem | null>(null)
 
   // Structured dimension data
   const [items, setItems] = useState<OutlineItem[]>([])
@@ -231,7 +234,15 @@ export default function OutlinePage() {
     await saveMeta({ ...meta, plotThreads: threads })
     setEditingThread(null)
   }
-  const handleDeleteThread = async (id: string) => { await saveMeta({ ...meta, plotThreads: (meta.plotThreads || []).filter(t => t.id !== id) }) }
+  const handleDeleteThread = async (id: string) => {
+    const thread = (meta.plotThreads || []).find(t => t.id === id)
+    if (thread) setThreadToDelete(thread)
+  }
+  const confirmDeleteThread = async () => {
+    if (!threadToDelete) return
+    await saveMeta({ ...meta, plotThreads: (meta.plotThreads || []).filter(t => t.id !== threadToDelete.id) })
+    setThreadToDelete(null)
+  }
 
   // ---- Foreshadowing ----
   const handleAddForeshadow = () => { setEditingForeshadow({ id: nanoid(6), description: '', plantChapterId: '', payoffChapterId: '', status: 'planted' }) }
@@ -244,7 +255,15 @@ export default function OutlinePage() {
     await saveMeta({ ...meta, foreshadowing: items })
     setEditingForeshadow(null)
   }
-  const handleDeleteForeshadow = async (id: string) => { await saveMeta({ ...meta, foreshadowing: (meta.foreshadowing || []).filter(f => f.id !== id) }) }
+  const handleDeleteForeshadow = async (id: string) => {
+    const item = (meta.foreshadowing || []).find(f => f.id === id)
+    if (item) setForeshadowToDelete(item)
+  }
+  const confirmDeleteForeshadow = async () => {
+    if (!foreshadowToDelete) return
+    await saveMeta({ ...meta, foreshadowing: (meta.foreshadowing || []).filter(f => f.id !== foreshadowToDelete.id) })
+    setForeshadowToDelete(null)
+  }
   const handleToggleForeshadow = async (item: ForeshadowItem) => {
     const updated = { ...item, status: item.status === 'planted' ? 'resolved' as const : 'planted' as const }
     await saveMeta({ ...meta, foreshadowing: (meta.foreshadowing || []).map(f => f.id === item.id ? updated : f) })
@@ -593,6 +612,31 @@ export default function OutlinePage() {
           </div>
           <div><div style={fieldLabel}>主导情绪</div><input value={editingEmotion.dominantEmotion} onChange={e => setEditingEmotion({ ...editingEmotion, dominantEmotion: e.target.value })} placeholder="如: 压抑、热血、温馨" style={fieldInput} /></div>
         </EntityEditModal>
+      )}
+
+      {/* 故事线删除确认弹窗 */}
+      {threadToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除故事线"
+          message={`确定要删除故事线「${threadToDelete.name}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDeleteThread}
+          onCancel={() => setThreadToDelete(null)}
+        />
+      )}
+      {/* 伏笔删除确认弹窗 */}
+      {foreshadowToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除伏笔"
+          message={`确定要删除伏笔「${foreshadowToDelete.description.slice(0, 40)}${foreshadowToDelete.description.length > 40 ? '...' : ''}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDeleteForeshadow}
+          onCancel={() => setForeshadowToDelete(null)}
+        />
       )}
     </div>
   )

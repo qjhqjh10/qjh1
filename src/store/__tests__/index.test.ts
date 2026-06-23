@@ -77,7 +77,7 @@ describe('useSettingsStore', () => {
       apiKey: 'sk-test', model: 'gpt-4o', imageModel: '',
       imageProvider: '', imageApiUrl: '', imageApiKey: '',
       embeddingModel: 'text-embedding-3-small',
-      temperature: 0.8, maxTokens: 0, systemPrompt: '',
+      temperature: 0.8, maxTokens: 0,
       inputPricePerM: 2.5, outputPricePerM: 10, cacheHitPricePerM: 1.25,
       imageInputPricePerM: 0, imageOutputPricePerM: 0,
       currency: 'USD' as const,

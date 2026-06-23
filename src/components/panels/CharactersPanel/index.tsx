@@ -9,6 +9,7 @@ import { nanoid } from 'nanoid'
 import Modal from '@/components/common/Modal'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { SkeletonList } from '@/components/common/Skeleton'
 
 import CharacterForm from '../CharacterForm'
@@ -44,6 +45,7 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const [showModal, setShowModal] = useState(false)
   const [projectPath, setProjectPath] = useState('')
   const [loading, setLoading] = useState(true)
+  const [charToDelete, setCharToDelete] = useState<Character | null>(null)
 
   const [showAIGen, setShowAIGen] = useState(false)
   const [aiGenDesc, setAiGenDesc] = useState('')
@@ -87,8 +89,14 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   }
 
   const handleDelete = async (char: Character) => {
-    await fileService.deleteFile(`${projectPath}/characters/${char.id}.yaml`)
-    removeCharacter(char.id)
+    setCharToDelete(char)
+  }
+
+  const confirmDelete = async () => {
+    if (!charToDelete) return
+    await fileService.deleteFile(`${projectPath}/characters/${charToDelete.id}.yaml`)
+    removeCharacter(charToDelete.id)
+    setCharToDelete(null)
   }
 
   const handleSave = async () => {
@@ -215,6 +223,18 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
         onGenerate={handleAIGenerate}
       />
 
+      {/* 角色删除确认弹窗 */}
+      {charToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除角色"
+          message={`确定要删除角色「${charToDelete.name}」吗？角色文件将被永久删除，此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setCharToDelete(null)}
+        />
+      )}
     </div>
   )
 }

@@ -17,7 +17,12 @@ interface Props {
  * Paragraphs separated by blank lines. Each paragraph gets text-indent: 2em via CSS.
  */
 function plainToHtml(text: string): string {
-  return text
+  // Normalize paragraph separators — handle both \n\n and 　　(full-width space) paragraph markers
+  const normalized = text
+    .replace(/\n{3,}/g, '\n\n')
+    // AI may output paragraphs separated only by 　　on same line → split them
+    .replace(/([^　\n])(　　)/g, '$1\n\n$2')
+  return normalized
     .split(/\n{2,}/)
     .map(p => {
       // Strip leading full-width spaces (added by htmlToPlain for indent)
@@ -96,7 +101,7 @@ export default function RewriteEditor({
       const style = document.createElement('style')
       style.id = styleId
       style.textContent = `
-        .rewrite-editor-content p { text-indent: 2em; margin: 0 0 0.5em 0; }
+        .rewrite-editor-content p { text-indent: 2em; margin: 0 0 1em 0; }
         .rewrite-editor-content p:last-child { margin-bottom: 0; }
       `
       document.head.appendChild(style)

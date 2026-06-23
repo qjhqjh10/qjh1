@@ -15,6 +15,7 @@ import { logError } from '@/utils/logger'
 import { parseAiErrorMessage } from '@/utils/textUtils'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { useToast } from '@/components/common/Toast'
 import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
@@ -203,6 +204,7 @@ export default function AIChatWindow() {
   })
   const [convsLoaded, setConvsLoaded] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState('default')
+  const [convToDelete, setConvToDelete] = useState<string | null>(null)
 
   // Init 3: Load conversations from IndexedDB on mount and migrate localStorage
   useEffect(() => {
@@ -886,7 +888,7 @@ export default function AIChatWindow() {
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conv.title}</span>
                       <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{conv.messages.length}条</span>
                       {conversations.length > 1 && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0, display: 'flex' }} title="删除对话"
+                        <button onClick={(e) => { e.stopPropagation(); setConvToDelete(conv.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0, display: 'flex' }} title="删除对话"
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#d4ccc4' }}
                         >
@@ -1700,6 +1702,18 @@ export default function AIChatWindow() {
           approvalResolveRef.current = null
           setPendingApproval(null)
         }}
+      />
+    )}
+    {/* 对话删除确认弹窗 */}
+    {convToDelete && (
+      <ConfirmModal
+        isOpen={true}
+        title="删除对话"
+        message={`确定要删除此对话「${conversations.find(c => c.id === convToDelete)?.title || ''}」吗？此操作不可撤销。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={() => { handleDeleteConversation(convToDelete); setConvToDelete(null) }}
+        onCancel={() => setConvToDelete(null)}
       />
     )}
     </>

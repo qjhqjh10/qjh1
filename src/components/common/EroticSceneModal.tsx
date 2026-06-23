@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid'
 import Modal from './Modal'
 import Button from './Button'
 import ScrollArea from './ScrollArea'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { inputStyle } from '@/components/common/styles'
 import { getStyleInjection } from '@/utils/styleInjector'
 import type { Character } from '@/types/character'
@@ -67,6 +68,7 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
   const [templates, setTemplates] = useState<SceneTemplate[]>([])
   const [showSaveTpl, setShowSaveTpl] = useState(false)
   const [tplName, setTplName] = useState('')
+  const [tplToDelete, setTplToDelete] = useState<SceneTemplate | null>(null)
 
   useEffect(() => { if (isOpen) { setConfig(initialConfig || DEFAULT_CONFIG); templateService.list().then(t => setTemplates(t || [])).catch(()=>{}) } }, [isOpen])
 
@@ -170,11 +172,19 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
   const handleLoadTemplate = (tpl: SceneTemplate) => { setConfig(tpl.config as EroticSceneConfig) }
 
   const handleDeleteTemplate = async (id: string) => {
-    await templateService.delete(id)
-    setTemplates(prev => prev.filter(t => t.id !== id))
+    const tpl = templates.find(t => t.id === id)
+    if (tpl) setTplToDelete(tpl)
+  }
+
+  const confirmDeleteTemplate = async () => {
+    if (!tplToDelete) return
+    await templateService.delete(tplToDelete.id)
+    setTemplates(prev => prev.filter(t => t.id !== tplToDelete.id))
+    setTplToDelete(null)
   }
 
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title="情色场景编排" width={720} draggable resizable>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <ScrollArea maxHeight="60vh">
@@ -417,6 +427,19 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
         </div>
       </div>
     </Modal>
+    {/* 模板删除确认弹窗 */}
+    {tplToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除场景模板"
+          message={`确定要删除场景模板「${tplToDelete.name}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDeleteTemplate}
+          onCancel={() => setTplToDelete(null)}
+        />
+      )}
+    </>
   )
 }
 

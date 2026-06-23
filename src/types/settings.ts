@@ -43,7 +43,6 @@ export interface ModelConfig {
   embeddingApiUrl?: string
   embeddingApiKey?: string
 
-  systemPrompt: string
   currency: 'USD' | 'CNY'
 }
 
@@ -84,7 +83,6 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   imageOutputPricePerM: 0,
   // Embedding
   embeddingModel: 'text-embedding-3-small',
-  systemPrompt: '你是一位专业的小说写作助手，擅长文学创作、角色塑造和情节设计。请根据用户的需求提供高质量的写作建议和内容。',
   currency: 'USD',
 }
 

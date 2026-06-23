@@ -49,7 +49,8 @@ function loadSample(): string {
 // ── Split into chapters ──
 
 function splitChapters(content: string): { title: string; content: string }[] {
-  const headingRe = /^(第[一二三四五六七八九十百千\d]+[章回节]|序章|楔子|尾声|番外).*$/gm
+  // v13.3.0: 与 src/utils/textUtils.ts CHAPTER_PATTERNS 保持同步
+  const headingRe = /^(第\s*[一二三四五六七八九十百千\d]+\s*[章卷节回集]|序章|楔子|尾声|番外|引子|前言|终章|后记).*$/gm
   const matches = Array.from(content.matchAll(headingRe))
   if (matches.length === 0) {
     return [{ title: '全文', content }]
@@ -59,9 +60,11 @@ function splitChapters(content: string): { title: string; content: string }[] {
   for (let i = 0; i < matches.length; i++) {
     const start = matches[i].index!
     const end = i + 1 < matches.length ? matches[i + 1].index! : content.length
+    const body = content.slice(start, end).trim()
+    if (body.length < 10) continue
     chapters.push({
       title: matches[i][0].trim(),
-      content: content.slice(start, end).trim(),
+      content: body,
     })
   }
   return chapters

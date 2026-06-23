@@ -217,7 +217,7 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
   )
 
   const renderSceneRulesTab = () => (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px 0' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px 0', minHeight: 0 }}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -646,7 +646,7 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
                 </div>
 
                 {/* Tab content */}
-                <div style={{ flex: 1, padding: '0 20px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, padding: '0 20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   {renderTabContent()}
                 </div>
               </>

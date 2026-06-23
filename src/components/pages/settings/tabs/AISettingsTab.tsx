@@ -195,6 +195,589 @@ function CharacterCardEditor({
 }
 
 // ═══════════════════════════════════════════════════════════════
+// 角色预览卡片（网格中使用，点击打开编辑弹窗）
+// ═══════════════════════════════════════════════════════════════
+function CharacterPreviewCard({
+  character, onClick, onDelete, canDelete,
+}: {
+  character: CharacterCard
+  onClick: () => void
+  onDelete: () => void
+  canDelete: boolean
+}) {
+  const [avatarSrc, setAvatarSrc] = useState('')
+  useEffect(() => {
+    loadAvatar(character.avatar || '').then(setAvatarSrc)
+  }, [character.avatar])
+
+  return (
+    <div onClick={onClick} style={{
+      padding: 14, borderRadius: 14, cursor: 'pointer',
+      border: '1px solid rgba(0,0,0,0.08)',
+      background: character.isUser
+        ? 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(168,85,247,0.02))'
+        : 'linear-gradient(135deg, rgba(22,163,74,0.04), rgba(34,197,94,0.02))',
+      transition: 'all 0.2s ease',
+      position: 'relative',
+    }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderColor = character.isUser ? 'rgba(124,58,237,0.3)' : 'rgba(22,163,74,0.3)'
+        e.currentTarget.style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.06)'
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)'
+        e.currentTarget.style.transform = 'none'
+        e.currentTarget.style.boxShadow = 'none'
+      }}
+    >
+      {/* 头部：头像 + 姓名 + 标签 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%', overflow: 'hidden',
+          border: '2px solid rgba(0,0,0,0.06)', background: 'rgba(0,0,0,0.02)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          {avatarSrc
+            ? <img src={avatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <span style={{ fontSize: 18 }}>{character.isUser ? '✍️' : '🤖'}</span>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {character.name || '未命名'}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+            <span style={{
+              padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+              background: character.isUser ? 'rgba(124,58,237,0.1)' : 'rgba(22,163,74,0.1)',
+              color: character.isUser ? '#7c3aed' : '#16a34a',
+            }}>{character.isUser ? '用户' : 'AI'}</span>
+            {character.identity && (
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>{character.identity}</span>
+            )}
+            <span style={{ fontSize: 10, color: '#9b8e84' }}>{character.gender}</span>
+          </div>
+        </div>
+        {canDelete && (
+          <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="删除角色" style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+            color: '#d4ccc4', display: 'flex', flexShrink: 0,
+          }}><XMarkIcon style={{ width: 14, height: 14 }} /></button>
+        )}
+      </div>
+
+      {/* 背景设定摘要 */}
+      <div style={{
+        fontSize: 11, color: '#9b8e84', lineHeight: 1.5,
+        overflow: 'hidden', display: '-webkit-box',
+        WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+        maxHeight: 34,
+      }}>
+        {character.personality || '点击编辑背景设定...'}
+      </div>
+
+      {/* 关系 */}
+      {character.relationship && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#9b8e84' }}>
+          关系: {character.relationship}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 角色详情编辑弹窗（大尺寸，方便填写大量信息）
+// ═══════════════════════════════════════════════════════════════
+function CharacterDetailModal({
+  character, open, onClose, onChange, onDelete, canDelete,
+}: {
+  character: CharacterCard | null
+  open: boolean
+  onClose: () => void
+  onChange: (c: CharacterCard) => void
+  onDelete: () => void
+  canDelete: boolean
+}) {
+  const initialW = Math.round(window.innerWidth * 0.85)
+  const initialH = Math.round(window.innerHeight * 0.88)
+  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
+  const [modalPos, setModalPos] = useState({
+    left: Math.round((window.innerWidth - initialW) / 2),
+    top: Math.round((window.innerHeight - initialH) / 2),
+  })
+  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
+  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [avatarSrc, setAvatarSrc] = useState('')
+
+  const MIN_W = 500, MIN_H = 400
+
+  // ── 头像加载 ──
+  useEffect(() => {
+    if (character) loadAvatar(character.avatar || '').then(setAvatarSrc)
+  }, [character?.avatar])
+
+  // ── 便捷更新 ──
+  const set = (patch: Partial<CharacterCard>) => {
+    if (character) onChange({ ...character, ...patch })
+  }
+
+  const handleAvatarUpload = () => {
+    if (!character) return
+    const inp = document.createElement('input')
+    inp.type = 'file'; inp.accept = 'image/*'
+    inp.onchange = async () => {
+      const f = inp.files?.[0]
+      if (!f) return
+      try {
+        const filePath = await compressAndSaveImage(f, `char_${character.id}`)
+        set({ avatar: filePath })
+      } catch (e: any) { alert(e.message) }
+    }
+    inp.click()
+  }
+
+  // ── 身份选择逻辑 ──
+  const CUSTOM_IDENTITY = "✏️ 自定义"
+  const isCustomIdentity = character ? !CHARACTER_IDENTITIES.includes(character.identity as any) || character.identity === "自定义" : false
+  const selectIdentityValue = character && !isCustomIdentity ? character.identity : CUSTOM_IDENTITY
+
+  useEffect(() => {
+    if (open) {
+      const w = Math.round(window.innerWidth * 0.85)
+      const h = Math.round(window.innerHeight * 0.88)
+      setModalSize({ width: w, height: h })
+      setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
+    }
+  }, [open])
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, textarea, select')) return
+    e.preventDefault()
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
+    const hm = (ev: MouseEvent) => {
+      const dx = ev.clientX - dragRef.current.startX
+      const dy = ev.clientY - dragRef.current.startY
+      setModalPos({ left: dragRef.current.startL + dx, top: Math.max(0, dragRef.current.startT + dy) })
+    }
+    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+    window.addEventListener('mousemove', hm)
+    window.addEventListener('mouseup', hu)
+  }
+
+  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    resizeRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      startW: modalSize.width, startH: modalSize.height,
+      startL: modalPos.left, startT: modalPos.top, corner,
+    }
+    const hm = (ev: MouseEvent) => {
+      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
+      const dx = ev.clientX - startX; const dy = ev.clientY - startY
+      let w = startW, h = startH, l = startL, t = startT
+      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
+      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
+      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
+      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
+      setModalSize({ width: w, height: h })
+      setModalPos({ left: l, top: t })
+    }
+    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+    window.addEventListener('mousemove', hm)
+    window.addEventListener('mouseup', hu)
+  }
+
+  if (!open || !character) return null
+
+  const corners = ['top','bottom','left','right','top-left','top-right','bottom-left','bottom-right'] as const
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 600,
+      background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div onMouseDown={handleDragStart} style={{
+        position: 'absolute',
+        left: modalPos.left, top: modalPos.top,
+        width: modalSize.width, height: modalSize.height,
+        borderRadius: 20, background: 'rgba(255,255,255,0.97)',
+        backdropFilter: 'blur(20px)', boxShadow: '0 28px 100px rgba(0,0,0,0.25)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }} onClick={e => e.stopPropagation()}>
+        {/* 调整大小句柄 */}
+        {corners.map(corner => {
+          const isEdge = corner === 'top' || corner === 'bottom' || corner === 'left' || corner === 'right'
+          return (
+            <div key={corner} onMouseDown={handleResizeStart(corner)} style={{
+              position: 'absolute',
+              top: corner.includes('top') ? 0 : undefined,
+              bottom: corner.includes('bottom') ? 0 : undefined,
+              left: corner.includes('left') ? 0 : undefined,
+              right: corner.includes('right') ? 0 : undefined,
+              width: isEdge ? (corner === 'top' || corner === 'bottom' ? '100%' : 8) : 16,
+              height: isEdge ? (corner === 'left' || corner === 'right' ? '100%' : 8) : 16,
+              cursor: corner === 'top' || corner === 'bottom' ? 'ns-resize'
+                : corner === 'left' || corner === 'right' ? 'ew-resize'
+                : corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
+              zIndex: 20,
+            }} />
+          )
+        })}
+
+        {/* 关闭按钮 */}
+        <button onClick={(ev) => { ev.stopPropagation(); onClose() }} style={{
+          position: 'absolute', top: 12, right: 14, zIndex: 30,
+          width: 32, height: 32, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.1)',
+          background: 'rgba(255,255,255,0.9)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#6b5e54', fontSize: 16, fontWeight: 700, fontFamily: 'inherit',
+        }} title="关闭 (Esc)">✕</button>
+
+        {/* 标题栏 */}
+        <div style={{
+          padding: '16px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)',
+          background: character.isUser
+            ? 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.02))'
+            : 'linear-gradient(135deg, rgba(22,163,74,0.06), rgba(34,197,94,0.02))',
+          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 24 }}>{character.isUser ? '✍️' : '🤖'}</span>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d2520' }}>
+              编辑{character.isUser ? '用户' : 'AI'}角色 · {character.name || '未命名'}
+            </div>
+            <div style={{ fontSize: 12, color: '#9b8e84' }}>在此详细编辑角色卡片的全部信息</div>
+          </div>
+        </div>
+
+        {/* 内容区 — 上部紧凑字段 + 下部扩展文本框 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+          {/* ── 上部：紧凑字段区（头像 + 身份/姓名/性别/关系）── */}
+          <div style={{
+            flexShrink: 0, padding: '20px 24px 14px',
+            borderBottom: '1px solid rgba(0,0,0,0.04)',
+            display: 'flex', gap: 16, alignItems: 'flex-start',
+          }}>
+            {/* 头像 */}
+            <button onClick={handleAvatarUpload} title="点击上传头像" style={{
+              width: 64, height: 64, borderRadius: 16, cursor: 'pointer',
+              overflow: 'hidden', border: '2px dashed rgba(0,0,0,0.12)',
+              background: 'rgba(0,0,0,0.02)', padding: 0, flexShrink: 0,
+            }}>
+              {avatarSrc
+                ? <img src={avatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onClick={(e) => { e.stopPropagation(); setLightboxSrc(avatarSrc) }} />
+                : <span style={{ fontSize: 28 }}>{character.isUser ? '✍️' : '🤖'}</span>}
+            </button>
+
+            {/* 字段网格 */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                {/* 身份 */}
+                <div style={{ ...miniField, flex: '0 0 auto' }}>
+                  <label style={miniLabel}>身份</label>
+                  <select value={selectIdentityValue} onChange={e => {
+                    const v = e.target.value
+                    if (v === CUSTOM_IDENTITY) { set({ identity: "" }) }
+                    else { set({ identity: v }) }
+                  }} style={{ ...miniInput, cursor: "pointer", width: 80, padding: "5px 4px", fontSize: 13 }}>
+                    {CHARACTER_IDENTITIES.map(idt => <option key={idt} value={idt}>{idt}</option>)}
+                    <option value={CUSTOM_IDENTITY}>{CUSTOM_IDENTITY}</option>
+                  </select>
+                  {isCustomIdentity && (
+                    <input value={character.identity} onChange={e => set({ identity: e.target.value })}
+                      style={{ ...miniInput, width: 80, marginTop: 4 }} placeholder="输入身份" />
+                  )}
+                </div>
+                {/* 姓名 */}
+                <div style={{ ...miniField, flex: '0 0 auto' }}>
+                  <label style={miniLabel}>姓名</label>
+                  <input value={character.name} onChange={e => set({ name: e.target.value })}
+                    style={{ ...miniInput, width: 80 }} placeholder="姓名" />
+                </div>
+                {/* 性别 */}
+                <div style={{ ...miniField, flex: '0 0 auto' }}>
+                  <label style={miniLabel}>性别</label>
+                  <select value={character.gender} onChange={e => set({ gender: e.target.value as '男' | '女' })}
+                    style={{ ...miniInput, cursor: 'pointer', width: 56, padding: '5px 2px', fontSize: 13 }}>
+                    <option value="男">男</option>
+                    <option value="女">女</option>
+                  </select>
+                </div>
+                {/* 关系 */}
+                <div style={{ ...miniField, flex: '0 0 auto' }}>
+                  <label style={miniLabel}>关系</label>
+                  <input value={character.relationship} onChange={e => set({ relationship: e.target.value })}
+                    style={{ ...miniInput, width: 88 }} placeholder="关系" />
+                </div>
+                {/* 角色类型标签 + 删除 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', paddingBottom: 2 }}>
+                  <span style={{
+                    padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    background: character.isUser ? 'rgba(124,58,237,0.1)' : 'rgba(22,163,74,0.1)',
+                    color: character.isUser ? '#7c3aed' : '#16a34a',
+                  }}>{character.isUser ? '用户角色' : 'AI 角色'}</span>
+                  {canDelete && (
+                    <button onClick={onDelete} title="删除角色" style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                      color: '#d4ccc4', display: 'flex',
+                    }}><TrashIcon style={{ width: 16, height: 16 }} /></button>
+                  )}
+                </div>
+              </div>
+              {/* 由我扮演此角色 */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b5e54', cursor: 'pointer' }}>
+                <input type="checkbox" checked={character.isUser} onChange={e => set({ isUser: e.target.checked })}
+                  style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                由我扮演此角色
+              </label>
+            </div>
+          </div>
+
+          {/* ── 下部：扩展文本框（撑满剩余空间）── */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '14px 24px 20px', gap: 12, minHeight: 0, overflow: 'hidden' }}>
+            {/* 背景设定 — 主力区域 */}
+            <div style={{ flex: character.isUser ? 1 : 3, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <label style={{ ...miniLabel, marginBottom: 4, flexShrink: 0 }}>背景设定</label>
+              <textarea value={character.personality} onChange={e => set({ personality: e.target.value })}
+                style={{
+                  flex: 1, width: '100%', minHeight: 0,
+                  padding: 12, borderRadius: 10,
+                  border: '1px solid rgba(0,0,0,0.1)', outline: 'none',
+                  background: '#fff', color: '#2d2520',
+                  fontSize: 14, lineHeight: 1.7, resize: 'none',
+                  fontFamily: 'inherit',
+                }}
+                placeholder="性格特征、外貌、背景故事、特殊能力等..." />
+            </div>
+
+            {/* 开场白 — AI角色专属 */}
+            {!character.isUser && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <label style={{ ...miniLabel, marginBottom: 4, flexShrink: 0 }}>开场白（可选）</label>
+                <textarea value={character.firstMessage || ''} onChange={e => set({ firstMessage: e.target.value })}
+                  style={{
+                    flex: 1, width: '100%', minHeight: 0,
+                    padding: 12, borderRadius: 10,
+                    border: '1px solid rgba(0,0,0,0.1)', outline: 'none',
+                    background: '#fff', color: '#2d2520',
+                    fontSize: 14, lineHeight: 1.7, resize: 'none',
+                    fontFamily: 'inherit',
+                  }}
+                  placeholder="对话开始时此角色的第一句话..." />
+              </div>
+            )}
+
+            {/* 示例对话 — AI角色专属 */}
+            {!character.isUser && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <label style={{ ...miniLabel, marginBottom: 4, flexShrink: 0 }}>示例对话（可选，帮助AI把握语气）</label>
+                <textarea value={character.exampleDialogue || ''} onChange={e => set({ exampleDialogue: e.target.value })}
+                  style={{
+                    flex: 1, width: '100%', minHeight: 0,
+                    padding: 12, borderRadius: 10,
+                    border: '1px solid rgba(0,0,0,0.1)', outline: 'none',
+                    background: '#fff', color: '#2d2520',
+                    fontSize: 14, lineHeight: 1.7, resize: 'none',
+                    fontFamily: 'inherit',
+                  }}
+                  placeholder="示例对话帮助AI学习角色语气..." />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 底部按钮 */}
+        <div style={{
+          display: 'flex', justifyContent: 'flex-end', gap: 10,
+          padding: '12px 24px 16px',
+          borderTop: '1px solid rgba(0,0,0,0.06)',
+          background: 'rgba(255,255,255,0.9)', flexShrink: 0,
+        }}>
+          <button onClick={onClose} style={{
+            padding: '10px 28px', borderRadius: 10, fontSize: 14, fontWeight: 600,
+            border: 'none', background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+            color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+          }}>完成编辑</button>
+        </div>
+      </div>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 文本设定编辑弹窗（世界观背景 / 场景与对话设定 通用，大尺寸）
+// ═══════════════════════════════════════════════════════════════
+function TextSettingModal({
+  title, emoji, value, open, onClose, onChange, placeholder,
+}: {
+  title: string
+  emoji: string
+  value: string
+  open: boolean
+  onClose: () => void
+  onChange: (v: string) => void
+  placeholder: string
+}) {
+  const initialW = Math.round(window.innerWidth * 0.82)
+  const initialH = Math.round(window.innerHeight * 0.82)
+  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
+  const [modalPos, setModalPos] = useState({
+    left: Math.round((window.innerWidth - initialW) / 2),
+    top: Math.round((window.innerHeight - initialH) / 2),
+  })
+  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
+  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
+
+  const MIN_W = 500, MIN_H = 400
+
+  useEffect(() => {
+    if (open) {
+      const w = Math.round(window.innerWidth * 0.82)
+      const h = Math.round(window.innerHeight * 0.82)
+      setModalSize({ width: w, height: h })
+      setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
+    }
+  }, [open])
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, textarea')) return
+    e.preventDefault()
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
+    const hm = (ev: MouseEvent) => {
+      const dx = ev.clientX - dragRef.current.startX
+      const dy = ev.clientY - dragRef.current.startY
+      setModalPos({ left: dragRef.current.startL + dx, top: Math.max(0, dragRef.current.startT + dy) })
+    }
+    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+    window.addEventListener('mousemove', hm)
+    window.addEventListener('mouseup', hu)
+  }
+
+  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    resizeRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      startW: modalSize.width, startH: modalSize.height,
+      startL: modalPos.left, startT: modalPos.top, corner,
+    }
+    const hm = (ev: MouseEvent) => {
+      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
+      const dx = ev.clientX - startX; const dy = ev.clientY - startY
+      let w = startW, h = startH, l = startL, t = startT
+      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
+      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
+      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
+      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
+      setModalSize({ width: w, height: h })
+      setModalPos({ left: l, top: t })
+    }
+    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+    window.addEventListener('mousemove', hm)
+    window.addEventListener('mouseup', hu)
+  }
+
+  if (!open) return null
+
+  const corners = ['top','bottom','left','right','top-left','top-right','bottom-left','bottom-right'] as const
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 600,
+      background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div onMouseDown={handleDragStart} style={{
+        position: 'absolute',
+        left: modalPos.left, top: modalPos.top,
+        width: modalSize.width, height: modalSize.height,
+        borderRadius: 20, background: 'rgba(255,255,255,0.97)',
+        backdropFilter: 'blur(20px)', boxShadow: '0 28px 100px rgba(0,0,0,0.25)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }} onClick={e => e.stopPropagation()}>
+        {/* 调整大小句柄 */}
+        {corners.map(corner => {
+          const isEdge = corner === 'top' || corner === 'bottom' || corner === 'left' || corner === 'right'
+          return (
+            <div key={corner} onMouseDown={handleResizeStart(corner)} style={{
+              position: 'absolute',
+              top: corner.includes('top') ? 0 : undefined,
+              bottom: corner.includes('bottom') ? 0 : undefined,
+              left: corner.includes('left') ? 0 : undefined,
+              right: corner.includes('right') ? 0 : undefined,
+              width: isEdge ? (corner === 'top' || corner === 'bottom' ? '100%' : 8) : 16,
+              height: isEdge ? (corner === 'left' || corner === 'right' ? '100%' : 8) : 16,
+              cursor: corner === 'top' || corner === 'bottom' ? 'ns-resize'
+                : corner === 'left' || corner === 'right' ? 'ew-resize'
+                : corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
+              zIndex: 20,
+            }} />
+          )
+        })}
+
+        {/* 关闭按钮 */}
+        <button onClick={(ev) => { ev.stopPropagation(); onClose() }} style={{
+          position: 'absolute', top: 12, right: 14, zIndex: 30,
+          width: 32, height: 32, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.1)',
+          background: 'rgba(255,255,255,0.9)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#6b5e54', fontSize: 16, fontWeight: 700, fontFamily: 'inherit',
+        }} title="关闭 (Esc)">✕</button>
+
+        {/* 标题栏 */}
+        <div style={{
+          padding: '16px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)',
+          background: 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(168,85,247,0.02))',
+          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 24 }}>{emoji}</span>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d2520' }}>{title}</div>
+            <div style={{ fontSize: 12, color: '#9b8e84' }}>在此详细编辑设定内容</div>
+          </div>
+        </div>
+
+        {/* 内容区 — 大文本框 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 20, minHeight: 0 }}>
+          <textarea value={value} onChange={e => onChange(e.target.value)}
+            style={{
+              flex: 1, width: '100%', minHeight: 0,
+              padding: 16, borderRadius: 12,
+              border: '1px solid rgba(0,0,0,0.08)',
+              background: '#fff', color: '#2d2520',
+              fontSize: 15, lineHeight: 1.8, resize: 'none',
+              outline: 'none', fontFamily: 'inherit',
+            }}
+            placeholder={placeholder}
+            autoFocus
+          />
+        </div>
+
+        {/* 底部按钮 */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '12px 24px 16px',
+          borderTop: '1px solid rgba(0,0,0,0.06)',
+          background: 'rgba(255,255,255,0.9)', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 12, color: '#9b8e84' }}>
+            {value.length > 0 ? `${value.length} 字` : '尚未填写'}
+          </span>
+          <button onClick={onClose} style={{
+            padding: '10px 28px', borderRadius: 10, fontSize: 14, fontWeight: 600,
+            border: 'none', background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+            color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+          }}>完成编辑</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
 // 角色模板详情弹窗（参考 ModelSettingsTab 左栏列表+右栏详情）
 // ═══════════════════════════════════════════════════════════════
 function RoleTemplateDetailModal({
@@ -212,6 +795,12 @@ function RoleTemplateDetailModal({
 
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [charDeleteConfirmId, setCharDeleteConfirmId] = useState<string | null>(null)
+
+  // ── 子编辑弹窗状态 ──
+  const [editingCharId, setEditingCharId] = useState<string | null>(null)
+  const [worldModalOpen, setWorldModalOpen] = useState(false)
+  const [scenarioModalOpen, setScenarioModalOpen] = useState(false)
 
   // ── 拖动 + 缩放状态 ──
   const initialW = Math.round(window.innerWidth * 9 / 10)
@@ -476,7 +1065,7 @@ function RoleTemplateDetailModal({
                     </button>
                   </div>
 
-                  {/* 角色卡片网格排列 */}
+                  {/* 角色预览卡片网格排列（点击打开编辑弹窗） */}
                   <div style={{
                     display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12,
                     padding: 14, borderRadius: 14,
@@ -484,13 +1073,12 @@ function RoleTemplateDetailModal({
                     maxHeight: 420, overflowY: 'auto',
                   }} className="custom-scrollbar">
                     {activeTemplate.characters.map(char => (
-                      <CharacterCardEditor
+                      <CharacterPreviewCard
                         key={char.id}
                         character={char}
-                        onChange={(c) => handleUpdateCharacter(char.id, c)}
-                        onDelete={() => handleDeleteCharacter(char.id)}
+                        onClick={() => setEditingCharId(char.id)}
+                        onDelete={() => setCharDeleteConfirmId(char.id)}
                         canDelete={activeTemplate.characters.length > 2}
-                        onAvatarClick={(src) => setLightboxSrc(src)}
                       />
                     ))}
                   </div>
@@ -502,34 +1090,62 @@ function RoleTemplateDetailModal({
                     📖 补充设定
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
-                    {/* 世界观背景 */}
-                    <div style={{
+                    {/* 世界观背景 — 点击预览卡片打开大弹窗编辑 */}
+                    <div onClick={() => setWorldModalOpen(true)} style={{
                       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-                      padding: 14, borderRadius: 12,
+                      padding: 14, borderRadius: 12, cursor: 'pointer',
                       background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.06)',
-                    }}>
-                      <label style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 6, display: 'block', flexShrink: 0 }}>
-                        世界观背景
-                      </label>
-                      <textarea value={activeTemplate.worldSetting}
-                        onChange={e => update({ worldSetting: e.target.value })}
-                        style={{ ...textareaStyle, flex: 1, minHeight: 0, fontSize: 14, lineHeight: 1.6, resize: 'none' }}
-                        placeholder="描述这个世界的背景设定：时代、地理、势力、文化、规则体系等..." />
+                      transition: 'all 0.2s ease',
+                    }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = 'rgba(124,58,237,0.2)'
+                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.06)'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'
+                        e.currentTarget.style.boxShadow = 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexShrink: 0 }}>
+                        <label style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54', cursor: 'pointer' }}>
+                          📖 世界观背景
+                        </label>
+                        <span style={{ fontSize: 11, color: '#9b8e84' }}>点击编辑 ✎</span>
+                      </div>
+                      <div style={{ flex: 1, fontSize: 13, color: activeTemplate.worldSetting ? '#4a3f38' : '#c5bfb8', lineHeight: 1.6, overflow: 'hidden', minHeight: 0 }}>
+                        {activeTemplate.worldSetting
+                          ? (activeTemplate.worldSetting.length > 200 ? activeTemplate.worldSetting.slice(0, 200) + '...' : activeTemplate.worldSetting)
+                          : '点击此处填写世界观背景设定...'}
+                      </div>
                     </div>
 
-                    {/* 场景/对话设定 */}
-                    <div style={{
+                    {/* 场景/对话设定 — 点击预览卡片打开大弹窗编辑 */}
+                    <div onClick={() => setScenarioModalOpen(true)} style={{
                       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-                      padding: 14, borderRadius: 12,
+                      padding: 14, borderRadius: 12, cursor: 'pointer',
                       background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.06)',
-                    }}>
-                      <label style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54', marginBottom: 6, display: 'block', flexShrink: 0 }}>
-                        场景与对话设定
-                      </label>
-                      <textarea value={activeTemplate.scenarioSetting}
-                        onChange={e => update({ scenarioSetting: e.target.value })}
-                        style={{ ...textareaStyle, flex: 1, minHeight: 0, fontSize: 14, lineHeight: 1.6, resize: 'none' }}
-                        placeholder="补充角色间的关系动态、生活/工作/人际/社会设定、对话规则等..." />
+                      transition: 'all 0.2s ease',
+                    }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = 'rgba(124,58,237,0.2)'
+                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.06)'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'
+                        e.currentTarget.style.boxShadow = 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexShrink: 0 }}>
+                        <label style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54', cursor: 'pointer' }}>
+                          💬 场景与对话设定
+                        </label>
+                        <span style={{ fontSize: 11, color: '#9b8e84' }}>点击编辑 ✎</span>
+                      </div>
+                      <div style={{ flex: 1, fontSize: 13, color: activeTemplate.scenarioSetting ? '#4a3f38' : '#c5bfb8', lineHeight: 1.6, overflow: 'hidden', minHeight: 0 }}>
+                        {activeTemplate.scenarioSetting
+                          ? (activeTemplate.scenarioSetting.length > 200 ? activeTemplate.scenarioSetting.slice(0, 200) + '...' : activeTemplate.scenarioSetting)
+                          : '点击此处填写场景与对话设定...'}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -585,6 +1201,54 @@ function RoleTemplateDetailModal({
             setDeleteConfirmOpen(false)
           }}
           onCancel={() => setDeleteConfirmOpen(false)}
+        />
+      )}
+      {/* 角色删除确认弹窗 */}
+      {charDeleteConfirmId && activeTemplate && (
+        <ConfirmModal
+          isOpen={true}
+          title="删除角色"
+          message={`确定要删除角色「${activeTemplate.characters.find(c => c.id === charDeleteConfirmId)?.name || ''}」吗？此操作不可撤销。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            handleDeleteCharacter(charDeleteConfirmId)
+            setCharDeleteConfirmId(null)
+          }}
+          onCancel={() => setCharDeleteConfirmId(null)}
+        />
+      )}
+      {/* ── 子编辑弹窗（角色详情 / 世界观 / 场景设定）── */}
+      {activeTemplate && editingCharId && (
+        <CharacterDetailModal
+          character={activeTemplate.characters.find(c => c.id === editingCharId) || null}
+          open={true}
+          onClose={() => setEditingCharId(null)}
+          onChange={(c) => handleUpdateCharacter(editingCharId, c)}
+          onDelete={() => { setEditingCharId(null); setCharDeleteConfirmId(editingCharId) }}
+          canDelete={activeTemplate.characters.length > 2}
+        />
+      )}
+      {activeTemplate && (
+        <TextSettingModal
+          title="世界观背景"
+          emoji="📖"
+          value={activeTemplate.worldSetting}
+          open={worldModalOpen}
+          onClose={() => setWorldModalOpen(false)}
+          onChange={(v) => update({ worldSetting: v })}
+          placeholder="描述这个世界的背景设定：时代、地理、势力、文化、规则体系等..."
+        />
+      )}
+      {activeTemplate && (
+        <TextSettingModal
+          title="场景与对话设定"
+          emoji="💬"
+          value={activeTemplate.scenarioSetting}
+          open={scenarioModalOpen}
+          onClose={() => setScenarioModalOpen(false)}
+          onChange={(v) => update({ scenarioSetting: v })}
+          placeholder="补充角色间的关系动态、生活/工作/人际/社会设定、对话规则等..."
         />
       )}
     </div>

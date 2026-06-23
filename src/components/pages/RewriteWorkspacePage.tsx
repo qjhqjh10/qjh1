@@ -4,12 +4,14 @@ import { rewriteService, fileService, dialogService, rewriteTemplateService } fr
 import { STAGE_STEPS, STAGE_NAMES, STEP_KEY_TO_STAGE, STAGE_ORDER } from '@/types/rewrite'
 import type { RewriteProject, RewriteChapter, ChapterAnalysis, ChapterRewrite, ContextMarker } from '@/types/rewrite'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
-import { formatWordCount, splitChaptersByHeadings } from '@/utils/textUtils'
+import { formatWordCount, splitChaptersByHeadings, countCJKChars } from '@/utils/textUtils'
 import { chatAI } from '@/utils/chatAI'
 import { useSettingsStore } from '@/store'
 import EmptyState from '@/components/common/EmptyState'
 import ScrollArea from '@/components/common/ScrollArea'
 import RewriteEditor from '@/components/common/RewriteEditor'
+import RewriteCompareModal from '@/components/common/RewriteCompareModal'
+import { findTextInContent, extractSceneSegment, buildSceneGuidanceMap, buildSegmentRewritePrompt, assembleRewrittenChapterFromSimple, assembleRewrittenChapter } from '@/utils/rewriteSegmentUtils'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -22,6 +24,7 @@ import {
   EyeIcon,
   PencilIcon,
 } from '@heroicons/react/24/outline'
+
 
 // ── Stage colors ──
 const stageColors: Record<string, string> = {
@@ -50,9 +53,17 @@ function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTem
   // Build precise marker instructions
   const markerInstructions = template && template.sceneRules.length > 0
     ? `每个识别出的场景，请在 contextMarkers 中创建一条记录。
-重要：startText 和 endText 必须从原文中逐字原样复制，各约15个字。
-startText 是该场景段落的开头文字，endText 是该场景段落的末尾文字。
-如果一个段落同时属于多个场景（如既是"亲吻场景"又是"亲密场景"），请分别创建两条 marker，可以指向相同或重叠的文本段。`
+
+⚠️ 极其重要 — 精确位置锚定要求：
+- startText 必须从原文中逐字原样复制该场景段落的开头约15个字，一字不差
+- endText 必须从原文中逐字原样复制该场景段落的末尾约15个字，一字不差
+- 这两个字段是改写系统定位原文段落的唯一依据，必须绝对准确
+- ⛔ 禁止使用 location 字段代替 startText/endText
+- ⛔ 禁止使用自己的话概括，必须从原文直接复制粘贴
+- 示例：如果原文段落开头是"高先在课堂上命令同桌杨幂"，startText 就必须是"高先在课堂上命令同桌杨幂"，不能写成"高先命令同桌"或"课堂上"
+
+如果一个段落同时属于多个场景（如既是"亲吻场景"又是"亲密场景"），请分别创建两条 marker，可以指向相同或重叠的文本段。
+- ⚠️ 合并规则：如果同一场景类型在原文中连续出现多段（如连续3段都是战斗场景），请合并为一条 contextMarker，startText 取第一段的开头，endText 取最后一段的末尾。不要为连续的同类型场景创建多条记录。`
     : ''
 
   return `你是一位专业的小说分析助手。请分析以下章节，提取结构化信息。
@@ -82,7 +93,12 @@ ${markerInstructions ? '\n' + markerInstructions : ''}
 }
 
 // ── Rewrite prompt builder ──
-function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | null, template?: RewritePromptTemplate | null, wordTarget?: number): string {
+function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | null, template?: RewritePromptTemplate | null, wordTarget?: number, chapterId?: string, disabledMarkerKeys?: Set<string>): string {
+  // Filter out user-disabled markers if chapterId is provided
+  const effectiveMarkers = analysis && chapterId && disabledMarkerKeys
+    ? analysis.contextMarkers.filter((_, i) => !disabledMarkerKeys.has(`${chapterId}:${i}`))
+    : analysis?.contextMarkers || []
+
   let context = `原文内容：\n${chapterContent}`
   if (analysis) {
     context += `\n\n章节分析：\n情节概要：${analysis.plotSummary}`
@@ -99,10 +115,10 @@ function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | 
 
   // Build precise scene location markers with startText/endText anchors
   let sceneMarkerSection = ''
-  if (analysis && analysis.contextMarkers.length > 0) {
+  if (effectiveMarkers.length > 0) {
     // Detect overlapping markers: same sceneName appearing multiple times, or similar startText/endText
     const markerGroups: Map<string, ContextMarker[]> = new Map()
-    for (const m of analysis.contextMarkers) {
+    for (const m of effectiveMarkers) {
       const key = m.startText && m.endText ? `${m.startText}|${m.endText}` : m.sceneName
       if (!markerGroups.has(key)) markerGroups.set(key, [])
       markerGroups.get(key)!.push(m)
@@ -157,7 +173,7 @@ function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | 
     // Add scene-specific guidance for categories not covered by contextMarkers
     if (analysis && analysis.categories.length > 0 && template.sceneGuidance) {
       const guidanceMap = buildSceneGuidanceMap(template)
-      const markerSceneNames = new Set(analysis.contextMarkers.map(m => m.sceneName))
+      const markerSceneNames = new Set(effectiveMarkers.map(m => m.sceneName))
       const uncoveredGuidance = analysis.categories
         .filter(c => guidanceMap[c.name] && !markerSceneNames.has(c.name))
         .map(c => `【${c.name}】${guidanceMap[c.name]}`)
@@ -186,6 +202,7 @@ ${rewriteRules}
 - 保持原有的场景分类和叙事节奏${wordTargetInstruction}
 - 对于标记了精确位置的场景段落，仅改写该段文字，其余部分可保留原文
 - 如果一个段落被标记为多个重叠场景，请综合所有场景的改写规则对该段进行改写
+- 段落格式：每段之间用空行分隔（即两个换行），不要用缩进表示分段
 
 请直接输出改写后的章节内容，不要包含任何解释或标记。`
 }
@@ -227,182 +244,6 @@ function enforceTemplateRewrite(analysis: ChapterAnalysis, template?: RewritePro
   return analysis
 }
 
-// ── Simple paragraph similarity (for diff view) ──
-function similarity(a: string, b: string): number {
-  if (a === b) return 1
-  if (!a || !b) return 0
-  const bigramsA = new Set<string>()
-  for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2))
-  const bigramsB = new Set<string>()
-  for (let i = 0; i < b.length - 1; i++) bigramsB.add(b.slice(i, i + 2))
-  const intersection = new Set([...bigramsA].filter(x => bigramsB.has(x)))
-  const union = new Set([...bigramsA, ...bigramsB])
-  return union.size === 0 ? 0 : intersection.size / union.size
-}
-
-interface DiffParagraph { text: string; changed: boolean }
-
-function computeParagraphDiff(original: string, rewritten: string): {
-  originalPars: DiffParagraph[]
-  rewrittenPars: DiffParagraph[]
-} {
-  const op = original.split(/\n+/).filter(p => p.trim())
-  const rp = rewritten.split(/\n+/).filter(p => p.trim())
-
-  const origResult: DiffParagraph[] = op.map(text => {
-    const found = rp.some(r => similarity(text, r) > 0.6)
-    return { text, changed: !found }
-  })
-
-  const rewResult: DiffParagraph[] = rp.map(text => {
-    const found = op.some(o => similarity(text, o) > 0.6)
-    return { text, changed: !found }
-  })
-
-  return { originalPars: origResult, rewrittenPars: rewResult }
-}
-
-// ── Compare Modal ──
-function CompareModal({
-  isOpen,
-  onClose,
-  originalContent,
-  rewrittenContent,
-  chapterTitle,
-  originalWordCount,
-  rewrittenWordCount,
-}: {
-  isOpen: boolean
-  onClose: () => void
-  originalContent: string
-  rewrittenContent: string
-  chapterTitle: string
-  originalWordCount: number
-  rewrittenWordCount: number
-}) {
-  const diff = useMemo(() => {
-    if (!originalContent || !rewrittenContent) return null
-    return computeParagraphDiff(originalContent, rewrittenContent)
-  }, [originalContent, rewrittenContent])
-
-  if (!isOpen) return null
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-    }} onClick={onClose}>
-      <div style={{
-        width: '92vw', height: '88vh', maxWidth: 1400,
-        background: '#fff', borderRadius: 20,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }} onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)',
-        }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d2520' }}>
-              改写对比 — {chapterTitle}
-            </div>
-            <div style={{ fontSize: 12, color: '#3a3530', marginTop: 4, display: 'flex', gap: 16 }}>
-              <span>📄 原文 {formatWordCount(originalWordCount)}字</span>
-              <span>✨ 改写 {formatWordCount(rewrittenWordCount)}字</span>
-              <span style={{ fontWeight: 600 }}>
-                差异: {rewrittenWordCount >= originalWordCount ? '+' : ''}{formatWordCount(Math.abs(rewrittenWordCount - originalWordCount))}字
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: '#2d2520', marginTop: 4, display: 'flex', gap: 16 }}>
-              <span>🟥 <span style={{ color: '#dc2626' }}>红色</span> = 原文被修改处</span>
-              <span>🟩 <span style={{ color: '#16a34a' }}>绿色</span> = 改写/新增内容</span>
-            </div>
-          </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: '#2d2520', padding: 8, borderRadius: 8,
-          }}>
-            <XMarkIcon style={{ width: 20, height: 20 }} />
-          </button>
-        </div>
-
-        {/* Side-by-side panels */}
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* Original (left) */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
-            <div style={{
-              padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.04)',
-              fontSize: 14, fontWeight: 600, color: '#3a3530',
-              background: 'rgba(220,38,38,0.04)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <span>📄 原文</span>
-              <span style={{ fontSize: 12, fontWeight: 400, color: '#2d2520' }}>{formatWordCount(originalWordCount)}字</span>
-            </div>
-            <ScrollArea style={{ flex: 1, padding: '16px 20px' }}>
-              {diff ? diff.originalPars.map((p, i) => (
-                <p key={i} style={{
-                  margin: '0 0 8px', fontSize: 15, lineHeight: 2,
-                  color: '#2d2520', textIndent: '2em',
-                  background: p.changed ? 'rgba(220,38,38,0.12)' : 'transparent',
-                  padding: p.changed ? '4px 8px' : undefined,
-                  borderRadius: p.changed ? 6 : undefined,
-                  borderLeft: p.changed ? '3px solid #dc2626' : undefined,
-                }}>
-                  {p.text}
-                </p>
-              )) : (
-                <div style={{
-                  fontSize: 15, lineHeight: 2, color: '#2d2520',
-                  whiteSpace: 'pre-wrap', fontFamily: '"Noto Serif SC", "Source Han Serif SC", "SimSun", serif',
-                }}>
-                  {originalContent}
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-
-          {/* Rewritten (right) */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{
-              padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.04)',
-              fontSize: 14, fontWeight: 600, color: '#3a3530',
-              background: 'rgba(22,163,74,0.04)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <span>✨ 改写</span>
-              <span style={{ fontSize: 12, fontWeight: 400, color: '#2d2520' }}>{formatWordCount(rewrittenWordCount)}字</span>
-            </div>
-            <ScrollArea style={{ flex: 1, padding: '16px 20px' }}>
-              {diff ? diff.rewrittenPars.map((p, i) => (
-                <p key={i} style={{
-                  margin: '0 0 8px', fontSize: 15, lineHeight: 2,
-                  color: '#2d2520', textIndent: '2em',
-                  background: p.changed ? 'rgba(22,163,74,0.12)' : 'transparent',
-                  padding: p.changed ? '4px 8px' : undefined,
-                  borderRadius: p.changed ? 6 : undefined,
-                  borderLeft: p.changed ? '3px solid #16a34a' : undefined,
-                }}>
-                  {p.text}
-                </p>
-              )) : (
-                <div style={{
-                  fontSize: 15, lineHeight: 2, color: '#2d2520',
-                  whiteSpace: 'pre-wrap', fontFamily: '"Noto Serif SC", "Source Han Serif SC", "SimSun", serif',
-                }}>
-                  {rewrittenContent}
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
@@ -428,6 +269,15 @@ export default function RewriteWorkspacePage() {
   const [analysisQueue, setAnalysisQueue] = useState<{ done: number; total: number; failed: number }>({ done: 0, total: 0, failed: 0 })
   const [analyzePaused, setAnalyzePaused] = useState(false)
   const analyzePausedRef = useRef(false)
+
+  // ── Stage 3: 识别待处理 — marker toggle state ──
+  const [disabledMarkerKeys, setDisabledMarkerKeys] = useState<Set<string>>(new Set())
+
+  // ── Rewrite mode tracking (for compare view) ──
+  const [rewriteMetaMap, setRewriteMetaMap] = useState<Map<string, { mode: 'scene-segment' | 'full-chapter'; sceneNames: string[] }>>(new Map())
+
+  // ── Stage 5: 合并输出 — selected chapter ──
+  const [mergeSelectedChapterId, setMergeSelectedChapterId] = useState<string | null>(null)
 
   // ── Stage 4: Rewrite state ──
   const [rewrites, setRewrites] = useState<Map<string, ChapterRewrite>>(new Map())
@@ -455,6 +305,7 @@ export default function RewriteWorkspacePage() {
   const [compareRewritten, setCompareRewritten] = useState('')
   const [compareOriginalWc, setCompareOriginalWc] = useState(0)
   const [compareRewrittenWc, setCompareRewrittenWc] = useState(0)
+  const [compareMeta, setCompareMeta] = useState<{ mode: 'scene-segment' | 'full-chapter'; sceneNames: string[] } | null>(null)
 
   // ── Template state ──
   const [templates, setTemplates] = useState<RewritePromptTemplate[]>([])
@@ -540,9 +391,9 @@ export default function RewriteWorkspacePage() {
           map.set(ch.id, {
             chapterId: ch.id,
             content,
-            wordCount: countChinese(content),
+            wordCount: countCJKChars(content),
             targetWordCount: ch.wordCount,
-            isPassing: calcIsPassing(countChinese(content), ch.wordCount),
+            isPassing: calcIsPassing(countCJKChars(content), ch.wordCount),
             rewrittenAt: '',
           })
         }
@@ -559,6 +410,8 @@ export default function RewriteWorkspacePage() {
   // ── Load chapter content when selected ──
   const handleSelectChapter = useCallback(async (chapter: RewriteChapter) => {
     setSelectedChapterId(chapter.id)
+    setEditorReadOnly(true)
+    setShowOriginal(false)
     try {
       const content = await rewriteService.readChapter(projectId, chapter.fileName)
       setChapterContent(content)
@@ -618,11 +471,7 @@ export default function RewriteWorkspacePage() {
       const splitResults = splitChaptersByHeadings(sourceContent)
       if (splitResults.length === 0) throw new Error('未检测到章节标题，请确认TXT文件包含"第X章"等章节标记')
 
-      let sourceWordCount = 0
-      for (const ch of sourceContent) {
-        const code = ch.charCodeAt(0)
-        if (code >= 0x4e00 && code <= 0x9fff) sourceWordCount++
-      }
+      const sourceWordCount = countCJKChars(sourceContent)
 
       const updated = await rewriteService.saveChapters({
         projectId,
@@ -678,9 +527,37 @@ export default function RewriteWorkspacePage() {
       }
     } catch (e: any) {
       setError('总结失败：' + (e.message || '未知错误'))
+      setFailedAnalyzingIds(prev => { const next = new Set(prev); next.add(chapter.id); return next })
     }
     setAnalyzing(false)
   }, [projectId, effectiveConfigId, project, activeTemplate])
+
+  // ── Re-analyze single chapter (clear existing analysis first) ──
+  const handleReanalyzeChapter = useCallback(async (chapter: RewriteChapter) => {
+    if (!effectiveConfigId) { setError('请先配置AI模型'); return }
+    try {
+      // Delete analysis from disk
+      await rewriteService.deleteAnalysis(projectId, chapter.fileName)
+      // Clear from local state
+      setAnalyses(prev => {
+        const next = new Map(prev)
+        next.delete(chapter.id)
+        return next
+      })
+      setFailedAnalyzingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setNoSceneIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      // Clear disabled markers for this chapter
+      setDisabledMarkerKeys(prev => {
+        const next = new Set(prev)
+        for (const k of prev) { if (k.startsWith(`${chapter.id}:`)) next.delete(k) }
+        return next
+      })
+      // Re-analyze
+      await handleAnalyzeChapter(chapter)
+    } catch (e: any) {
+      setError('重新总结失败：' + (e.message || '未知错误'))
+    }
+  }, [projectId, effectiveConfigId, handleAnalyzeChapter])
 
   const handleAnalyzeAll = useCallback(async () => {
     if (!project || !effectiveConfigId) { setError('请先配置AI模型'); return }
@@ -899,6 +776,8 @@ export default function RewriteWorkspacePage() {
     setRewriting(true)
     setRewriteStreaming('')
     setError('')
+    // Clear previous rewrite from state before re-rewriting
+    setRewrites(prev => { const next = new Map(prev); next.delete(chapter.id); return next })
 
     try {
       const content = await rewriteService.readChapter(projectId, chapter.fileName)
@@ -912,7 +791,9 @@ export default function RewriteWorkspacePage() {
       } catch { /* no analysis, rewrite without it */ }
 
       // ═══ Scene-segment rewriting path ═══
-      const markers = analysis?.contextMarkers?.filter(m => m.startText && m.endText) || []
+      const allMarkers = analysis?.contextMarkers?.filter(m => m.startText && m.endText) || []
+      // Filter out user-disabled markers
+      const markers = allMarkers.filter((_, i) => !disabledMarkerKeys.has(`${chapter.id}:${i}`))
 
       if (markers.length > 0) {
         // Group markers by startText|endText to handle overlapping scenes
@@ -961,9 +842,16 @@ export default function RewriteWorkspacePage() {
           const finalContent = assembleRewrittenChapter(content, rewrittenSegments)
           setRewriteStreaming('')
 
+          // Save rewrite metadata for compare view
+          setRewriteMetaMap(prev => {
+            const next = new Map(prev)
+            next.set(chapter.id, { mode: 'scene-segment', sceneNames: [...new Set(rewrittenSegments.map(s => s.marker.sceneName))] })
+            return next
+          })
+
           await rewriteService.saveRewrite(projectId, chapter.fileName, finalContent)
 
-          const wc = countChinese(finalContent)
+          const wc = countCJKChars(finalContent)
           const rewrite: ChapterRewrite = {
             chapterId: chapter.id, content: finalContent, wordCount: wc,
             targetWordCount: chapter.wordCount,
@@ -987,7 +875,7 @@ export default function RewriteWorkspacePage() {
       }
 
       // ═══ Fallback: Full-chapter rewrite path (non-streaming) ═══
-      const prompt = buildRewritePrompt(content, analysis, activeTemplate, project?.rewriteWordTarget)
+      const prompt = buildRewritePrompt(content, analysis, activeTemplate, project?.rewriteWordTarget, chapter.id, disabledMarkerKeys)
 
       const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
       const rewrittenContent = reply.trim()
@@ -996,7 +884,7 @@ export default function RewriteWorkspacePage() {
       // Save to disk
       await rewriteService.saveRewrite(projectId, chapter.fileName, rewrittenContent)
 
-      const wc = countChinese(rewrittenContent)
+      const wc = countCJKChars(rewrittenContent)
       const rewrite: ChapterRewrite = {
         chapterId: chapter.id,
         content: rewrittenContent,
@@ -1009,6 +897,14 @@ export default function RewriteWorkspacePage() {
       setRewrites(prev => {
         const next = new Map(prev)
         next.set(chapter.id, rewrite)
+        return next
+      })
+
+      // Save rewrite metadata for compare view
+      const sceneNames = analysis?.categories?.map(c => c.name) || []
+      setRewriteMetaMap(prev => {
+        const next = new Map(prev)
+        next.set(chapter.id, { mode: 'full-chapter', sceneNames })
         return next
       })
 
@@ -1069,7 +965,8 @@ export default function RewriteWorkspacePage() {
           } catch { /* no analysis */ }
 
           // ═══ Scene-segment rewriting for batch ═══
-          const markers = analysis?.contextMarkers?.filter((m: ContextMarker) => m.startText && m.endText) || []
+          const allMarkers = analysis?.contextMarkers?.filter((m: ContextMarker) => m.startText && m.endText) || []
+          const markers = allMarkers.filter((_, i) => !disabledMarkerKeys.has(`${ch.id}:${i}`))
           let rewrittenContent: string
 
           if (markers.length > 0) {
@@ -1112,13 +1009,13 @@ export default function RewriteWorkspacePage() {
               rewrittenContent = assembleRewrittenChapterFromSimple(content, rewrittenSegments)
             } else {
               // Fallback: full-chapter rewrite
-              const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget)
+              const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys)
               const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
               rewrittenContent = reply
             }
           } else {
             // No markers: full-chapter rewrite
-            const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget)
+            const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys)
             const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
             rewrittenContent = reply
           }
@@ -1127,7 +1024,7 @@ export default function RewriteWorkspacePage() {
 
           await rewriteService.saveRewrite(projectId, ch.fileName, rewrittenContent)
 
-          const wc = countChinese(rewrittenContent)
+          const wc = countCJKChars(rewrittenContent)
           return {
             ch, success: true,
             rewrite: {
@@ -1254,12 +1151,12 @@ export default function RewriteWorkspacePage() {
               }
               rewrittenContent = assembleRewrittenChapterFromSimple(content, rewrittenSegments)
             } else {
-              const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount) + wordCountNote
+              const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount, ch.id, disabledMarkerKeys) + wordCountNote
               const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
               rewrittenContent = reply
             }
           } else {
-            const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount) + wordCountNote
+            const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount, ch.id, disabledMarkerKeys) + wordCountNote
             const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
             rewrittenContent = reply
           }
@@ -1268,7 +1165,7 @@ export default function RewriteWorkspacePage() {
 
           await rewriteService.saveRewrite(projectId, ch.fileName, rewrittenContent)
 
-          const wc = countChinese(rewrittenContent)
+          const wc = countCJKChars(rewrittenContent)
           return {
             ch, success: true,
             rewrite: {
@@ -1316,7 +1213,7 @@ export default function RewriteWorkspacePage() {
     const ch = project?.chapters.find(c => c.id === selectedChapterId)
     if (!ch) return
 
-    const wc = countChinese(plainText)
+    const wc = countCJKChars(plainText)
     const rewrite: ChapterRewrite = {
       chapterId: selectedChapterId,
       content: plainText,
@@ -1365,15 +1262,17 @@ export default function RewriteWorkspacePage() {
     try {
       const original = await rewriteService.readChapter(projectId, chapter.fileName)
       const rewrite = rewrites.get(chapter.id)
+      const meta = rewriteMetaMap.get(chapter.id) || null
       setCompareChapter(chapter)
       setCompareOriginal(original)
       setCompareRewritten(rewrite?.content || '')
-      setCompareOriginalWc(countChinese(original))
-      setCompareRewrittenWc(countChinese(rewrite?.content || ''))
+      setCompareOriginalWc(countCJKChars(original))
+      setCompareRewrittenWc(countCJKChars(rewrite?.content || ''))
+      setCompareMeta(meta)
     } catch {
       setError('无法加载对比内容')
     }
-  }, [projectId, rewrites])
+  }, [projectId, rewrites, rewriteMetaMap])
 
   // ═══════════════════════════════════════════════════════
   // Stage render routing
@@ -1441,7 +1340,7 @@ export default function RewriteWorkspacePage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)' }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
               {selectedChapterId
-                ? `第${project!.chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${project!.chapters.find(c => c.id === selectedChapterId)?.title}`
+                ? project!.chapters.find(c => c.id === selectedChapterId)?.title || ''
                 : hasChapters ? '请选择左侧章节' : '章节内容'}
             </span>
             {selectedChapterId && (() => {
@@ -1502,7 +1401,7 @@ export default function RewriteWorkspacePage() {
     const chapters = project!.chapters
     const selectedAnalysis = selectedChapterId ? analyses.get(selectedChapterId) : null
     const analyzedCount = analyses.size
-    const failedCount = chapters.length - analyzedCount
+    const failedCount = failedAnalyzingIds.size
 
     return (
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -1579,12 +1478,33 @@ export default function RewriteWorkspacePage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
-              {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title} · 总结` : '选择左侧章节查看总结'}
+              {selectedChapterId ? chapters.find(c => c.id === selectedChapterId)?.title || '' : '选择左侧章节查看总结'}
             </span>
             {selectedAnalysis && (
-              <span style={{ fontSize: 12, color: '#2d2520', marginLeft: 'auto' }}>
-                {new Date(selectedAnalysis.analyzedAt).toLocaleString('zh-CN')}
-              </span>
+              <>
+                <button
+                  onClick={() => {
+                    const ch = chapters.find(c => c.id === selectedChapterId)
+                    if (ch && !analyzing) handleReanalyzeChapter(ch)
+                  }}
+                  disabled={analyzing}
+                  title="清除本章总结并重新分析"
+                  style={{
+                    marginLeft: 'auto', padding: '4px 12px', borderRadius: 6,
+                    border: '1px solid rgba(124,58,237,0.2)', cursor: analyzing ? 'not-allowed' : 'pointer',
+                    background: 'rgba(124,58,237,0.06)', color: '#7c3aed',
+                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                    opacity: analyzing ? 0.5 : 1, whiteSpace: 'nowrap',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.14-9.36L1 10"/></svg>
+                  重新总结
+                </button>
+                <span style={{ fontSize: 12, color: '#2d2520' }}>
+                  {new Date(selectedAnalysis.analyzedAt).toLocaleString('zh-CN')}
+                </span>
+              </>
             )}
           </div>
           <ScrollArea style={{ flex: 1, padding: '20px 24px', background: '#fff' }}>
@@ -1919,7 +1839,7 @@ export default function RewriteWorkspacePage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
-              {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title} · 识别` : '选择左侧章节查看识别结果'}
+              {selectedChapterId ? chapters.find(c => c.id === selectedChapterId)?.title || '' : '选择左侧章节查看识别结果'}
             </span>
             {selectedAnalysis && (
               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: selectedAnalysis.needsRewrite ? 'rgba(99,102,241,0.1)' : 'rgba(16,185,129,0.1)', color: selectedAnalysis.needsRewrite ? '#6366f1' : '#10b981', marginLeft: 'auto' }}>
@@ -1958,34 +1878,62 @@ export default function RewriteWorkspacePage() {
                     上下文标记
                   </h4>
                   {selectedAnalysis.contextMarkers.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {selectedAnalysis.contextMarkers.map((m, i) => (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {selectedAnalysis.contextMarkers.map((m, i) => {
+                        const markerKey = `${selectedChapterId}:${i}`
+                        const isDisabled = disabledMarkerKeys.has(markerKey)
+                        return (
                         <div key={i} style={{
-                          padding: '10px 14px', borderRadius: 10,
-                          background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.1)',
+                          padding: '16px 18px', borderRadius: 12,
+                          background: isDisabled ? 'rgba(156,163,175,0.04)' : 'rgba(245,158,11,0.04)',
+                          border: isDisabled ? '1px solid rgba(156,163,175,0.15)' : '1px solid rgba(245,158,11,0.15)',
+                          opacity: isDisabled ? 0.5 : 1,
+                          transition: 'all 0.15s ease',
                         }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                             <span style={{
-                              fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                              background: 'rgba(245,158,11,0.15)', color: '#d97706', flexShrink: 0,
+                              fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 6,
+                              background: isDisabled ? 'rgba(156,163,175,0.12)' : 'rgba(245,158,11,0.15)',
+                              color: isDisabled ? '#9ca3af' : '#d97706', flexShrink: 0,
                             }}>{m.sceneName}</span>
-                            <span style={{ fontSize: 12, color: '#4a3f38', lineHeight: 1.5 }}>{m.description}</span>
+                            <span style={{ fontSize: 14, color: '#2d2520', lineHeight: 1.6, flex: 1 }}>{m.description}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDisabledMarkerKeys(prev => {
+                                  const next = new Set(prev)
+                                  if (isDisabled) next.delete(markerKey)
+                                  else next.add(markerKey)
+                                  return next
+                                })
+                              }}
+                              title={isDisabled ? '点击恢复改写' : '点击跳过改写'}
+                              style={{
+                                padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.12)',
+                                cursor: 'pointer', background: isDisabled ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.06)',
+                                color: isDisabled ? '#10b981' : '#dc2626',
+                                fontSize: 12, fontWeight: 600, fontFamily: 'inherit', flexShrink: 0,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {isDisabled ? '↩ 恢复改写' : '✕ 跳过改写'}
+                            </button>
                           </div>
                           {(m.startText || m.endText) && (
                             <div style={{
-                              fontSize: 12, color: '#6366f1', lineHeight: 1.6,
-                              padding: '6px 10px', borderRadius: 6,
-                              background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.08)',
+                              fontSize: 14, color: '#6366f1', lineHeight: 1.8,
+                              padding: '10px 14px', borderRadius: 8,
+                              background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.1)',
                               fontFamily: '"Noto Serif SC", "Source Han Serif SC", SimSun, serif',
                             }}>
                               「{m.startText || '…'}……{m.endText || '…'}」
                             </div>
                           )}
                           {!m.startText && !m.endText && m.location && (
-                            <div style={{ fontSize: 12, color: '#2d2520' }}>大致位置：{m.location}</div>
+                            <div style={{ fontSize: 14, color: '#6b5e54', marginTop: 6 }}>大致位置：{m.location}</div>
                           )}
                         </div>
-                      ))}
+                      )})}
                     </div>
                   ) : <p style={{ fontSize: 13, color: '#2d2520', margin: 0 }}>（无上下文标记）</p>}
                 </section>
@@ -2132,7 +2080,7 @@ export default function RewriteWorkspacePage() {
                 return (
                   <button
                     key={ch.id}
-                    onClick={() => { handleSelectChapter(ch); setShowOriginal(false) }}
+                    onClick={() => handleSelectChapter(ch)}
                     style={{
                       width: '100%', display: 'flex', alignItems: 'center', gap: 8,
                       padding: '9px 14px', border: 'none', cursor: 'pointer',
@@ -2181,8 +2129,28 @@ export default function RewriteWorkspacePage() {
           {/* Action bar */}
           <div style={{ padding: '8px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
-              {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title}` : '选择左侧章节'}
+              {selectedChapterId ? chapters.find(c => c.id === selectedChapterId)?.title || '' : '选择左侧章节'}
             </span>
+            {selectedChapterId && (() => {
+              const ch = chapters.find(c => c.id === selectedChapterId)
+              // Precision anchor indicator
+              const analysis = analyses.get(ch?.id || '')
+              const precisionMarkers = analysis?.contextMarkers?.filter(m => m.startText && m.endText) || []
+              const enabledMarkers = precisionMarkers.filter((_, i) => !disabledMarkerKeys.has(`${selectedChapterId}:${i}`))
+              if (precisionMarkers.length > 0) {
+                return (
+                  <span style={{
+                    fontSize: 12, padding: '2px 8px', borderRadius: 4,
+                    background: enabledMarkers.length > 0 ? 'rgba(99,102,241,0.1)' : 'rgba(156,163,175,0.1)',
+                    color: enabledMarkers.length > 0 ? '#6366f1' : '#9ca3af',
+                    fontWeight: 600, whiteSpace: 'nowrap',
+                  }}>
+                    🎯 精密改写 {enabledMarkers.length}/{precisionMarkers.length} 场景
+                  </span>
+                )
+              }
+              return null
+            })()}
             {selectedChapterId && (() => {
               const ch = chapters.find(c => c.id === selectedChapterId)
               const originalWc = ch?.wordCount || 0
@@ -2432,14 +2400,15 @@ export default function RewriteWorkspacePage() {
         </div>
 
         {/* Compare Modal */}
-        <CompareModal
+        <RewriteCompareModal
           isOpen={compareChapter !== null}
-          onClose={() => setCompareChapter(null)}
+          onClose={() => { setCompareChapter(null); setCompareMeta(null) }}
           originalContent={compareOriginal}
           rewrittenContent={compareRewritten}
-          chapterTitle={compareChapter ? `第${compareChapter.chapterNumber}章 ${compareChapter.title}` : ''}
+          chapterTitle={compareChapter ? compareChapter.title : ''}
           originalWordCount={compareOriginalWc}
           rewrittenWordCount={compareRewrittenWc}
+          rewriteMeta={compareMeta}
         />
       </div>
     )
@@ -2490,11 +2459,22 @@ export default function RewriteWorkspacePage() {
               const hasRewrite = !!rw
               const isPassing = rw?.isPassing !== false
               return (
-                <div key={ch.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '9px 14px', fontSize: 12, color: '#4a3f38',
-                  background: 'transparent',
-                }}>
+                <button
+                  key={ch.id}
+                  onClick={() => setMergeSelectedChapterId(mergeSelectedChapterId === ch.id ? null : ch.id)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '9px 14px', border: 'none', cursor: 'pointer',
+                    background: mergeSelectedChapterId === ch.id ? 'rgba(16,185,129,0.08)' : 'transparent',
+                    borderLeft: mergeSelectedChapterId === ch.id ? '3px solid #10b981' : '3px solid transparent',
+                    textAlign: 'left' as const, fontFamily: 'inherit',
+                    fontSize: 14, color: mergeSelectedChapterId === ch.id ? '#059669' : '#4a3f38',
+                    fontWeight: mergeSelectedChapterId === ch.id ? 600 : 500,
+                    transition: 'all 0.12s ease',
+                  }}
+                  onMouseEnter={e => { if (mergeSelectedChapterId !== ch.id) e.currentTarget.style.background = 'rgba(16,185,129,0.03)' }}
+                  onMouseLeave={e => { if (mergeSelectedChapterId !== ch.id) e.currentTarget.style.background = 'transparent' }}
+                >
                   <span style={{ flexShrink: 0, fontSize: 12 }}>
                     {hasRewrite ? (isPassing ? '✅' : '⚠️') : '⭕'}
                   </span>
@@ -2506,28 +2486,70 @@ export default function RewriteWorkspacePage() {
                       {hasRewrite ? `${formatWordCount(rw!.wordCount)}字` : `${formatWordCount(ch.wordCount)}字`}
                     </div>
                   </div>
-                </div>
+                </button>
               )
             })}
           </ScrollArea>
         </div>
 
-        {/* Center: Merge preview */}
+        {/* Center: Merge preview / Chapter content */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)' }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>合并预览</span>
-            <span style={{ fontSize: 11, color: '#2d2520', marginLeft: 12 }}>{previewLines.join('').length} 字</span>
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            {(() => {
+              const selCh = mergeSelectedChapterId ? chapters.find(c => c.id === mergeSelectedChapterId) : null
+              const selRw = selCh ? rewrites.get(selCh.id) : null
+              return (
+                <>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>
+                    {selCh ? selCh.title : '合并预览'}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#2d2520' }}>
+                    {selCh
+                      ? (selRw ? `${formatWordCount(selRw.wordCount)}字（已改写）` : `${formatWordCount(selCh.wordCount)}字（原文）`)
+                      : `${previewLines.join('').length} 字`}
+                  </span>
+                  {selCh && (
+                    <button
+                      onClick={() => setMergeSelectedChapterId(null)}
+                      style={{
+                        marginLeft: 'auto', padding: '3px 10px', borderRadius: 6,
+                        border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer',
+                        background: '#fff', color: '#6b5e54', fontSize: 12, fontWeight: 600,
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      ← 返回合并预览
+                    </button>
+                  )}
+                </>
+              )
+            })()}
           </div>
           <ScrollArea style={{ flex: 1, padding: '20px 24px', background: '#fff' }}>
-            {rewriteCount > 0 ? (
-              <div style={{ fontSize: 17, lineHeight: 2.0, color: '#1a1410', whiteSpace: 'pre-wrap', fontFamily: '"Noto Serif SC", "Source Han Serif SC", "SimSun", serif' }}>
-                {previewLines.join('\n')}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <EmptyState icon="📦" title="暂无改写内容" description="请先完成 Stage 4 AI改写" />
-              </div>
-            )}
+            {(() => {
+              const selCh = mergeSelectedChapterId ? chapters.find(c => c.id === mergeSelectedChapterId) : null
+              if (selCh) {
+                // Show single chapter content
+                const rw = rewrites.get(selCh.id)
+                let content = rw?.content || '（未改写）'
+                content = content.replace(/^[#\s]*第[一二三四五六七八九十百千零\d]+[章节回卷集部篇].*?\n+/, '')
+                return (
+                  <div style={{ fontSize: 17, lineHeight: 2.0, color: '#1a1410', whiteSpace: 'pre-wrap', fontFamily: '"Noto Serif SC", "Source Han Serif SC", "SimSun", serif' }}>
+                    {`\n${selCh.title}\n\n${content}`}
+                  </div>
+                )
+              }
+              // Show full merge preview
+              return rewriteCount > 0 ? (
+                <div style={{ fontSize: 17, lineHeight: 2.0, color: '#1a1410', whiteSpace: 'pre-wrap', fontFamily: '"Noto Serif SC", "Source Han Serif SC", "SimSun", serif' }}>
+                  {previewLines.join('\n')}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <EmptyState icon="📦" title="暂无改写内容" description="请先完成 Stage 4 AI改写" />
+                </div>
+              )
+            })()}
           </ScrollArea>
         </div>
 
@@ -2554,11 +2576,6 @@ export default function RewriteWorkspacePage() {
                     新增改写 +{formatWordCount(Math.max(0, addedWc))}字
                   </div>
                   <div style={{ display: 'flex', height: 26, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-                    <div style={{
-                      flex: totalOriginalWc || 1, background: '#3b82f6',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 44,
-                    }}>原文</div>
                     {addedWc > 0 && (
                       <div style={{
                         flex: addedWc || 1, background: '#10b981',
@@ -2566,6 +2583,11 @@ export default function RewriteWorkspacePage() {
                         fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 44,
                       }}>新增</div>
                     )}
+                    <div style={{
+                      flex: totalOriginalWc || 1, background: '#3b82f6',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 44,
+                    }}>原文</div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: '#2d2520' }}>
                     <span>原书 {formatWordCount(totalOriginalWc)}字</span>
@@ -2771,189 +2793,4 @@ export default function RewriteWorkspacePage() {
       {renderStageContent()}
     </div>
   )
-}
-
-// ════════════════════════════════════════════════════
-// Scene-segment rewriting utilities (Req 5)
-// ════════════════════════════════════════════════════
-
-/** Find text in content using increasingly fuzzy matching */
-function findTextInContent(content: string, text: string, afterIndex: number = 0): number {
-  // Exact match
-  const exact = content.indexOf(text, afterIndex)
-  if (exact !== -1) return exact
-
-  // Normalize whitespace then try sliding window
-  const normalized = text.replace(/\s+/g, '')
-  if (normalized.length >= 4) {
-    for (let i = afterIndex; i <= content.length - normalized.length; i++) {
-      const slice = content.slice(i, i + normalized.length).replace(/\s+/g, '')
-      if (slice === normalized) return i
-    }
-  }
-
-  // Partial: first 6 chars prefix match
-  if (text.length >= 6) {
-    const prefix = text.slice(0, 6)
-    const prefixIdx = content.indexOf(prefix, afterIndex)
-    if (prefixIdx !== -1) return prefixIdx
-  }
-
-  return -1
-}
-
-/** Extract the text segment between startText and endText markers in content */
-function extractSceneSegment(content: string, marker: ContextMarker): { text: string; start: number; end: number } | null {
-  if (!marker.startText || !marker.endText) return null
-
-  const startIdx = findTextInContent(content, marker.startText)
-  if (startIdx === -1) return null
-
-  const endIdx = findTextInContent(content, marker.endText, startIdx + marker.startText.length)
-  if (endIdx === -1) return null
-
-  const endPos = endIdx + marker.endText.length
-  return { text: content.substring(startIdx, endPos), start: startIdx, end: endPos }
-}
-
-/** Build sceneName → guidance mapping (handles both id-keyed and name-keyed sceneGuidance) */
-function buildSceneGuidanceMap(template: RewritePromptTemplate): Record<string, string> {
-  const map: Record<string, string> = {}
-  if (!template.sceneGuidance) return map
-  for (const rule of template.sceneRules) {
-    // Try both id and name as keys
-    const guidance = template.sceneGuidance[rule.id] || template.sceneGuidance[rule.name]
-    if (guidance) {
-      map[rule.name] = guidance
-    }
-  }
-  // Also copy any entries keyed directly by name
-  for (const [key, value] of Object.entries(template.sceneGuidance)) {
-    if (!map[key]) map[key] = value
-  }
-  return map
-}
-
-/** Build a prompt for rewriting ONLY a specific scene segment (not the full chapter) */
-function buildSegmentRewritePrompt(
-  segmentText: string,
-  sceneNames: string[],
-  description: string,
-  template?: RewritePromptTemplate | null,
-): string {
-  // Build scene-specific guidance using proper name mapping
-  let guidanceLines = ''
-  if (template && template.sceneGuidance) {
-    const guidanceMap = buildSceneGuidanceMap(template)
-    const guidances = sceneNames
-      .filter(n => guidanceMap[n])
-      .map(n => `【${n}】${guidanceMap[n]}`)
-    if (guidances.length > 0) {
-      guidanceLines = `\n场景改写规则：\n${guidances.join('\n')}`
-    }
-  }
-
-  // Add universal guidance if available
-  if (template?.universalGuidance) {
-    guidanceLines += `\n\n通用改写指导：\n${template.universalGuidance}`
-  }
-
-  // Word count: let the template rules decide, not uniform math
-  const originalWc = countChinese(segmentText)
-  const wordTargetInstruction = `\n- 字数要求：请严格按照上述「场景改写规则」和「通用改写指导」中的篇幅控制来执行。
-  核心性交互场景（规则标明"必定发生性交""极易发生性交"）：不限制字数，充分铺陈。
-  暧昧/挑逗场景（规则标明"通常不直接性交"）：目标1000-2000字。
-  轻度接触/铺垫场景：在原文基础扩展50-100%。
-  原文本段${originalWc}字，作为扩展的基数参考。`
-
-  const sceneLabel = sceneNames.join(' + ')
-  const isOverlap = sceneNames.length > 1
-
-  return `你是一位专业的小说改写助手。请对以下场景段落进行加料改写。
-
-场景类型：${sceneLabel}${isOverlap ? '（重叠场景，需综合所有场景的改写规则）' : ''}
-场景剧情：${description}${guidanceLines}
-
-原文段落：
-${segmentText}
-
-改写要求：
-- 保持核心剧情走向和人物关系不变
-- ⚠️ 加料改写：不是简单润色文字，而是按照改写规则丰富和扩展内容
-- 增加详细的感官描写（视觉、触觉、听觉、嗅觉、味觉）
-- 扩展肢体互动的细节描述、对话中的情绪反应、环境氛围渲染${wordTargetInstruction}
-- 直接输出改写后的段落内容，不要包含任何解释或标记。`
-}
-
-/** Simplified: Assemble without marker info (for batch processing) */
-function assembleRewrittenChapterFromSimple(
-  originalContent: string,
-  positionedSegments: { start: number; end: number; rewritten: string }[]
-): string {
-  const valid = positionedSegments
-    .filter(s => s.start >= 0 && s.end > s.start && s.rewritten.trim())
-    .sort((a, b) => a.start - b.start)
-
-  if (valid.length === 0) return originalContent
-
-  // Merge overlapping segments
-  const merged: { start: number; end: number; rewritten: string }[] = []
-  for (const seg of valid) {
-    const last = merged[merged.length - 1]
-    if (last && seg.start <= last.end) {
-      last.end = Math.max(last.end, seg.end)
-      last.rewritten = last.rewritten + '\n' + seg.rewritten
-    } else {
-      merged.push({ start: seg.start, end: seg.end, rewritten: seg.rewritten })
-    }
-  }
-
-  let result = originalContent
-  for (let i = merged.length - 1; i >= 0; i--) {
-    const { start, end, rewritten } = merged[i]
-    result = result.substring(0, start) + rewritten + result.substring(end)
-  }
-  return result
-}
-
-/** Assemble a full chapter by replacing scene segments with their rewritten versions */
-function assembleRewrittenChapter(
-  originalContent: string,
-  positionedSegments: { marker: ContextMarker; start: number; end: number; rewritten: string }[]
-): string {
-  const valid = positionedSegments
-    .filter(s => s.start >= 0 && s.end > s.start && s.rewritten.trim())
-    .sort((a, b) => a.start - b.start)
-
-  if (valid.length === 0) return originalContent
-
-  // Merge overlapping segments
-  const merged: { start: number; end: number; rewritten: string }[] = []
-  for (const seg of valid) {
-    const last = merged[merged.length - 1]
-    if (last && seg.start <= last.end) {
-      last.end = Math.max(last.end, seg.end)
-      last.rewritten = last.rewritten + '\n' + seg.rewritten
-    } else {
-      merged.push({ start: seg.start, end: seg.end, rewritten: seg.rewritten })
-    }
-  }
-
-  // Assemble from right to left to preserve indices
-  let result = originalContent
-  for (let i = merged.length - 1; i >= 0; i--) {
-    const { start, end, rewritten } = merged[i]
-    result = result.substring(0, start) + rewritten + result.substring(end)
-  }
-  return result
-}
-
-// ── Helper: count Chinese characters ──
-function countChinese(text: string): number {
-  let count = 0
-  for (const ch of text) {
-    const code = ch.charCodeAt(0)
-    if (code >= 0x4e00 && code <= 0x9fff) count++
-  }
-  return count
 }

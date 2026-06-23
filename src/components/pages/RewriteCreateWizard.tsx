@@ -3,7 +3,7 @@ import { rewriteService, rewriteTemplateService } from '@/services/fileService'
 import type { RewriteProject, RewriteChapter } from '@/types/rewrite'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import type { ModelConfig } from '@/types/settings'
-import { formatWordCount, splitChaptersByHeadings } from '@/utils/textUtils'
+import { formatWordCount, splitChaptersByHeadings, countCJKChars } from '@/utils/textUtils'
 import { chatAI } from '@/utils/chatAI'
 import { useSettingsStore } from '@/store'
 import EmptyState from '@/components/common/EmptyState'
@@ -137,10 +137,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
 
       const preview = results.map(r => ({
         title: r.title,
-        wordCount: [...r.content].filter(c => {
-          const code = c.charCodeAt(0)
-          return code >= 0x4e00 && code <= 0x9fff
-        }).length,
+        wordCount: countCJKChars(r.content),
       }))
       setSplitPreview(preview)
     } catch (e: any) {
@@ -205,11 +202,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
         if (splitResults.length === 0) splitResults.push({ title: '全文', content: fileContent })
       }
 
-      let sourceWordCount = 0
-      for (const ch of fileContent) {
-        const code = ch.charCodeAt(0)
-        if (code >= 0x4e00 && code <= 0x9fff) sourceWordCount++
-      }
+      const sourceWordCount = countCJKChars(fileContent)
 
       // Save chapters and config
       const updated = await rewriteService.saveChapters({
@@ -277,10 +270,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
           <DocumentTextIcon style={{ width: 20, height: 20, color: '#10b981' }} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>{fileName}.txt</div>
-            <div style={{ fontSize: 13, color: '#9b8e84' }}>{formatWordCount(totalWordCount || [...fileContent].filter(c => {
-              const code = c.charCodeAt(0)
-              return code >= 0x4e00 && code <= 0x9fff
-            }).length)}字</div>
+            <div style={{ fontSize: 13, color: '#9b8e84' }}>{formatWordCount(totalWordCount || countCJKChars(fileContent))}字</div>
           </div>
         </div>
       )}

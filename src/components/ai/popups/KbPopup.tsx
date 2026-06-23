@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { kbService } from '@/services/fileService'
 import { useStore } from '@/store'
 import ScrollArea from '@/components/common/ScrollArea'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { SkeletonList } from '@/components/common/Skeleton'
 import { MagnifyingGlassIcon, DocumentTextIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 
@@ -23,6 +24,7 @@ export function KbPopup() {
   const [fileContent, setFileContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [fileToDelete, setFileToDelete] = useState<{ id: string; name: string } | null>(null)
 
   const loadFiles = useCallback(async () => {
     try {
@@ -51,12 +53,17 @@ export function KbPopup() {
   }
 
   const handleDelete = async (fileId: string, name: string) => {
-    if (!confirm(`确定删除「${name}」？此操作不可恢复。`)) return
+    setFileToDelete({ id: fileId, name })
+  }
+
+  const confirmDelete = async () => {
+    if (!fileToDelete) return
     try {
-      await kbService.delete(fileId)
-      if (selectedFileId === fileId) { setSelectedFileId(null); setFileContent('') }
+      await kbService.delete(fileToDelete.id)
+      if (selectedFileId === fileToDelete.id) { setSelectedFileId(null); setFileContent('') }
       loadFiles()
     } catch { /* delete failed */ }
+    setFileToDelete(null)
   }
 
   const handleDownload = async (fileId: string) => {
@@ -74,6 +81,7 @@ export function KbPopup() {
   )
 
   return (
+    <>
     <div style={{ display: 'flex', height: '100%', gap: 1 }}>
       {/* Left: file list */}
       <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
@@ -140,5 +148,18 @@ export function KbPopup() {
         </div>
       </div>
     </div>
+    {/* 知识库文件删除确认 */}
+    {fileToDelete && (
+      <ConfirmModal
+        isOpen={true}
+        title="删除知识库文件"
+        message={`确定要删除「${fileToDelete.name}」？此操作不可恢复。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setFileToDelete(null)}
+      />
+    )}
+    </>
   )
 }

@@ -10,6 +10,7 @@ projects/
 knowledge_base/
 style_projects/
 continuation_projects/
+rewrite_projects/
 .appdata/
 
 # OS files
@@ -37,9 +38,10 @@ coverage/
 .aiharness/audit/
 .stats/
 
-# Style/scene templates (user-generated)
+# Style/scene/rewrite templates (user-generated)
 style_templates/
 scene_templates/
+rewrite_templates/
 
 # Temp files
 scripts/.tmp/

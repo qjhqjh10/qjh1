@@ -28,6 +28,8 @@ import SceneWorkshopPage from '@/components/pages/SceneWorkshopPage'
 import ImitationPage from '@/components/pages/ImitationPage'
 import ImitationOutlinePage from '@/components/pages/ImitationOutlinePage'
 import ImitationDetailedPage from '@/components/pages/ImitationDetailedPage'
+import RewritePage from '@/components/pages/RewritePage'
+import RewriteWorkspacePage from '@/components/pages/RewriteWorkspacePage'
 
 import OperationHistoryPage from '@/components/pages/OperationHistoryPage'
 import ScratchpadPage from '@/components/pages/ScratchpadPage'
@@ -77,6 +79,8 @@ function AnimatedRoutes() {
           <Route path="/imitation" element={<ImitationPage />} />
           <Route path="/imitation-outline" element={<ImitationOutlinePage />} />
           <Route path="/imitation-detailed" element={<ImitationDetailedPage />} />
+          <Route path="/rewrite" element={<RewritePage />} />
+          <Route path="/rewrite-workspace" element={<RewriteWorkspacePage />} />
 
           <Route path="/operation-history" element={<OperationHistoryPage />} />
           <Route path="/scratchpad" element={<ScratchpadPage />} />
@@ -93,6 +97,7 @@ export default function App() {
   const setProjectsBasePath = useStore(s => s.setProjectsBasePath)
   const setImitationProjectsPath = useStore(s => s.setImitationProjectsPath)
   const setContinuationProjectDirsPath = useStore(s => s.setContinuationProjectDirsPath)
+  const setRewriteProjectsPath = useStore(s => s.setRewriteProjectsPath)
   const setConnectionStatus = useStore(s => s.setConnectionStatus)
   const setProjects = useStore(s => s.setProjects)
   const projectsBasePath = useStore(s => s.projectsBasePath)
@@ -119,7 +124,8 @@ export default function App() {
     appService.getProjectsBasePath().then(setProjectsBasePath)
     appService.getImitationProjectsPath().then(setImitationProjectsPath)
     appService.getContinuationProjectDirsPath().then(setContinuationProjectDirsPath)
-  }, [setProjectsBasePath, setImitationProjectsPath, setContinuationProjectDirsPath])
+    appService.getRewriteProjectsPath().then(setRewriteProjectsPath)
+  }, [setProjectsBasePath, setImitationProjectsPath, setContinuationProjectDirsPath, setRewriteProjectsPath])
 
   // Load configs from electron-store into Zustand on startup.
   // electron-store is authoritative (stores encrypted API keys); localStorage is a mirror.
@@ -147,9 +153,10 @@ export default function App() {
   }, [])
 
   // Load projects on startup so sidebar is never empty
-  // v13.1.0: projects now split across writing/imitation/continuation dirs
+  // v13.2.0: projects split across writing/imitation/continuation/rewrite dirs
   const imitationProjectsPath = useStore(s => s.imitationProjectsPath)
   const continuationProjectDirsPath = useStore(s => s.continuationProjectDirsPath)
+  const rewriteProjectsPath = useStore(s => s.rewriteProjectsPath)
 
   const loadProjects = useCallback(async () => {
     if (!projectsBasePath) return
@@ -185,13 +192,15 @@ export default function App() {
           }
         }
       } catch { /* continuation service unavailable */ }
+      // Rewrite projects are managed entirely within RewritePage (local state),
+      // not injected into the global project list or sidebar.
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }
-  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, setProjects])
+  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, rewriteProjectsPath, setProjects])
 
   useEffect(() => {
-    if (projectsBasePath && imitationProjectsPath && continuationProjectDirsPath) loadProjects()
-  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, loadProjects])
+    if (projectsBasePath && imitationProjectsPath && continuationProjectDirsPath && rewriteProjectsPath) loadProjects()
+  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, rewriteProjectsPath, loadProjects])
 
   // Check API connection (re-checks when config changes)
   useEffect(() => {

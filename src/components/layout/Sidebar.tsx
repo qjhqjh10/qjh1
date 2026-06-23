@@ -62,6 +62,7 @@ export default function Sidebar() {
     // Always show imitation and continuation entry points
     items.push({ path: '/imitation', label: '小说仿写', icon: DocumentMagnifyingGlassIcon })
     items.push({ path: '/continuation', label: '小说续写', icon: BookOpenIcon })
+    items.push({ path: '/rewrite', label: '小说改写', icon: PencilIcon })
 
 
     // Show project-specific nav only when a project is active
@@ -85,6 +86,7 @@ export default function Sidebar() {
           items.push({ path: '/chapter', label: '章节创作', icon: BookOpenIcon })
         }
       }
+      // Rewrite projects navigate via RewritePage's own UI (no sidebar nav items)
     }
 
     items.push(...COMMON_ITEMS)
@@ -224,7 +226,7 @@ export default function Sidebar() {
                   setActiveProject(project.id, project.type)
                 }
                 setActivePage('home')
-                navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation' : '/')
+                navigate(project.type === 'imitation' ? '/imitation' : project.type === 'continuation' ? '/continuation' : project.type === 'rewrite' ? '/rewrite' : '/')
               }}
               title={collapsed ? project.name : undefined}
               style={{

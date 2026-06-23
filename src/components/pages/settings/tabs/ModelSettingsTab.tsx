@@ -345,6 +345,7 @@ export function ModelSettingsTab() {
   const [imageModelList, setImageModelList] = useState<string[]>([])
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'image'
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [showClearConfigConfirm, setShowClearConfigConfirm] = useState(false)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -421,13 +422,7 @@ export function ModelSettingsTab() {
         <ScrollArea maxHeight="100%" style={{ flex: 1 }}>
           <div style={{ padding: '8px' }}>
             {configs.length > 0 && (
-              <button onClick={async () => {
-                if (confirm('确定要清除所有模型配置数据吗？此操作不可恢复。')) {
-                  await settingsService.clearConfigs().catch(() => {})
-                  localStorage.removeItem('novel-writer-settings')
-                  location.reload()
-                }
-              }} style={{
+              <button onClick={() => setShowClearConfigConfirm(true)} style={{
                 width: '100%', textAlign: 'center', padding: '8px', borderRadius: 8, border: '1px dashed rgba(220,38,38,0.2)',
                 background: 'transparent', color: '#dc2626', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
                 marginBottom: 8,
@@ -544,14 +539,6 @@ export function ModelSettingsTab() {
               </div>
             </div>
 
-            {/* ── System Prompt ── */}
-            <div style={cardInner}>
-              <div style={cardTitle}>系统提示词</div>
-              <textarea value={activeConfig.systemPrompt} onChange={e => u({ systemPrompt: e.target.value })}
-                style={{ ...inputBase, minHeight: 90, resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
-                placeholder="系统提示词..." />
-            </div>
-
             {/* ── Delete ── */}
             <button onClick={() => setDeleteTargetId(activeConfig.id)}
                 style={{
@@ -565,6 +552,21 @@ export function ModelSettingsTab() {
         </ScrollArea>
       </div>
     </div>
+    {/* 清除全部配置确认 */}
+    <ConfirmModal
+      isOpen={showClearConfigConfirm}
+      title="清除全部配置"
+      message="确定要清除所有模型配置数据吗？这将删除所有 API 密钥和设置，并重载页面。此操作不可恢复。"
+      confirmLabel="清除全部"
+      danger
+      onConfirm={async () => {
+        setShowClearConfigConfirm(false)
+        await settingsService.clearConfigs().catch(() => {})
+        localStorage.removeItem('novel-writer-settings')
+        location.reload()
+      }}
+      onCancel={() => setShowClearConfigConfirm(false)}
+    />
     <ConfirmModal
       isOpen={deleteTargetId !== null}
       title="删除模型配置"

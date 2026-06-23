@@ -5,6 +5,7 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import { PlusIcon, TrashIcon, MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { logError } from '@/utils/logger'
 import WordCount from '@/components/common/WordCount'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import { htmlToMarkdown } from '@/utils/markdownConverter'
 
 export default function ScratchpadPage() {
@@ -15,6 +16,7 @@ export default function ScratchpadPage() {
 
   const [notes, setNotes] = useState<string[]>([])
   const [selectedNote, setSelectedNote] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [content, setContent] = useState('')
   const [rawContent, setRawContent] = useState('')
   const [title, setTitle] = useState('')
@@ -122,12 +124,17 @@ export default function ScratchpadPage() {
 
   const handleDelete = async () => {
     if (!selectedNote) return
-    if (!confirm(`确定删除草稿「${title}」？此操作不可恢复。`)) return
+    setShowDeleteConfirm(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!selectedNote) return
     try {
       await fileService.deleteFile(notePath(selectedNote))
       await loadNotes()
       setSelectedNote(null)
     } catch (err) { logError('删除草稿失败', err) }
+    setShowDeleteConfirm(false)
   }
 
   const filteredNotes = useMemo(() => {
@@ -136,6 +143,7 @@ export default function ScratchpadPage() {
   }, [notes, search])
 
   return (
+    <>
     <div className="page-enter" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '20px 28px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#2d2520' }}>草稿本</h2>
@@ -251,5 +259,18 @@ export default function ScratchpadPage() {
         </div>
       </div>
     </div>
+    {/* 草稿删除确认 */}
+    {showDeleteConfirm && selectedNote && (
+      <ConfirmModal
+        isOpen={true}
+        title="删除草稿"
+        message={`确定要删除草稿「${selectedNote}」？此操作不可恢复。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+    )}
+    </>
   )
 }

@@ -1,7 +1,31 @@
 {
-  "currentVersion": "13.5.2",
-  "currentDate": "2026-06-23",
+  "currentVersion": "13.5.3",
+  "currentDate": "2026-06-24",
   "history": [
+    {
+      "version": "13.5.3",
+      "date": "2026-06-24",
+      "features": [
+        "小说改写: 精密定位改写机制 — startText/endText锚点定位+4级模糊匹配→仅改写场景段落→替换回原文",
+        "小说改写: Stage 3场景标记可跳过/恢复改写 (disabledMarkerKeys)",
+        "小说改写: Stage 2重新总结按钮 — 清空分析后重新AI分析",
+        "小说改写: Stage 5章节列表可点击查看单章+合并预览切换",
+        "小说改写: 查看对比—显示改写模式(精密定位/全章)+已改写场景列表+段落级diff",
+        "小说改写: 段落格式修复—plainToHtml+computeParagraphDiff统一处理　　+\\n双分隔符",
+        "小说改写: countCJKChars统一 — 消除3种字数统计重复实现(前端/后端/内联循环)",
+        "小说改写: RewriteWorkspacePage拆分 — 提取RewriteCompareModal+rewriteSegmentUtils(-362行)"
+      ],
+      "fixes": [
+        "RewritePage阶段进度圆环Step 3修复 — 使用全局STEP_KEY_TO_STAGE/STAGE_ORDER",
+        "Stage 4切换章节editorReadOnly重置",
+        "Stage 2失败章节计数从全部未分析改为实际失败数",
+        "章节标题双重前缀修复 — 去除第N章重复",
+        "Stage 5导出统计条绿色左移",
+        "对比视图阈值不对称修复 — 统一0.35",
+        "endText模糊匹配增强 — 4级匹配(精确→空白归一化→前缀8/6/4→字符级最长公共子串)",
+        "场景识别Tab滚动条缺失修复 — flex容器添加minHeight:0"
+      ]
+    },
     {
       "version": "13.5.2",
       "date": "2026-06-23",

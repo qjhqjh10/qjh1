@@ -4,7 +4,7 @@ export interface Project {
   path: string
   chapterCount: number
   wordCount: number
-  type: 'writing' | 'imitation' | 'continuation'
+  type: 'writing' | 'imitation' | 'continuation' | 'rewrite'
   novelCategory?: string
   coverImage?: string
 }

@@ -24,6 +24,7 @@ export interface AppState {
   projectsBasePath: string
   imitationProjectsPath: string
   continuationProjectDirsPath: string
+  rewriteProjectsPath: string
 
   // Worldbuilding
   worldbuildingContent: string
@@ -73,6 +74,7 @@ export interface AppState {
   setProjectsBasePath: (p: string) => void
   setImitationProjectsPath: (p: string) => void
   setContinuationProjectDirsPath: (p: string) => void
+  setRewriteProjectsPath: (p: string) => void
   setProjects: (projects: Project[]) => void
   setActiveProject: (id: string | null, type?: string) => void
   setActiveProjectName: (name: string) => void
@@ -143,6 +145,7 @@ export const useStore = create<AppState>()(
     projectsBasePath: '',
     imitationProjectsPath: '',
     continuationProjectDirsPath: '',
+    rewriteProjectsPath: '',
     ...initialProjectState,
     activePage: 'home',
     chapterGenTrigger: null as string | null,
@@ -154,6 +157,7 @@ export const useStore = create<AppState>()(
     setProjectsBasePath: (p) => set({ projectsBasePath: p }),
     setImitationProjectsPath: (p) => set({ imitationProjectsPath: p }),
     setContinuationProjectDirsPath: (p) => set({ continuationProjectDirsPath: p }),
+    setRewriteProjectsPath: (p) => set({ rewriteProjectsPath: p }),
     setProjects: (projects) => set(s => {
       // Preserve non-writing projects that are in the store but not on disk
       const existingIds = new Set(projects.map(p => p.id))
