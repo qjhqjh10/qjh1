@@ -154,6 +154,7 @@ const api = {
     getContinuationProjectDirsPath: (): Promise<string> => ipcRenderer.invoke('app:getContinuationProjectDirsPath'),
     getStoryWorkspacePath: (): Promise<string> => ipcRenderer.invoke('app:getStoryWorkspacePath'),
     getRewriteProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getRewriteProjectsPath'),
+    openFolder: (folderPath: string): Promise<void> => ipcRenderer.invoke('app:openFolder', folderPath),
     getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('app:getSystemPrompt'),
   },
   kb: {

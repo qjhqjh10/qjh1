@@ -1,4 +1,4 @@
-import { IpcMain, dialog, BrowserWindow } from 'electron'
+import { IpcMain, dialog, BrowserWindow, shell } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as crypto from 'crypto'
@@ -188,6 +188,13 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
     return projectsPath
   })
 
+  // ── Open folder in file explorer ──
+  ipcMain.handle('app:openFolder', async (_event, folderPath: string) => {
+    try {
+      await shell.openPath(folderPath)
+    } catch { /* ignore */ }
+  })
+
   // ── Get project dir path (for file operations) ──
   ipcMain.handle('rewrite:getProjectPath', async (_event, id: string) => {
     return projectDir(id)
@@ -277,18 +284,27 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
       ? project.chapters.filter(c => chapterIds.includes(c.id))
       : project.chapters
 
+    const chaptersDir = path.join(projectDir(id), 'chapters')
     const lines: string[] = []
     for (const ch of chaptersToMerge) {
       try {
+        // Try rewritten version first
         const content = await fs.readFile(path.join(rewritesDir, ch.fileName), 'utf-8')
-        lines.push(`\n第${ch.chapterNumber}章 ${ch.title}\n`)
+        lines.push(`\n第${ch.chapterNumber}章 ${ch.title}（已改写）\n`)
         lines.push(content)
         lines.push('')
       } catch {
-        // Skip chapters without rewrites
-        lines.push(`\n第${ch.chapterNumber}章 ${ch.title}\n`)
-        lines.push('（未改写）')
-        lines.push('')
+        // Fall back to original chapter
+        try {
+          const original = await fs.readFile(path.join(chaptersDir, ch.fileName), 'utf-8')
+          lines.push(`\n第${ch.chapterNumber}章 ${ch.title}\n`)
+          lines.push(original)
+          lines.push('')
+        } catch {
+          lines.push(`\n第${ch.chapterNumber}章 ${ch.title}\n`)
+          lines.push('（章节缺失）')
+          lines.push('')
+        }
       }
     }
 

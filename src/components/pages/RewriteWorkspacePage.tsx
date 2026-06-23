@@ -308,21 +308,21 @@ function CompareModal({
             <div style={{ fontSize: 16, fontWeight: 700, color: '#2d2520' }}>
               改写对比 — {chapterTitle}
             </div>
-            <div style={{ fontSize: 12, color: '#6b5e54', marginTop: 4, display: 'flex', gap: 16 }}>
+            <div style={{ fontSize: 12, color: '#3a3530', marginTop: 4, display: 'flex', gap: 16 }}>
               <span>📄 原文 {formatWordCount(originalWordCount)}字</span>
               <span>✨ 改写 {formatWordCount(rewrittenWordCount)}字</span>
               <span style={{ fontWeight: 600 }}>
                 差异: {rewrittenWordCount >= originalWordCount ? '+' : ''}{formatWordCount(Math.abs(rewrittenWordCount - originalWordCount))}字
               </span>
             </div>
-            <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 4, display: 'flex', gap: 16 }}>
+            <div style={{ fontSize: 11, color: '#2d2520', marginTop: 4, display: 'flex', gap: 16 }}>
               <span>🟥 <span style={{ color: '#dc2626' }}>红色</span> = 原文被修改处</span>
               <span>🟩 <span style={{ color: '#16a34a' }}>绿色</span> = 改写/新增内容</span>
             </div>
           </div>
           <button onClick={onClose} style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            color: '#9b8e84', padding: 8, borderRadius: 8,
+            color: '#2d2520', padding: 8, borderRadius: 8,
           }}>
             <XMarkIcon style={{ width: 20, height: 20 }} />
           </button>
@@ -334,12 +334,12 @@ function CompareModal({
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
             <div style={{
               padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.04)',
-              fontSize: 14, fontWeight: 600, color: '#6b5e54',
+              fontSize: 14, fontWeight: 600, color: '#3a3530',
               background: 'rgba(220,38,38,0.04)',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <span>📄 原文</span>
-              <span style={{ fontSize: 12, fontWeight: 400, color: '#9b8e84' }}>{formatWordCount(originalWordCount)}字</span>
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#2d2520' }}>{formatWordCount(originalWordCount)}字</span>
             </div>
             <ScrollArea style={{ flex: 1, padding: '16px 20px' }}>
               {diff ? diff.originalPars.map((p, i) => (
@@ -368,12 +368,12 @@ function CompareModal({
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{
               padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.04)',
-              fontSize: 14, fontWeight: 600, color: '#6b5e54',
+              fontSize: 14, fontWeight: 600, color: '#3a3530',
               background: 'rgba(22,163,74,0.04)',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <span>✨ 改写</span>
-              <span style={{ fontSize: 12, fontWeight: 400, color: '#9b8e84' }}>{formatWordCount(rewrittenWordCount)}字</span>
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#2d2520' }}>{formatWordCount(rewrittenWordCount)}字</span>
             </div>
             <ScrollArea style={{ flex: 1, padding: '16px 20px' }}>
               {diff ? diff.rewrittenPars.map((p, i) => (
@@ -439,6 +439,7 @@ export default function RewriteWorkspacePage() {
   const [showOriginal, setShowOriginal] = useState(false)
   const [editorReadOnly, setEditorReadOnly] = useState(true)
   const [showPreserveChapters, setShowPreserveChapters] = useState(false)
+  const [showNoRewriteChapters, setShowNoRewriteChapters] = useState(false)
 
   // ── Breathing light state for Stage 2 ──
   const [activeAnalyzingIds, setActiveAnalyzingIds] = useState<Set<string>>(new Set())
@@ -448,6 +449,7 @@ export default function RewriteWorkspacePage() {
   // ── Breathing light state for Stage 4 ──
   const [activeRewritingIds, setActiveRewritingIds] = useState<Set<string>>(new Set())
   const [failedRewritingIds, setFailedRewritingIds] = useState<Set<string>>(new Set())
+  const [attemptedRewriteIds, setAttemptedRewriteIds] = useState<Set<string>>(new Set())
   const [compareChapter, setCompareChapter] = useState<RewriteChapter | null>(null)
   const [compareOriginal, setCompareOriginal] = useState('')
   const [compareRewritten, setCompareRewritten] = useState('')
@@ -1033,6 +1035,12 @@ export default function RewriteWorkspacePage() {
     // Only process chapters that haven't been rewritten yet
     const chs = project.chapters.filter(ch => !rewrites.has(ch.id))
     if (chs.length === 0) { setError('所有章节已完成改写'); setRewriting(false); return }
+    // Mark all target chapters as attempted
+    setAttemptedRewriteIds(prev => {
+      const next = new Set(prev)
+      chs.forEach(c => next.add(c.id))
+      return next
+    })
     let done = 0; let failed = 0
     setRewriteQueue({ done: 0, total: chs.length, failed: 0 })
 
@@ -1390,8 +1398,8 @@ export default function RewriteWorkspacePage() {
         {/* Chapter list */}
         <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
-            <div style={{ fontSize: 12, color: '#6b5e54', marginTop: 2 }}>{hasChapters ? `${project!.chapters.length} 章` : '尚未拆分'}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
+            <div style={{ fontSize: 12, color: '#3a3530', marginTop: 2 }}>{hasChapters ? `${project!.chapters.length} 章` : '尚未拆分'}</div>
           </div>
           <ScrollArea style={{ flex: 1 }}>
             {project!.chapters.map(ch => (
@@ -1412,7 +1420,12 @@ export default function RewriteWorkspacePage() {
                 onMouseLeave={e => { if (selectedChapterId !== ch.id) e.currentTarget.style.background = 'transparent' }}
               >
                 <DocumentTextIcon style={{ width: 13, height: 13, flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>第{ch.chapterNumber}章 {ch.title}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+{ch.title}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#2d2520', marginTop: 1 }}>{formatWordCount(ch.wordCount)}字</div>
+                </div>
               </button>
             ))}
             {!hasChapters && (
@@ -1433,7 +1446,7 @@ export default function RewriteWorkspacePage() {
             </span>
             {selectedChapterId && (() => {
               const ch = project!.chapters.find(c => c.id === selectedChapterId)
-              return ch ? <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 12 }}>{formatWordCount(ch.wordCount)}字</span> : null
+              return ch ? <span style={{ fontSize: 11, color: '#2d2520', marginLeft: 12 }}>{formatWordCount(ch.wordCount)}字</span> : null
             })()}
           </div>
           <ScrollArea style={{ flex: 1, padding: '20px 24px', background: '#fff' }}>
@@ -1452,18 +1465,18 @@ export default function RewriteWorkspacePage() {
         {/* Stats & action */}
         <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>书籍统计</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>书籍统计</div>
           </div>
           <div style={{ padding: '16px 14px', flex: 1 }}>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 4 }}>总字数</div>
+              <div style={{ fontSize: 12, color: '#2d2520', marginBottom: 4 }}>总字数</div>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{formatWordCount(project!.wordCount)}</div>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 4 }}>章节数</div>
+              <div style={{ fontSize: 12, color: '#2d2520', marginBottom: 4 }}>章节数</div>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{hasChapters ? project!.chapters.length : '-'}</div>
             </div>
-            <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 4 }}>来源文件</div>
+            <div style={{ fontSize: 12, color: '#2d2520', marginTop: 4 }}>来源文件</div>
             <div style={{ fontSize: 12, color: '#4a3f38', marginTop: 2, wordBreak: 'break-all' }}>{project!.sourceFileName}</div>
           </div>
           <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
@@ -1477,7 +1490,7 @@ export default function RewriteWorkspacePage() {
               <SparklesIcon style={{ width: 15, height: 15 }} />
               {splitting ? '拆分中...' : hasChapters ? '重新拆分' : '开始拆分'}
             </button>
-            {hasChapters && <div style={{ fontSize: 12, color: '#9b8e84', textAlign: 'center', marginTop: 4 }}>重新拆分将覆盖现有章节</div>}
+            {hasChapters && <div style={{ fontSize: 12, color: '#2d2520', textAlign: 'center', marginTop: 4 }}>重新拆分将覆盖现有章节</div>}
           </div>
         </div>
       </div>
@@ -1496,8 +1509,8 @@ export default function RewriteWorkspacePage() {
         {/* Left: Chapter list */}
         <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
-            <div style={{ fontSize: 12, color: '#6b5e54', marginTop: 2 }}>{chapters.length} 章 · 已总结 {analyzedCount}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
+            <div style={{ fontSize: 12, color: '#3a3530', marginTop: 2 }}>{chapters.length} 章 · 已总结 {analyzedCount}</div>
           </div>
           <ScrollArea style={{ flex: 1 }}>
             {chapters.map(ch => {
@@ -1542,9 +1555,20 @@ export default function RewriteWorkspacePage() {
                     background: dotClass ? 'transparent' : dotColor,
                     color: dotColor, flexShrink: 0,
                   }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    第{ch.chapterNumber}章 {ch.title}
-                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+  {ch.title}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#2d2520', marginTop: 1, display: 'flex', gap: 6 }}>
+                      <span>{formatWordCount(ch.wordCount)}字</span>
+                      {(() => {
+                        const a = analyses.get(ch.id)
+                        if (!a || !activeTemplate?.sceneRules?.length) return null
+                        const hasScene = activeTemplate.sceneRules.some(sr => a.categories.some(c => c.name === sr.name))
+                        return hasScene ? <span style={{ color: '#6366f1', fontWeight: 600 }}>需改写</span> : null
+                      })()}
+                    </div>
+                  </div>
                 </button>
               )
             })}
@@ -1558,7 +1582,7 @@ export default function RewriteWorkspacePage() {
               {selectedChapterId ? `第${chapters.find(c => c.id === selectedChapterId)?.chapterNumber}章 ${chapters.find(c => c.id === selectedChapterId)?.title} · 总结` : '选择左侧章节查看总结'}
             </span>
             {selectedAnalysis && (
-              <span style={{ fontSize: 12, color: '#9b8e84', marginLeft: 'auto' }}>
+              <span style={{ fontSize: 12, color: '#2d2520', marginLeft: 'auto' }}>
                 {new Date(selectedAnalysis.analyzedAt).toLocaleString('zh-CN')}
               </span>
             )}
@@ -1595,13 +1619,13 @@ export default function RewriteWorkspacePage() {
                               <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>{c.name}</span>
                               <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(139,92,246,0.12)', color: '#8b5cf6' }}>{c.role}</span>
                             </div>
-                            <div style={{ fontSize: 12, color: '#6b5e54', lineHeight: 1.6 }}>{c.traits}</div>
-                            {c.description && <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 2 }}>{c.description}</div>}
+                            <div style={{ fontSize: 12, color: '#3a3530', lineHeight: 1.6 }}>{c.traits}</div>
+                            {c.description && <div style={{ fontSize: 11, color: '#2d2520', marginTop: 2 }}>{c.description}</div>}
                           </div>
                         ))}
                       </div>
                     </ScrollArea>
-                  ) : <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>（无角色信息）</p>}
+                  ) : <p style={{ fontSize: 13, color: '#2d2520', margin: 0 }}>（无角色信息）</p>}
                 </section>
 
                 {/* 关键事件 */}
@@ -1619,7 +1643,7 @@ export default function RewriteWorkspacePage() {
                         </div>
                       ))}
                     </div>
-                  ) : <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>（无关键事件）</p>}
+                  ) : <p style={{ fontSize: 13, color: '#2d2520', margin: 0 }}>（无关键事件）</p>}
                 </section>
               </div>
             ) : (
@@ -1633,25 +1657,25 @@ export default function RewriteWorkspacePage() {
         {/* Right: Stats & controls */}
         <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>总结统计</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>总结统计</div>
           </div>
           <div style={{ padding: '16px 14px', flex: 1 }}>
             {/* Failed / Completed */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#dc2626' }}>{failedCount}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>失败章节</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>失败章节</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#16a34a' }}>{analyzedCount}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>已完成</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>已完成</div>
               </div>
             </div>
 
             {/* Progress */}
             {analyzing && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 4 }}>
+                <div style={{ fontSize: 12, color: '#2d2520', marginBottom: 4 }}>
                   总结进度 {analysisQueue.done}/{analysisQueue.total}
                 </div>
                 <div style={{ height: 6, borderRadius: 3, background: '#e5e0da', overflow: 'hidden' }}>
@@ -1706,7 +1730,7 @@ export default function RewriteWorkspacePage() {
                 >
                   <ArrowDownTrayIcon style={{ width: 14, height: 14 }} /> 导出总结
                 </button>
-                <div style={{ fontSize: 12, color: '#9b8e84', textAlign: 'center', marginTop: 4, lineHeight: 1.4 }}>
+                <div style={{ fontSize: 12, color: '#2d2520', textAlign: 'center', marginTop: 4, lineHeight: 1.4 }}>
                   导出章节总结用于优化改写提示词
                 </div>
               </div>
@@ -1715,33 +1739,37 @@ export default function RewriteWorkspacePage() {
 
           {/* Action buttons - bottom right */}
           <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Progress bar + pause */}
+            {/* Progress bar — always visible */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
+              {analyzing
+                ? `${analysisQueue.done}/${analysisQueue.total} 章`
+                : `${analyzedCount}/${chapters.length} 章`}
+            </div>
+            <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 4,
+                background: 'linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)',
+                backgroundSize: '200% 100%',
+                animation: analyzing && !analyzePaused ? 'gradientShift 1.5s linear infinite' : 'none',
+                width: chapters.length > 0
+                  ? `${((analyzing ? analysisQueue.done : analyzedCount) / chapters.length) * 100}%`
+                  : '0%',
+                transition: 'width 0.3s ease',
+              }} />
+            </div>
+
+            {/* Pause / Continue — only during active analysis */}
             {analyzing && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
-                  {analysisQueue.done}/{analysisQueue.total} 章
-                </div>
-                <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 4,
-                    background: 'linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)',
-                    backgroundSize: '200% 100%',
-                    animation: analyzePaused ? 'none' : 'gradientShift 1.5s linear infinite',
-                    width: analysisQueue.total > 0 ? `${(analysisQueue.done / analysisQueue.total) * 100}%` : '0%',
-                    transition: 'width 0.3s ease',
-                  }} />
-                </div>
-                <button onClick={handleToggleAnalyzePause} style={{
-                  width: '100%', padding: '6px 0', borderRadius: 6,
-                  border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
-                  background: analyzePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-                  color: analyzePaused ? '#10b981' : '#d97706',
-                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                }}>
-                  {analyzePaused ? '▶ 继续总结' : '⏸ 暂停'}
-                </button>
-              </>
+              <button onClick={handleToggleAnalyzePause} style={{
+                width: '100%', padding: '6px 0', borderRadius: 6,
+                border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
+                background: analyzePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                color: analyzePaused ? '#10b981' : '#d97706',
+                fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}>
+                {analyzePaused ? '▶ 继续总结' : '⏸ 暂停'}
+              </button>
             )}
 
             {/* Batch analyze all chapters */}
@@ -1749,12 +1777,12 @@ export default function RewriteWorkspacePage() {
               width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
               cursor: analyzing || chapters.length === 0 ? 'not-allowed' : 'pointer',
               background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              color: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+              color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
               opacity: analyzing || chapters.length === 0 ? 0.5 : 1, transition: 'all 0.2s ease',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
             }}>
               <SparklesIcon style={{ width: 13, height: 13 }} />
-              {analyzing ? '总结中...' : `全部总结 (${chapters.length}章)`}
+              {analyzing ? '总结中...' : `全部总结 (${chapters.length - analyzedCount}章)`}
             </button>
 
             {/* Single chapter analyze */}
@@ -1805,11 +1833,11 @@ export default function RewriteWorkspacePage() {
         {/* Left: Chapter list */}
         <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
-            <div style={{ fontSize: 14, color: '#6b5e54', marginTop: 2 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
+            <div style={{ fontSize: 14, color: '#3a3530', marginTop: 2 }}>
               {chapters.length} 章 · 需改写 {pendingRewrite}
               {!showPreserveChapters && preserveOriginal > 0 && (
-                <span style={{ fontSize: 11, color: '#9b8e84' }}>（{preserveOriginal}章保留原文已折叠）</span>
+                <span style={{ fontSize: 11, color: '#2d2520' }}>（{preserveOriginal}章保留原文已折叠）</span>
               )}
             </div>
           </div>
@@ -1867,9 +1895,19 @@ export default function RewriteWorkspacePage() {
                     <span style={{ flexShrink: 0, fontSize: 12 }}>
                       {hasAnalysis ? (analysis!.needsRewrite ? '✏️' : '📌') : '○'}
                     </span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      第{ch.chapterNumber}章 {ch.title}
-                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+    {ch.title}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#2d2520', marginTop: 1, display: 'flex', gap: 6 }}>
+                        <span>{formatWordCount(ch.wordCount)}字</span>
+                        {(() => {
+                          if (!hasAnalysis || !activeTemplate?.sceneRules?.length) return null
+                          const hasScene = activeTemplate.sceneRules.some(sr => analysis!.categories.some(c => c.name === sr.name))
+                          return hasScene ? <span style={{ color: '#6366f1', fontWeight: 600 }}>需改写</span> : null
+                        })()}
+                      </div>
+                    </div>
                   </button>
                 )
               })
@@ -1910,7 +1948,7 @@ export default function RewriteWorkspacePage() {
                         </span>
                       ))}
                     </div>
-                  ) : <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>（无场景分类）</p>}
+                  ) : <p style={{ fontSize: 13, color: '#2d2520', margin: 0 }}>（无场景分类）</p>}
                 </section>
 
                 {/* 上下文标记 */}
@@ -1944,12 +1982,12 @@ export default function RewriteWorkspacePage() {
                             </div>
                           )}
                           {!m.startText && !m.endText && m.location && (
-                            <div style={{ fontSize: 12, color: '#9b8e84' }}>大致位置：{m.location}</div>
+                            <div style={{ fontSize: 12, color: '#2d2520' }}>大致位置：{m.location}</div>
                           )}
                         </div>
                       ))}
                     </div>
-                  ) : <p style={{ fontSize: 13, color: '#9b8e84', margin: 0 }}>（无上下文标记）</p>}
+                  ) : <p style={{ fontSize: 13, color: '#2d2520', margin: 0 }}>（无上下文标记）</p>}
                 </section>
               </div>
             ) : (
@@ -1963,30 +2001,30 @@ export default function RewriteWorkspacePage() {
         {/* Right: Stats */}
         <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>识别统计</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>识别统计</div>
           </div>
           <div style={{ padding: '16px 14px', flex: 1 }}>
             {/* Pending / Preserve */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#6366f1' }}>{pendingRewrite}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>待改写章节</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>待改写章节</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#10b981' }}>{preserveOriginal}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>保留原文</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>保留原文</div>
               </div>
             </div>
 
             {/* Category list */}
             {allCategories.length > 0 && (
               <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: '#9b8e84', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>识别分类</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', marginBottom: 8 }}>识别分类</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {allCategories.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
-                      <span style={{ color: '#4a3f38' }}>{c.name}</span>
-                      <span style={{ fontWeight: 600, color: '#6366f1' }}>{c.count}次</span>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
+                      <span style={{ color: '#2d2520', fontWeight: 500 }}>{c.name}</span>
+                      <span style={{ fontWeight: 700, color: '#6366f1' }}>{c.count}次</span>
                     </div>
                   ))}
                 </div>
@@ -2035,62 +2073,106 @@ export default function RewriteWorkspacePage() {
         {/* Left: Chapter list */}
         <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
-            <div style={{ fontSize: 12, color: '#6b5e54', marginTop: 2 }}>{chapters.length} 章 · 已改写 {rewriteCount}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
+            <div style={{ fontSize: 14, color: '#3a3530', marginTop: 2 }}>
+              {chapters.length} 章 · 需改写 {needsRewriteTotal}
+              {!showNoRewriteChapters && chapters.length > needsRewriteTotal && (
+                <span style={{ fontSize: 11, color: '#2d2520' }}>（{chapters.length - needsRewriteTotal}章无需改写已折叠）</span>
+              )}
+            </div>
           </div>
+          {/* Toggle no-rewrite chapters */}
+          {chapters.length > needsRewriteTotal && (
+            <button
+              onClick={() => setShowNoRewriteChapters(!showNoRewriteChapters)}
+              style={{
+                margin: '4px 14px 0', padding: '4px 10px', borderRadius: 6,
+                border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer',
+                background: showNoRewriteChapters ? 'rgba(16,185,129,0.08)' : 'transparent',
+                color: '#10b981', fontSize: 12, fontWeight: 600,
+                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4,
+                width: 'calc(100% - 28px)',
+              }}
+            >
+              {showNoRewriteChapters ? '📌 折叠无需改写章节' : `📌 展开无需改写章节 (${chapters.length - needsRewriteTotal}章)`}
+            </button>
+          )}
           <ScrollArea style={{ flex: 1 }}>
-            {chapters.map(ch => {
-              const rw = rewrites.get(ch.id)
-              const hasRewrite = !!rw
-              const isPassing = rw?.isPassing !== false
-              const isActive = rewriting && activeRewritingIds.has(ch.id)
-              const isFailed = failedRewritingIds.has(ch.id)
-
-              let dotColor: string
-              let dotClass: string | undefined
-              if (isActive) {
-                dotColor = '#16a34a'; dotClass = 'breathe-dot'
-              } else if (isFailed) {
-                dotColor = '#dc2626'
-              } else if (hasRewrite && isPassing) {
-                dotColor = '#16a34a'
-              } else if (hasRewrite && !isPassing) {
-                dotColor = '#f59e0b'
-              } else {
-                dotColor = '#d1d5db'
+            {(() => {
+              const visibleChapters = showNoRewriteChapters
+                ? chapters
+                : chapters.filter(ch => {
+                    const analysis = analyses.get(ch.id)
+                    return !analysis || analysis.needsRewrite
+                  })
+              if (visibleChapters.length === 0) {
+                return (
+                  <div style={{ padding: 20, textAlign: 'center' }}>
+                    <EmptyState icon="📌" title="无需改写的章节" description="所有场景章节已折叠" />
+                  </div>
+                )
               }
+              return visibleChapters.map(ch => {
+                const rw = rewrites.get(ch.id)
+                const hasRewrite = !!rw
+                const isPassing = rw?.isPassing !== false
+                const isActive = rewriting && activeRewritingIds.has(ch.id)
+                const isFailed = failedRewritingIds.has(ch.id)
+                const analysis = analyses.get(ch.id)
+                const needsRewrite = !analysis || analysis.needsRewrite
 
-              return (
-                <button
-                  key={ch.id}
-                  onClick={() => { handleSelectChapter(ch); setShowOriginal(false) }}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '9px 14px', border: 'none', cursor: 'pointer',
-                    background: selectedChapterId === ch.id ? 'rgba(236,72,153,0.08)' : 'transparent',
-                    borderLeft: selectedChapterId === ch.id ? '3px solid #ec4899' : '3px solid transparent',
-                    textAlign: 'left' as const, fontFamily: 'inherit',
-                    fontSize: 14, color: selectedChapterId === ch.id ? '#ec4899' : '#4a3f38',
-                    fontWeight: selectedChapterId === ch.id ? 600 : 500,
-                    transition: 'all 0.12s ease',
-                  }}
-                  onMouseEnter={e => { if (selectedChapterId !== ch.id) e.currentTarget.style.background = 'rgba(236,72,153,0.03)' }}
-                  onMouseLeave={e => { if (selectedChapterId !== ch.id) e.currentTarget.style.background = 'transparent' }}
-                >
-                  <span className={dotClass} style={{
-                    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                    background: dotClass ? 'transparent' : dotColor,
-                    color: dotColor, flexShrink: 0,
-                  }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    第{ch.chapterNumber}章 {ch.title}
-                  </span>
-                  {hasRewrite && !isPassing && (
-                    <ExclamationTriangleIcon style={{ width: 12, height: 12, color: '#f59e0b', flexShrink: 0 }} />
-                  )}
-                </button>
-              )
-            })}
+                let dotColor: string
+                let dotClass: string | undefined
+                if (isActive) { dotColor = '#16a34a'; dotClass = 'breathe-dot' }
+                else if (isFailed) { dotColor = '#dc2626' }
+                else if (hasRewrite && isPassing) { dotColor = '#16a34a' }
+                else if (hasRewrite && !isPassing) { dotColor = '#f59e0b' }
+                else { dotColor = '#d1d5db' }
+
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => { handleSelectChapter(ch); setShowOriginal(false) }}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '9px 14px', border: 'none', cursor: 'pointer',
+                      background: selectedChapterId === ch.id ? 'rgba(236,72,153,0.08)' : 'transparent',
+                      borderLeft: selectedChapterId === ch.id ? '3px solid #ec4899' : '3px solid transparent',
+                      textAlign: 'left' as const, fontFamily: 'inherit',
+                      fontSize: 14, color: selectedChapterId === ch.id ? '#ec4899' : '#4a3f38',
+                      fontWeight: selectedChapterId === ch.id ? 600 : 500,
+                      transition: 'all 0.12s ease',
+                    }}
+                    onMouseEnter={e => { if (selectedChapterId !== ch.id) e.currentTarget.style.background = 'rgba(236,72,153,0.03)' }}
+                    onMouseLeave={e => { if (selectedChapterId !== ch.id) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <span className={dotClass} style={{
+                      display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                      background: dotClass ? 'transparent' : dotColor,
+                      color: dotColor, flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+    {ch.title}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#2d2520', marginTop: 1, display: 'flex', gap: 6 }}>
+                        <span>{formatWordCount(ch.wordCount)}字</span>
+                        {(() => {
+                          const rewriteAttempted = attemptedRewriteIds.has(ch.id)
+                          if (hasRewrite && !isPassing) return <span style={{ color: '#f59e0b', fontWeight: 600 }}>字数不达标</span>
+                          if (rewriteAttempted && !hasRewrite) return <span style={{ color: '#dc2626', fontWeight: 600 }}>改写失败</span>
+                          if (needsRewrite) return <span style={{ color: '#ec4899', fontWeight: 600 }}>需改写</span>
+                          return null
+                        })()}
+                      </div>
+                    </div>
+                    {hasRewrite && !isPassing && (
+                      <ExclamationTriangleIcon style={{ width: 12, height: 12, color: '#f59e0b', flexShrink: 0 }} />
+                    )}
+                  </button>
+                )
+              })
+            })()}
           </ScrollArea>
         </div>
 
@@ -2105,14 +2187,14 @@ export default function RewriteWorkspacePage() {
               const ch = chapters.find(c => c.id === selectedChapterId)
               const originalWc = ch?.wordCount || 0
               if (showOriginal) {
-                return <span style={{ fontSize: 13, color: '#9b8e84' }}>· 原文 ({formatWordCount(originalWc)}字)</span>
+                return <span style={{ fontSize: 13, color: '#2d2520' }}>· 原文 ({formatWordCount(originalWc)}字)</span>
               }
               if (selectedRewrite) {
                 const addedWc = selectedRewrite.wordCount - originalWc
                 const sign = addedWc >= 0 ? '+' : ''
                 const diffColor = addedWc >= 0 ? '#16a34a' : '#dc2626'
                 return (
-                  <span style={{ fontSize: 13, color: '#9b8e84', display: 'flex', gap: 14 }}>
+                  <span style={{ fontSize: 13, color: '#2d2520', display: 'flex', gap: 14 }}>
                     <span>原文: {formatWordCount(originalWc)}字</span>
                     <span style={{ color: diffColor, fontWeight: 600 }}>
                       改写加料: {sign}{formatWordCount(Math.abs(addedWc))}字
@@ -2123,7 +2205,7 @@ export default function RewriteWorkspacePage() {
                   </span>
                 )
               }
-              return <span style={{ fontSize: 13, color: '#9b8e84' }}>· 未改写</span>
+              return <span style={{ fontSize: 13, color: '#2d2520' }}>· 未改写</span>
             })()}
 
             {/* Action buttons - right aligned */}
@@ -2144,7 +2226,7 @@ export default function RewriteWorkspacePage() {
                 )}
                 <button onClick={() => setShowOriginal(!showOriginal)} style={{
                   padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
-                  cursor: 'pointer', background: '#fff', color: '#6b5e54',
+                  cursor: 'pointer', background: '#fff', color: '#3a3530',
                   fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
                   display: 'flex', alignItems: 'center', gap: 4,
                   transition: 'all 0.12s ease',
@@ -2224,18 +2306,18 @@ export default function RewriteWorkspacePage() {
         {/* Right: Stats & controls */}
         <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>改写统计</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>改写统计</div>
           </div>
           <div style={{ padding: '16px 14px', flex: 1 }}>
             {/* Failed / Word-count substandard */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#dc2626' }}>{failedCount}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>改写失败</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>改写失败</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{wordCountFailures.length}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>字数不达标</div>
+                <div style={{ fontSize: 12, color: '#2d2520' }}>字数不达标</div>
               </div>
             </div>
 
@@ -2244,13 +2326,13 @@ export default function RewriteWorkspacePage() {
             {/* Word count failing chapters detail */}
             {wordCountFailures.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, color: '#9b8e84', marginBottom: 4 }}>
+                <div style={{ fontSize: 12, color: '#2d2520', marginBottom: 4 }}>
                   字数不达标章节：
                 </div>
                 {wordCountFailures.map(r => {
                   const ch = chapters.find(c => c.id === r.chapterId)
                   return ch ? (
-                    <div key={r.chapterId} style={{ fontSize: 10, color: '#6b5e54', display: 'flex', justifyContent: 'space-between' }}>
+                    <div key={r.chapterId} style={{ fontSize: 10, color: '#3a3530', display: 'flex', justifyContent: 'space-between' }}>
                       <span>第{ch.chapterNumber}章</span>
                       <span style={{ color: '#f59e0b' }}>{formatWordCount(r.wordCount)}/{formatWordCount(r.targetWordCount)}</span>
                     </div>
@@ -2276,9 +2358,9 @@ export default function RewriteWorkspacePage() {
               </button>
             )}
 
-            {/* Retry failed rewrites — always visible */}
+            {/* Retry failed rewrites — only attempted-but-no-rewrite chapters */}
             {(() => {
-              const failedRewriteCount = chapters.filter(ch => !rewrites.has(ch.id)).length
+              const failedRewriteCount = chapters.filter(ch => attemptedRewriteIds.has(ch.id) && !rewrites.has(ch.id)).length
               const canRetry = failedRewriteCount > 0 && !rewriting
               return (
                 <button onClick={handleRewriteAll} disabled={!canRetry} style={{
@@ -2302,33 +2384,37 @@ export default function RewriteWorkspacePage() {
 
           {/* Batch rewrite all chapters */}
           <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Progress bar + pause */}
+            {/* Progress bar — always visible */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
+              {rewriting
+                ? `${rewriteQueue.done}/${needsRewriteTotal} 章（需改写）`
+                : `${rewriteCount}/${needsRewriteTotal} 章（需改写）`}
+            </div>
+            <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 4,
+                background: 'linear-gradient(90deg, #ec4899, #f472b6, #ec4899)',
+                backgroundSize: '200% 100%',
+                animation: rewriting && !rewritePaused ? 'gradientShift 1.5s linear infinite' : 'none',
+                width: needsRewriteTotal > 0
+                  ? `${((rewriting ? rewriteQueue.done : rewriteCount) / needsRewriteTotal) * 100}%`
+                  : '0%',
+                transition: 'width 0.3s ease',
+              }} />
+            </div>
+
+            {/* Pause — only during active rewrite */}
             {rewriting && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38', textAlign: 'center' }}>
-                  {rewriteQueue.done}/{needsRewriteTotal} 章（需改写）
-                </div>
-                <div style={{ height: 8, borderRadius: 4, background: '#e5e0da', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 4,
-                    background: 'linear-gradient(90deg, #ec4899, #f472b6, #ec4899)',
-                    backgroundSize: '200% 100%',
-                    animation: rewritePaused ? 'none' : 'gradientShift 1.5s linear infinite',
-                    width: needsRewriteTotal > 0 ? `${(rewriteQueue.done / needsRewriteTotal) * 100}%` : '0%',
-                    transition: 'width 0.3s ease',
-                  }} />
-                </div>
-                <button onClick={handleToggleRewritePause} style={{
-                  width: '100%', padding: '6px 0', borderRadius: 6,
-                  border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
-                  background: rewritePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-                  color: rewritePaused ? '#10b981' : '#d97706',
-                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                }}>
-                  {rewritePaused ? '▶ 继续改写' : '⏸ 暂停'}
-                </button>
-              </>
+              <button onClick={handleToggleRewritePause} style={{
+                width: '100%', padding: '6px 0', borderRadius: 6,
+                border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
+                background: rewritePaused ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                color: rewritePaused ? '#10b981' : '#d97706',
+                fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}>
+                {rewritePaused ? '▶ 继续改写' : '⏸ 暂停'}
+              </button>
             )}
 
             <button onClick={handleRewriteAll} disabled={rewriting || chapters.length === 0} style={{
@@ -2377,12 +2463,16 @@ export default function RewriteWorkspacePage() {
       }
     }
 
-    // Build preview
+    // Preview: all chapters, strip duplicate headings from content
     const previewLines: string[] = []
     for (const ch of chapters) {
       const rw = rewrites.get(ch.id)
-      previewLines.push(`\n第${ch.chapterNumber}章 ${ch.title}\n`)
-      previewLines.push(rw?.content || '（未改写）')
+      const titleSuffix = rw ? '（已改写）' : ''
+      previewLines.push(`\n第${ch.chapterNumber}章 ${ch.title}${titleSuffix}\n`)
+      let content = rw?.content || '（未改写）'
+      // Strip leading chapter heading from content (e.g. "# 第一章 xxx" or "第一章 xxx")
+      content = content.replace(/^[#\s]*第[一二三四五六七八九十百千零\d]+[章节回卷集部篇].*?\n+/, '')
+      previewLines.push(content)
       previewLines.push('')
     }
 
@@ -2391,8 +2481,8 @@ export default function RewriteWorkspacePage() {
         {/* Left: Chapter checklist */}
         <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
-            <div style={{ fontSize: 12, color: '#6b5e54', marginTop: 2 }}>{chapters.length} 章 · 已改写 {rewriteCount}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>章节列表</div>
+            <div style={{ fontSize: 12, color: '#3a3530', marginTop: 2 }}>{chapters.length} 章 · 已改写 {rewriteCount}</div>
           </div>
           <ScrollArea style={{ flex: 1 }}>
             {chapters.map(ch => {
@@ -2408,14 +2498,14 @@ export default function RewriteWorkspacePage() {
                   <span style={{ flexShrink: 0, fontSize: 12 }}>
                     {hasRewrite ? (isPassing ? '✅' : '⚠️') : '⭕'}
                   </span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    第{ch.chapterNumber}章 {ch.title}
-                  </span>
-                  {hasRewrite && (
-                    <span style={{ fontSize: 12, color: '#9b8e84', flexShrink: 0 }}>
-                      {formatWordCount(rw!.wordCount)}字
-                    </span>
-                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+  {ch.title}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#2d2520', marginTop: 1 }}>
+                      {hasRewrite ? `${formatWordCount(rw!.wordCount)}字` : `${formatWordCount(ch.wordCount)}字`}
+                    </div>
+                  </div>
                 </div>
               )
             })}
@@ -2426,7 +2516,7 @@ export default function RewriteWorkspacePage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.4)' }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: '#2d2520' }}>合并预览</span>
-            <span style={{ fontSize: 11, color: '#9b8e84', marginLeft: 12 }}>{previewLines.join('').length} 字</span>
+            <span style={{ fontSize: 11, color: '#2d2520', marginLeft: 12 }}>{previewLines.join('').length} 字</span>
           </div>
           <ScrollArea style={{ flex: 1, padding: '20px 24px', background: '#fff' }}>
             {rewriteCount > 0 ? (
@@ -2441,42 +2531,111 @@ export default function RewriteWorkspacePage() {
           </ScrollArea>
         </div>
 
-        {/* Right: Export */}
-        <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#9b8e84', textTransform: 'uppercase', letterSpacing: 1 }}>合并统计</div>
-          </div>
-          <div style={{ padding: '16px 14px', flex: 1 }}>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: '#10b981' }}>{rewriteCount}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>已完成改写</div>
+        {/* Right: Export stats */}
+        {(() => {
+          const totalOriginalWc = chapters.reduce((sum, ch) => sum + ch.wordCount, 0)
+          // Export word count: rewritten chapters use new count, unrewritten use original
+          const totalExportWc = chapters.reduce((sum, ch) => {
+            const rw = rewrites.get(ch.id)
+            return sum + (rw ? rw.wordCount : ch.wordCount)
+          }, 0)
+          const addedWc = totalExportWc - totalOriginalWc
+          const preserveCount = chapters.length - rewrites.size
+
+          return (
+            <div style={{ width: 250, flexShrink: 0, borderLeft: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.4)' }}>
+              <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', textTransform: 'uppercase', letterSpacing: 1 }}>导出统计</div>
               </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{wordCountFailures.length}</div>
-                <div style={{ fontSize: 12, color: '#9b8e84' }}>字数不达标</div>
+              <div style={{ padding: '16px 14px', flex: 1 }}>
+                {/* Word count comparison bar */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#10b981', marginBottom: 8 }}>
+                    新增改写 +{formatWordCount(Math.max(0, addedWc))}字
+                  </div>
+                  <div style={{ display: 'flex', height: 26, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{
+                      flex: totalOriginalWc || 1, background: '#3b82f6',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 44,
+                    }}>原文</div>
+                    {addedWc > 0 && (
+                      <div style={{
+                        flex: addedWc || 1, background: '#10b981',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 44,
+                      }}>新增</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: '#2d2520' }}>
+                    <span>原书 {formatWordCount(totalOriginalWc)}字</span>
+                    <span>导出 {formatWordCount(totalExportWc)}字</span>
+                  </div>
+                </div>
+
+                {/* Chapter count comparison bar */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: 'flex', height: 22, borderRadius: 6, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{
+                      flex: rewrites.size || 1, background: '#10b981',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 36,
+                    }}>改写</div>
+                    {preserveCount > 0 && (
+                      <div style={{
+                        flex: preserveCount || 1, background: '#3b82f6',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 36,
+                      }}>原文</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#2d2520' }}>
+                    改写 {rewrites.size}章 · 原文 {preserveCount}章
+                  </div>
+                </div>
+
+                {/* Project name */}
+                <div style={{ fontSize: 12, color: '#2d2520', marginBottom: 4 }}>项目名称</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#2d2520', marginBottom: 16, wordBreak: 'break-all' }}>
+                  {project?.name || '—'}
+                </div>
+
+                {/* Word count warning */}
+                {wordCountFailures.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 12, lineHeight: 1.4, fontWeight: 600 }}>
+                    ⚠️ {wordCountFailures.length} 章字数不达标
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button onClick={handleMerge} disabled={rewriteCount === 0} style={{
+                  width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
+                  cursor: rewriteCount === 0 ? 'not-allowed' : 'pointer',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                  opacity: rewriteCount === 0 ? 0.5 : 1, transition: 'all 0.2s ease',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}>
+                  <ArrowDownTrayIcon style={{ width: 15, height: 15 }} /> 导出合并
+                </button>
+                <button onClick={async () => {
+                  try {
+                    const pp = await rewriteService.getProjectPath(projectId)
+                    await (window as any).electron.app.openFolder(pp)
+                  } catch { /* ignore */ }
+                }} style={{
+                  width: '100%', padding: '8px 0', borderRadius: 8,
+                  border: '1px solid rgba(0,0,0,0.12)', cursor: 'pointer',
+                  background: '#fff', color: '#3a3530',
+                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                }}>
+                  📂 打开文件夹
+                </button>
               </div>
             </div>
-
-            {wordCountFailures.length > 0 && (
-              <div style={{ fontSize: 10, color: '#f59e0b', marginBottom: 12, lineHeight: 1.4 }}>
-                ⚠️ 有 {wordCountFailures.length} 章字数不达标，建议回到 Stage 4 重试后再合并
-              </div>
-            )}
-          </div>
-          <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
-            <button onClick={handleMerge} disabled={rewriteCount === 0} style={{
-              width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
-              cursor: rewriteCount === 0 ? 'not-allowed' : 'pointer',
-              background: 'linear-gradient(135deg, #10b981, #059669)',
-              color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-              opacity: rewriteCount === 0 ? 0.5 : 1, transition: 'all 0.2s ease',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}>
-              <ArrowDownTrayIcon style={{ width: 15, height: 15 }} /> 导出合并
-            </button>
-          </div>
-        </div>
+          )
+        })()}
       </div>
     )
   }
@@ -2511,7 +2670,7 @@ export default function RewriteWorkspacePage() {
           style={{
             width: 56, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
             gap: 4, borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: 'transparent', color: '#6b5e54', fontSize: 14, fontWeight: 600,
+            background: 'transparent', color: '#3a3530', fontSize: 14, fontWeight: 600,
             fontFamily: 'inherit', flexShrink: 0,
             transition: 'all 0.15s ease',
           }}
@@ -2529,14 +2688,14 @@ export default function RewriteWorkspacePage() {
           <div style={{ fontSize: 16, fontWeight: 700, color: '#2d2520', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {project?.name || '—'}
           </div>
-          <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 1 }}>
+          <div style={{ fontSize: 12, color: '#2d2520', marginTop: 1 }}>
             {project ? `${project.chapterCount}章 · ${formatWordCount(project.wordCount)}字` : ''}
           </div>
         </div>
 
         {/* Template selector */}
         <div style={{ flexShrink: 0, padding: '0 12px', borderRight: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 14, color: '#6b5e54', whiteSpace: 'nowrap' }}>提示词模板</span>
+          <span style={{ fontSize: 14, color: '#3a3530', whiteSpace: 'nowrap' }}>提示词模板</span>
           <select
             value={activeTemplate?.id || ''}
             onChange={e => handleTemplateChange(e.target.value)}
