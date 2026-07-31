@@ -23,7 +23,7 @@ describe('useStore', () => {
     const char: Character = {
       id: 'c1', name: '主角', role: '男主', gender: '男', age: '25',
       occupation: '', background: '', appearance: '', personality: '',
-      abilities: '', weaknesses: '', relationships: '', relationshipTags: [], arc: '', importance: 50,
+      abilities: '', weaknesses: '', relationships: '', arc: '', importance: 50, customBlocks: [],
     }
     useStore.getState().addCharacter(char)
     expect(useStore.getState().characters).toHaveLength(1)

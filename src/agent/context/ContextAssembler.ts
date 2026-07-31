@@ -1,13 +1,6 @@
 // ── Context Assembler (v11.7.1 simplified) ──
 // Provider system removed — all context injection handled by BridgeContextBuilder.
-// Retained for: domainsForPath (CacheInvalidator) + assemble() compatibility stub.
-
-export interface AssembledContext {
-  systemMessages: Array<{ role: 'system'; content: string }>
-  totalTokens: number
-  domains: string[]
-  breakdown: Array<{ domain: string; tokens: number }>
-}
+// Retained for: domainsForPath (CacheInvalidator).
 
 export class ContextAssembler {
   /**
@@ -26,26 +19,4 @@ export class ContextAssembler {
     else if (fp.startsWith('knowledge_base/')) domains.push('knowledge-base')
     return domains
   }
-
-  clearProject(_projectId: string | null): void {
-    // no-op: Provider cache removed in v11.7.1
-  }
-
-  invalidateProvider(_projectId: string | null, _domain: string): void {
-    // no-op: Provider cache removed in v11.7.1
-  }
-
-  /**
-   * Compatibility stub — returns empty context.
-   * All real context assembly handled by BridgeContextBuilder.
-   */
-  async assemble(
-    _userMessage: string,
-    _history: Array<{ role: string; content: string }>,
-    _projectId: string | null,
-  ): Promise<AssembledContext> {
-    return { systemMessages: [], totalTokens: 0, domains: [], breakdown: [] }
-  }
 }
-
-export const contextAssembler = new ContextAssembler()

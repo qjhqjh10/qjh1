@@ -317,7 +317,6 @@ export async function executeFileTool(
         const broad = args.broad === true
         const isGlobal = rawPath.startsWith('..') || rawPath.includes('/../')
 
-        const MAX_RESULTS = 500
         const appRoot = path.dirname(projectPath)
 
         // ── Scan one directory ──
@@ -339,12 +338,12 @@ export async function executeFileTool(
                 for (const se of subs) {
                   if (se.isFile() && minimatch(`${entry.name}/${se.name}`, pattern)) {
                     result.push(`[${label}] [FILE] ${entry.name}/${se.name}`)
-                    if (result.length >= MAX_RESULTS) break
+                    if (result.length >= MAX_SEARCH_RESULTS) break
                   }
                 }
               } catch {}
             }
-            if (result.length >= MAX_RESULTS) break
+            if (result.length >= MAX_SEARCH_RESULTS) break
           }
           return result
         }
@@ -421,14 +420,14 @@ export async function executeFileTool(
         const allItems: string[] = []
         let total = 0
         for (const r of allResults) {
-          if (total >= MAX_RESULTS) break
+          if (total >= MAX_SEARCH_RESULTS) break
           for (const item of r.items) {
-            if (total >= MAX_RESULTS) break
+            if (total >= MAX_SEARCH_RESULTS) break
             allItems.push(item)
             total++
           }
         }
-        if (total >= MAX_RESULTS) allItems.push(`... (已截断，仅显示前 ${MAX_RESULTS} 条)`)
+        if (total >= MAX_SEARCH_RESULTS) allItems.push(`... (已截断，仅显示前 ${MAX_SEARCH_RESULTS} 条)`)
 
         const detail = allItems.length > 0 ? allItems.join('\n') : `(未找到匹配${pattern ? ` "${pattern}"` : ''}的文件。设置 broad=true 可搜索电脑桌面/文档/下载)`
         return { callId, toolName, status: 'success', summary: `${total} 个匹配`, detail }

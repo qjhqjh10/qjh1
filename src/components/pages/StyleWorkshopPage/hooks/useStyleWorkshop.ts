@@ -505,11 +505,13 @@ export function useStyleWorkshop() {
     setStyleAssignments({ styleAssignments: updated })
   }
 
-  const handleSaveAsTemplate = async () => {
-    if (!selectedProject?.profile) return
-    const profile = selectedProject.profile
+  const handleSaveAsTemplate = async (proj?: any) => {
+    // v13.x: 参数化 — LibraryView 直接传项目对象，避免 setTimeout 旧闭包读到过期 selectedProject
+    const target = proj || selectedProject
+    if (!target?.profile) return
+    const profile = target.profile
     const rawDims = profile.dimAnalyses || {}
-    const dims = sortDimsByPriority(rawDims as any, selectedProject.novelType || '情色小说')
+    const dims = sortDimsByPriority(rawDims as any, target.novelType || '情色小说')
     const vocabList: string[] = []
     const rulesList: string[] = []
     for (const da of Object.values(dims)) {
@@ -518,17 +520,18 @@ export function useStyleWorkshop() {
     }
     const reverseTypeMap: Record<string, string> = {}
     // v12.12.0: Extract tone from narrativeTone dim if available
+    // v13.x: 修正双重转义（\\s→\s、\\n→\n）——此前 tone/attitude 提取恒失败
     const extractToneFromProfile = (p: any) => {
       const ntDesc = p.dimAnalyses?.narrativeTone?.description || ''
-      const att = (p.dimAnalyses?.narrativeTone?.writingRules || []).find((r: string) => r.includes('态度'))?.replace(/.*态度[：:]\\s*/, '') || ''
-      const m = ntDesc.match(/基调[：:]\\s*"?([^"\\n，。]{2,12})"?/)
+      const att = (p.dimAnalyses?.narrativeTone?.writingRules || []).find((r: string) => r.includes('态度'))?.replace(/.*态度[：:]\s*/, '') || ''
+      const m = ntDesc.match(/基调[：:]\s*"?([^"\n，。]{2,12})"?/)
       return { word: m?.[1] || '', description: ntDesc.slice(0, 200), attitude: att }
     }
     for (const [label, short] of Object.entries(NOVEL_TYPE_LABELS)) { reverseTypeMap[short] = label }
-    const templateType = (reverseTypeMap[selectedProject.novelType] || '普通小说') as StyleTemplate['type']
+    const templateType = (reverseTypeMap[target.novelType] || '普通小说') as StyleTemplate['type']
 
     const template: StyleTemplate = {
-      id: '', name: selectedProject.name || 'AI分析模板',
+      id: '', name: target.name || 'AI分析模板',
       type: templateType,
       worldType: '', description: profile.fullDescription?.slice(0, 100) || '',
       fullDescription: profile.fullDescription || '',
@@ -538,7 +541,7 @@ export function useStyleWorkshop() {
       tone: extractToneFromProfile(profile),
       categorizedVocab: profile.categorizedVocab || { sexBody: [], roleIdentity: [], actionTechnique: [], sceneCostume: [], moanOnomatopoeia: [] },
       source: 'ai-generated',
-      sourceProjectId: selectedProject.id,
+      sourceProjectId: target.id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }

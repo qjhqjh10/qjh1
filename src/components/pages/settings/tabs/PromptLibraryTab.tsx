@@ -7,6 +7,7 @@ import ConfirmModal from '@/components/common/ConfirmModal'
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import type { PromptTemplate, PromptType } from '@/types/settings'
 import { PROMPT_TYPES } from '@/types/settings'
+import { useDraggableResizable } from '@/components/common/useDraggableResizable'
 
 export function PromptLibraryTab() {
   const prompts = useSettingsStore(s => s.prompts)
@@ -227,15 +228,17 @@ function PromptEditModal({
 }) {
   const initialW = Math.round(window.innerWidth * 4 / 5)
   const initialH = Math.round(window.innerHeight * 4 / 5)
-  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
-  const [modalPos, setModalPos] = useState({
-    left: Math.round((window.innerWidth - initialW) / 2),
-    top: Math.round((window.innerHeight - initialH) / 2),
+  // v13.x: 统一共享拖拽 hook
+  const { size: modalSize, setSize: setModalSize, pos: modalPos, setPos: setModalPos, handleResizeStart, handleDragStart } = useDraggableResizable({
+    anchor: 'left-top',
+    defaultSize: { width: initialW, height: initialH },
+    defaultPos: {
+      left: Math.round((window.innerWidth - initialW) / 2),
+      top: Math.round((window.innerHeight - initialH) / 2),
+    },
+    minW: 500, minH: 400, maxW: window.innerWidth,
+    dragExclude: 'button, input, textarea, select',
   })
-  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
-  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
-
-  const MIN_W = 500, MIN_H = 400
 
   // 当 prompt 变化时重新居中（新建模板时）
   useEffect(() => {
@@ -244,46 +247,6 @@ function PromptEditModal({
     setModalSize({ width: w, height: h })
     setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
   }, [prompt.id])
-
-  const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, textarea, select')) return
-    e.preventDefault()
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
-    const hm = (ev: MouseEvent) => {
-      const dx = ev.clientX - dragRef.current.startX
-      const dy = ev.clientY - dragRef.current.startY
-      setModalPos({
-        left: dragRef.current.startL + dx,
-        top: Math.max(0, dragRef.current.startT + dy),
-      })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
-
-  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    resizeRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      startW: modalSize.width, startH: modalSize.height,
-      startL: modalPos.left, startT: modalPos.top, corner,
-    }
-    const hm = (ev: MouseEvent) => {
-      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
-      const dx = ev.clientX - startX; const dy = ev.clientY - startY
-      let w = startW, h = startH, l = startL, t = startT
-      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
-      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
-      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
-      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
-      setModalSize({ width: w, height: h })
-      setModalPos({ left: l, top: t })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
 
   const corners = ['top','bottom','left','right','top-left','top-right','bottom-left','bottom-right'] as const
 

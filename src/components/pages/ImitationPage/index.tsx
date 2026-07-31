@@ -44,7 +44,7 @@ import {
   SparklesIcon, TrashIcon, PlayIcon, StopIcon, FolderOpenIcon,
   ArrowLeftIcon, BookOpenIcon, DocumentArrowDownIcon, PlusIcon, ArrowRightIcon,
 } from '@heroicons/react/24/outline'
-import type { ViewMode, NovelType, Step, PreviewTab, DimKey } from './types'
+import type { NovelType, Step, PreviewTab, DimKey } from './types'
 import { TABS, STATUS_LABELS, STATUS_COLORS, TYPE_LABELS, TYPE_DIM_PRESETS, DIM_LABELS, normalizeRole, NOVEL_TYPE_CARDS } from './constants'
 import TimelineTab from './tabs/TimelineTab'
 import ChapterTab from './tabs/ChapterTab'
@@ -76,7 +76,6 @@ export default function ImitationPage() {
   const setOutlineContent = useStore(s => s.setOutlineContent)
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
 
-  const [view, setView] = useState<ViewMode>('detail')
   const [novelType, setNovelType] = useState<NovelType>('general')
   const [projects, setProjects] = useState<{ id: string; name: string; chapterCount: number; status: string; createdAt: string; novelType: string }[]>([])
   const [importLoading, setImportLoading] = useState(false)
@@ -364,8 +363,6 @@ export default function ImitationPage() {
   }
 
   // View 3: Detail
-  if (!extraction) return null
-
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Toast */}

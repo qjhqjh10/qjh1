@@ -42,12 +42,16 @@ export class BridgeContextBuilder {
     let effectivePrompt = corePrompt
 
     // ── 2. KB search + Web search（始终执行，动态内容）──
+    // v13.x: 知识库检索不再要求项目内 — 未指定项目时检索全部文件
     let searchContext = ''
-    if (this.opts.kbEnabled && this.opts.projectId) {
+    if (this.opts.kbEnabled) {
       try {
         const { kbService } = await import('@/services/fileService')
+        const { useSettingsStore } = await import('@/store')
+        const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
+        const topK = Math.min(20, Math.max(1, kbSettings?.agent?.searchTopK || 5))
         const results = await kbService.search(
-          msg.slice(0, 4000), this.opts.projectId, this.opts.configId, 5, this.opts.selectedKbFileIds,
+          msg.slice(0, 4000), this.opts.projectId || '', this.opts.configId, topK, this.opts.selectedKbFileIds,
         )
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[知识库]\n' +
@@ -58,7 +62,10 @@ export class BridgeContextBuilder {
     if (this.opts.webSearchEnabled) {
       try {
         const { kbService } = await import('@/services/fileService')
-        const results = await kbService.webSearch(msg.slice(0, 500), 3)
+        const { useSettingsStore } = await import('@/store')
+        const aiSettings = useSettingsStore.getState().aiSettings
+        const count = Math.min(10, Math.max(1, aiSettings.searchResultCount || 3))
+        const results = await kbService.webSearch(msg.slice(0, 500), count, aiSettings.safeSearch || 'moderate')
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[网络搜索]\n' +
             results.map((r: any) => r.snippet || r.title || '').join('\n---\n')
@@ -119,8 +126,7 @@ export class BridgeContextBuilder {
       const selectedRole = aiSettings.customRoles?.find(r => r.id === aiSettings.defaultRole)
       if (selectedRole?.prompt) {
         systemMessages.push({ role: 'system', content: selectedRole.prompt })
-        effectivePrompt = effectivePrompt.replace(/^你是青剑，一个小说创作对话助手。\n\n?/, '')
-        effectivePrompt = effectivePrompt.replace(/^你是青剑，小说创作对话助手。/, '')
+        effectivePrompt = effectivePrompt.replace(/^你是青剑，(?:一个)?小说创作对话助手。\n{0,2}/, '')
       }
     }
 
@@ -157,7 +163,7 @@ export class BridgeContextBuilder {
       systemMessages,
       searchContext,
       totalTokens: fullTotal,
-      domains: ['core-prompt'],
+      domains: breakdown.map(b => b.domain),
       breakdown,
     }
   }

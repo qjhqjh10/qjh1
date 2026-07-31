@@ -25,6 +25,8 @@ export interface Message {
   outputBreakdown?: { label: string; tokens: number }[]
   iterationCount?: number
   totalIterations?: number
+  /** 工具调用步骤（含 arguments，用于提取生成/修改的文件） */
+  toolCallSteps?: Array<{ tool: string; status: string; summary?: string; arguments?: string }>
   /** V9.5.2: 软件功能/能力自述消息 — 仅显示，不进入对话上下文 */
   displayOnly?: boolean
   /** v13.0: 多角色系统 — 发送此消息的角色卡片ID */

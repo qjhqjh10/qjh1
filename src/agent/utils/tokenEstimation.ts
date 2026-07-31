@@ -22,11 +22,6 @@ export function estimateTokens(text: string): number {
   return Math.ceil(cjk / 1.8 + latin / 4)
 }
 
-/** Convenience: estimate tokens for multiple lines joined with newlines */
-export function estimateTokensFromLines(lines: string[]): number {
-  return estimateTokens(lines.join('\n'))
-}
-
 /** Estimate total tokens across an array of messages (includes ~4 tokens per message for role overhead) */
 export function estimateMessages(messages: Array<{ content?: string }>): number {
   let total = 0

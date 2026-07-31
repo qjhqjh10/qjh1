@@ -2,9 +2,7 @@ import { fileService } from '@/services/fileService'
 import { CHARACTER_FIELDS, ROLES } from '@/services/characterService'
 import Button from '@/components/common/Button'
 import { inputStyle } from '@/components/common/styles'
-import { TagIcon } from '@heroicons/react/24/outline'
 import type { Character } from '@/types/character'
-import { RELATIONSHIP_TAGS } from '@/types/character'
 import { safeStr } from '@/utils/safeStr'
 
 const FIELD_TO_LABEL: Record<string, string> = Object.fromEntries(
@@ -24,16 +22,20 @@ interface Props {
 }
 
 export default function CharacterForm({ char, onChange, onSave, onClose, projectPath }: Props) {
-  const tags: string[] = (char.relationshipTags as string[]) || []
-  const toggleTag = (tag: string) => {
-    if (tags.includes(tag)) {
-      onChange({ ...char, relationshipTags: (tags.filter(t => t !== tag) as Character['relationshipTags']) })
-    } else {
-      onChange({ ...char, relationshipTags: ([...tags, tag] as Character['relationshipTags']) })
-    }
-  }
-
   const set = (k: keyof Character, v: unknown) => onChange({ ...char, [k]: v })
+
+  // ---- 自定义信息条块 ----
+  const blocks = char.customBlocks || []
+  const setBlock = (i: number, patch: Partial<Character['customBlocks'][number]>) => {
+    const next = blocks.map((b, idx) => idx === i ? { ...b, ...patch } : b)
+    onChange({ ...char, customBlocks: next })
+  }
+  const removeBlock = (i: number) => {
+    onChange({ ...char, customBlocks: blocks.filter((_, idx) => idx !== i) })
+  }
+  const addBlock = () => {
+    onChange({ ...char, customBlocks: [...blocks, { label: '', content: '' }] })
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -84,34 +86,55 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
         </div>
       ))}
 
-      {/* Relationship Tags */}
-      <div>
-        <label style={labelStyle}>
-          <TagIcon style={{ width: 12, height: 12, display: 'inline', marginRight: 4 }} />
-          关系标签（点击选择/取消）
+      {/* 自定义信息条块 — 用户可自由增删 */}
+      <div style={{ borderTop: '1px dashed #e5e0da', paddingTop: 12, marginTop: 4 }}>
+        <label style={{ ...labelStyle, marginBottom: 8 }}>
+          自定义信息条块
+          <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 11, marginLeft: 4 }}>（自由增删 — 前框填特点，后框填具体信息）</span>
         </label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-          {RELATIONSHIP_TAGS.map(tag => (
-            <button
-              key={tag}
-              onClick={() => toggleTag(tag)}
-              style={{
-                padding: '3px 10px', borderRadius: 8, border: tags.includes(tag) ? '1px solid #7c3aed' : '1px solid #e5e0da',
-                background: tags.includes(tag) ? 'rgba(124,58,237,0.08)' : '#fff',
-                color: tags.includes(tag) ? '#7c3aed' : '#6b5e54',
-                fontSize: 11, cursor: 'pointer', fontWeight: tags.includes(tag) ? 600 : 400,
-                transition: 'all 0.1s ease',
-              }}
-            >
-              {tag}
-            </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {blocks.map((b, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <input
+                type="text"
+                value={b.label}
+                onChange={e => setBlock(i, { label: e.target.value })}
+                placeholder="特点（如：口头禅）"
+                className="focus-ring"
+                style={{ ...inputStyle, width: 140, flexShrink: 0 }}
+              />
+              <textarea
+                value={b.content}
+                onChange={e => setBlock(i, { content: e.target.value })}
+                placeholder="具体信息..."
+                className="focus-ring"
+                style={{ ...inputStyle, flex: 1, minHeight: 40, resize: 'vertical' }}
+              />
+              <button
+                onClick={() => removeBlock(i)}
+                title="删除此条块"
+                style={{
+                  flexShrink: 0, alignSelf: 'center', width: 30, height: 30, borderRadius: 8,
+                  border: '1px solid #fecaca', background: '#fff7f7', color: '#dc2626',
+                  fontSize: 15, cursor: 'pointer', lineHeight: 1,
+                }}
+              >✕</button>
+            </div>
           ))}
+          {blocks.length === 0 && (
+            <div style={{ fontSize: 12, color: '#9b8e84', padding: '8px 2px' }}>暂无自定义条块，可点击下方按钮添加，例如「口头禅: 莫欺少年穷」</div>
+          )}
+          <button
+            onClick={addBlock}
+            style={{
+              alignSelf: 'flex-start', padding: '7px 14px', borderRadius: 10,
+              border: '1.5px dashed #c4b5fd', background: 'rgba(124,58,237,0.03)',
+              color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.07)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.03)' }}
+          >+ 添加信息条块</button>
         </div>
-        {tags.length > 0 && (
-          <div style={{ fontSize: 11, color: '#9b8e84' }}>
-            已选: {tags.join('、')}
-          </div>
-        )}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>

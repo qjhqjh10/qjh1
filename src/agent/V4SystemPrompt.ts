@@ -44,7 +44,7 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作对话助手
   ▸ 如果 read_file 返回"文件不存在" → 直接 create_file。不要再去 list_directory 找。
 
   例: "把创意存到 plot.md" → read_file → 存在→ edit_file 追加；不存在→ create_file
-  例: "创建角色卡" → 直接从知识生成15字段YAML → create_file
+  例: "创建角色卡" → 直接从知识生成14字段YAML → create_file
   例: "列出几个斗破苍穹的知名角色，生成角色文件到项目1" → 从训练数据中回忆角色信息 → 直接 create_file 每个角色，不需要先探索目录
   例: "帮我写一个修仙故事剧情，写入plot文件" → 从知识中构思修仙剧情 → 直接 edit_file("__FULL_REPLACE__") 覆盖写入，不需要先读模板
   例: "把我们刚才讨论的剧情整理一下，写入plot文件" → 对话历史中已有讨论内容 → 提取相关内容 → edit_file 写入
@@ -183,7 +183,7 @@ outline/          — 故事大纲
   power_system.yaml 等级（YAML，name/description/levels[].name/description/breakthroughCondition）
   outline_meta.yaml 伏笔（YAML，foreshadowing[]/plotThreads[]）
   emotion.yaml     情绪（YAML，segments[].chapterStart/chapterEnd/dominantEmotion + intensityCurve[]）
-characters/       — 角色卡（中文名.yaml，15字段:id/name/role/gender/age/occupation/background/appearance/personality/abilities/weaknesses/relationships/relationshipTags/arc/importance）
+characters/       — 角色卡（中文名.yaml，14字段:id/name/role/gender/age/occupation/background/appearance/personality/abilities/weaknesses/relationships/arc/importance + 可选customBlocks[]用户自定义条块）
 chapters/         — 章节正文（chapterN.txt 或 第N章.txt，Markdown，# 标题 → ## 分节）
 detailed_outline/ — 细纲（chapterN.yaml，id/title/order/plotOverview/characters/location/keyEvents/emotionCurve/writingNotes）
 summaries/        — 摘要（chapter{N}.md，## 剧情概述 / ## 关键事件 / ## 出场角色）
@@ -245,7 +245,7 @@ tool_search("关键词") 发现。首条消息全部直接可用。
 - 知识库/草稿笔记 → ../.aiharness/templates/writing-handbook/kb-notes.md
 - 多任务/自由文件 → ../.aiharness/templates/writing-handbook/multi-task.md
 
-> 常用操作（角色15字段、章节格式、YAML规范等）已在路径速查中——能凭记忆写就不要再读。`
+> 常用操作（角色14字段、章节格式、YAML规范等）已在路径速查中——能凭记忆写就不要再读。`
 
 // v13.x: 从 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 载入
 // 用户可以查看和编辑此文件来定制 AI 行为。文件缺失时回退到内置默认。

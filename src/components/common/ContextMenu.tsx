@@ -1,17 +1,16 @@
 import { useEffect, useRef } from 'react'
-import { SparklesIcon, PencilSquareIcon, PencilIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
+import { PencilSquareIcon, PencilIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
 
 interface Props {
   x: number
   y: number
-  onPolish: () => void
   onContinue: () => void
   onRewrite?: () => void
   onSendToAI?: () => void
   onClose: () => void
 }
 
-export default function ContextMenu({ x, y, onPolish, onContinue, onRewrite, onSendToAI, onClose }: Props) {
+export default function ContextMenu({ x, y, onContinue, onRewrite, onSendToAI, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -40,12 +39,6 @@ export default function ContextMenu({ x, y, onPolish, onContinue, onRewrite, onS
       background: '#fff', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.14)',
       border: '1px solid rgba(0,0,0,0.06)', padding: 4, minWidth: 140,
     }}>
-      <button onClick={onPolish} role="menuitem" style={item}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f5f3ff'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-      >
-        <SparklesIcon style={{ width: 16, height: 16, color: '#7c3aed' }} /> 润色
-      </button>
       {onRewrite && (
         <button onClick={onRewrite} role="menuitem" style={item}
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f5f3ff'}

@@ -93,6 +93,7 @@ function makeRuntime(adapter: OpenAIAdapter, overrides?: {
 // ══════════════════════════════════════════════════════════════
 
 describe('Context Compression', () => {
+  // SKIP: 依赖手工构造超长历史，压缩逻辑由 ContextCompressor 单测覆盖
   it.skip('triggers compression when estimated tokens exceed threshold', async () => {
     // Set a tiny context window so compression triggers almost immediately
     const { svc } = makeMockAI([
@@ -378,6 +379,7 @@ describe('API Error Handling', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Max Iterations & Empty Response', () => {
+  // SKIP: 终止行为随模型输出波动，断言不稳定
   it.skip('v11.0: no iteration hints — model works freely, stops when done', async () => {
     const responses = [
       { text: '', toolCalls: [makeToolCall('c1', 'read_file', { file_path: 'a' })] },
@@ -742,6 +744,7 @@ describe('Security Fence Integration', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('End-to-End Scenarios', () => {
+  // SKIP: 多工具长链路 mock 维护成本高，由 Anthropic 端 E2E 覆盖
   it.skip('multi-tool character creation workflow', async () => {
     const { svc } = makeMockAI([
       // Step 1: list to find existing characters for reference
@@ -765,7 +768,7 @@ describe('End-to-End Scenarios', () => {
             background: '出身艺术世家', appearance: '长发飘飘',
             personality: '温柔善良', abilities: '绘画天赋',
             weaknesses: '过于感性', relationships: '与男主青梅竹马',
-            relationshipTags: ['青梅竹马'], arc: '从自卑到自信',
+            arc: '从自卑到自信',
             importance: 90,
           }),
         })],

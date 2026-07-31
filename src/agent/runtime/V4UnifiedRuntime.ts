@@ -7,7 +7,7 @@ import { ContextCompressor } from '../context/ContextCompressor'
 // v11.3: skillRegistry removed
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
-import { executeSingleTool, classifyToolCalls } from './ToolExecutor'
+import { executeSingleTool, classifyToolCalls, WRITE_TOOLS } from './ToolExecutor'
 import { isKnowledgeOnly, hasTaskKeywords } from '../utils/taskDetection'
 import { SUBSEQUENT_TOOL_NAMES } from '../skills/tools/toolSearchTools'
 import type {
@@ -77,7 +77,6 @@ export class V4UnifiedRuntime {
     matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
   }> = []
   private compressor: ContextCompressor
-  private compressedAt = 0
   private lastCompressLength = 0
   private _nudgeCount = 0       // 自愈恢复轮次计数
   private _consecutiveFailures = 0  // v12.4.0: detect path failure loops
@@ -186,18 +185,33 @@ export class V4UnifiedRuntime {
     // ── ② Main loop ──
     let iteration = 0
 
+    // v13.x: 清理不完整的 assistant 消息（有 tool_calls 但缺 tool_result），
+    // 顺带删除其孤儿 tool 结果（否则 API 因 tool 消息无对应 tool_use 报错）
+    const removeIncompleteToolTurn = () => {
+      for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
+        const m = this.messagesForApi[i]
+        if (m.role === 'assistant' && m.tool_calls && (m.tool_calls as unknown[]).length > 0) {
+          const callIds = new Set((m.tool_calls as Array<{ id: string }>).map(tc => tc.id))
+          this.messagesForApi.splice(i, 1)
+          for (let j = this.messagesForApi.length - 1; j >= 0; j--) {
+            const tm = this.messagesForApi[j]
+            if (tm.role === 'tool' && tm.tool_call_id && callIds.has(tm.tool_call_id)) {
+              this.messagesForApi.splice(j, 1)
+            }
+          }
+          break
+        }
+      }
+    }
+
     while (iteration < this.config.maxIterations) {
-      if (this.config.abortSignal.aborted) break
+      if (this.config.abortSignal.aborted) {
+        removeIncompleteToolTurn()  // abort 同样清理（V1 遗漏，v2 补上）
+        break
+      }
       if (Date.now() - runStartTime > RUN_TIMEOUT) {
         collectedText = collectedText || '运行超时'
-        // v11.7.1: 清理最后一条不完整的 assistant 消息（有 tool_calls 但缺 tool_result）
-        for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
-          const m = this.messagesForApi[i]
-          if (m.role === 'assistant' && m.tool_calls && (m.tool_calls as unknown[]).length > 0) {
-            this.messagesForApi.splice(i, 1)
-            break
-          }
-        }
+        removeIncompleteToolTurn()
         break
       }
 
@@ -220,33 +234,29 @@ export class V4UnifiedRuntime {
       if (this.compressor.needsCompression(estimatedTokens)) {
         const newSinceCompress = this.lastCompressLength > 0
           ? this.messagesForApi.length - this.lastCompressLength : 0
-        const before = this.messagesForApi.length
         this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress))
         this.lastCompressLength = this.messagesForApi.length
-        this.compressedAt = iteration
       }
 
       // ── 读操作计数：连续 N 次读取无写入时注入提醒 ──
+      // v13.x: 写工具集合统一引用 ToolExecutor.WRITE_TOOLS（单一来源，含网络/图片工具）
       const READ_TOOLS_RE = /^(read_file|list_directory|search_content|find_files)$/
-      const WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
       let consecutiveReads = 0
       let hasWritten = false
       for (let s = this.toolCallSteps.length - 1; s >= 0; s--) {
         const step = this.toolCallSteps[s]
-        if (WRITE_TOOLS_RE.test(step.tool)) { hasWritten = true; break }
+        if (WRITE_TOOLS.has(step.tool)) { hasWritten = true; break }
         if (READ_TOOLS_RE.test(step.tool)) consecutiveReads++
         else break  // non-read, non-write tool → stop counting
       }
-      if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp) {
-        this.messagesForApi.push({
-          role: 'system',
-          content: `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`,
-        })
-      } else if (!hasWritten && consecutiveReads >= 3 && this._userRequestedFileOp) {
-        this.messagesForApi.push({
-          role: 'system',
-          content: `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`,
-        })
+      const readNudge5 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
+      const readNudge3 = `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`
+      // v13.x: 按 content 去重——压缩可能移动 system 消息位置，不能按位置判断
+      const hasNudge = (content: string) => this.messagesForApi.some(m => m.role === 'system' && m.content === content)
+      if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp && !hasNudge(readNudge5)) {
+        this.messagesForApi.push({ role: 'system', content: readNudge5 })
+      } else if (!hasWritten && consecutiveReads >= 3 && this._userRequestedFileOp && !hasNudge(readNudge3)) {
+        this.messagesForApi.push({ role: 'system', content: readNudge3 })
       }
 
       // ── API Call (with single retry for transient failures) ──
@@ -330,7 +340,9 @@ export class V4UnifiedRuntime {
         // ── Done detection (v11.5.1: expanded to cover natural completions) ──
         // v12.16.2: 必须实际执行了写工具才接受"完成"声明
         // 防止模型说"全部完成！"但 create_file/edit_file 根本没调用
-        const donePhrase = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[！。]?|已处理|上述.*完成|综上/.test(collectedText)
+        // v13.x: 「已处理」收窄为「已处理完毕/完成」，避免命中"已处理前两章"；
+        // 「综上」要求句内出现"完成"且以句末标点结束，避免命中"综上，我建议…"
+        const donePhrase = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[！。]?|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]/.test(collectedText)
         if (donePhrase && (_hasWriteCall || !this._userRequestedFileOp)) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
@@ -369,9 +381,8 @@ export class V4UnifiedRuntime {
 
         // ── Model used tools, now speaking text ──
 
-        // Track write tool usage across iterations
-        const _WRITE_TOOLS_RE = /^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/
-        if (this.toolsUsed.some(t => _WRITE_TOOLS_RE.test(t))) _hasWriteCall = true
+        // Track write tool usage across iterations（统一引用 WRITE_TOOLS）
+        if (this.toolsUsed.some(t => WRITE_TOOLS.has(t))) _hasWriteCall = true
 
         // ── v12.16.0: 自愈恢复系统（替换梯度 Nudge）──
         // 思路: 不催促"快做！"，而是帮助模型分析问题、找到解决方案。
@@ -413,7 +424,8 @@ export class V4UnifiedRuntime {
         // 诊断数据
         const failedTools = this.toolCallSteps.filter(s => s.status === 'error')
         const readTools = this.toolCallSteps.filter(s => /^(read_file|list_directory|search_content|find_files)$/.test(s.tool))
-        const writeTools = this.toolCallSteps.filter(s => /^(create_file|edit_file|batch_replace|delete_file|rename_file)$/.test(s.tool))
+        // v13.x: 统一 WRITE_TOOLS——此前统计正则缺 create_project/kb_append_file
+        const writeTools = this.toolCallSteps.filter(s => WRITE_TOOLS.has(s.tool))
 
         let recoveryMsg: string
 

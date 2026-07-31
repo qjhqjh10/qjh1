@@ -1,41 +1,32 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, fileService, styleTemplateService, templateService, settingsService } from '@/services/fileService'
+import { aiService, kbService, fileService, settingsService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, SparklesIcon,
   BookOpenIcon, GlobeAltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   DocumentTextIcon, PhotoIcon,
-  TrashIcon, Square2StackIcon, WrenchScrewdriverIcon,
+  TrashIcon, Square2StackIcon, WrenchScrewdriverIcon, FolderOpenIcon,
 } from '@heroicons/react/24/outline'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
-import { parseAiErrorMessage } from '@/utils/textUtils'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import ConfirmModal from '@/components/common/ConfirmModal'
 import { useToast } from '@/components/common/Toast'
-import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import { WELCOME_MSG, STORAGE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
-
-// v13.0: 多角色头像组件
-function CharAvatar({ charId, charAvatarMap, role, onClick }: { charId?: string; charAvatarMap: Record<string, string>; role: string; onClick: (src: string) => void }) {
-  const src = charId ? charAvatarMap[charId] || '' : ''
-  if (role === 'tool') return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>🔧</div>
-  if (src) return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', cursor: 'pointer' }} onClick={() => onClick(src)}><img src={src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
-  return <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>{role === 'user' ? '✍️' : '📖'}</div>
-}
 
 import { makeConversation, parsePopupCommand } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
 import { ContextCompressor } from '@/agent/context/ContextCompressor'
-import { estimateTokens, estimateMessages } from '@/agent/utils/tokenEstimation'
+import { estimateMessages } from '@/agent/utils/tokenEstimation'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import { AgentStateBar } from './components/AgentStateBar'
 import { DiagnosticPanel } from './components/DiagnosticPanel'
@@ -78,6 +69,44 @@ const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onC
   )
 })
 
+// ── 文件引用提取：从消息的工具调用步骤中解析生成/修改过的文件 ──
+const FILE_TOOLS = new Set(['create_file', 'edit_file', 'batch_replace', 'rename_file', 'kb_append_file'])
+
+interface FileRef { path: string; tool: string }
+
+function extractFileRefs(
+  msg: { toolCallSteps?: any[] },
+  activeProjectId: string | null,
+  projectsBasePath: string,
+): FileRef[] {
+  const steps = msg?.toolCallSteps
+  if (!Array.isArray(steps) || !projectsBasePath) return []
+  const seen = new Set<string>()
+  const refs: FileRef[] = []
+  for (const step of steps) {
+    const s = step as { tool?: string; status?: string; arguments?: string }
+    if (!FILE_TOOLS.has(s.tool || '') || s.status !== 'success') continue
+    let args: Record<string, unknown> | null = null
+    try { args = s.arguments ? JSON.parse(s.arguments) : null } catch { /* 参数非 JSON */ }
+    const rel = typeof args?.file_path === 'string' ? args.file_path
+      : typeof args?.filePath === 'string' ? args.filePath
+      : typeof args?.path === 'string' ? args.path
+      : typeof args?.targetPath === 'string' ? args.targetPath
+      : ''
+    if (!rel) continue
+    // 相对路径 → 绝对路径：已带项目前缀直接用，否则拼当前项目
+    const abs = activeProjectId && rel.startsWith(activeProjectId + '/')
+      ? `${projectsBasePath}/${rel}`
+      : activeProjectId
+        ? `${projectsBasePath}/${activeProjectId}/${rel}`
+        : `${projectsBasePath}/${rel}`
+    if (seen.has(abs)) continue
+    seen.add(abs)
+    refs.push({ path: abs, tool: s.tool || '' })
+  }
+  return refs
+}
+
 // ── Component ──
 
 export default function AIChatWindow() {
@@ -101,6 +130,7 @@ export default function AIChatWindow() {
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
   const activeProjectId = useStore(s => s.activeProjectId)
+  const projectsBasePath = useStore(s => s.projectsBasePath)
   const activePage = useStore(s => s.activePage)
   const setInsertionAction = useStore(s => s.setInsertionAction)
   const setReplaceAction = useStore(s => s.setReplaceAction)
@@ -130,7 +160,6 @@ export default function AIChatWindow() {
   const [kbEnabled, setKbEnabled] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
   const [toolInvokeEnabled, setToolInvokeEnabled] = useState(true)
-  const [showToolHint, setShowToolHint] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
   const lastApiCheck = useRef(0)
 
@@ -167,8 +196,9 @@ export default function AIChatWindow() {
     try {
       setKbLoadError(false)
       const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
+      // v13.x: 显示全部知识库文件，无需在项目内
       if (Array.isArray(meta?.files)) {
-        setKbFiles(meta.files.filter(f => f.projects?.includes(activeProjectId || '')))
+        setKbFiles(meta.files.map(f => ({ id: f.id, originalName: f.originalName })))
       } else { setKbFiles([]) }
     } catch (e) { logError('加载知识库文件列表失败', e); setKbLoadError(true); setKbFiles([]) }
   }
@@ -274,6 +304,8 @@ export default function AIChatWindow() {
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number; cacheHitTokens?: number; cacheCreationTokens?: number } | null>(null)
   const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
+  // 消息文件图标右键菜单（打开文件夹 / 打开文件）
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const [charAvatarMap, setCharAvatarMap] = useState<Record<string, string>>({})
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
@@ -646,8 +678,8 @@ export default function AIChatWindow() {
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 15 字段卡片 + AI 一键生成 + G6 关系图\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/润色/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/润色/续写（右键菜单）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
-        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 15 字段完整角色卡片\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/润色/续写\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 14 字段卡片 + AI 一键生成\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/改写/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/续写（右键菜单，可插入本章原文参考）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
+        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 14 字段完整角色卡片（可自定义条块）\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/续写（可插入本章原文参考）\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
         { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), displayOnly: true },
@@ -751,15 +783,14 @@ export default function AIChatWindow() {
         },
       })
       // C1: 累计 tokens（预算统计）用实际计费值（总 - cacheRead）
+      // v13.x: 计算移出 updater——updater 必须纯函数（StrictMode 双调用 + 避免过期闭包）
       const billedTokens = Math.max(0, (result.totalTokens || 0) - (result.cacheHitTokens || 0))
-      setCumulativeTokens(prev => {
-        const newTotal = prev + billedTokens
-        setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: result.promptTokens || 0, peakPromptTokens: Math.max(c.peakPromptTokens || 0, result.promptTokens || 0) } : c))
-        return newTotal
-      })
+      const newTotal = cumulativeTokens + billedTokens
+      setCumulativeTokens(newTotal)
+      setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: result.promptTokens || 0, peakPromptTokens: Math.max(c.peakPromptTokens || 0, result.promptTokens || 0) } : c))
       // v13.2.0: 进度条用 Runtime 估算的下次请求上下文 token 数（非累计计费值）
       // 累计值会因每轮重复计入历史而虚高；estimatedContextTokens 基于 messagesForApi 真实大小
-      setCurrentContextTokens(result.estimatedContextTokens ?? (cumulativeTokens + billedTokens))
+      setCurrentContextTokens(result.estimatedContextTokens ?? newTotal)
       useAgentStore.getState().addTokens(billedTokens)
     } catch (err) {
       setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
@@ -963,7 +994,7 @@ export default function AIChatWindow() {
               icon={<span style={{ fontSize: 12 }}>🔧</span>}
               label={`调用工具${conversationToolNames.current.size > 0 ? ` · ${conversationToolNames.current.size}` : ''}`}
               active={toolInvokeEnabled && (activeConfig as any)?.protocol !== 'anthropic'}
-              onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') { setToolInvokeEnabled(!toolInvokeEnabled); if (!toolInvokeEnabled) setShowToolHint(false) } }}
+              onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') setToolInvokeEnabled(!toolInvokeEnabled) }}
             />
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
@@ -1288,6 +1319,28 @@ export default function AIChatWindow() {
                     ))}
                   </div>
                 )}
+                {/* File refs — 生成/修改的文件，左键打开，右键打开文件夹 */}
+                {msg.role === 'assistant' && extractFileRefs(msg, activeProjectId, projectsBasePath).length > 0 && (
+                  <div style={{ marginLeft: 36, marginTop: 4, marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                    <span style={{ fontSize: 9, color: '#9b8e84', marginRight: 2 }}>文件:</span>
+                    {extractFileRefs(msg, activeProjectId, projectsBasePath).map(r => (
+                      <span
+                        key={r.path}
+                        onClick={(e) => { e.stopPropagation(); (window as any).electron.app.openFile(r.path) }}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setFileMenu({ x: e.clientX, y: e.clientY, path: r.path }) }}
+                        title={`${r.path}\n左键打开文件 · 右键打开文件夹`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10,
+                          fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                          background: 'rgba(16,163,74,0.06)', color: '#16a34a',
+                          border: '1px solid rgba(16,163,74,0.15)',
+                        }}
+                      >
+                        📄 {r.path.split('/').pop()}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* Images */}
                 {msg.images && msg.images.map((img: string, i: number) => (
                   <div key={i} style={{ marginLeft: 36, marginTop: 4, marginBottom: 4 }}>
@@ -1455,21 +1508,6 @@ export default function AIChatWindow() {
                 <span style={{ fontSize: 14 }}>⚠️</span>
                 <span style={{ flex: 1 }}>{apiError}</span>
                 <button onClick={() => setApiError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 14 }}>✕</button>
-              </div>
-            )}
-            {/* Smart tool hint */}
-            {showToolHint && (
-              <div style={{
-                padding: '4px 12px', fontSize: 11, color: '#b45309',
-                background: 'rgba(245,158,11,0.06)', borderRadius: 8,
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <span>💡 你的消息包含操作意图，但AI近期未调用工具。</span>
-                <button onClick={() => setToolInvokeEnabled(true)} style={{
-                  padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-                  background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer',
-                }}>开启🔧</button>
-                <span style={{ color: '#9b8e84' }}>或输入"调用工具"</span>
               </div>
             )}
             {/* @ file selector popup */}
@@ -1680,6 +1718,25 @@ export default function AIChatWindow() {
           return null
         })()}
       </div>
+    )}
+    {/* 文件图标右键菜单 — 打开文件夹 / 打开文件 */}
+    {fileMenu && (
+      <>
+        <div onClick={() => setFileMenu(null)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
+        <div style={{
+          position: 'fixed', left: fileMenu.x, top: fileMenu.y, zIndex: 200,
+          background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+          border: '1px solid rgba(0,0,0,0.08)', padding: 4, minWidth: 180,
+        }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => { (window as any).electron.app.openFolder(fileMenu.path.slice(0, fileMenu.path.lastIndexOf('/'))); setFileMenu(null) }} style={ctxMenuBtn}>
+            <FolderOpenIcon style={{ width: 13, height: 13 }} /> 打开文件夹
+          </button>
+          <button onClick={() => { (window as any).electron.app.openFile(fileMenu.path); setFileMenu(null) }} style={ctxMenuBtn}>
+            <DocumentTextIcon style={{ width: 13, height: 13 }} /> 打开文件
+          </button>
+          <div style={{ padding: '6px 12px 2px', fontSize: 10, color: '#9b8e84', wordBreak: 'break-all' }}>{fileMenu.path}</div>
+        </div>
+      </>
     )}
     {toolDetailPanel && (
       <ToolDetailPanel

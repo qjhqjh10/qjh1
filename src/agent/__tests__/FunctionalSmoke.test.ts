@@ -7,7 +7,7 @@ import { V4SecurityFence } from '../V4SecurityFence'
 import { buildSystemPrompt, CORE_SYSTEM_PROMPT } from '../V4SystemPrompt'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
-import { contextAssembler, ContextAssembler } from '../context/ContextAssembler'
+import { ContextAssembler } from '../context/ContextAssembler'
 
 beforeAll(() => {
   toolRegistry.registerAll(ALL_TOOLS)
@@ -106,9 +106,7 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 8. Context Assembler ──
-  it('ContextAssembler: Provider系统已退役(v11.7.1)', () => {
-    expect(contextAssembler).toBeDefined()
-    expect(typeof contextAssembler.assemble).toBe('function')
+  it('ContextAssembler: Provider系统已退役(v11.7.1)，仅保留 domainsForPath', () => {
     expect(typeof ContextAssembler.domainsForPath).toBe('function')
   })
 

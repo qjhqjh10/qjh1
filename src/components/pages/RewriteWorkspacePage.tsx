@@ -649,7 +649,8 @@ export default function RewriteWorkspacePage() {
       setProject(updated)
     }
     setAnalyzing(false)
-  }, [project, projectId, effectiveConfigId, activeTemplate])
+    // analyses/disabledMarkerKeys 参与过滤，须在依赖中（否则旧闭包重复分析已处理章节）
+  }, [project, projectId, effectiveConfigId, activeTemplate, analyses, disabledMarkerKeys])
 
   const handleRetryFailedAnalyses = useCallback(async () => {
     if (!project || !effectiveConfigId) { setError('请先配置AI模型'); return }
@@ -1072,7 +1073,8 @@ export default function RewriteWorkspacePage() {
       setProject(updated)
     }
     setRewriting(false)
-  }, [project, projectId, effectiveConfigId, activeTemplate])
+    // rewrites/disabledMarkerKeys 参与过滤，须在依赖中（否则旧闭包重复改写已处理章节）
+  }, [project, projectId, effectiveConfigId, activeTemplate, rewrites, disabledMarkerKeys])
 
   const handleRetryWordCountFailures = useCallback(async () => {
     if (!project || !effectiveConfigId) return

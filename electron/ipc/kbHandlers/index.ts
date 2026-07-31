@@ -223,8 +223,10 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const index = await loadIndex()
 
-    // Filter chunks by project
-    let projectFiles = meta.files.filter(f => f.projects.includes(projectId))
+    // Filter chunks by project（projectId 为空 → 检索全部文件，无需在项目内）
+    let projectFiles = projectId
+      ? meta.files.filter(f => f.projects.includes(projectId))
+      : meta.files
     // Further restrict to specific file IDs if provided
     if (fileIds && fileIds.length > 0) {
       const fileIdSet = new Set(fileIds)

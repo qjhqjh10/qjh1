@@ -1,24 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useStore, useSettingsStore } from '@/store'
-import { aiService, kbService, fileService, styleTemplateService, templateService, settingsService } from '@/services/fileService'
-import {
-  XMarkIcon, PaperAirplaneIcon, SparklesIcon,
-  ArrowDownTrayIcon, BookOpenIcon, GlobeAltIcon,
-  MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
-  PlusIcon, ArrowPathIcon, ListBulletIcon,
-  ExclamationTriangleIcon, DocumentTextIcon, PhotoIcon,
-  TrashIcon, Square2StackIcon,
-} from '@heroicons/react/24/outline'
-import { DEFAULT_AI_SETTINGS } from '@/types/settings'
-import { logError } from '@/utils/logger'
-import { parseAiErrorMessage } from '@/utils/textUtils'
-import { FILE_TOOLS, READ_ONLY_TOOLS, DANGEROUS_TOOLS } from '@/types/fileOps'
-import { debugApiSend, debugApiResponse, debugApiError, debugBatchCheck, debugBatchShow, debugBatchApprove, debugBatchDeny, debugBatchTimeout, debugToolCall, debugToolResult, debugSysError, debugSysWarn } from '@/services/debugLogService'
-import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
-import { WELCOME_MSG, STORAGE_KEY, LAST_ACTIVE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
+import { useSettingsStore } from '@/store'
+import { WELCOME_MSG } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
-import ImageLightbox from '@/components/common/ImageLightbox'
 
 export function makeConversation(id: string, title: string): Conversation {
   const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false

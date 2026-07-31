@@ -121,7 +121,8 @@ export function LibraryView({ ws }: { ws: any }) {
                             <Button size="sm" variant="ghost" onClick={async () => {
                               const proj = await styleProjectService.loadProject(p.id) as StyleProject
                               ws.setSelectedProject(proj)
-                              setTimeout(() => ws.handleSaveAsTemplate(), 100)
+                              // v13.x: 直接传项目对象，避免 setTimeout 旧闭包读到过期 selectedProject
+                              ws.handleSaveAsTemplate(proj)
                             }}>存为模板</Button>
                           )}
                           <button onClick={() => ws.handleDeleteProject(p)} className="interactive" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#d4ccc4', borderRadius: 6 }}>

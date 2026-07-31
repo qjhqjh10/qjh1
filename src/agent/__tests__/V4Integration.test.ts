@@ -136,6 +136,7 @@ describe('V4 Agent Runtime (chat mode)', () => {
 })
 
 describe('V4 Agent Runtime (task mode)', () => {
+  // SKIP: 基础工具调用链路已由 V4AgentRuntime 集成测试覆盖
   it.skip('calls tools then responds', async () => {
     const ai = makeMockAIService([
       {

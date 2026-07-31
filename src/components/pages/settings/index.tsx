@@ -4,6 +4,7 @@ import type { SettingsTab } from './types'
 import { formatContextWindow } from './constants'
 import { ModelSettingsTab } from './tabs/ModelSettingsTab'
 import { PromptLibraryTab } from './tabs/PromptLibraryTab'
+import { KnowledgeBaseSettingsTab } from './tabs/KnowledgeBaseSettingsTab'
 import { AISettingsTab } from './tabs/AISettingsTab'
 import { DisplaySettingsTab } from './tabs/DisplaySettingsTab'
 import { TokenStatsTab } from './tabs/TokenStatsTab'
@@ -13,6 +14,7 @@ import { VersionTab } from './VersionTab'
 const TABS: [SettingsTab, string][] = [
   ['models', '模型设置'],
   ['prompts', '提示词库'],
+  ['kb', '知识库'],
   ['ai', 'AI写作助手'],
   ['display', '显示设置'],
   ['tokenstats', 'Token统计'],
@@ -127,6 +129,7 @@ export default function SystemSettingsPage() {
       <div style={{ flex: 1, overflow: 'hidden', padding: 24 }}>
         {activeTab === 'models' && <ModelSettingsTab />}
         {activeTab === 'prompts' && <PromptLibraryTab />}
+        {activeTab === 'kb' && <KnowledgeBaseSettingsTab />}
         {activeTab === 'ai' && <AISettingsTab />}
         {activeTab === 'display' && <DisplaySettingsTab />}
         {activeTab === 'tokenstats' && <TokenStatsTab />}

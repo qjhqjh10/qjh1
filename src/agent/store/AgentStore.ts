@@ -5,16 +5,6 @@ import type { ToolProgressEvent, ThinkingContext } from '../runtime/AgentEventEm
 
 // ── Types ──
 
-export interface AgentSessionMeta {
-  id: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-  totalTokens: number
-  modelName: string
-}
-
 export interface ToolExecutionState {
   callId: string
   toolName: string
@@ -37,51 +27,22 @@ export interface AgentRunState {
   hookFeedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null
 }
 
-export interface PermissionPattern {
-  toolName: string
-  approvedCount: number
-  deniedCount: number
-  lastApproved: number | null
-}
-
 export interface AgentHealthState {
   circuitState: 'CLOSED' | 'OPEN' | 'HALF_OPEN'
   circuitFailures: number
   circuitOpenedAt: number | null  // v9.5.5: 熔断器打开时间戳（用于冷却计时）
-  checkpointCount: number
-  autoApprovedTools: string[]
-  lastSessionMetrics: {
-    toolSuccessRate: number
-    hallucinationRate: number
-    iterationCycles: number
-    trend: 'improving' | 'stable' | 'declining'
-  } | null
 }
 
 export interface AgentStoreState {
-  // Sessions
-  sessions: AgentSessionMeta[]
-  activeSessionId: string | null
-
   // Current run
   run: AgentRunState
-
-  // Permission learning
-  permissionPatterns: PermissionPattern[]
 
   // Token tracking
   totalTokensUsed: number
   peakPromptTokens: number
 
-  // Health (persisted across sessions for settings page)
+  // Health（内存态——无 persist 中间件，注释如实说明）
   health: AgentHealthState
-
-  // Actions — Session
-  setSessions: (sessions: AgentSessionMeta[]) => void
-  setActiveSession: (id: string | null) => void
-  addSession: (session: AgentSessionMeta) => void
-  removeSession: (id: string) => void
-  updateSessionMeta: (id: string, partial: Partial<AgentSessionMeta>) => void
 
   // Actions — Run
   startRun: (runId: string) => void
@@ -95,10 +56,6 @@ export interface AgentStoreState {
   setLastError: (error: string | null) => void
   setStreamingText: (text: string) => void
   setIsStreaming: (streaming: boolean) => void
-  setHookFeedback: (feedback: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null) => void
-  // Actions — Permissions
-  recordPermission: (toolName: string, approved: boolean) => void
-  getPermissionPattern: (toolName: string) => PermissionPattern | undefined
 
   // Actions — Tokens
   addTokens: (amount: number) => void
@@ -128,9 +85,6 @@ let _streamTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useAgentStore = create<AgentStoreState>()(
   immer((set, get) => ({
-    sessions: [],
-    activeSessionId: null,
-
     run: {
       runId: null,
       phase: 'IDLE',
@@ -144,8 +98,6 @@ export const useAgentStore = create<AgentStoreState>()(
       hookFeedback: null,
     },
 
-    permissionPatterns: [],
-
     totalTokensUsed: 0,
     peakPromptTokens: 0,
 
@@ -153,23 +105,7 @@ export const useAgentStore = create<AgentStoreState>()(
       circuitState: 'CLOSED',
       circuitFailures: 0,
       circuitOpenedAt: null,  // v9.5.5
-      checkpointCount: 0,
-      autoApprovedTools: [],
-      lastSessionMetrics: null,
     },
-
-    // ── Session Actions ──
-
-    setSessions: (sessions) => set(s => { s.sessions = sessions }),
-    setActiveSession: (id) => set(s => { s.activeSessionId = id }),
-    addSession: (session) => set(s => { s.sessions.push(session) }),
-    removeSession: (id) => set(s => {
-      s.sessions = s.sessions.filter(x => x.id !== id)
-    }),
-    updateSessionMeta: (id, partial) => set(s => {
-      const idx = s.sessions.findIndex(x => x.id === id)
-      if (idx !== -1) Object.assign(s.sessions[idx], partial, { updatedAt: new Date().toISOString() })
-    }),
 
     // ── Run Actions ──
 
@@ -268,28 +204,6 @@ export const useAgentStore = create<AgentStoreState>()(
       // V1-7: Only update if value actually changes (was called on every chunk)
       if (get().run.isStreaming !== streaming) set(s => { s.run.isStreaming = streaming })
     },
-    setHookFeedback: (feedback) => set(s => { s.run.hookFeedback = feedback }),
-
-
-    // ── Permission Actions ──
-
-    recordPermission: (toolName, approved) => set(s => {
-      const p = s.permissionPatterns.find(x => x.toolName === toolName)
-      if (p) {
-        if (approved) p.approvedCount++
-        else p.deniedCount++
-        p.lastApproved = approved ? Date.now() : p.lastApproved
-      } else {
-        s.permissionPatterns.push({
-          toolName,
-          approvedCount: approved ? 1 : 0,
-          deniedCount: approved ? 0 : 1,
-          lastApproved: approved ? Date.now() : null,
-        })
-      }
-    }),
-
-    getPermissionPattern: (toolName) => get().permissionPatterns.find(x => x.toolName === toolName),
 
     // ── Token Actions ──
 

@@ -26,6 +26,7 @@ export interface ProjectAPI {
   listProjects: (basePath: string) => Promise<string[]>
   importProject: (zipPath: string) => Promise<{ name: string; type: string }>
   updateCategory: (projectPath: string, novelCategory: string) => Promise<void>
+  rename: (projectPath: string, newName: string) => Promise<{ name: string }>
 }
 
 export interface ExportAPI {
@@ -99,6 +100,8 @@ export interface AppAPI {
   getRewriteProjectsPath: () => Promise<string>
   getStoryWorkspacePath: () => Promise<string>
   getSystemPrompt: () => Promise<string>
+  openFolder: (folderPath: string) => Promise<void>
+  openFile: (filePath: string) => Promise<void>
 }
 
 export interface SettingsAPI {

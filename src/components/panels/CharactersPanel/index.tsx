@@ -13,15 +13,13 @@ import ConfirmModal from '@/components/common/ConfirmModal'
 import { SkeletonList } from '@/components/common/Skeleton'
 
 import CharacterForm from '../CharacterForm'
-import RelationshipGraphModal from '@/components/common/RelationshipGraphModal'
-import { PlusIcon, SparklesIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import type { Character } from '@/types/character'
 import { EMPTY_CHARACTER } from '@/types/character'
 import { logError } from '@/utils/logger'
 import { AI_FORMAT_INSTRUCTION, type CharactersPanelProps } from './constants'
 import { CharacterGrid } from './CharacterGrid'
 import { AICharacterGenerateDialog } from './dialogs/AICharacterGenerateDialog'
-import { useRelationshipGraph } from './hooks/useRelationshipGraph'
 
 export default function CharactersPanel({ showWorldbuildingPanel = true, standalone = true }: CharactersPanelProps) {
   const navigate = useNavigate()
@@ -53,8 +51,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const [aiGenConfigId, setAiGenConfigId] = useState(activeConfigId)
   const [aiGenImageNote, setAiGenImageNote] = useState('')
   const [aiGenPromptId, setAiGenPromptId] = useState('')
-
-  const graph = useRelationshipGraph({ projectPath, activeProjectId, activeConfigId })
 
   useEffect(() => {
     if (!activeProjectId) { if (standalone) navigate('/'); return }
@@ -94,7 +90,13 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
 
   const confirmDelete = async () => {
     if (!charToDelete) return
-    await fileService.deleteFile(`${projectPath}/characters/${charToDelete.id}.yaml`)
+    // 依次尝试 .yaml/.json/.txt（AI 助手生成的旧文件可能是 .json/.txt）
+    for (const ext of ['.yaml', '.json', '.txt']) {
+      try {
+        await fileService.deleteFile(`${projectPath}/characters/${charToDelete.id}${ext}`)
+        break
+      } catch { /* 该扩展名不存在，继续尝试下一个 */ }
+    }
     removeCharacter(charToDelete.id)
     setCharToDelete(null)
   }
@@ -107,9 +109,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
     setEditingChar(null)
     const refreshedChars = await loadCharacters(projectPath)
     setCharacters(refreshedChars)
-    if (graph.showGraph && isNew) {
-      graph.handleAnalyzeRelationships(true, refreshedChars, graph.graphData)
-    }
   }
 
   const handleAIGenerate = async (referenceContext: string) => {
@@ -166,8 +165,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
               disabled={!activeConfigId && configs.length === 0}
               icon={<SparklesIcon style={{ width: 16, height: 16 }} />}>AI生成角色</Button>
             <Button onClick={handleNew} icon={<PlusIcon style={{ width: 16, height: 16 }} />} variant="secondary">新建角色</Button>
-            <Button onClick={graph.handleOpenGraph} disabled={characters.length < 2}
-              icon={<ArrowRightIcon style={{ width: 16, height: 16 }} />} variant="ghost">关系图</Button>
           </div>
         </div>
         <div style={{ margin: '0 28px', height: 1, background: 'rgba(0,0,0,0.06)' }} />
@@ -185,21 +182,6 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
       <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingChar(null) }} title="角色详情" width={760} draggable>
         {editingChar && <CharacterForm char={editingChar} onChange={setEditingChar} onSave={handleSave} onClose={() => { setShowModal(false); setEditingChar(null) }} projectPath={projectPath} />}
       </Modal>
-
-      {/* Relationship Graph Modal */}
-      <RelationshipGraphModal
-        isOpen={graph.showGraph}
-        graphData={graph.graphData}
-        loading={graph.graphLoading}
-        error={graph.graphError}
-        characters={characters}
-        onClose={() => graph.setShowGraph(false)}
-        onRegenerate={() => graph.handleAnalyzeRelationships(false)}
-        onIncrementalRefresh={() => graph.handleAnalyzeRelationships(true)}
-        onNodeClick={() => {}}
-        onEditCharacter={(char) => { setEditingChar(char); setShowModal(true) }}
-        onNewCharacter={() => { setEditingChar({ ...EMPTY_CHARACTER, id: nanoid(8) }); setShowModal(true) }}
-      />
 
       {/* AI Generate Modal */}
       <AICharacterGenerateDialog

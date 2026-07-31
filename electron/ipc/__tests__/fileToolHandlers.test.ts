@@ -21,7 +21,7 @@ beforeEach(async () => {
   await fsp.writeFile(path.join(projectPath, 'characters', 'zhangsan.json'), JSON.stringify({
     id: 'zhangsan', name: '张三', role: '男主', gender: '男', age: '25',
     occupation: '战士', background: '出身贫寒', appearance: '高大威猛', personality: '勇敢坚毅',
-    abilities: '剑术精通', weaknesses: '冲动', relationships: '', relationshipTags: [], arc: '成长', importance: 80,
+    abilities: '剑术精通', weaknesses: '冲动', relationships: '', arc: '成长', importance: 80,
   }), 'utf-8')
   // v11.8.0: notes is a global dir, create at appRoot level for correct resolution
   const appRoot = path.dirname(projectPath)

@@ -83,10 +83,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const abortRef = useRef<(() => void) | null>(null)
-  const [streamContent, setStreamContent] = useState('')
-  const [streamChars, setStreamChars] = useState(0)
-  const [streamDone, setStreamDone] = useState(false)
-  const [streamUsage, setStreamUsage] = useState<{ prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined>()
 
   // Scene template injection
   const [sceneTemplates, setSceneTemplates] = useState<SceneTemplate[]>([])
@@ -132,7 +128,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
   useEffect(() => {
     if (isOpen) {
-      setError(''); setStreamContent(''); setStreamChars(0); setStreamDone(false); setStreamUsage(undefined)
+      setError('')
       templateService.list().then(list => setSceneTemplates(Array.isArray(list) ? list : [])).catch(() => setSceneTemplates([]))
       styleTemplateService.list().then(list => setStyleTemplates(Array.isArray(list) ? list : [])).catch(() => setStyleTemplates([]))
       // Load summaries from files for all chapters so the modal has up-to-date data
@@ -253,10 +249,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
 
     setLoading(true)
     setError('')
-    setStreamContent('')
-    setStreamChars(0)
-    setStreamDone(false)
-    setStreamUsage(undefined)
 
     try {
       // Auto-save current content first
@@ -318,7 +310,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         const streamHandle = chatAIStream(
           messages, genConfigId, activeProjectId || undefined,
           (data) => {
-            setStreamContent(data.accumulated); setStreamChars(data.accumulated.length)
             const liveContent = replaceMode ? data.accumulated : (currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated)
             onApply(liveContent)
             onGenChunk?.({ accumulated: data.accumulated, charCount: data.accumulated.length })
@@ -326,8 +317,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           (data) => {
             abortRef.current = null
             if (externalAbortRef) externalAbortRef.current = null
-            setStreamDone(true)
-            setStreamUsage(data.usage)
             const normalized = normalizeParagraphs(data.text)
             const finalContent = replaceMode ? normalized : (currentContent ? currentContent + '\n\n' + normalized : normalized)
             onApply(finalContent)
@@ -406,16 +395,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
       await saveVersionRecord(`${projectsBasePath}/${activeProjectId}`, chapterId, record)
     }
     onVersionSaved(record)
-  }
-
-  const handleCancelStream = () => {
-    abortRef.current?.()
-    abortRef.current = null
-    if (externalAbortRef) externalAbortRef.current = null
-    setLoading(false)
-    setStreamContent('')
-    setStreamDone(false)
-    setError('生成已取消')
   }
 
   const smartSelectSummaries = () => {
@@ -624,7 +603,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         {/* === SECTION 2: Two-column layout (characters+summary+kb | template+scene+style) === */}
         <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {/* Left column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
             {/* Characters */}
             <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>角色库 · {selectedCharacterIds.size} 个</div>
@@ -730,7 +709,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           </div>
 
           {/* Right column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
             {/* Template */}
             <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>生成模板</div>
@@ -888,51 +867,18 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
           {streamMode && <div style={{ marginTop: 6, fontSize: 10, color: '#16a34a' }}>流式输出已启用 — 内容将逐字输出到编辑器</div>}
         </div>
 
-        {/* Streaming progress */}
-        {loading && streamMode && (
-          <div style={{ padding: '12px 16px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.03), rgba(168,85,247,0.05))', border: '1px solid rgba(124,58,237,0.1)', flexShrink: 0 }}>
-            {!streamContent ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
-                <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.15)', borderTopColor: '#7c3aed', animation: 'spin 0.7s linear infinite' }} />
-                <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>等待 AI 响应...</span>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>
-                  生成中 · {streamChars.toLocaleString()} 字 {streamDone && '✓ 完成'}
-                </div>
-                <div style={{ fontSize: 12, lineHeight: 1.6, color: '#4a3f38', whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto' }} className="custom-scrollbar">
-                  {streamContent.slice(-500)}
-                </div>
-                {streamDone && streamUsage && (
-                  <div style={{ fontSize: 10, color: '#6b5e54', marginTop: 4 }}>
-                    Token: 入{streamUsage.prompt_tokens} 出{streamUsage.completion_tokens} 总{streamUsage.total_tokens} | 花费 {useSettingsStore.getState().configs.find(c => c.id === genConfigId)?.currency === 'CNY' ? '¥' : '$'}{streamUsage.cost.toFixed(4)}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         {error && (
           <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.12)', color: '#dc2626', fontSize: 12, lineHeight: 1.5, flexShrink: 0 }}>{error}</div>
         )}
 
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', flexShrink: 0 }}>
-          <button onClick={onClose} disabled={loading && !streamDone} style={{
+          <button onClick={onClose} style={{
             padding: '10px 28px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
-            background: '#fff', cursor: loading && !streamDone ? 'not-allowed' : 'pointer',
+            background: '#fff', cursor: 'pointer',
             fontSize: 14, fontWeight: 600, color: '#6b5e54', fontFamily: 'inherit',
           }}>取消</button>
-          {loading && streamMode && !streamDone ? (
-            <button onClick={handleCancelStream} style={{
-              padding: '10px 28px', borderRadius: 10, border: 'none',
-              background: 'linear-gradient(135deg, #ef4444, #dc2626)', cursor: 'pointer',
-              fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: 'inherit',
-            }}>停止生成</button>
-          ) : (
-            <button className="gen-btn" onClick={handleGenerate} disabled={loading || !genConfigId} style={{
+          <button className="gen-btn" onClick={handleGenerate} disabled={loading || !genConfigId} style={{
               padding: '10px 34px', borderRadius: 10, border: 'none',
               background: loading || !genConfigId ? 'linear-gradient(135deg, #c4b5e3, #d4c4f3)' : 'linear-gradient(135deg, #7c3aed, #a855f7)',
               cursor: loading || !genConfigId ? 'not-allowed' : 'pointer',
@@ -944,7 +890,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
               <SparklesIcon style={{ width: 15, height: 15 }} />
               {loading ? '生成中...' : `生成 (~${wordTarget}字)`}
             </button>
-          )}
         </div>
       </div>
     </Modal>

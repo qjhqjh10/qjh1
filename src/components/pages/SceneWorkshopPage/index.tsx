@@ -9,29 +9,12 @@ import ScrollArea from '@/components/common/ScrollArea'
 import { SkeletonList } from '@/components/common/Skeleton'
 import EmptyState from '@/components/common/EmptyState'
 import { inputStyle, headingMd, headingSm, captionText } from '@/components/common/styles'
-import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate, SceneTemplateType } from '@/types/story'
-import { SparklesIcon, TrashIcon, PencilIcon, PlusIcon, DocumentTextIcon, FireIcon, BookOpenIcon } from '@heroicons/react/24/outline'
-import {
-  LOCATIONS as EROTIC_LOCATIONS, TIMES as EROTIC_TIMES, ATMOSPHERES, PUBLICITIES,
-  ROLES as EROTIC_ROLES, ROLE_LABELS, BODY_STATES, KINKS_GROUPS,
-  OPENINGS, POSES, RHYTHMS, CHANGES, CLIMAXES, AFTERMATHS,
-  SOUND_DENSITIES, MOAN_STYLES, DEGRADE_LANGS, POVS,
-} from '@/components/common/eroticSceneConstants'
-
-// ===== Constants =====
-import {
-  NOVEL_SCENE_TYPES, NOVEL_PURPOSES, NOVEL_CONFLICTS, NOVEL_DIALOGUES, NOVEL_SENTENCES,
-  NOVEL_DENSITIES, NOVEL_WEATHERS, NOVEL_SUBTEXTS, NOVEL_GENRE_ELEMENTS,
-  WORLD_RULES, PROP_LIST, COSTUME_LIST, STRENGTH_LABELS, SENSORY_ANCHORS,
-  NOVEL_NARRATIVE_STYLES, NOVEL_TIME_COMPRESSION, NOVEL_INTROSPECTION,
-  NOVEL_DOMINANT_EMOTIONS, NOVEL_PACINGS, NOVEL_FORESHADOW_USE,
-  NOVEL_BODY_LANGUAGES, NOVEL_PROPS_PRESETS, NOVEL_APPEARANCE_PRESETS,
-  EROTIC_PACINGS, EROTIC_BODY_LANGUAGES, EROTIC_CONSENT_DYNAMICS, EROTIC_AFTERCARE,
-  DEFAULT_EROTIC, DEFAULT_NOVEL, SECTIONS,
-} from '../sceneWorkshopConstants'
+import type { EroticSceneConfig, NovelSceneConfig, SceneTemplate, SceneTemplateType } from '@/types/story'
+import { PlusIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import { DEFAULT_EROTIC, DEFAULT_NOVEL, SECTIONS } from '../sceneWorkshopConstants'
 import type { EditorType } from '../sceneWorkshopConstants'
 
-import { safeCSV, getSectionSummary, sectionIsAuto, novelSectionIsAuto, SectionCard, getNovelSectionSummary, NovelSectionCard, AutoField, CustomTagButton, CustomInput, NOVEL_SECTIONS } from "./helpers";
+import { getSectionSummary, sectionIsAuto, novelSectionIsAuto, SectionCard, getNovelSectionSummary, NovelSectionCard, NOVEL_SECTIONS } from "./helpers";
 
 import { EroticSectionEditor } from './EroticSectionEditor';
 import { NovelSectionEditor } from './NovelSectionEditor';

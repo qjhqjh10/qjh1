@@ -25,6 +25,9 @@ export default function ScratchpadPage() {
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  // v13.x: 防竞态 — 当前笔记引用（定时器校验）+ 脏标记（区分用户编辑与加载）
+  const currentNoteRef = useRef<string | null>(null)
+  const dirtyRef = useRef(false)
 
   const notesDir = useMemo(() => {
     if (!projectsBasePath) return ''
@@ -79,10 +82,14 @@ export default function ScratchpadPage() {
     }).catch(() => { setContent(''); setTitle(selectedNote.replace(/\.md$/, '')) })
   }, [selectedNote, notePath])
 
-  // Auto-save with debounce
+  // 同步当前笔记引用（供定时器校验）
+  useEffect(() => { currentNoteRef.current = selectedNote }, [selectedNote])
+
+  // Auto-save with debounce — 定时器触发时若已切换笔记则丢弃过期保存
   const scheduleSave = useCallback((newContent: string, noteName: string) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
+      if (currentNoteRef.current !== noteName) return  // 已切到别的笔记 → 丢弃
       setSaving(true)
       try {
         await fileService.write(notePath(noteName), newContent)
@@ -92,9 +99,27 @@ export default function ScratchpadPage() {
     }, 800)
   }, [notePath])
 
-  useEffect(() => {
-    if (selectedNote && content) scheduleSave(content, selectedNote)
-  }, [content, selectedNote, scheduleSave])
+  // 用户编辑回调（加载/AI 刷新路径不经过此回调，避免无谓回写）
+  const handleEditorChange = useCallback((newContent: string) => {
+    setContent(newContent)
+    if (!selectedNote) return
+    dirtyRef.current = true
+    scheduleSave(newContent, selectedNote)
+  }, [selectedNote, scheduleSave])
+
+  // 切换笔记：先 flush 旧笔记的挂起编辑（立即保存），再切换
+  const handleSelectNote = useCallback((note: string) => {
+    if (note === selectedNote) return
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = undefined
+      if (dirtyRef.current && selectedNote && content) {
+        fileService.write(notePath(selectedNote), content).catch(() => {})
+      }
+    }
+    dirtyRef.current = false
+    setSelectedNote(note)
+  }, [selectedNote, content, notePath])
 
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
@@ -104,7 +129,7 @@ export default function ScratchpadPage() {
     try {
       await fileService.write(`${notesDir}/${name}`, '')
       await loadNotes()
-      setSelectedNote(name)
+      handleSelectNote(name)
     } catch (err) { logError('创建草稿失败', err); alert('创建草稿失败') }
   }
 
@@ -178,7 +203,7 @@ export default function ScratchpadPage() {
             {filteredNotes.map(note => (
               <button
                 key={note}
-                onClick={() => setSelectedNote(note)}
+                onClick={() => handleSelectNote(note)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
                   padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -239,7 +264,7 @@ export default function ScratchpadPage() {
               <div style={{ flex: 1, overflow: 'auto' }} className="custom-scrollbar">
                 <RichTextEditor
                   content={content}
-                  onContentChange={setContent}
+                  onContentChange={handleEditorChange}
                   placeholder="在此输入草稿内容...（支持图片和排版）"
                   showFind={showFind}
                   onToggleFind={() => setShowFind(!showFind)}

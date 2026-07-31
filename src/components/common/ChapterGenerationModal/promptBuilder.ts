@@ -157,17 +157,28 @@ export async function injectKBContents(
 ): Promise<string> {
   if (selectedKbFileIds.size === 0) return prompt
 
+  // 检索条数取自知识库设置的「章节生成」场景
+  const { useSettingsStore } = await import('@/store')
+  const genTopK = Math.min(20, Math.max(1,
+    useSettingsStore.getState().aiSettings.kbSettings?.generation?.searchTopK || maxChunks))
+
   // 优先语义搜索
   if (searchQuery && projectId && configId) {
     const result = await injectKnowledge(
       prompt, searchQuery, projectId, configId,
-      [...selectedKbFileIds], maxChunks, 'before-writing',
+      [...selectedKbFileIds], genTopK, 'before-writing',
     )
     if (result.chunksInjected > 0) return result.prompt
   }
 
-  // 降级全量注入
-  const fallback = await injectKnowledgeFallback(prompt, [...selectedKbFileIds])
+  // 降级全量注入（参数取自知识库设置的「章节生成」场景）
+  const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
+  const gen = kbSettings?.generation || { fallbackTotalMaxChars: 10000, fallbackPerFileMaxChars: 5000 }
+  const fallback = await injectKnowledgeFallback(
+    prompt, [...selectedKbFileIds],
+    gen.fallbackTotalMaxChars || 10000,
+    gen.fallbackPerFileMaxChars || 5000,
+  )
   return fallback.prompt
 }
 
@@ -324,7 +335,8 @@ export function buildPrompt(opts: BuildPromptOptions): string {
     if (inChapter.length > 0) {
       const charDescs = inChapter.map(c => {
         const fields = [c.name, c.role, c.gender, c.age, c.occupation, c.personality, c.appearance, c.abilities, c.relationships].filter(Boolean)
-        return `${fields.join('，')}`
+        const custom = (c.customBlocks || []).filter(b => b.label.trim() && b.content.trim()).map(b => `${b.label}: ${b.content}`)
+        return [...fields, ...custom].join('，')
       })
       refParts.push(`【出场角色设定】\n${charDescs.join('\n')}\n（行为和对白要符合角色性格，但不能直接复述角色设定）`)
     }

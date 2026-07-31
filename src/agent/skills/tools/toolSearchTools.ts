@@ -1,5 +1,5 @@
 // ── Tool Search (v11.7.1) ──
-// 让模型按需发现扩展工具，而非每轮发送全部 34 个 Schema。
+// 让模型按需发现扩展工具，而非每轮发送全部 27 个 Schema。
 // 首轮: 全部工具（建立全局认知）
 // 后续: 核心 7 个（含 tool_search）→ 模型按需调用 tool_search 查询扩展工具
 
@@ -17,7 +17,7 @@ export const CORE_TOOL_NAMES = new Set([
   'tool_search',
 ])
 
-// v13.2.0: 后续消息扩展工具集 — 首条全量34个，后续发这12个高频工具
+// v13.2.0: 后续消息扩展工具集 — 首条全量 27 个，后续发这 11 个高频工具
 // kb_search 是知识库场景最高频工具，加入后续集合避免额外 tool_search 往返
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,

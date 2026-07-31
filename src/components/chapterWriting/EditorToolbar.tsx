@@ -65,8 +65,8 @@ export default function EditorToolbar({ editor, onOpenSymbols, onToggleFind, onI
       delete styleMap[cssProp]
     }
     // Rebuild style string
-    const newStyle = Object.entries(styleMap).map(([k, v]) => `${k}:${v}`).join(';')
-    return newStyle || (cssProp in styleMap ? '' : currentStyle)
+    // v13.x: 清空时直接返回重建结果——旧三元在 delete 后 `in` 恒 false，永远回退旧样式（清空失效）
+    return Object.entries(styleMap).map(([k, v]) => `${k}:${v}`).join(';')
   }
 
   return (

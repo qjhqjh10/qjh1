@@ -195,6 +195,13 @@ export function registerRewriteHandlers(ipcMain: IpcMain, basePath: string) {
     } catch { /* ignore */ }
   })
 
+  // ── Open file with system default app (AI 助手消息文件图标点击) ──
+  ipcMain.handle('app:openFile', async (_event, filePath: string) => {
+    try {
+      await shell.openPath(filePath)
+    } catch { /* ignore */ }
+  })
+
   // ── Get project dir path (for file operations) ──
   ipcMain.handle('rewrite:getProjectPath', async (_event, id: string) => {
     return projectDir(id)

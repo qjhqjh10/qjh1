@@ -161,7 +161,7 @@ export default function BatchGenerationModal({
     setDetailedOutlineFields(prev => { const n = { ...prev }; for (const k of Object.keys(n) as (keyof DetailedOutlineToggles)[]) n[k] = val; return n })
   }
 
-  const buildPromptForChapter = async (ch: DetailedChapter, loadedDims?: any) => {
+  const buildPromptForChapter = async (ch: DetailedChapter, loadedDims?: any, summaryIds?: Set<string>) => {
     const parts: string[] = []
     // Style injection
     if (selectedStyleTemplateId && selectedStyleTemplate) {
@@ -182,11 +182,12 @@ export default function BatchGenerationModal({
         if (sp) parts.push(`【语言风格要求】\n${sp}`)
       } catch {}
     }
-    // Chapter summaries
-    if (selectedSummaryIds.size > 0) {
+    // Chapter summaries（v13.x: summaryIds 显式传参——autoSummary 时避免读到过期闭包状态）
+    const effectiveSummaryIds = summaryIds ?? selectedSummaryIds
+    if (effectiveSummaryIds.size > 0) {
       const pp = `${projectsBasePath}/${activeProjectId}`
       try {
-        const summaries = await loadAllSummaries(pp, [...selectedSummaryIds])
+        const summaries = await loadAllSummaries(pp, [...effectiveSummaryIds])
         const summaryTexts = Object.entries(summaries).filter(([,v]) => v).map(([id, text]) => {
           const chap = chapters.find(c => c.id === id)
           return `第${(chap?.order ?? 0) + 1}章: ${text}`
@@ -194,13 +195,16 @@ export default function BatchGenerationModal({
         if (summaryTexts.length > 0) parts.push(`【前文章节摘要】\n${summaryTexts.join('\n\n')}`)
       } catch {}
     }
-    // Knowledge base
-    if (selectedKbFileIds.size > 0 && activeProjectId) {
+    // Knowledge base（v13.x: 无需在项目内，长度上限取自知识库设置）
+    if (selectedKbFileIds.size > 0) {
       try {
+        const { useSettingsStore } = await import('@/store')
+        const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
+        const perFile = Math.min(50000, Math.max(500, kbSettings?.generation?.fallbackPerFileMaxChars || 5000))
         const kbContents = await Promise.all([...selectedKbFileIds].map(async fid => {
           const res = await kbService.read(fid)
           const content = res?.content || ''
-          if (content) return String(content).slice(0, 3000)
+          if (content) return String(content).slice(0, perFile)
           return ''
         }))
         const kbText = kbContents.filter(Boolean).join('\n\n---\n\n')
@@ -263,12 +267,15 @@ export default function BatchGenerationModal({
         const ch = sortedChapters.find(c => c.id === items[i].chapterId)
         const chContent = ch ? await fileService.read(`${pp}/chapters/${items[i].chapterId}.txt`).catch(() => '') : ''
         // Auto-summary: before generating, select latest 5 summaries for context
+        // v13.x: 局部变量直接传参——setSelectedSummaryIds 异步生效，同闭包内读不到新值
+        let autoSummaryIds: Set<string> | undefined
         if (autoSummary) {
           const withSummary = prevChapters.filter(c => chapterSummaryMap[c.id]?.trim())
           const recent5 = withSummary.slice(-5)
-          setSelectedSummaryIds(new Set(recent5.map(c => c.id)))
+          autoSummaryIds = new Set(recent5.map(c => c.id))
+          setSelectedSummaryIds(autoSummaryIds)
         }
-        const prompt = await buildPromptForChapter(ch || sortedChapters[0], loadedDims)
+        const prompt = await buildPromptForChapter(ch || sortedChapters[0], loadedDims, autoSummaryIds)
         const messages = [{ role: 'user' as const, content: prompt }]
 
         if (streamMode) {
@@ -449,7 +456,7 @@ export default function BatchGenerationModal({
             {/* ===== SECTION 3: 5 cards — fixed proportions ===== */}
             <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {/* Left: 角色库 + 前文摘要 */}
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
                 {/* 角色库 — flex(5) */}
                 <div style={{ ...cardStyle, padding: '14px 16px', flex: 5, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                   <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>角色库 · {selectedCharacterIds.size} 个</div>
@@ -506,7 +513,7 @@ export default function BatchGenerationModal({
                 </div>
               </div>
               {/* Right: 生成模板 + 风格模板 + 知识库注入 */}
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
                 {/* 生成模板 — flex(2) */}
                 <div style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                   <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>生成模板</div>

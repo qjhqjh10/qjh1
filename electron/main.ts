@@ -52,7 +52,7 @@ function getRewriteProjectsPath(): string {
 }
 
 /** Ensure all runtime directories exist before handlers start */
-async function ensureRuntimeDirectories(parentDir: string, projectsPath: string) {
+async function ensureRuntimeDirectories(parentDir: string) {
   // All global dirs now unified at parentDir level (userData in prod)
   // AI accesses via ../ prefix (from projects/ up to app root)
   const globalDirs = [
@@ -216,7 +216,7 @@ app.whenReady().then(async () => {
   const continuationProjectDirsPath = getContinuationProjectDirsPath()
 
   // Ensure all runtime directories exist (notes, uploads, .appdata, .aiharness)
-  await ensureRuntimeDirectories(parentDir, projectsPath)
+  await ensureRuntimeDirectories(parentDir)
 
   // Sync .aiharness/ templates & rules from app package → runtime location
   await syncAiharnessResources(parentDir, projectsPath)

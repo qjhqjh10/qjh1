@@ -19,7 +19,8 @@ export interface ValidationResult {
   errors: SchemaError[]
 }
 
-// ── Character schema (16 required fields) ─────────────────────────
+// ── Character schema (14 required fields + 可选 customBlocks) ──────
+// v13.x: relationshipTags/image 已从角色卡移除，与 characterService 字段清单对齐
 
 const CHARACTER_ROLES = ['男主', '女主', '男配', '女配', '反派', '其他'] as const
 
@@ -36,10 +37,8 @@ const CHARACTER_FIELDS: { key: string; type: 'string' | 'number' | 'array'; requ
   { key: 'abilities', type: 'string', required: true },
   { key: 'weaknesses', type: 'string', required: true },
   { key: 'relationships', type: 'string', required: true },
-  { key: 'relationshipTags', type: 'array', required: true },
   { key: 'arc', type: 'string', required: true },
   { key: 'importance', type: 'number', required: true },
-  { key: 'image', type: 'string', required: false },
 ]
 
 function validateCharacter(obj: Record<string, unknown>): ValidationResult {
@@ -51,7 +50,7 @@ function validateCharacter(obj: Record<string, unknown>): ValidationResult {
   if (foundNested.length > 0) {
     errors.push({
       field: foundNested.join(', '),
-      message: `使用了嵌套对象格式（${foundNested.join('、')}），角色JSON必须是16个平铺字段。`,
+      message: `使用了嵌套对象格式（${foundNested.join('、')}），角色JSON必须是14个平铺字段。`,
       fix: `read_file("characters/zhangming.yaml") 查看正确格式，然后用 __FULL_REPLACE__ 重写为平铺结构。`,
     })
     return { valid: false, errors }

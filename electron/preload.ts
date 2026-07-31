@@ -38,6 +38,8 @@ const api = {
       ipcRenderer.invoke('project:import', zipPath),
     updateCategory: (projectPath: string, novelCategory: string): Promise<void> =>
       ipcRenderer.invoke('project:updateCategory', projectPath, novelCategory),
+    rename: (projectPath: string, newName: string): Promise<{ name: string }> =>
+      ipcRenderer.invoke('project:rename', projectPath, newName),
   },
   export: {
     exportChapters: (options: {
@@ -155,6 +157,7 @@ const api = {
     getStoryWorkspacePath: (): Promise<string> => ipcRenderer.invoke('app:getStoryWorkspacePath'),
     getRewriteProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getRewriteProjectsPath'),
     openFolder: (folderPath: string): Promise<void> => ipcRenderer.invoke('app:openFolder', folderPath),
+    openFile: (filePath: string): Promise<void> => ipcRenderer.invoke('app:openFile', filePath),
     getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('app:getSystemPrompt'),
   },
   kb: {
@@ -225,7 +228,7 @@ const api = {
   templates: {
     list: (): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:list'),
     listProject: (projectPath: string): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:listProject', projectPath),
-    save: (template: SceneTemplate): Promise<void> => ipcRenderer.invoke('template:save', template),
+    save: (template: SceneTemplate): Promise<SceneTemplate> => ipcRenderer.invoke('template:save', template),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('template:delete', id),
   },
   continuation: {

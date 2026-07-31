@@ -8,7 +8,7 @@ describe('validateFileContent — characters', () => {
     id: 'linghu', name: '令狐冲', role: '男主', gender: '男', age: '28',
     occupation: '华山派弟子', background: '自幼被岳不群收养', appearance: '英俊潇洒',
     personality: '豪迈不羁', abilities: '独孤九剑', weaknesses: '太重感情',
-    relationships: '任盈盈(恋人)、岳灵珊(师妹)', relationshipTags: ['恋人', '师妹'],
+    relationships: '任盈盈(恋人)、岳灵珊(师妹)',
     arc: '从浪子到侠之大者', importance: 95,
   }
 

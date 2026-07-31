@@ -1,1 +1,1 @@
-export type SettingsTab = 'models' | 'prompts' | 'ai' | 'display' | 'tokenstats' | 'agent' | 'version'
+export type SettingsTab = 'models' | 'prompts' | 'kb' | 'ai' | 'display' | 'tokenstats' | 'agent' | 'version'

@@ -89,7 +89,7 @@ export function registerProjectHandlers(
 
   ipcMain.handle('project:getMeta', async (_event, projectPath: string) => {
     if (!isSafeUnderAny(projectPath)) throw new Error('Access denied: path outside projects directory')
-    const name = path.basename(projectPath)
+    let name = path.basename(projectPath)
     let chapterCount = 0
     let charCount = 0
 
@@ -114,9 +114,25 @@ export function registerProjectHandlers(
       else if (meta.type === 'continuation') type = 'continuation'
       if (meta.novelCategory) novelCategory = meta.novelCategory
       if (meta.coverImage) coverImage = meta.coverImage
+      // v13.x: 显示名存于 project.json 的 name 字段（默认 = 目录名）
+      if (typeof meta.name === 'string' && meta.name.trim()) name = meta.name
     } catch { /* no project.json, legacy project */ }
 
     return { name, chapterCount, wordCount: charCount, path: projectPath, type, novelCategory, coverImage }
+  })
+
+  // v13.x: 修改项目显示名（只写 project.json，不重命名目录 → 所有路径引用不受影响）
+  ipcMain.handle('project:rename', async (_event, projectPath: string, newName: string) => {
+    if (!isSafeUnderAny(projectPath)) throw new Error('Access denied')
+    const trimmed = (newName || '').trim()
+    if (!trimmed) throw new Error('项目名称不能为空')
+    if (trimmed.length > 50) throw new Error('项目名称不能超过 50 字')
+    const metaPath = path.join(projectPath, 'project.json')
+    let meta: Record<string, unknown> = {}
+    try { meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) } catch { /* 无 project.json 时创建 */ }
+    meta.name = trimmed
+    await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf-8')
+    return { name: trimmed }
   })
 
   ipcMain.handle('project:updateCategory', async (_event, projectPath: string, novelCategory: string) => {

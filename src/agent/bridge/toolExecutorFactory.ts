@@ -20,7 +20,7 @@ export interface ToolExecutorFactoryOptions {
 }
 
 export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecutorFn {
-  const { securityFence, auditTrail, projectId, approvalTimeoutMs = 180_000, onApprovalRequired } = opts
+  const { securityFence, auditTrail, approvalTimeoutMs = 180_000, onApprovalRequired } = opts
 
   return async (args, ctx) => {
     // Layer 1-4: Security fence
@@ -50,7 +50,7 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
 
     // Cache invalidation + UI notification
     if (result.status === 'success') {
-      await invalidateAfterTool(ctx.toolName, args, projectId, {
+      await invalidateAfterTool(ctx.toolName, args, {
         onFileChanged: async (filePath) => {
           const { useStore } = await import('@/store')
           useStore.getState().setFileEditNotify({

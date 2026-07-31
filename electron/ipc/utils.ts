@@ -158,3 +158,34 @@ export async function showSaveDialog(win: BrowserWindow | null, opts: Electron.S
   const { dialog } = await import('electron')
   return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts)
 }
+
+// ── 共享工具（v13.x: 从 aiHandlers/anthropicHandlers 抽取，消除重复）──
+
+/** ISO timestamp with local timezone offset (e.g. 2026-05-31T10:34:09+08:00) */
+export function localISOString(): string {
+  const d = new Date()
+  const off = -d.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' +
+    pad(d.getMonth() + 1) + '-' +
+    pad(d.getDate()) + 'T' +
+    pad(d.getHours()) + ':' +
+    pad(d.getMinutes()) + ':' +
+    pad(d.getSeconds()) + sign +
+    pad(Math.floor(off / 60)) + ':' +
+    pad(off % 60)
+}
+
+/** 费用计算（OpenAI/Anthropic 双协议共用） */
+export function calculateCost(inputTokens: number, outputTokens: number, cacheHitTokens: number, config: StoredConfig): number {
+  const effectiveInput = Math.max(0, inputTokens - cacheHitTokens)
+  const inputPrice = config.inputPricePerM ?? 0
+  const cachePrice = config.cacheHitPricePerM ?? 0
+  const outputPrice = config.outputPricePerM ?? 0
+  // #17: If all prices are zero, return -0.001 to signal "unset" (won't affect display much but flags it)
+  const inputCost = (effectiveInput * inputPrice) / 1_000_000
+  const cacheCost = (cacheHitTokens * cachePrice) / 1_000_000
+  const outputCost = (outputTokens * outputPrice) / 1_000_000
+  return inputCost + cacheCost + outputCost
+}

@@ -1,6 +1,39 @@
 import { fileService } from '@/services/fileService'
 import { logError } from '@/utils/logger'
-import type { Character, CharacterRole } from '@/types/character'
+import type { Character, CharacterBlock, CharacterRole } from '@/types/character'
+import { EMPTY_CHARACTER } from '@/types/character'
+
+/** 角色卡已知字段（其余顶层字段视为自定义信息，吸收为条块） */
+const KNOWN_CHARACTER_KEYS = new Set([
+  'id', 'name', 'role', 'gender', 'age', 'occupation',
+  'background', 'appearance', 'personality', 'abilities', 'weaknesses',
+  'relationships', 'arc', 'importance', 'customBlocks',
+])
+
+/**
+ * 从角色原始数据中提取自定义条块：
+ * 1. 未知顶层字段（如 AI 生成的「修为体系」「当前状态」）→ 自动吸收为条块
+ * 2. 已声明的 customBlocks 数组 → 解析合并（label 与未知字段重复时以未知字段为准）
+ */
+function extractCustomBlocks(raw: Record<string, unknown>, extraKnownKeys: string[] = []): CharacterBlock[] {
+  const known = new Set([...KNOWN_CHARACTER_KEYS, ...extraKnownKeys])
+  const extra: CharacterBlock[] = Object.entries(raw)
+    .filter(([k, v]) =>
+      !known.has(k) &&
+      v !== null && v !== undefined &&
+      String(v).trim() !== '' &&
+      !(Array.isArray(v) && v.length === 0)
+    )
+    .map(([k, v]) => ({ label: k, content: typeof v === 'string' ? v : JSON.stringify(v) }))
+
+  const seen = new Set(extra.map(b => b.label))
+  const declared = Array.isArray(raw.customBlocks)
+    ? (raw.customBlocks as { label?: unknown; content?: unknown }[])
+        .map(b => ({ label: String(b.label || ''), content: String(b.content || '') }))
+        .filter(b => b.label.trim() && !seen.has(b.label))
+    : []
+  return [...extra, ...declared]
+}
 
 /**
  * Normalize a character object from non-standard formats to the canonical
@@ -23,11 +56,9 @@ function normalizeCharacter(raw: Record<string, unknown>): Character {
       abilities: String(raw.abilities || ''),
       weaknesses: String(raw.weaknesses || ''),
       relationships: String(raw.relationships || ''),
-      relationshipTags: Array.isArray(raw.relationshipTags)
-        ? (raw.relationshipTags.map(t => String(t)) as Character['relationshipTags'])
-        : [],
       arc: String(raw.arc || ''),
       importance: typeof raw.importance === 'number' ? raw.importance : 50,
+      customBlocks: extractCustomBlocks(raw),
     }
   }
 
@@ -89,12 +120,14 @@ function normalizeCharacter(raw: Record<string, unknown>): Character {
     abilities: String((raw as Record<string,unknown>).abilities || '无（普通大学女生，在静止世界中处于人偶状态）'),
     weaknesses: String((raw as Record<string,unknown>).weaknesses || '完全无意识，无法自主行动或防御'),
     relationships: relParts.length > 1 ? relParts.join(' → ') : String((raw as Record<string,unknown>).relationships || ''),
-    relationshipTags: ['同伴'],
     arc: arcParts.length > 0 ? arcParts.join('；') : String(raw.notes || ''),
-    importance: 20,
+    // v13.x: 显式 importance 优先，缺失时回退默认 20（此前无条件硬编码 20，覆盖已有数据）
+    importance: typeof (raw as Record<string, unknown>).importance === 'number' ? (raw as Record<string, unknown>).importance as number : 20,
+    customBlocks: extractCustomBlocks(raw as Record<string, unknown>, [
+      'basicInfo', 'appearance', 'personality', 'relationshipWithMC', 'testingNotes', 'notes', 'status',
+    ]),
   }
 }
-import { EMPTY_CHARACTER } from '@/types/character'
 
 export const ROLES: CharacterRole[] = ['男主', '女主', '男配', '女配', '反派', '其他']
 
@@ -124,7 +157,6 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
   { key: 'abilities', label: '能力' },
   { key: 'weaknesses', label: '弱点' },
   { key: 'relationships', label: '角色关系网' },
-  { key: 'relationshipTags', label: '关系标签' },
   { key: 'arc', label: '角色成长弧线' },
   { key: 'importance', label: '重要程度', isNumber: true },
 ]
@@ -173,6 +205,9 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
 
         const char = normalizeCharacter(parsed.obj as Record<string, unknown>)
         char.role = normalizeRole(char.role as string)
+        // 文件名是 id 的唯一事实来源：AI 生成的文件内容里 id 可能缺失或不一致，
+        // 若用内容 id 拼删除路径会导致角色无法删除
+        char.id = baseName
         chars.push(char)
         seenIds.add(baseName)
       } catch (err) { logError(`跳过无效角色文件: ${file}`, err) }
@@ -195,9 +230,7 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
           if (match) {
             const field = CHARACTER_FIELDS.find(f => f.label === match[1])
             if (field) {
-              if (field.key === 'relationshipTags') {
-                char.relationshipTags = match[2].split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) as Character['relationshipTags']
-              } else if (field.key === 'role') {
+              if (field.key === 'role') {
                 const roleMatch = ROLES.find(r => r === match[2])
                 Object.assign(char, { [field.key]: roleMatch || '其他' })
               } else if (field.isNumber) {
@@ -229,15 +262,19 @@ export function parseCharacterFromAI(text: string): Partial<Character> {
       const rawValue = m[2].trim()
       const field = CHARACTER_FIELDS.find(f => f.label === rawLabel)
       if (field) {
-        if (field.key === 'relationshipTags') {
-          char.relationshipTags = rawValue.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) as Character['relationshipTags']
-        } else if (field.key === 'role') {
+        if (field.key === 'role') {
           char.role = normalizeRole(rawValue)
         } else if (field.isNumber) {
-          Object.assign(char, { [field.key]: parseInt(rawValue, 10) || 0 })
+          // 非法数值时跳过、保留默认值（与 txt 分支语义一致）
+          const n = parseInt(rawValue, 10)
+          if (!isNaN(n)) Object.assign(char, { [field.key]: n })
         } else {
           Object.assign(char, { [field.key]: rawValue })
         }
+      } else if (rawValue) {
+        // 未知字段（如「修为体系」「当前状态」）→ 吸收为自定义信息条块
+        const blocks = char.customBlocks || []
+        char.customBlocks = [...blocks, { label: rawLabel, content: rawValue }]
       }
     }
   }

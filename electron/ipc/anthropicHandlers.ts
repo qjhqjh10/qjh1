@@ -7,7 +7,7 @@
 //   ai:abort-anthropic     → ipcMain.on（中止流式请求）
 
 import { IpcMain, SafeStorage } from 'electron'
-import { getConfigStore } from './utils'
+import { getConfigStore, localISOString, calculateCost } from './utils'
 import type { StoredConfig } from './utils'
 import { logTokenUsage } from './statsHandlers'
 
@@ -19,25 +19,7 @@ interface SystemContentBlock {
   cache_control?: { type: 'ephemeral' }
 }
 
-// ── 费用计算（与 aiHandlers.ts 中相同逻辑） ──
-
-function calculateCost(
-  inputTokens: number,
-  outputTokens: number,
-  cacheHitTokens: number,
-  config: StoredConfig,
-): number {
-  const effectiveInput = Math.max(0, inputTokens - cacheHitTokens)
-  const inputPrice = config.inputPricePerM ?? 0
-  const cachePrice = config.cacheHitPricePerM ?? 0
-  const outputPrice = config.outputPricePerM ?? 0
-  const inputCost = (effectiveInput * inputPrice) / 1_000_000
-  const cacheCost = (cacheHitTokens * cachePrice) / 1_000_000
-  const outputCost = (outputTokens * outputPrice) / 1_000_000
-  return inputCost + cacheCost + outputCost
-}
-
-// ── 错误分类（与 aiHandlers.ts 中相同逻辑） ──
+// ── 错误分类（与 aiHandlers.ts 逻辑相近但文案/判定不同——保留各自实现，统一会改变用户可见错误提示） ──
 
 function categorizeError(err: unknown): string {
   const message = err instanceof Error ? err.message : 'Unknown error'
@@ -53,25 +35,6 @@ function categorizeError(err: unknown): string {
   if (/unsupported|not support|not found|404|does not exist/.test(lower))
     return '[UNSUPPORTED_OPERATION] 当前模型不支持此操作。'
   return `[API_ERROR] ${message}`
-}
-
-// ── ISO 本地时间 ──
-
-function localISOString(): string {
-  const d = new Date()
-  const off = -d.getTimezoneOffset()
-  const sign = off >= 0 ? '+' : '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    d.getFullYear() +
-    '-' + pad(d.getMonth() + 1) +
-    '-' + pad(d.getDate()) + 'T' +
-    pad(d.getHours()) + ':' +
-    pad(d.getMinutes()) + ':' +
-    pad(d.getSeconds()) + sign +
-    pad(Math.floor(off / 60)) + ':' +
-    pad(off % 60)
-  )
 }
 
 // ── 构建 Anthropic API 端点 URL ──
@@ -226,23 +189,25 @@ export function registerAnthropicHandlers(
         }
 
         // 4. 发起请求
-        // ── DEBUG: 保存最后一次请求体（排查问题用）──
-        try {
-          const { app } = await import('electron')
-          const { writeFileSync, mkdirSync } = await import('fs')
-          const { join } = await import('path')
-          const dd = join(app.getPath('userData'), 'debug')
-          mkdirSync(dd, { recursive: true })
-          writeFileSync(join(dd, 'last-anthropic-request.json'), JSON.stringify({
-            time: new Date().toISOString(),
-            url: apiUrl,
-            model: config.model,
-            systemLen: params.system?.reduce((sum: number, s) => sum + (typeof s === 'string' ? s.length : s.text.length), 0) || 0,
-            systemPreview: (() => { const s0 = params.system?.[0]; return (typeof s0 === 'string' ? s0 : s0?.text || '').slice(0, 300) })(),
-            msgCount: params.messages?.length || 0,
-            toolCount: params.tools?.length || 0,
-          }, null, 2))
-        } catch {}
+        // ── DEBUG: 保存最后一次请求体（排查问题用）— v13.x: 需 QINGJIAN_DEBUG_PROMPT=1 才落盘（防提示词泄露）──
+        if (process.env.QINGJIAN_DEBUG_PROMPT === '1') {
+          try {
+            const { app } = await import('electron')
+            const { writeFileSync, mkdirSync } = await import('fs')
+            const { join } = await import('path')
+            const dd = join(app.getPath('userData'), 'debug')
+            mkdirSync(dd, { recursive: true })
+            writeFileSync(join(dd, 'last-anthropic-request.json'), JSON.stringify({
+              time: new Date().toISOString(),
+              url: apiUrl,
+              model: config.model,
+              systemLen: params.system?.reduce((sum: number, s) => sum + (typeof s === 'string' ? s.length : s.text.length), 0) || 0,
+              systemPreview: (() => { const s0 = params.system?.[0]; return (typeof s0 === 'string' ? s0 : s0?.text || '').slice(0, 300) })(),
+              msgCount: params.messages?.length || 0,
+              toolCount: params.tools?.length || 0,
+            }, null, 2))
+          } catch {}
+        }
         // ── END DEBUG ──
 
         const response = await fetch(apiUrl, {
@@ -398,25 +363,27 @@ export function registerAnthropicHandlers(
           .map((cb: any) => ({ thinking: cb.thinking, signature: cb.signature || '' }))
 
         // 6. 记录 token 用量
-        // ── DEBUG: 保存响应摘要 ──
-        try {
-          const { app } = await import('electron')
-          const { writeFileSync, mkdirSync } = await import('fs')
-          const { join } = await import('path')
-          const dd = join(app.getPath('userData'), 'debug')
-          mkdirSync(dd, { recursive: true })
-          writeFileSync(join(dd, 'last-anthropic-response.json'), JSON.stringify({
-            time: new Date().toISOString(),
-            textLen: fullText.length,
-            textPreview: fullText.slice(0, 300),
-            toolCount: toolUses.length,
-            toolNames: toolUses.map(t => t.name),
-            inputTokens,
-            outputTokens,
-            stopReason,
-            eventsReceived: events.length,
-          }, null, 2))
-        } catch {}
+        // ── DEBUG: 保存响应摘要 — v13.x: 需 QINGJIAN_DEBUG_PROMPT=1 才落盘 ──
+        if (process.env.QINGJIAN_DEBUG_PROMPT === '1') {
+          try {
+            const { app } = await import('electron')
+            const { writeFileSync, mkdirSync } = await import('fs')
+            const { join } = await import('path')
+            const dd = join(app.getPath('userData'), 'debug')
+            mkdirSync(dd, { recursive: true })
+            writeFileSync(join(dd, 'last-anthropic-response.json'), JSON.stringify({
+              time: new Date().toISOString(),
+              textLen: fullText.length,
+              textPreview: fullText.slice(0, 300),
+              toolCount: toolUses.length,
+              toolNames: toolUses.map(t => t.name),
+              inputTokens,
+              outputTokens,
+              stopReason,
+              eventsReceived: events.length,
+            }, null, 2))
+          } catch {}
+        }
         // ── END DEBUG ──
 
         const cacheHitTotal = cacheCreationTokens + cacheReadTokens
@@ -461,6 +428,8 @@ export function registerAnthropicHandlers(
             output_tokens: outputTokens,
             cache_creation_input_tokens: cacheCreationTokens,
             cache_read_input_tokens: cacheReadTokens,
+            // v13.x: 补 cost——此前渲染层 chatWithUsage/chatStream 的 cost 恒为 0
+            cost: calculateCost(inputTokens, outputTokens, cacheHitTotal, config),
           },
         })
 

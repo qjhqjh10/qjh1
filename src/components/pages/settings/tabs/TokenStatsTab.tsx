@@ -1,15 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { statsService } from '@/services/fileService'
-import { nanoid } from 'nanoid'
-import Button from '@/components/common/Button'
-import ScrollArea from '@/components/common/ScrollArea'
-import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { TrashIcon } from '@heroicons/react/24/outline'
 import type { UsageResult, SessionStatsResult, SessionStatEntry } from '@/types/electron'
-import { inputStyle } from '@/components/common/styles'
 import { logError } from '@/utils/logger'
 import ConfirmModal from '@/components/common/ConfirmModal'
-import { FormField, StatCard } from '../shared';
+import { StatCard } from '../shared';
 
 export function TokenStatsTab() {
   const activeProjectId = useStore(s => s.activeProjectId)

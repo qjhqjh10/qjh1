@@ -1,25 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizePath, sanitizeFileName, validateUrl, checkCommand } from '../security'
-
-describe('sanitizePath', () => {
-  it('returns valid for normal paths', () => {
-    expect(sanitizePath('characters/test.json')).toEqual({ valid: true, value: 'characters/test.json' })
-    expect(sanitizePath('outline/plot.md')).toEqual({ valid: true, value: 'outline/plot.md' })
-  })
-
-  it('strips traversal sequences', () => {
-    expect(sanitizePath('../../etc/passwd').value).not.toContain('..')
-  })
-
-  it('rejects empty input', () => {
-    expect(sanitizePath('').valid).toBe(false)
-    expect(sanitizePath(null).valid).toBe(false)
-  })
-
-  it('collapses multiple slashes', () => {
-    expect(sanitizePath('a//b///c').value).toBe('a/b/c')
-  })
-})
+import { sanitizeFileName, validateUrl } from '../security'
 
 describe('sanitizeFileName', () => {
   it('replaces path separators with underscore', () => {
@@ -51,19 +31,5 @@ describe('validateUrl', () => {
 
   it('rejects invalid format', () => {
     expect(validateUrl('not-a-url').valid).toBe(false)
-  })
-})
-
-describe('checkCommand', () => {
-  const allowed = new Set(['node', 'git', 'npm'])
-
-  it('allows whitelisted commands', () => {
-    expect(checkCommand('git status', allowed).valid).toBe(true)
-    expect(checkCommand('npm install', allowed).valid).toBe(true)
-  })
-
-  it('rejects non-whitelisted commands', () => {
-    expect(checkCommand('rm -rf /', allowed).valid).toBe(false)
-    expect(checkCommand('curl evil.com', allowed).valid).toBe(false)
   })
 })

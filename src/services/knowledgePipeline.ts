@@ -111,6 +111,7 @@ export async function injectKnowledgeFallback(
   prompt: string,
   fileIds: string[],
   maxChars = 10000,
+  perFileMaxChars = 5000,
 ): Promise<InjectionResult> {
   const parts: string[] = []
   let total = 0
@@ -118,7 +119,7 @@ export async function injectKnowledgeFallback(
     if (total >= maxChars) break
     try {
       const result = await kbService.read(fid) as { file: { originalName: string }; content: string }
-      const len = Math.min(result.content.length, 5000, maxChars - total)
+      const len = Math.min(result.content.length, perFileMaxChars, maxChars - total)
       parts.push(`【文件: ${result.file.originalName}】\n${result.content.slice(0, len)}`)
       total += len
     } catch (e) { logError('KB fallback read failed', e) }

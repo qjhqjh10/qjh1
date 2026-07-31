@@ -44,7 +44,9 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
   const [selectedText, setSelectedText] = useState('')
   // Polish dialog
   const [polishDialogOpen, setPolishDialogOpen] = useState(false)
-  const [polishMode, setPolishMode] = useState<'润色' | '改写' | '续写'>('润色')
+  const [polishMode, setPolishMode] = useState<'改写' | '续写'>('改写')
+  // 打开弹窗时快照本章全文，供「插入原文」参考
+  const [chapterText, setChapterText] = useState('')
 
   const activeProjectId = useStore(s => s.activeProjectId)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
@@ -223,15 +225,16 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
     setCtxMenu({ x: e.clientX, y: e.clientY })
   }, [editor])
 
-  // Unified AI text editing: polish / rewrite / continue
-  const doAiEdit = useCallback((mode: '润色' | '改写' | '续写') => {
+  // Unified AI text editing: rewrite / continue
+  const doAiEdit = useCallback((mode: '改写' | '续写') => {
     setCtxMenu(null)
     if (!activeConfigId || !selectedText) return
+    // 快照本章全文，供弹窗内「插入本章原文」使用
+    setChapterText(editor ? editor.getText({ blockSeparator: '\n\n' }) : '')
     setPolishMode(mode)
     setPolishDialogOpen(true)
-  }, [activeConfigId, selectedText])
+  }, [activeConfigId, selectedText, editor])
 
-  const handlePolish = () => doAiEdit('润色')
   const handleRewrite = () => doAiEdit('改写')
   const handleContinue = () => doAiEdit('续写')
 
@@ -251,7 +254,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       const { to } = editor.state.selection
       editor.chain().focus().setTextSelection(to).insertContent('\n\n' + text).run()
     } else {
-      // 改写/润色: 替换选中内容
+      // 改写: 替换选中内容
       editor.chain().focus().deleteSelection().insertContent(text).run()
     }
     // 保存版本历史
@@ -331,7 +334,6 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x} y={ctxMenu.y}
-          onPolish={handlePolish}
           onRewrite={handleRewrite}
           onContinue={handleContinue}
           onSendToAI={handleSendToAI}
@@ -344,6 +346,7 @@ export default function RichTextEditor({ content, onContentChange, onBlur, place
         isOpen={polishDialogOpen}
         mode={polishMode}
         selectedText={selectedText}
+        chapterText={chapterText}
         prompts={prompts}
         configId={activeConfigId}
         projectId={activeProjectId || ''}

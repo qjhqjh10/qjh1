@@ -56,6 +56,7 @@ export const projectService = {
   listProjects: (basePath: string) => e().project.listProjects(basePath),
   importProject: (zipPath: string) => e().project.importProject(zipPath),
   updateCategory: (projectPath: string, novelCategory: string) => e().project.updateCategory(projectPath, novelCategory),
+  rename: (projectPath: string, newName: string) => e().project.rename(projectPath, newName),
 }
 
 export const exportService = {

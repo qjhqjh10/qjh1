@@ -2,7 +2,6 @@ import { IpcMain } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as chokidar from 'chokidar'
-import { isSafePath } from './utils'
 
 const pendingSaves = new Map<string, boolean>()
 let onFileWrite: ((filePath: string, content: string) => void) | null = null

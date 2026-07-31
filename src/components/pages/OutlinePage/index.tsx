@@ -77,11 +77,6 @@ export default function OutlinePage() {
   const [editingLevel, setEditingLevel] = useState('')
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null)
 
-  const saveOutline = useCallback(async () => {
-    if (!projectPath) return
-    await saveOutlineContent(projectPath, outlineContent)
-  }, [projectPath, outlineContent])
-
   // Auto-save on user edit (debounced 1s). Flag prevents saving during initial load.
   const outlineDirty = useRef(false)
   const handleOutlineChange = useCallback((text: string) => {
@@ -212,11 +207,6 @@ export default function OutlinePage() {
     }
     if (handled) setFileEditNotify(null)
   }, [fileEditNotify, projectPath])
-
-  const handleSaveWorldbuilding = useCallback(async () => {
-    if (!projectPath) return
-    await saveWorldbuildingContent(projectPath, worldbuildingContent)
-  }, [projectPath, worldbuildingContent])
 
   const saveMeta = async (newMeta: OutlineMeta) => {
     setMeta(newMeta)

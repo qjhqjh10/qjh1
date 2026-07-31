@@ -8,6 +8,7 @@ import type { Character } from '@/types/character'
 import type { DetailedChapter } from '@/types/chapter'
 import { loadOutlineDimensions } from '@/utils/outlineData'
 import { loadAllSummaries } from '@/services/summaryService'
+import { kbService } from '@/services/fileService'
 import { useStore, useSettingsStore } from '@/store'
 import { checkInput, miniActionLink } from '@/components/common/ChapterGenerationModal/constants'
 
@@ -79,12 +80,21 @@ export function AICharacterGenerateDialog({
   const [outlineTabs, setOutlineTabs] = useState<OutlineTabToggles>(cg.outlineTabs)
   const [detailedOutlineFields, setDetailedOutlineFields] = useState<DetailedOutlineToggles>(cg.detailedOutlineFields)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set())
+  // 知识库参考（v13.x 新增）
+  const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set())
+  const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
+
+  const loadKBFiles = async () => {
+    try { setKbFiles((await kbService.list()).files.map(f => ({ id: f.id, originalName: f.originalName }))) } catch { setKbFiles([]) }
+  }
 
   useEffect(() => {
     if (isOpen) {
       setOutlineTabs(cg.outlineTabs)
       setDetailedOutlineFields(cg.detailedOutlineFields)
       setSelectedCharacterIds(new Set())
+      setSelectedKbFileIds(new Set())
+      loadKBFiles()
     }
   }, [isOpen])
 
@@ -160,13 +170,15 @@ export function AICharacterGenerateDialog({
           if (c.background) fields.push(`背景: ${c.background}`)
           if (c.abilities) fields.push(`能力: ${c.abilities}`)
           if (c.relationships) fields.push(`关系: ${c.relationships}`)
+          const custom = (c.customBlocks || []).filter(b => b.label.trim() && b.content.trim()).map(b => `${b.label}: ${b.content}`)
+          if (custom.length > 0) fields.push(...custom)
           return fields.join('\n')
         })
         parts.push(`【角色参考】\n${charInfos.join('\n---\n')}`)
       }
     }
 
-    // 3. 大纲 (lowest priority)
+    // 3. 大纲 (medium-low priority)
     if (pp && activeProjectId && Object.values(outlineTabs).some(Boolean)) {
       try {
         const dims = await loadOutlineDimensions(pp, outlineTabs)
@@ -179,6 +191,22 @@ export function AICharacterGenerateDialog({
           parts.push(`【大纲参考】\n${outlineParts.join('\n\n')}`)
         }
       } catch { /* ignore */ }
+    }
+
+    // 4. 知识库 (lowest priority, 补充参考；长度上限取自知识库设置)
+    if (selectedKbFileIds.size > 0) {
+      const { useSettingsStore } = await import('@/store')
+      const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
+      const perFile = Math.min(50000, Math.max(500, kbSettings?.generation?.fallbackPerFileMaxChars || 5000))
+      const kbParts: string[] = []
+      for (const fid of selectedKbFileIds) {
+        try {
+          const result = await kbService.read(fid) as { file: { originalName: string }; content: string }
+          const content = (result.content || '').trim()
+          if (content) kbParts.push(`【文件: ${result.file.originalName}】\n${content.slice(0, perFile)}`)
+        } catch { /* 单个文件读取失败跳过 */ }
+      }
+      if (kbParts.length > 0) parts.push(`【知识库参考】\n${kbParts.join('\n\n')}`)
     }
 
     const referenceContext = parts.join('\n\n')
@@ -293,7 +321,7 @@ export function AICharacterGenerateDialog({
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto', minWidth: 0 }} className="custom-scrollbar">
           <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ width: 3, height: 16, borderRadius: 2, background: '#7c3aed' }} />
-            参考背景（优先度：细纲 &gt; 角色 &gt; 大纲）
+            参考背景（优先度：细纲 &gt; 角色 &gt; 大纲 &gt; 知识库）
           </div>
 
           {/* 细纲 — highest priority */}
@@ -376,6 +404,36 @@ export function AICharacterGenerateDialog({
                   {label}
                 </label>
               ))}
+            </div>
+          </div>
+
+          {/* 知识库 — lowest priority（补充参考） */}
+          <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(16,163,74,0.03)', border: '1px solid rgba(16,163,74,0.12)', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#16a34a' }}>知识库 · {selectedKbFileIds.size} 个</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>（勾选需要参考的文件）</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                <button onClick={() => selectIds(setSelectedKbFileIds, kbFiles.map(f => f.id))} style={miniActionLink}>全选</button>
+                <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
+                <button onClick={loadKBFiles} style={miniActionLink}>刷新</button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
+              {kbFiles.map(f => (
+                <label key={f.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
+                  fontSize: 12, cursor: 'pointer',
+                  background: selectedKbFileIds.has(f.id) ? 'rgba(16,163,74,0.08)' : '#f8f7f5',
+                  border: selectedKbFileIds.has(f.id) ? '1px solid rgba(16,163,74,0.25)' : '1px solid rgba(0,0,0,0.05)',
+                  color: selectedKbFileIds.has(f.id) ? '#16a34a' : '#6b5e54',
+                  fontWeight: selectedKbFileIds.has(f.id) ? 600 : 400,
+                  maxWidth: '100%',
+                }}>
+                  <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.originalName}</span>
+                </label>
+              ))}
+              {kbFiles.length === 0 && <span style={{ fontSize: 12, color: '#9b8e84' }}>知识库暂无文件，可在知识库页面导入</span>}
             </div>
           </div>
         </div>

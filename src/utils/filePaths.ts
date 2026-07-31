@@ -130,11 +130,11 @@ export async function readAndMigrate(
   }
 
   // 3. JSON 存在 → 自动转为 YAML
-  const { tryParseJsonOrYaml } = await import('./yamlUtils')
+  const { tryParseJsonOrYaml, yamlStringify } = await import('./yamlUtils')
   const parsed = tryParseJsonOrYaml(jsonContent, 'json')
   if (!parsed) return null
 
-  const yaml = (await import('./yamlUtils')).yamlStringify(parsed.obj)
+  const yaml = yamlStringify(parsed.obj)
   await writeFile(yamlPath, yaml)
   return { content: yaml, migrated: true }
 }

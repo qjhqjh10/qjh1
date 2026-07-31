@@ -4,8 +4,8 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
-import type { ModelConfig, PromptTemplate, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles, RoleTemplate } from '@/types/settings'
-import { DEFAULT_AI_SETTINGS, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS, DEFAULT_OUTLINE_TABS, DEFAULT_DETAILED_OUTLINE_TOGGLES } from '@/types/settings'
+import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles, RoleTemplate } from '@/types/settings'
+import { DEFAULT_AI_SETTINGS, DEFAULT_KB_SETTINGS, DEFAULT_KB_SCENE, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS, DEFAULT_OUTLINE_TABS, DEFAULT_DETAILED_OUTLINE_TOGGLES } from '@/types/settings'
 
 export interface PopupWindow {
   id: string
@@ -324,7 +324,7 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'novel-writer-settings',
-      version: 5,
+      version: 8,
       partialize: (state) => ({
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
@@ -396,6 +396,42 @@ export const useSettingsStore = create<SettingsState>()(
           // v4: ModelConfig type restructured — clear old configs to avoid immer proxy errors
           const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
           return { ...p, configs: [], activeConfigId: null }
+        }
+        if (version < 6) {
+          // v6 (v13.x): 移除「润色」菜单项（与改写重复），存量润色模板并入改写类型
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          if (Array.isArray(p.prompts)) {
+            const prompts = (p.prompts as PromptTemplate[]).map(t =>
+              (t as { type?: string }).type === '润色' ? { ...t, type: '改写' as PromptType } : t
+            )
+            return { ...p, prompts }
+          }
+        }
+        if (version < 7) {
+          // v7 (v13.x): 知识库设置 — 为存量 aiSettings 补齐 kbSettings 默认值
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+          const aiSettings = {
+            ...ai,
+            kbSettings: { ...DEFAULT_KB_SETTINGS, ...((ai.kbSettings && typeof ai.kbSettings === 'object') ? ai.kbSettings : {}) },
+          }
+          return { ...p, aiSettings }
+        }
+        if (version < 8) {
+          // v8 (v13.x): 知识库设置分场景 — 旧平铺结构 → agent/generation 两场景同值
+          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+          const oldKb = (ai.kbSettings && typeof ai.kbSettings === 'object' ? ai.kbSettings : {}) as Record<string, unknown>
+          const flat = {
+            searchTopK: typeof oldKb.searchTopK === 'number' ? oldKb.searchTopK : 5,
+            fallbackPerFileMaxChars: typeof oldKb.fallbackPerFileMaxChars === 'number' ? oldKb.fallbackPerFileMaxChars : 5000,
+            fallbackTotalMaxChars: typeof oldKb.fallbackTotalMaxChars === 'number' ? oldKb.fallbackTotalMaxChars : 10000,
+          }
+          const kbSettings = {
+            agent: { ...DEFAULT_KB_SCENE, ...flat },
+            generation: { ...DEFAULT_KB_SCENE, ...flat },
+          }
+          return { ...p, aiSettings: { ...ai, kbSettings } }
         }
         if (version < 5) {
           // v5 (v13.0): 多角色系统 — 从旧 customRoles 迁移到 roleTemplates

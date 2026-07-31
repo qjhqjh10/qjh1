@@ -52,9 +52,3 @@ export const cardStyle: React.CSSProperties = { padding: '10px 14px', borderRadi
 export const ITEM_TYPES = ['武器', '法宝', '丹药', '功法', '道具', '其他']
 export const LOCATION_TYPES = ['门派', '城池', '秘境', '自然', '其他']
 export const FACTION_TYPES = ['正道', '邪道', '中立', '皇朝', '其他']
-
-export const TAB_LABELS: Record<string, string> = {
-  basic: '故事剧情', worldbuilding: '世界观（设定）', characters: '角色', items: '道具',
-  locations: '地点', factions: '势力', powerSystem: '等级',
-  foreshadow: '伏笔', emotion: '情绪', threads: '故事线',
-};

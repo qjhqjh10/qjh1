@@ -62,9 +62,10 @@ export function ChapterListPanel({
   const handleMove = async (idx: number, dir: -1 | 1) => {
     const target = idx + dir
     if (target < 0 || target >= chapters.length) return
-    const updated = [...chapters]
-    ;[updated[idx], updated[target]] = [updated[target], updated[idx]]
-    updated.forEach((c, i) => { c.order = i })
+    const swapped = [...chapters]
+    ;[swapped[idx], swapped[target]] = [swapped[target], swapped[idx]]
+    // v13.x: 不可变更新 — 避免原地修改父组件共享的章节对象（此前全部 order 被改但只持久化两章）
+    const updated = swapped.map((c, i) => ({ ...c, order: i }))
     setChapters(updated)
     for (const c of [updated[idx], updated[target]]) {
       await saveDetailedChapter(projectPath, c)

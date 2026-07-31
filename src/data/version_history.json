@@ -1,7 +1,42 @@
 {
-  "currentVersion": "13.5.3",
-  "currentDate": "2026-06-24",
+  "currentVersion": "14.0.0",
+  "currentDate": "2026-08-01",
   "history": [
+    {
+      "version": "14.0.0",
+      "date": "2026-08-01",
+      "features": [
+        "改写/续写弹窗: 插入本章原文参考（默认勾选）— 参考原文紧贴处理对象，任务设定+标准优先级(用户要求>模板>默认)前置，防保守小改",
+        "角色卡片: 自定义信息条块（自由增删，前框特点/后框信息）；AI 生成的角色未知字段（修为体系等）自动吸收为条块",
+        "角色卡片: 移除关系图功能与关系标签（类型/服务/UI/校验器全链路同步）",
+        "章节编辑器右键菜单: 移除润色（与改写重复），默认润色模板并入改写为「轻度润色模板」",
+        "AI 生成角色弹窗: 新增知识库文件勾选参考（优先级 细纲>角色>大纲>知识库）",
+        "设置页: 新增「知识库」标签 — AI 写作助手/章节生成类分场景配置 topK 与全量注入上限（persist v8 迁移）",
+        "知识库全局化: AI 助手/生成类场景无需项目内即可选择全部知识库文件",
+        "AI 写作助手: 消息内文件图标 — 左键打开文件、右键打开文件夹（生成/修改的文件）",
+        "项目卡片: 支持修改项目名（project.json 存显示名，目录与路径引用不受影响）",
+        "schemaValidation 与角色卡字段同步（14 字段）— 修复 AI 保存角色误报缺少 relationshipTags 并陷入重试循环",
+        "Agent 架构: 双协议 Bridge 合并（chatBridgeFactory 基类，-95% 重复）；拖拽/缩放统一为 useDraggableResizable（6 处接入）"
+      ],
+      "fixes": [
+        "角色删除失败修复 — 以文件名为 id 唯一来源 + .yaml/.json/.txt 扩展名兜底",
+        "章节生成/批量生成弹窗知识库滚动失效 — flex 容器 minHeight:0（4 处）",
+        "改写/续写弹窗: 续写明确紧跟原文之后；改写强调执行幅度不被参考带偏",
+        "RewriteWorkspace 批量分析/改写旧闭包重复处理已分析章节",
+        "Scratchpad 切换笔记竞态 — 旧内容写入新笔记（flush+定时器校验）",
+        "StyleWorkshop 存为模板失效（setTimeout 旧闭包）+ tone/attitude 提取正则双重转义",
+        "ChapterListPanel 交换顺序只持久化两章（原地修改共享对象）",
+        "BatchGenerationModal autoSummary 摘要从未注入（闭包过期状态）",
+        "EditorToolbar 段落唯一样式清空失效（反向三元）",
+        "Agent 运行时: 超时/中止孤儿 tool 消息、压缩切点切断 tool 链、stripDetail 对 read_file 全文无效、只读提醒重复注入、写工具集合三处不一致",
+        "Anthropic 协议 cost 恒为 0（IPC 返回补 cost 字段）",
+        "anthropicHandlers 无条件落盘 debug 文件泄露 system prompt（加 QINGJIAN_DEBUG_PROMPT 开关）",
+        "AIChatWindow updater 内嵌 setState 副作用（StrictMode 双调用）",
+        "ChapterGenerationModal 流式进度面板/停止按钮死代码（父级 overlay 承担取消）",
+        "safeJsonParse 单引号替换误伤字符串内单引号",
+        "低严重度清理: 死代码约 900 行（ThinkingEngine/shellHandlers/taskDetection SKILL 体系/死导出）、未使用 import 约 300 符号、文档版本/工具数/主题数一致化、vitest 恢复 41 个 IPC 用例、@antv/g6 死依赖移除"
+      ]
+    },
     {
       "version": "13.5.3",
       "date": "2026-06-24",

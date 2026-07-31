@@ -90,6 +90,7 @@ function makeRuntime(adapter: OpenAIAdapter, maxIter = 10) {
 // ═══════════════════════════════════════════════════════
 
 describe('简单任务 — 快捷执行', () => {
+  // SKIP: 简单任务链路已由 V4AgentRuntime 集成测试覆盖，此处 mock 冗余
   it.skip('"列出角色" → list_directory → 回复角色列表', async () => {
     const { service, callLog } = makeSimulatedAIService([
       {
@@ -117,6 +118,7 @@ describe('简单任务 — 快捷执行', () => {
     expect(result.toolCalls).toBe(1)
   })
 
+  // SKIP: 同上——大纲读取链路已有集成测试覆盖
   it.skip('"查看大纲" → read_file → 回复大纲内容', async () => {
     const { service, callLog } = makeSimulatedAIService([
       {

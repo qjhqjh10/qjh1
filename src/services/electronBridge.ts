@@ -5,19 +5,11 @@
 //
 // Usage: import { bridge } from '@/services/electronBridge'
 
-import { fileService } from './fileService'
-import { projectService } from './fileService'
-import { exportService } from './fileService'
-import { aiService } from './fileService'
-import { httpService } from './fileService'
-import { kbService } from './fileService'
-import { statsService } from './fileService'
-import { styleProjectService } from './fileService'
-import { styleTemplateService } from './fileService'
-import { templateService } from './fileService'
-import { continuationService } from './fileService'
-import { extractionService } from './fileService'
-import { storyService } from './fileService'
+import {
+  fileService, projectService, exportService, aiService, httpService, kbService,
+  statsService, styleProjectService, styleTemplateService, templateService,
+  continuationService, extractionService, storyService,
+} from './fileService'
 
 
 // Browser, MCP, and LSP services — previously only accessible via (fileService as any)
@@ -52,7 +44,9 @@ export const agentService = {
 
 // lspService removed in v13.2.0 — lsp_diagnose tool deleted
 
-// Centralized bridge — all IPC services in one typed object
+// Centralized bridge — 主进程 IPC 服务聚合（file/project/export/ai/http/kb/stats/
+// styleProject/styleTemplate/sceneTemplate/continuation/extraction/story/agent/browser/mcp；
+// settings/dialog/app/rewrite 由 fileService 直接导出，各模块按需引用）
 export const bridge = {
   file: fileService,
   project: projectService,

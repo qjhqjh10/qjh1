@@ -18,6 +18,7 @@ import {
   ArrowRightIcon,
   BookOpenIcon,
   DocumentTextIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline'
 import type { Project } from '@/types/project'
 
@@ -67,11 +68,7 @@ projList.push({ id: name, ...meta, type: pt })
   // Reload projects when AI creates/deletes/modifies project files
   useEffect(() => {
     if (fileEditNotify) {
-      const p = fileEditNotify.filePath.replace(/\\/g, '/')
-      // Project-level changes or any file edit in projects dir should refresh list
-      if (p.includes('/projects/') || p === fileEditNotify.filePath) {
-        loadProjects()
-      }
+      loadProjects()
     }
   }, [fileEditNotify, loadProjects])
 
@@ -149,6 +146,23 @@ projList.push({ id: name, ...meta, type: pt })
     if (!activeProject?.path) return
     await projectService.updateCategory(activeProject.path, category)
     await loadProjects()
+  }
+
+  // v13.x: 修改项目显示名（只改 project.json 的 name，不重命名目录）
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+
+  const handleRename = async () => {
+    if (!activeProject?.path) return
+    const trimmed = nameDraft.trim()
+    if (!trimmed) return
+    try {
+      await projectService.rename(activeProject.path, trimmed)
+      setEditingName(false)
+      await loadProjects()
+    } catch (e: any) {
+      alert(`修改项目名失败: ${e?.message || '未知错误'}`)
+    }
   }
 
   const handleCoverChange = async (coverImage: string | undefined) => {
@@ -267,9 +281,43 @@ projList.push({ id: name, ...meta, type: pt })
             <div style={{ marginTop: 28 }}>
               {/* Name & Type row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: 0 }}>
-                  {activeProject.name}
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  {editingName && activeProject.path ? (
+                    <>
+                      <input
+                        value={nameDraft}
+                        onChange={e => setNameDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setEditingName(false) }}
+                        autoFocus
+                        style={{
+                          fontSize: 20, fontWeight: 700, padding: '6px 12px', borderRadius: 10,
+                          border: '1px solid rgba(124,58,237,0.3)', outline: 'none',
+                          fontFamily: 'inherit', color: '#2d2520', background: '#faf9f8', width: 280,
+                        }}
+                      />
+                      <button onClick={handleRename} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>保存</button>
+                      <button onClick={() => setEditingName(false)} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #e5e0da', background: '#fff', color: '#6b5e54', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>取消</button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 style={{ fontSize: 24, fontWeight: 700, color: '#2d2520', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {activeProject.name}
+                      </h3>
+                      {activeProject.path && (
+                        <button
+                          onClick={() => { setNameDraft(activeProject.name); setEditingName(true) }}
+                          title="修改项目名称（仅显示名，不影响目录和文件路径）"
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            padding: 4, color: '#9b8e84', display: 'flex', borderRadius: 6,
+                          }}
+                        >
+                          <PencilIcon style={{ width: 15, height: 15 }} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
                 <select
                   value={novelCategory}
                   onChange={e => handleUpdateCategory(e.target.value)}

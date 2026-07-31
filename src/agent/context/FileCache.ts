@@ -35,6 +35,6 @@ export const setCachedFile = (filePath: string, content: string, projectId?: str
   setFileCache(filePath, content, projectId)
 export const invalidateFile = invalidateFileCache
 export const invalidateDir = invalidateDirCache
-export const invalidateProjectFilesReexport = invalidateProjectFiles
+export { invalidateProjectFiles }
 export const clearFileCache = clearAllFileCache
 export { getFileCacheStats, getFileCacheDiagnostics }

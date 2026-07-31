@@ -1,32 +1,6 @@
-import { useState, useEffect } from 'react'
-import { useStore } from '@/store'
-import { templateService } from '@/services/fileService'
-import { nanoid } from 'nanoid'
-import Button from '@/components/common/Button'
-import Modal from '@/components/common/Modal'
-import ScrollArea from '@/components/common/ScrollArea'
+import { useState } from 'react'
 import { inputStyle } from '@/components/common/styles'
-import type { EroticSceneConfig, EroticSceneCharacter, NovelSceneConfig, SceneTemplate, SceneTemplateType } from '@/types/story'
-import { SparklesIcon, TrashIcon, PencilIcon, PlusIcon, DocumentTextIcon, FireIcon, BookOpenIcon } from '@heroicons/react/24/outline'
-import {
-  LOCATIONS as EROTIC_LOCATIONS, TIMES as EROTIC_TIMES, ATMOSPHERES, PUBLICITIES,
-  ROLES as EROTIC_ROLES, ROLE_LABELS, BODY_STATES, KINKS_GROUPS,
-  OPENINGS, POSES, RHYTHMS, CHANGES, CLIMAXES, AFTERMATHS,
-  SOUND_DENSITIES, MOAN_STYLES, DEGRADE_LANGS, POVS,
-} from '@/components/common/eroticSceneConstants'
-
-// ===== Constants =====
-import {
-  NOVEL_SCENE_TYPES, NOVEL_PURPOSES, NOVEL_CONFLICTS, NOVEL_DIALOGUES, NOVEL_SENTENCES,
-  NOVEL_DENSITIES, NOVEL_WEATHERS, NOVEL_SUBTEXTS, NOVEL_GENRE_ELEMENTS,
-  WORLD_RULES, PROP_LIST, COSTUME_LIST, STRENGTH_LABELS, SENSORY_ANCHORS,
-  NOVEL_NARRATIVE_STYLES, NOVEL_TIME_COMPRESSION, NOVEL_INTROSPECTION,
-  NOVEL_DOMINANT_EMOTIONS, NOVEL_PACINGS, NOVEL_FORESHADOW_USE,
-  NOVEL_BODY_LANGUAGES, NOVEL_PROPS_PRESETS, NOVEL_APPEARANCE_PRESETS,
-  EROTIC_PACINGS, EROTIC_BODY_LANGUAGES, EROTIC_CONSENT_DYNAMICS, EROTIC_AFTERCARE,
-  DEFAULT_EROTIC, DEFAULT_NOVEL, SECTIONS,
-} from '../sceneWorkshopConstants'
-import type { EditorType } from '../sceneWorkshopConstants'
+import type { EroticSceneConfig, NovelSceneConfig } from '@/types/story'
 
 export function safeCSV(v: unknown): string {
   if (Array.isArray(v)) return (v as string[]).join(',')
@@ -40,7 +14,7 @@ export function getSectionSummary(section: number, config: EroticSceneConfig): s
     case 3: return config.time + (config.customTime ? ', ' + config.customTime : '')
     case 4: return config.atmosphere + (config.customAtmosphere ? ', ' + config.customAtmosphere : '')
     case 5: return config.publicity + (config.customPublicity ? ', ' + config.customPublicity : '')
-    case 6: return config.selectedKinks.length + '个: ' + config.selectedKinks.slice(0,4).join(',') + (config.selectedKinks.length > 4 ? '...' : '') || '未选择'
+    case 6: return config.selectedKinks.length + '个: ' + config.selectedKinks.slice(0,4).join(',') + (config.selectedKinks.length > 4 ? '...' : '')
     case 7: return `姿势:${config.mainPose} | 节奏:${config.mainRhythm}`
     case 8: return `起始:${(config.opening||[]).join(',')||'无'} | 高潮:${(config.climax||[]).join(',')||'无'} | 余韵:${(config.aftermath||[]).join(',')||'无'}`
     case 9: return `密度:${config.soundDensity} | 呻吟:${config.moanStyle} | 侮辱${(config.degradeLangs || []).length}个`
@@ -94,13 +68,15 @@ export function novelSectionIsAuto(section: number, cfg: NovelSceneConfig): bool
   return fields.every(f => cfg.autoFields[f])
 }
 
-export function SectionCard({ id, label, summary, isAuto, onClick }: { id: number; label: string; summary: string; isAuto?: boolean; onClick: () => void }) {
+const EROTIC_CARD_COLORS = [
+  '#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#6366f1','#14b8a6','#f97316',
+  '#06b6d4','#84cc16','#e11d48','#7c3aed','#0ea5e9','#d946ef','#22c55e','#eab308','#a855f7',
+  '#0891b2','#65a30d','#c026d3','#2563eb','#ca8a04','#9333ea','#059669','#dc2626',
+]
+const NOVEL_CARD_COLORS = ['#3b82f6','#6366f1','#0ea5e9','#8b5cf6','#2563eb','#06b6d4','#7c3aed','#14b8a6','#a855f7','#0891b2']
+
+export function SectionCard({ id, label, summary, isAuto, onClick, colors = EROTIC_CARD_COLORS }: { id: number; label: string; summary: string; isAuto?: boolean; onClick: () => void; colors?: string[] }) {
   const [hover, setHover] = useState(false)
-  const colors = [
-    '#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#6366f1','#14b8a6','#f97316',
-    '#06b6d4','#84cc16','#e11d48','#7c3aed','#0ea5e9','#d946ef','#22c55e','#eab308','#a855f7',
-    '#0891b2','#65a30d','#c026d3','#2563eb','#ca8a04','#9333ea','#059669','#dc2626',
-  ]
   const accent = colors[(id - 1) % colors.length]
   return (
     <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="interactive" style={{
@@ -145,28 +121,8 @@ export function getNovelSectionSummary(section: number, config: NovelSceneConfig
   }
 }
 
-export function NovelSectionCard({ id, label, summary, isAuto, onClick }: { id: number; label: string; summary: string; isAuto?: boolean; onClick: () => void }) {
-  const [hover, setHover] = useState(false)
-  const colors = ['#3b82f6','#6366f1','#0ea5e9','#8b5cf6','#2563eb','#06b6d4','#7c3aed','#14b8a6','#a855f7','#0891b2']
-  const accent = colors[(id - 1) % colors.length]
-  return (
-    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="interactive" style={{
-      display: 'flex', flexDirection: 'column', textAlign: 'left', width: '100%', minHeight: 110,
-      borderRadius: 16, border: hover ? `1px solid ${accent}40` : isAuto ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(0,0,0,0.06)',
-      background: hover ? `linear-gradient(135deg, ${accent}08, #fff)` : isAuto ? 'rgba(139,92,246,0.03)' : '#fff',
-      cursor: 'pointer', padding: 0, overflow: 'hidden',
-      boxShadow: hover ? `0 8px 24px ${accent}15` : '0 1px 3px rgba(0,0,0,0.04)',
-      transform: hover ? 'translateY(-2px)' : 'none',
-      transition: 'all 0.2s cubic-bezier(0.4,0,0.2,1)',
-    }}>
-      <div style={{ padding: '12px 16px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ width: 28, height: 28, borderRadius: 8, background: isAuto ? 'rgba(139,92,246,0.12)' : `${accent}15`, color: isAuto ? '#7c3aed' : accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{id < 10 ? '0' + id : id}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#2d2520' }}>{label.replace(/^\d+\.\s*/, '')}</span>
-        {isAuto && <span style={{ fontSize: 9, color: '#7c3aed', fontWeight: 600, background: 'rgba(139,92,246,0.08)', padding: '1px 6px', borderRadius: 4, flexShrink: 0, marginLeft: 'auto' }}>🤖 自动</span>}
-      </div>
-      <div className="custom-scrollbar" style={{ flex: 1, padding: '4px 16px 12px', fontSize: 11, lineHeight: 1.65, color: isAuto ? '#9b8e84' : '#6b5e54', overflowY: 'auto', maxHeight: 70, wordBreak: 'break-word' }}>{isAuto ? 'AI 生成时自动填写' : (summary || '点击编辑 →')}</div>
-    </button>
-  )
+export function NovelSectionCard(props: { id: number; label: string; summary: string; isAuto?: boolean; onClick: () => void }) {
+  return <SectionCard {...props} colors={NOVEL_CARD_COLORS} />
 }
 
 

@@ -1,12 +1,12 @@
-# AI写作软件—青剑 v13.5.3
+# AI写作软件—青剑 v14.0.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
 ## 技术栈
 
-Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / G6 + Framer Motion / Vitest / electron-builder
+Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v13.2.0)
+## 当前架构 (v14.0.0)
 
 ### 项目目录分离
 - `projects/` — 普通写作项目
@@ -39,7 +39,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - v11.5: 删除冗余 note/kb 工具 (8个)
 - v13.2: 删除 lsp_diagnose (纯开发工具) + update_config/list_audit (用户可手动操作)
 - create_file/edit_file 支持所有目录（项目/notes/KB/模板/上传）
-- 渐进披露: 首轮全量27工具 → 后续12核心 (含 tool_search 动态发现)
+- 渐进披露: 首轮全量27工具 → 后续11核心 (含 tool_search 动态发现)
 
 ### DeepSeek V4 Thinking Mode
 - OpenAI + Anthropic 双协议启用深度推理（enableThinking/reasoningEffort 可配置）
@@ -47,7 +47,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - reasoning_content 回传修复，支持多轮工具调用
 
 ### 模板系统
-- `.aiharness/templates/` 目录，23 个文件（16 格式模板 + 7 写作手册）
+- `.aiharness/templates/` 目录，15 个根目录格式模板 + 7 写作手册（writing-handbook/）
 - 系统提示词从 ~5,800 tokens 瘦身到 ~3,600 tokens (v13.2.0: 写作规范手册移出)
 - AI 通过 read_file 按需查看格式和操作手册，不再从提示词中读取
 
@@ -73,10 +73,9 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Harness 配置 | `.aiharness/aiharness.json` |
 | Agent 工具列表 | `src/agent/skills/tools/index.ts` (27 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
-| — | PhaseManager 已在 v11.7.0 移除 |
 | 协议适配器 | `src/agent/runtime/adapters/` |
-| 格式模板 | `.aiharness/templates/` (16 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v10.1.0) |
+| 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
+| 版本历史 | `src/data/version_history.json` (当前 v14.0.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `.aiharness/scripts/` (3 个) |
 
@@ -85,8 +84,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (~530 用例) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (217 用例) |
+| `npx vitest run` | 全量单元测试 (385 passed + 15 skipped，共 400) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (120 用例) |
 
 ## 22 场景对话测试
 

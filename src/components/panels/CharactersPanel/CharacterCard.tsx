@@ -207,18 +207,22 @@ export function CharacterCard({ char, projectPath, onEdit, onDelete }: Character
         </div>
         {char.occupation && <p style={{ fontSize: 11, color: '#6b5e54', margin: 0, lineHeight: 1.4, fontWeight: 500 }}>{char.occupation}</p>}
         {(char.gender || char.age) && <p style={{ fontSize: 11, color: '#9b8e84', margin: 0 }}>{[char.gender, char.age].filter(Boolean).join(' · ')}</p>}
-        {(char.relationshipTags || []).length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 1 }}>
-            {(char.relationshipTags || []).slice(0, 3).map(t => (
-              <span key={t} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(124,58,237,0.04)', color: '#7c3aed' }}>{t}</span>
-            ))}
-            {(char.relationshipTags || []).length > 3 && <span style={{ fontSize: 9, color: '#9b8e84' }}>+{(char.relationshipTags || []).length - 3}</span>}
-          </div>
-        )}
         {char.personality && (
           <p style={{ fontSize: 11, color: '#6b5e54', margin: 0, marginTop: 3, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             {safeStr(char.personality)}
           </p>
+        )}
+        {(char.customBlocks || []).length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2 }}>
+            {(char.customBlocks || []).slice(0, 2).map((b, i) => (
+              <p key={i} style={{ fontSize: 11, color: '#6b5e54', margin: 0, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ color: '#7c3aed', fontWeight: 600 }}>{b.label || '自定义'}</span>：{safeStr(b.content)}
+              </p>
+            ))}
+            {(char.customBlocks || []).length > 2 && (
+              <p style={{ fontSize: 10, color: '#9b8e84', margin: 0 }}>+{(char.customBlocks || []).length - 2} 项自定义</p>
+            )}
+          </div>
         )}
       </div>
 

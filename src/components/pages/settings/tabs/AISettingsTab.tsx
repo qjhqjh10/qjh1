@@ -12,6 +12,7 @@ import { DEFAULT_AI_SETTINGS, CHARACTER_IDENTITIES, createDefaultRoleTemplate, c
 import { inputStyle, textareaStyle, captionText } from '@/components/common/styles'
 import { FormField } from '../shared'
 import { compressAndSaveImage, loadAvatar } from '@/utils/imageCompress'
+import { useDraggableResizable } from '@/components/common/useDraggableResizable'
 
 // ── Shared mini styles ──
 const miniField: React.CSSProperties = {
@@ -302,17 +303,19 @@ function CharacterDetailModal({
 }) {
   const initialW = Math.round(window.innerWidth * 0.85)
   const initialH = Math.round(window.innerHeight * 0.88)
-  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
-  const [modalPos, setModalPos] = useState({
-    left: Math.round((window.innerWidth - initialW) / 2),
-    top: Math.round((window.innerHeight - initialH) / 2),
+  // v13.x: 统一共享拖拽 hook（原手写 dragRef/resizeRef 实现删除）
+  const { size: modalSize, setSize: setModalSize, pos: modalPos, setPos: setModalPos, handleResizeStart, handleDragStart } = useDraggableResizable({
+    anchor: 'left-top',
+    defaultSize: { width: initialW, height: initialH },
+    defaultPos: {
+      left: Math.round((window.innerWidth - initialW) / 2),
+      top: Math.round((window.innerHeight - initialH) / 2),
+    },
+    minW: 500, minH: 400, maxW: window.innerWidth,
+    dragExclude: 'button, input, textarea, select',
   })
-  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
-  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [avatarSrc, setAvatarSrc] = useState('')
-
-  const MIN_W = 500, MIN_H = 400
 
   // ── 头像加载 ──
   useEffect(() => {
@@ -352,43 +355,6 @@ function CharacterDetailModal({
       setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
     }
   }, [open])
-
-  const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, textarea, select')) return
-    e.preventDefault()
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
-    const hm = (ev: MouseEvent) => {
-      const dx = ev.clientX - dragRef.current.startX
-      const dy = ev.clientY - dragRef.current.startY
-      setModalPos({ left: dragRef.current.startL + dx, top: Math.max(0, dragRef.current.startT + dy) })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
-
-  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    resizeRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      startW: modalSize.width, startH: modalSize.height,
-      startL: modalPos.left, startT: modalPos.top, corner,
-    }
-    const hm = (ev: MouseEvent) => {
-      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
-      const dx = ev.clientX - startX; const dy = ev.clientY - startY
-      let w = startW, h = startH, l = startL, t = startT
-      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
-      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
-      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
-      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
-      setModalSize({ width: w, height: h })
-      setModalPos({ left: l, top: t })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
 
   if (!open || !character) return null
 
@@ -625,15 +591,17 @@ function TextSettingModal({
 }) {
   const initialW = Math.round(window.innerWidth * 0.82)
   const initialH = Math.round(window.innerHeight * 0.82)
-  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
-  const [modalPos, setModalPos] = useState({
-    left: Math.round((window.innerWidth - initialW) / 2),
-    top: Math.round((window.innerHeight - initialH) / 2),
+  // v13.x: 统一共享拖拽 hook
+  const { size: modalSize, setSize: setModalSize, pos: modalPos, setPos: setModalPos, handleResizeStart, handleDragStart } = useDraggableResizable({
+    anchor: 'left-top',
+    defaultSize: { width: initialW, height: initialH },
+    defaultPos: {
+      left: Math.round((window.innerWidth - initialW) / 2),
+      top: Math.round((window.innerHeight - initialH) / 2),
+    },
+    minW: 500, minH: 400, maxW: window.innerWidth,
+    dragExclude: 'button, textarea',
   })
-  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
-  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
-
-  const MIN_W = 500, MIN_H = 400
 
   useEffect(() => {
     if (open) {
@@ -643,43 +611,6 @@ function TextSettingModal({
       setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
     }
   }, [open])
-
-  const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, textarea')) return
-    e.preventDefault()
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
-    const hm = (ev: MouseEvent) => {
-      const dx = ev.clientX - dragRef.current.startX
-      const dy = ev.clientY - dragRef.current.startY
-      setModalPos({ left: dragRef.current.startL + dx, top: Math.max(0, dragRef.current.startT + dy) })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
-
-  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    resizeRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      startW: modalSize.width, startH: modalSize.height,
-      startL: modalPos.left, startT: modalPos.top, corner,
-    }
-    const hm = (ev: MouseEvent) => {
-      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
-      const dx = ev.clientX - startX; const dy = ev.clientY - startY
-      let w = startW, h = startH, l = startL, t = startT
-      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
-      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
-      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
-      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
-      setModalSize({ width: w, height: h })
-      setModalPos({ left: l, top: t })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
 
   if (!open) return null
 
@@ -802,18 +733,19 @@ function RoleTemplateDetailModal({
   const [worldModalOpen, setWorldModalOpen] = useState(false)
   const [scenarioModalOpen, setScenarioModalOpen] = useState(false)
 
-  // ── 拖动 + 缩放状态 ──
+  // ── 拖动 + 缩放状态（v13.x: 统一共享拖拽 hook）──
   const initialW = Math.round(window.innerWidth * 9 / 10)
   const initialH = Math.round(window.innerHeight * 9 / 10)
-  const [modalSize, setModalSize] = useState({ width: initialW, height: initialH })
-  const [modalPos, setModalPos] = useState({
-    left: Math.round((window.innerWidth - initialW) / 2),
-    top: Math.round((window.innerHeight - initialH) / 2),
+  const { size: modalSize, setSize: setModalSize, pos: modalPos, setPos: setModalPos, handleResizeStart, handleDragStart } = useDraggableResizable({
+    anchor: 'left-top',
+    defaultSize: { width: initialW, height: initialH },
+    defaultPos: {
+      left: Math.round((window.innerWidth - initialW) / 2),
+      top: Math.round((window.innerHeight - initialH) / 2),
+    },
+    minW: 600, minH: 500, maxW: window.innerWidth,
+    dragExclude: 'button, input, textarea, select',
   })
-  const dragRef = useRef({ startX: 0, startY: 0, startL: 0, startT: 0 })
-  const resizeRef = useRef({ startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0, corner: '' })
-
-  const MIN_W = 600, MIN_H = 500
 
   // 当 open 变为 true 时重新计算居中位置
   useEffect(() => {
@@ -824,46 +756,6 @@ function RoleTemplateDetailModal({
       setModalPos({ left: Math.round((window.innerWidth - w) / 2), top: Math.round((window.innerHeight - h) / 2) })
     }
   }, [open])
-
-  const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, textarea, select')) return
-    e.preventDefault()
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startL: modalPos.left, startT: modalPos.top }
-    const hm = (ev: MouseEvent) => {
-      const dx = ev.clientX - dragRef.current.startX
-      const dy = ev.clientY - dragRef.current.startY
-      setModalPos({
-        left: dragRef.current.startL + dx,
-        top: Math.max(0, dragRef.current.startT + dy),
-      })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
-
-  const handleResizeStart = (corner: string) => (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    resizeRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      startW: modalSize.width, startH: modalSize.height,
-      startL: modalPos.left, startT: modalPos.top, corner,
-    }
-    const hm = (ev: MouseEvent) => {
-      const { startX, startY, startW, startH, startL, startT, corner: c } = resizeRef.current
-      const dx = ev.clientX - startX; const dy = ev.clientY - startY
-      let w = startW, h = startH, l = startL, t = startT
-      if (c.includes('right'))  { w = Math.max(MIN_W, startW + dx) }
-      if (c.includes('bottom')) { h = Math.max(MIN_H, startH + dy) }
-      if (c.includes('left'))   { const nw = Math.max(MIN_W, startW - dx); l = startL + (startW - nw); w = nw }
-      if (c.includes('top'))    { const nh = Math.max(MIN_H, startH - dy); t = startT + (startH - nh); h = nh }
-      setModalSize({ width: w, height: h })
-      setModalPos({ left: l, top: t })
-    }
-    const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-    window.addEventListener('mousemove', hm)
-    window.addEventListener('mouseup', hu)
-  }
 
   const activeTemplate = roleTemplates.find(t => t.id === activeId)
 
@@ -1303,7 +1195,7 @@ export function AISettingsTab() {
           <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: '#7c3aed' }}>AI 写作助手能力总览</h4>
           <p style={{ ...captionText, marginBottom: 14 }}>你的 AI 助手具备以下能力，覆盖写作全流程</p>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>32 个工具（核心 7 个 + 扩展 25 个）</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b5e54', marginBottom: 8 }}>27 个工具（首轮全量 + 后续 11 个高频）</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {[
                 { n: 'read_file', t: '核心' }, { n: 'create_file', t: '核心' },

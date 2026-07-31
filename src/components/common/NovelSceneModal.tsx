@@ -109,21 +109,14 @@ export default function NovelSceneModal({ isOpen, onClose, chapterId, currentCon
     setLoading(true)
     try {
       const prompt = await buildPrompt()
-      const stream = true
-      if (stream) {
-        onGenStart?.(); onClose()
-        aiService.chatStream(
-          [{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined,
-          (data) => { const c = currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated; onApply(c); onGenChunk?.({ charCount: data.accumulated.length }) },
-          () => { onGenDone?.(); setLoading(false) },
-          (err) => { onGenError?.(err.message); setLoading(false) },
-          (data) => { onGenError?.(data.message); setLoading(false) },
-        )
-      } else {
-        const { text } = await aiService.chatWithUsage([{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined)
-        const c = currentContent ? currentContent + '\n\n' + text : text
-        onApply(c); setLoading(false); onClose()
-      }
+      onGenStart?.(); onClose()
+      aiService.chatStream(
+        [{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined,
+        (data) => { const c = currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated; onApply(c); onGenChunk?.({ charCount: data.accumulated.length }) },
+        () => { onGenDone?.(); setLoading(false) },
+        (err) => { onGenError?.(err.message); setLoading(false) },
+        (data) => { onGenError?.(data.message); setLoading(false) },
+      )
     } catch (err) { setLoading(false); onGenError?.((err as Error).message) }
   }
 

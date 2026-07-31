@@ -58,10 +58,6 @@ export interface V4AgentRunResult {
   /** v13.2.0: 下一次 API 请求的预估上下文 token 数（含 system/history/工具结果等） */
   estimatedContextTokens?: number
   iterationCount: number
-  /** v9.5.3: Skill 任务完成进度 */
-  skillProgress?: { completed: number; total: number }
-  /** v9.7.0: 事后验证结果 */
-  verification?: { scriptRan: boolean; checksPassed: number; checksFailed: number; errors: string[] }
 }
 
 // ── Dependency Contracts ──

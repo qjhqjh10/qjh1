@@ -71,6 +71,8 @@ export default function RewriteEditor({
   const [selectedText, setSelectedText] = useState('')
   const [polishDialogOpen, setPolishDialogOpen] = useState(false)
   const [polishMode, setPolishMode] = useState<'改写' | '续写'>('改写')
+  // 打开弹窗时快照本章全文，供「插入原文」参考
+  const [chapterText, setChapterText] = useState('')
 
   const prompts = useSettingsStore(s => s.prompts)
 
@@ -141,9 +143,11 @@ export default function RewriteEditor({
   // Open polish dialog for selected mode
   const openPolishDialog = useCallback((mode: '改写' | '续写') => {
     setCtxMenu(null)
+    // 快照本章全文，供弹窗内「插入本章原文」使用
+    setChapterText(editor ? editor.getText({ blockSeparator: '\n\n' }) : '')
     setPolishMode(mode)
     setPolishDialogOpen(true)
-  }, [])
+  }, [editor])
 
   // Handle AI result insertion
   const handleInsertPolish = useCallback((text: string) => {
@@ -210,6 +214,7 @@ export default function RewriteEditor({
         isOpen={polishDialogOpen}
         mode={polishMode}
         selectedText={selectedText}
+        chapterText={chapterText}
         prompts={prompts}
         configId={configId}
         projectId={projectId || null}

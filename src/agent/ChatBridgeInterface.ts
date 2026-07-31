@@ -6,14 +6,45 @@
 
 import type { Message } from './state/types'
 import type { V4AgentRunResult } from './runtime/RuntimeTypes'
-import type { BridgeSendResult } from './V4AgentChatBridge'
 
-// 从 V4AgentChatBridge 重导出类型（单一数据源，不重复定义）
-export type {
-  BridgeOptions,
-  SendOptions,
-  BridgeSendResult,
-} from './V4AgentChatBridge'
+// ── 两个 Bridge 共享的类型（原定义于 V4AgentChatBridge，此处为单一数据源）──
+
+export interface BridgeOptions {
+  configId: string
+  projectId: string | null
+  maxIterations?: number
+  historyMessages?: Message[]
+  contextWindow?: number  // 模型上下文窗口大小, 传递给 ContextCompressor 做阈值计算
+}
+
+export interface SendOptions {
+  kbEnabled?: boolean
+  webSearchEnabled?: boolean
+  selectedKbFileIds?: string[]
+  onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
+  onComplete?: (result: V4AgentRunResult) => void
+  onToolProgress?: (event: { callId: string; toolName: string; phase: string; progress: number; message: string; timestamp: number }) => void
+  onApprovalRequired?: (tools: Array<{ name: string; args: Record<string, unknown> }>) => Promise<boolean>
+}
+
+export interface BridgeSendResult {
+  success: boolean
+  text: string
+  toolCalls: number
+  totalTokens: number
+  promptTokens: number
+  completionTokens: number
+  cacheHitTokens: number
+  cacheCreationTokens: number
+  cost: number
+  phase: string
+  toolsUsed: string[]
+  iterationCount: number
+  toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>
+  contextBreakdown?: Array<{ domain: string; tokens: number }>
+  /** v13.2.0: 下一次 API 请求的预估上下文 token 数 */
+  estimatedContextTokens?: number
+}
 
 /** 两个 Bridge 实现都满足的接口 */
 export interface IChatBridge {

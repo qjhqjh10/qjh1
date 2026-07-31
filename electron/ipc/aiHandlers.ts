@@ -1,22 +1,7 @@
 import { IpcMain, SafeStorage, app } from 'electron'
 
-/** ISO timestamp with local timezone offset (e.g. 2026-05-31T10:34:09+08:00) */
-function localISOString(): string {
-  const d = new Date()
-  const off = -d.getTimezoneOffset()
-  const sign = off >= 0 ? '+' : '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return d.getFullYear() + '-' +
-    pad(d.getMonth() + 1) + '-' +
-    pad(d.getDate()) + 'T' +
-    pad(d.getHours()) + ':' +
-    pad(d.getMinutes()) + ':' +
-    pad(d.getSeconds()) + sign +
-    pad(Math.floor(off / 60)) + ':' +
-    pad(off % 60)
-}
 import { logTokenUsage } from './statsHandlers'
-import { getOpenAI, getConfigStore } from './utils'
+import { getOpenAI, getConfigStore, localISOString, calculateCost } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
@@ -61,18 +46,6 @@ function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
   if (role === 'user' || role === 'assistant' || role === 'system' || role === 'tool') return role
   console.warn(`[AI] Invalid message role "${role}", falling back to "user"`)
   return 'user'
-}
-
-function calculateCost(inputTokens: number, outputTokens: number, cacheHitTokens: number, config: StoredConfig): number {
-  const effectiveInput = Math.max(0, inputTokens - cacheHitTokens)
-  const inputPrice = config.inputPricePerM ?? 0
-  const cachePrice = config.cacheHitPricePerM ?? 0
-  const outputPrice = config.outputPricePerM ?? 0
-  // #17: If all prices are zero, return -0.001 to signal "unset" (won't affect display much but flags it)
-  const inputCost = (effectiveInput * inputPrice) / 1_000_000
-  const cacheCost = (cacheHitTokens * cachePrice) / 1_000_000
-  const outputCost = (outputTokens * outputPrice) / 1_000_000
-  return inputCost + cacheCost + outputCost
 }
 
 export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, projectsPath?: string) {

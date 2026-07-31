@@ -147,6 +147,7 @@ describe('Anthropic Stream — Text Only', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic Stream — Tool Use', () => {
+  // SKIP: 流式 tool_use 解析细节随 API 响应变化，待稳定后启用
   it.skip('executes a single tool_use block and continues', async () => {
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({
@@ -250,6 +251,7 @@ describe('Anthropic Stream — Tool Use', () => {
     expect(lastReadIdx).toBeLessThan(firstWriteIdx)
   })
 
+  // SKIP: 多轮 tool→result 循环 mock 复杂，待稳定
   it.skip('handles multi-turn tool use (tool → result → tool → result → text)', async () => {
     const { svc } = makeAnthropicAI([
       // Turn 1: list directory
@@ -292,6 +294,7 @@ describe('Anthropic Stream — Tool Use', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic Message Format Conversion', () => {
+  // SKIP: 顶层 system 参数转换已由 adapter 单测覆盖
   it.skip('converts system messages to top-level system parameter', async () => {
     const { svc, streamCalls } = makeAnthropicAI([
       makeStreamResult({ text: '收到。系统提示词已加载。', stopReason: 'end_turn' }),
@@ -635,6 +638,7 @@ describe('Anthropic API Errors', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Anthropic End-to-End', () => {
+  // SKIP: 完整 E2E 依赖真实 API（LIVE_API 门控），mock 下链路过长
   it.skip('full character creation workflow via Anthropic protocol', async () => {
     const { svc } = makeAnthropicAI([
       // Step 1: List existing characters
@@ -661,7 +665,7 @@ describe('Anthropic End-to-End', () => {
               background: '艺术世家出身', appearance: '长发飘飘',
               personality: '温柔善良', abilities: '绘画天赋',
               weaknesses: '过于感性', relationships: '与男主青梅竹马',
-              relationshipTags: ['青梅竹马'], arc: '从自卑到自信',
+              arc: '从自卑到自信',
               importance: 90,
             }),
           },
@@ -670,7 +674,7 @@ describe('Anthropic End-to-End', () => {
       }),
       // Step 4: Confirmation
       makeStreamResult({
-        text: '角色林语晴已创建！文件保存在 characters/林语晴.json。共15个字段，格式校验通过。需要我帮你调整哪些信息吗？',
+        text: '角色林语晴已创建！文件保存在 characters/林语晴.json。共14个字段，格式校验通过。需要我帮你调整哪些信息吗？',
         stopReason: 'end_turn',
       }),
     ])

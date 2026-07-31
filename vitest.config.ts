@@ -10,7 +10,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
-    exclude: ['tests/integration/**', 'node_modules/**', 'dist/**', 'electron/ipc/__tests__/fileToolHandlers.test.ts'],
+    exclude: ['node_modules/**', 'dist/**', '.aiharness/backups/**', '.claude-backup-*/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],

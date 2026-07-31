@@ -8,8 +8,10 @@ import { chatAIStream } from '@/utils/chatAI'
 
 interface Props {
   isOpen: boolean
-  mode: '润色' | '改写' | '续写'
+  mode: '改写' | '续写'
   selectedText: string
+  /** 本章全文（快照），勾选「插入原文」时拼入提示词供 AI 参考，保持一致性 */
+  chapterText?: string
   prompts: PromptTemplate[]
   configId: string | null
   projectId: string | null
@@ -18,25 +20,26 @@ interface Props {
 }
 
 const MODE_LABELS: Record<string, string> = {
-  '润色': '润色',
   '改写': '改写',
   '续写': '续写',
 }
 
 const DEFS: Record<string, string> = {
-  '润色': '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
-  '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。',
-  '续写': '请根据以下内容自然续写，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性。',
+  '改写': '请改写以下文字，在保持原意和风格不变的前提下，优化表达、丰富细节、提升文采。不要只做保守的微调，应充分按要求执行。',
+  '续写': '请紧跟在【原文】段落之后自然续写新内容，保持风格一致。注意保持人物性格、叙事节奏和语言风格的连贯性；不要重复或改写【原文】已有的内容。',
 }
 
 const NONE_ID = '__none__'
+
+// 本章原文插入提示词时的最大字符数（防止超长章节撑爆上下文）
+const MAX_CHAPTER_CHARS = 30000
 
 const COL_HEADER: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8,
   display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
 }
 
-export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, configId, projectId, onClose, onInsert }: Props) {
+export default function AIPolishDialog({ isOpen, mode, selectedText, chapterText, prompts, configId, projectId, onClose, onInsert }: Props) {
   const [customRequirement, setCustomRequirement] = useState('')
   const [selectedPromptId, setSelectedPromptId] = useState(NONE_ID)
   const [result, setResult] = useState('')
@@ -44,6 +47,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
   const [error, setError] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [streamMode, setStreamMode] = useState(true)
+  const [includeChapter, setIncludeChapter] = useState(true)
   const abortRef = useRef<(() => void) | null>(null)
 
   const modePrompts = prompts.filter(p => p.type === mode)
@@ -57,6 +61,7 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
       setSelectedPromptId(NONE_ID)
       setResult('')
       setError('')
+      setIncludeChapter(true)
     }
   }, [isOpen])
 
@@ -66,16 +71,29 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
     setError('')
     setResult('')
     const tpl = selectedPromptId !== NONE_ID ? prompts.find(p => p.id === selectedPromptId) : null
-    const customPart = customRequirement.trim() ? `${customRequirement}\n\n` : ''
+    const customPart = customRequirement.trim() ? `[用户要求]\n${customRequirement}\n\n` : ''
     const wantTemplate = selectedPromptId !== NONE_ID
     const templateContent = wantTemplate && tpl?.content
     const useDefault = !wantTemplate && !customPart
     const templatePart = templateContent
       ? `【提示词模板】\n${tpl!.content}\n\n`
       : useDefault
-        ? `${DEFS[mode]}\n\n`
+        ? `【默认指令】\n${DEFS[mode]}\n\n`
         : ''
-    const prompt = `${customPart}${templatePart}[原文]\n${selectedText}`
+    const chapterTrimmed = chapterText?.trim() ?? ''
+    const chapterPart = includeChapter && chapterTrimmed
+      ? `【本章原文（仅作背景参考，用于保持人物、情节与文风一致）】\n${chapterTrimmed.slice(0, MAX_CHAPTER_CHARS)}\n\n`
+      : ''
+    // 任务设定放最前（最高权重位置），声明执行标准优先级；
+    // 参考原文紧贴文末【原文】处理对象，上下文延续性最强
+    const chapterNote = includeChapter && chapterTrimmed
+      ? '本章全文只是背景参考，不得限制改动幅度：该扩充就扩充、该调整就调整，不要只做保守的小修小改。'
+      : ''
+    const appendNote = isAppend
+      ? '续写内容须紧跟在【原文】选中段落之后自然展开，不要重复或改写【原文】已有的内容。'
+      : ''
+    const taskPart = `【任务】对文末【原文】选中段落进行${modeLabel}。执行标准优先级：用户要求 > 提示词模板 > 默认指令。${chapterNote}${appendNote}\n\n`
+    const prompt = `${taskPart}${customPart}${templatePart}${chapterPart}[原文]\n${selectedText}`
 
     if (streamMode) {
       // Streaming mode — real-time output
@@ -169,6 +187,24 @@ export default function AIPolishDialog({ isOpen, mode, selectedText, prompts, co
               autoFocus
             />
           </div>
+
+          {/* 插入本章原文参考（保持一致性） */}
+          {chapterText && chapterText.trim().length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label
+                title="将本章全文拼入提示词，让 AI 在改写/续写时保持人物、情节与文风一致"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: includeChapter ? '#7c3aed' : '#9b8e84', fontWeight: includeChapter ? 600 : 400 }}
+              >
+                <input type="checkbox" checked={includeChapter} onChange={() => setIncludeChapter(!includeChapter)} style={{ width: 14, height: 14, accentColor: '#7c3aed', cursor: 'pointer' }} />
+                插入本章原文参考
+              </label>
+              <span style={{ fontSize: 11, color: '#9b8e84', paddingLeft: 20 }}>
+                {chapterText.trim().length > MAX_CHAPTER_CHARS
+                  ? `已截取前 ${MAX_CHAPTER_CHARS} 字（本章共 ${chapterText.trim().length} 字）`
+                  : `本章共 ${chapterText.trim().length} 字`}
+              </span>
+            </div>
+          )}
 
           {/* Generate + Error */}
           <Button

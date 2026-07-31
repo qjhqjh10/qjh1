@@ -1,5 +1,5 @@
 // ── Tool Aggregator ──
-// Aggregates all 41 self-contained skill-system tools across 12 categories.
+// Aggregates all 27 self-contained skill-system tools across 11 categories.
 // Import from individual category modules and re-export as a flat array.
 
 import { fileTools } from './fileTools'
@@ -15,7 +15,7 @@ import { browserTools } from './browserTools'
 import { toolSearchTools, CORE_TOOL_NAMES } from './toolSearchTools'
 import type { ToolDefinition } from '../types'
 
-// v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续12核心。
+// v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 11 核心。
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools

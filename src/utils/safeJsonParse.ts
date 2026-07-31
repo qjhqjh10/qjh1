@@ -3,8 +3,11 @@
  *
  * Strategy: try direct parse first; on failure, progressively fix common issues:
  *   1. Trailing commas before } or ]  (the most common AI JSON error)
- *   2. Single quotes instead of double quotes
- *   3. Unquoted property names
+ *   2. Single quotes instead of double quotes（仅修复键值对的值位置，
+ *      避免误伤双引号字符串内部的单引号，如 "it's"）
+ *
+ * 注：v13.x 修正——原注释声称的"第 3 步 unquoted property names"从未实现，已删除；
+ * 单引号替换从 `'([^']*)'`（会误伤字符串内单引号）改为仅匹配 `: '...'` 形式。
  *
  * Returns the parsed object, or null if all attempts fail.
  */
@@ -13,7 +16,7 @@ export function safeJsonParse(text: string): unknown {
   const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
   if (!match) return null
 
-  let json = match[0]
+  const json = match[0]
 
   // Attempt 1: direct parse
   try {
@@ -30,13 +33,17 @@ export function safeJsonParse(text: string): unknown {
     // continue to fix
   }
 
-  // Attempt 3: also fix single quotes
+  // Attempt 3: also fix single quotes（仅匹配键 `{ 'k':` / `, 'k':` 和值 `: 'v'` 形式，
+  // 避免误伤双引号字符串内部的单引号，如 "it's"）
   try {
     let fixed = json.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']')
-    // Replace single-quoted strings with double-quoted (simple heuristic)
-    fixed = fixed.replace(/'([^']*)'/g, (_, content) => {
-      // Escape any double quotes inside
-      return `"${content.replace(/"/g, '\\"')}"`
+    // 单引号键：`{'k':` / `,'k':`
+    fixed = fixed.replace(/([{,]\s*)'([^']*)'(\s*:)/g, (_, prefix, key, suffix) => {
+      return `${prefix}"${key.replace(/"/g, '\\"')}"${suffix}`
+    })
+    // 单引号值：`: 'v'`
+    fixed = fixed.replace(/(:\s*)'([^']*)'/g, (_, prefix, content) => {
+      return `${prefix}"${content.replace(/"/g, '\\"')}"`
     })
     return JSON.parse(fixed)
   } catch {

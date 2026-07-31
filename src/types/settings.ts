@@ -46,7 +46,7 @@ export interface ModelConfig {
   currency: 'USD' | 'CNY'
 }
 
-export type PromptType = '角色' | '章节' | '润色' | '续写' | '改写' | '摘要' | '审稿'
+export type PromptType = '角色' | '章节' | '续写' | '改写' | '摘要' | '审稿'
 
 export interface PromptTemplate {
   id: string
@@ -56,7 +56,7 @@ export interface PromptTemplate {
   enabled: boolean
 }
 
-export const PROMPT_TYPES: PromptType[] = ['角色', '章节', '润色', '续写', '改写', '摘要', '审稿']
+export const PROMPT_TYPES: PromptType[] = ['角色', '章节', '续写', '改写', '摘要', '审稿']
 
 export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   provider: 'openai',
@@ -223,6 +223,39 @@ export function createDefaultRoleTemplate(name?: string): RoleTemplate {
   }
 }
 
+// ── 知识库设置 (v13.x) ──
+
+/** 单个场景的知识库注入参数 */
+export interface KBSceneSettings {
+  /** 语义检索片段数（默认 5） */
+  searchTopK: number
+  /** 全量注入降级时每文件最多字符（默认 5000） */
+  fallbackPerFileMaxChars: number
+  /** 全量注入降级时总字符上限（默认 10000） */
+  fallbackTotalMaxChars: number
+}
+
+/**
+ * 知识库设置 — 按场景分开配置：
+ * - agent:     AI 写作助手（每轮语义检索 topK + 降级全量注入）
+ * - generation: 章节生成 / 批量生成 / AI 生成角色（检索 maxChunks + 降级全量注入）
+ */
+export interface KBSettings {
+  agent: KBSceneSettings
+  generation: KBSceneSettings
+}
+
+export const DEFAULT_KB_SCENE: KBSceneSettings = {
+  searchTopK: 5,
+  fallbackPerFileMaxChars: 5000,
+  fallbackTotalMaxChars: 10000,
+}
+
+export const DEFAULT_KB_SETTINGS: KBSettings = {
+  agent: { ...DEFAULT_KB_SCENE },
+  generation: { ...DEFAULT_KB_SCENE },
+}
+
 export interface AIAssistantSettings {
   defaultRole: string
   responseStyle: 'concise' | 'normal' | 'detailed'
@@ -246,6 +279,7 @@ export interface AIAssistantSettings {
   // v13.0: 多角色系统
   roleTemplates: RoleTemplate[]               // 角色模板列表
   activeRoleTemplateId: string                // 当前激活的角色模板ID
+  kbSettings: KBSettings                       // v13.x: 知识库设置
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -275,6 +309,7 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   // v13.0: 多角色系统 — 默认一个"双人写作"模板
   roleTemplates: [],
   activeRoleTemplateId: '',
+  kbSettings: { ...DEFAULT_KB_SETTINGS },
 }
 
 export type ThemeId = 'warm-purple' | 'cyberpunk' | 'steampunk' | 'british' | 'ink-wash' | 'neon-dark'
@@ -343,9 +378,9 @@ export const DEFAULT_PROMPTS: PromptTemplate[] = [
   },
   {
     id: 'default_polish',
-    title: '默认润色模板',
-    type: '润色',
-    content: '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变。',
+    title: '轻度润色模板',
+    type: '改写',
+    content: '请润色以下文字，优化表达、修正语病、提升文采，但保持原意不变，不增删内容。',
     enabled: true,
   },
   {

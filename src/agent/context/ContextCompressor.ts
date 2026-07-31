@@ -83,8 +83,9 @@ export class ContextCompressor {
         const compressed: Record<string, unknown> = {}
         if (parsed.status) compressed.status = parsed.status
         if (parsed.summary) compressed.summary = parsed.summary
+        // v13.x: detail 截断为 200 字（read_file 全文正是 detail——此前完整保留等于没压缩）
         if (parsed.detail && typeof parsed.detail === 'string') {
-          compressed.detail = parsed.detail
+          compressed.detail = parsed.detail.length > 200 ? parsed.detail.slice(0, 200) + '…' : parsed.detail
         }
         if (parsed.note) compressed.note = parsed.note
         return { ...m, content: JSON.stringify(compressed) }
@@ -162,7 +163,10 @@ export class ContextCompressor {
 
     const systemMsgs = messages.filter(m => m.role === 'system')
     const otherMsgs = messages.filter(m => m.role !== 'system')
-    const keepFrom = Math.max(0, otherMsgs.length - keepLast)
+    let keepFrom = Math.max(0, otherMsgs.length - keepLast)
+    // v13.x: 对齐 user 消息边界——避免切在 assistant(tool_use)/tool 链中间，
+    // 否则 tool 结果成为孤儿（无对应 tool_use，API 报错）
+    while (keepFrom < otherMsgs.length && otherMsgs[keepFrom].role !== 'user') keepFrom++
 
     const toCollapse = otherMsgs.slice(0, keepFrom)
     const toKeep = otherMsgs.slice(keepFrom)
