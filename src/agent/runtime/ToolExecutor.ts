@@ -32,8 +32,15 @@ export const WRITE_TOOLS = new Set([
   'generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
-/** v15: 子 agent 委托工具（内部跑独立 runtime）— 串行执行，不进 readOnly 并行管线 */
-export const SERIAL_TOOLS = new Set(['analyze_file', 'edit_file_task'])
+/**
+ * v14.2.1: 子 agent 委托工具拆分（取代旧 SERIAL_TOOLS）— 批量并行分析（功能 2）
+ * - PARALLEL_READ_TOOLS（analyze_file 只读）：可并行。isolatedStore 保证每个子代理独立
+ *   上下文/store，并发安全；只读无副作用，互不干扰。
+ * - SERIAL_WRITE_TOOLS（edit_file_task 写）：保持串行——写操作共享文件系统状态，
+ *   同文件多处修改交错会互相覆盖。
+ */
+export const PARALLEL_READ_TOOLS = new Set(['analyze_file'])
+export const SERIAL_WRITE_TOOLS = new Set(['edit_file_task'])
 
 /** v15: 子 agent 委托完成文件操作视为"已写"（_hasWriteCall 计入，避免自愈误判 nudge） */
 export const SUBAGENT_WRITE_TOOLS = new Set(['edit_file_task'])

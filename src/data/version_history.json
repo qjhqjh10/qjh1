@@ -1,7 +1,23 @@
 {
-  "currentVersion": "14.1.1",
+  "currentVersion": "14.2.0",
   "currentDate": "2026-08-01",
   "history": [
+    {
+      "version": "14.2.0",
+      "date": "2026-08-01",
+      "features": [
+        "跨 run 续跑: V4AgentRunResult.taskProgress 任务清单进度快照（中断标记：用户中止/超时/API失败/迭代耗尽；正常完成与提问不标记）→ Bridge 透传 → AIChatWindow 存消息（IndexedDB 持久化）→ 下一条消息注入 [续跑] 上次中断于 X/Y 提示——解决 30 轮/5 分钟硬上限中断后任务状态丢失",
+        "批量并行分析: SERIAL_TOOLS 拆分为 PARALLEL_READ_TOOLS（analyze_file 只读，分片 ≤3 并发防 API 限流，isolatedStore 保证并发安全）/ SERIAL_WRITE_TOOLS（edit_file_task 写，保持串行）——多文件分析从串行叠加变为分批并行",
+        "验收子代理: 新增 verify 角色 + verify_task 工具（第 30 工具，只读验收，对照标准逐项判定产出 {passed, items}）；任务清单完成且写过文件时注入一次 [验收提示]（不强制）——产物质量从'模型声称'升级为'独立视角核对'",
+        "子代理上下文窗口跟随模型配置: 硬编码 64K → 配置 contextWindow（可达 1M，兜底 128K 与主 agent 一致）——大文件（>7 万字符）不再因 70% 压缩阈值失真",
+        "Anthropic 统计口径修复: cacheHit 只统计真实命中（cache_read），cache_creation 按正常输入价计费（此前按命中价约 1/10 → 成本低估、缓存统计虚高）",
+        "tokens 按来源统计: logTokenUsage 加 source 字段（main 主 agent / subagent 子代理 / pipeline 独立流水线 / image），设置页新增来源筛选 + 按来源分布展示",
+        "并行委托并发 import 竞态修复: 子代理工具/适配器用 promise 缓存共享模块引用（vitest mock 下并发动态 import 会返回原始模块）",
+        "UI 显示'情色'→'涩涩': 类型 label/筛选按钮/维度名/帮助文本 20 文件（数据 value、提示词、软件指南保持不动）",
+        "测试: 498 → 520 用例（跨 run 续跑 6 + 并行/并发上限 + verify_task 5 + 验收提示 2 + verify 角色）；对话场景 25 → 28（S_RESUME 续跑 / S_PAR 批量并行 / S_VERIFY 验收）"
+      ],
+      "fixes": []
+    },
     {
       "version": "14.1.1",
       "date": "2026-08-01",

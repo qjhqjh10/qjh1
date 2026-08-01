@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.1.1
+# AI写作软件—青剑 v14.2.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,7 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.1.1)
+## 当前架构 (v14.2.0)
 
 ### 项目目录分离
 - `projects/` — 普通写作项目
@@ -39,6 +39,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - v11.5: 删除冗余 note/kb 工具 (8个)
 - v13.2: 删除 lsp_diagnose (纯开发工具) + update_config/list_audit (用户可手动操作)
 - v14.1.1: +analyze_file/edit_file_task（子 agent 委托，独立上下文窗口）
+- v14.2.0: +verify_task（验收子代理）
 - create_file/edit_file 支持所有目录（项目/notes/KB/模板/上传）
 - 渐进披露: 首轮全量29工具 → 后续13核心 (含 tool_search 动态发现)
 
@@ -53,6 +54,12 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - tokens 主/子分开统计（subAgentUsage 字段 + UI 消息页脚）
 - 相关: `src/agent/subagent/` + `src/agent/skills/tools/subagentTools.ts`
 
+
+### 跨 run 续跑 + 批量并行 + 验收 (v14.2.0)
+- taskProgress 任务快照随消息持久化 → 中断恢复注入 [续跑] 上次中断于 X/Y（V4UnifiedRuntime + AIChatWindow.maybeInjectResume）
+- analyze_file 分片 ≤3 并行（PARALLEL_READ_TOOLS）；edit_file_task 串行（SERIAL_WRITE_TOOLS）
+- verify_task 验收子代理（第 30 工具）+ 清单完成验收提示（一次不强制）
+- 子代理窗口跟随模型配置（64K → 配置值/128K 兜底）；tokens 按来源统计（main/subagent/pipeline/image）
 ### DeepSeek V4 Thinking Mode
 - OpenAI + Anthropic 双协议启用深度推理（enableThinking/reasoningEffort 可配置）
 - 工具调用时 temperature 由阶段感知系统控制
@@ -96,7 +103,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (498 passed + 15 skipped，共 513) |
+| `npx vitest run` | 全量单元测试 (520 passed + 15 skipped，共 535) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (156 用例) |
 
 ## 25 场景对话测试
@@ -105,7 +112,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 cd /d/3/novel-writing-app
 export AI_API_KEY=sk-xxx  # 替换为你的 DeepSeek API key
 
-# 全部 25 场景 (~25分钟)
+# 全部 28 场景 (~30分钟)
 npx tsx scripts/test-ai-conversation.mjs
 
 # 指定场景
@@ -113,6 +120,7 @@ npx tsx scripts/test-ai-conversation.mjs --scenario=S1,S2,S10,S_R1
 
 # 仅新增能力测试
 npx tsx scripts/test-ai-conversation.mjs --scenario=S_R1,S_R2,S_PD
+npx tsx scripts/test-ai-conversation.mjs --scenario=S_RESUME,S_PAR,S_VERIFY   # v14.2 新增: 跨run续跑/批量并行/验收
 npx tsx scripts/test-ai-conversation.mjs --scenario=S_MT2,S_SUB1,S_SUB2   # v14.1 新增: 多任务压力/子代理委托
 ```
 

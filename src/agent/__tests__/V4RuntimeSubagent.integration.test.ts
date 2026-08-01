@@ -1,6 +1,7 @@
 // ── V4 Runtime + Subagent Integration Tests (v15) ──
 // 主 runtime + 真实 subagent 工具 + mock 子 adapter：
-// subAgentUsage 累加、SERIAL_TOOLS 串行、edit_file_task 计入 _hasWriteCall、isolatedStore 隔离。
+// subAgentUsage 累加、analyze_file 并行（PARALLEL_READ_TOOLS 分片 ≤3）、
+// edit_file_task 计入 _hasWriteCall、isolatedStore 隔离、verify_task 验收。
 
 import { describe, it, expect, vi } from 'vitest'
 
@@ -138,7 +139,7 @@ describe('V4Runtime + Subagent', () => {
     expect(result.totalTokens).toBe(600)
   })
 
-  it('同轮两个 analyze_file 串行执行（SERIAL_TOOLS），都完成且用量累加', async () => {
+  it('同轮两个 analyze_file 并行执行（PARALLEL_READ_TOOLS），都完成且用量累加', async () => {
     makeSubAIResponses([{ text: '【要点】文件A' }, { text: '【要点】文件B' }])
     makeSubFileTools()
 
@@ -166,6 +167,75 @@ describe('V4Runtime + Subagent', () => {
     const analyzeSteps = result.toolCallSteps.filter(s => s.tool === 'analyze_file')
     expect(analyzeSteps).toHaveLength(2)
     expect(analyzeSteps.every(s => s.status === 'success')).toBe(true)
+  })
+
+  it('同轮 4 个 analyze_file 并发上限 ≤3（分两批 3+1），全部完成', async () => {
+    // 记录每次子 API 调用的时间窗（40ms 延迟）→ 验证第一批 3 个并行、第 4 个在批后启动
+    const timings: Array<{ start: number; end: number; hint: string }> = []
+    subChatMock.mockImplementation(async (...args: any[]) => {
+      const start = Date.now()
+      await new Promise(r => setTimeout(r, 40))
+      const lastMsg = args[0]?.messages?.[args[0].messages.length - 1]
+      timings.push({ start, end: Date.now(), hint: String(lastMsg?.content || '').slice(0, 40) })
+      return {
+        text: '【要点】ok', toolCalls: null, finishReason: 'stop',
+        usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300, cached_tokens: 0, cost: 0 },
+      }
+    })
+    makeSubFileTools()
+
+    const { svc } = makeMainAI([
+      {
+        toolCalls: [
+          makeToolCall('m1', 'analyze_file', { file_path: 'a.txt' }),
+          makeToolCall('m2', 'analyze_file', { file_path: 'b.txt' }),
+          makeToolCall('m3', 'analyze_file', { file_path: 'c.txt' }),
+          makeToolCall('m4', 'analyze_file', { file_path: 'd.txt' }),
+        ],
+      },
+      { text: '全部完成' },
+    ])
+    const runtime = makeMainRuntime(svc)
+    runtime.setToolExecutor(async (args, ctx) => toolRegistry.execute(ctx.toolName, args, ctx))
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({ userMessage: '分析四个文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    expect(timings).toHaveLength(4)
+    // 第 1 与第 3 个时间窗重叠 → 第一批（前 3 个）并行执行
+    expect(timings[2].start).toBeLessThan(timings[0].end)
+    // 第 4 个在第一批全部结束后才启动 → 分批（并发上限 3）
+    const firstBatchMaxEnd = Math.max(...timings.slice(0, 3).map(t => t.end))
+    expect(timings[3].start).toBeGreaterThanOrEqual(firstBatchMaxEnd)
+    // 4 个 analyze_file 全部成功
+    const analyzeSteps = result.toolCallSteps.filter(s => s.tool === 'analyze_file')
+    expect(analyzeSteps).toHaveLength(4)
+    expect(analyzeSteps.every(s => s.status === 'success')).toBe(true)
+    expect(result.subAgentUsage!.calls).toBe(4)
+  })
+
+  it('主 run 调 verify_task → 子代理返回 JSON 验收报告，工具步骤成功', async () => {
+    makeSubAIResponses([
+      { text: '{"passed": true, "items": [{"criterion": "文件存在", "passed": true, "reason": "已存在"}]}' },
+    ])
+    makeSubFileTools()
+
+    const { svc } = makeMainAI([
+      { toolCalls: [makeToolCall('m1', 'verify_task', { file_paths: ['test-project/chapters/ch1.txt'], criteria: ['文件存在且非空'] })] },
+      { text: '全部完成' },
+    ])
+    const runtime = makeMainRuntime(svc)
+    runtime.setToolExecutor(async (args, ctx) => toolRegistry.execute(ctx.toolName, args, ctx))
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({ userMessage: '验收产物文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    const verifySteps = result.toolCallSteps.filter(s => s.tool === 'verify_task')
+    expect(verifySteps).toHaveLength(1)
+    expect(verifySteps[0].status).toBe('success')
+    expect(result.subAgentUsage!.calls).toBe(1)
   })
 
   it('edit_file_task 后模型说"完成"被接受（_hasWriteCall 计入，无 nudge 死循环）', async () => {

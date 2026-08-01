@@ -181,7 +181,7 @@ export const AI_CAPABILITIES_SUMMARY = `你可以帮用户完成以下操作：
 /**
  * 软件功能简述（用户问"软件有什么功能"时回复，比完整版精简）
  */
-export const SOFTWARE_FEATURES_SUMMARY = `青剑 v14.1.1 主要功能：
+export const SOFTWARE_FEATURES_SUMMARY = `青剑 v14.2.0 主要功能：
 
 📁 项目管理 — 首页创建普通小说项目，仿写和续写在各自界面中管理
 💬 AI 写作助手 — 29 个工具（含子代理委托：大文件分析/长文件修改不占用主上下文），多任务清单自动管理，可操作项目文件，双协议
