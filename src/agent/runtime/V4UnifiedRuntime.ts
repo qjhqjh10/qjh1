@@ -7,8 +7,9 @@ import { ContextCompressor } from '../context/ContextCompressor'
 // v11.3: skillRegistry removed
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
-import { executeSingleTool, classifyToolCalls, WRITE_TOOLS } from './ToolExecutor'
+import { executeSingleTool, classifyToolCalls, WRITE_TOOLS, SERIAL_TOOLS, SUBAGENT_WRITE_TOOLS } from './ToolExecutor'
 import { isKnowledgeOnly, hasTaskKeywords } from '../utils/taskDetection'
+import { extractTaskList, type TaskItem } from '../utils/taskExtraction'
 import { SUBSEQUENT_TOOL_NAMES } from '../skills/tools/toolSearchTools'
 import type {
   V4AgentConfig,
@@ -22,6 +23,18 @@ import type { Message } from '../state/types'
 
 // v13.x: 超过 N 轮的 read_file 结果 → 保留摘要+前200字，可重读
 const MAX_READ_RESULT_TURNS = 5
+
+// ── v14.1.0: 任务清单完成检测正则 ──
+// donePhrase: 原有完成声明（保留，仅作触发信号，验收依据是任务清单+工具证据）
+const DONE_PHRASE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[！。]?|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]/
+// 信任短语: 无 donePhrase 后缀约束的自然完成语（写过后 + 命中 → 接受）
+const TRUST_DONE_RE = /(?:全部|都)?(?:做完了|搞定了|处理完了)/
+// 清单模式严格全局完成声明: 锚定版——部分完成声明（"已完成N项"/"已完成3/6"）不命中。
+// 原 donePhrase 的 `已(?:经)?完成` 是子串匹配，会误把部分声明当全局完成（"已完成1项，继续…"）
+const GLOBAL_DONE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]|完成[了！。]?$|搞定[了！。]?$|(?:做完了|处理完了)/
+// 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
+// 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
+const CONTINUATION_RE = /接下来|下一步|下面|继续|我先|剩余|还有.{0,8}(?:任务|项|要做|需要做)/
 // H1: 工具结果消息（role:'tool'）经 ContractExecutor 按契约过滤后只剩 status/summary/detail，
 // 无 toolName 字段——从 assistant 消息的 tool_calls 建立 id → 工具名映射判断。
 // 查不到映射（如历史被压缩/裁剪）时安全降级为不压缩。
@@ -103,6 +116,8 @@ export class V4UnifiedRuntime {
   private _userMessage = ''
   private _userRequestedFileOp = false  // v4: 用户是否明确要求文件操作
   private _discoveredToolNames = new Set<string>()  // v13.2.0: tool_search 发现的工具名，动态加入后续轮次
+  private taskList: TaskItem[] | null = null  // v14.1.0: 本次 run 提取的任务清单（null = 无清单）
+  private taskDone: boolean[] = []            // v14.1.0: 与 taskList 等长的完成标记（单调置位）
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -124,10 +139,73 @@ export class V4UnifiedRuntime {
 
   abort(): void { this.emitter.abort() }
 
+  // ── v14.1.0: 任务清单状态辅助 ──
+
+  private allTasksDone(): boolean {
+    return this.taskDone.length > 0 && this.taskDone.every(Boolean)
+  }
+
+  private markAllDone(): void {
+    this.taskDone = this.taskDone.map(() => true)
+  }
+
+  /** 单调置位: 置前 count 项为已完成（只把 false 置 true，永不回退） */
+  private setTaskDoneCount(count: number): void {
+    if (!this.taskList || count <= 0) return
+    for (let i = 0; i < this.taskDone.length && i < count; i++) {
+      this.taskDone[i] = true
+    }
+  }
+
+  /** 从模型文本解析进度声明（"已完成 3/6" / "已完成 4 项" / "第 5 项完成" / "任务 2/3 完成"） */
+  private updateTaskProgressFromText(text: string): void {
+    if (!this.taskList) return
+    let m: RegExpMatchArray | null
+    if ((m = text.match(/已(?:经)?完成\s*(\d+)\s*[\/／、和及~至\-—]+\s*(\d+)/))) {
+      this.setTaskDoneCount(parseInt(m[1], 10))
+    } else if ((m = text.match(/已(?:经)?完成\s*(\d+)\s*项/))) {
+      this.setTaskDoneCount(parseInt(m[1], 10))
+    } else if ((m = text.match(/第\s*(\d+)\s*(?:项|个|步|件事?)\s*(?:已(?:经)?|都)?(?:完成|搞定|做完|处理好)/))) {
+      const n = parseInt(m[1], 10)
+      if (n >= 1 && n <= this.taskDone.length) this.taskDone[n - 1] = true
+    } else if ((m = text.match(/任务\s*(\d+)\s*[\/／]\s*(\d+)\s*(?:已)?完成/))) {
+      // multi-task.md 汇报约定: "✅任务X/Y完成"
+      const n = parseInt(m[1], 10)
+      if (n >= 1 && n <= this.taskDone.length) this.taskDone[n - 1] = true
+    }
+  }
+
+  /**
+   * 替换式注入任务状态 system 消息（每轮调用，最新状态在末尾保护区：
+   * summarizePairs 按 user 段整段删除时，旧副本被删但最新状态始终保留；同时避免旧副本累积）
+   */
+  private injectTaskStatus(): void {
+    if (!this.taskList) return
+    // 替换式去重: 从末尾向前删除旧的 [当前任务] 消息
+    for (let i = this.messagesForApi.length - 1; i >= 0; i--) {
+      const msg = this.messagesForApi[i]
+      if (msg.role === 'system' && typeof msg.content === 'string' && msg.content.startsWith('[当前任务]')) {
+        this.messagesForApi.splice(i, 1)
+      }
+    }
+    const doneCount = this.taskDone.filter(Boolean).length
+    const remaining = this.taskList
+      .map((t, i) => ({ t, i }))
+      .filter(({ i }) => !this.taskDone[i])
+      .map(({ t }) => `${t.id})${t.desc.slice(0, 60)}`)
+      .join('; ')
+    const status = remaining.length > 0
+      ? `[当前任务] 进度 ${doneCount}/${this.taskList.length}。剩余: ${remaining}`
+      : `[当前任务] 进度 ${doneCount}/${this.taskList.length}。全部完成。`
+    this.messagesForApi.push({ role: 'system', content: status })
+  }
+
   // ── Run ──
 
   async run(input: V4AgentRunInput): Promise<V4AgentRunResult> {
-    const store = useAgentStore.getState()
+    // v15: 子 agent 无头运行 — 不触碰共享 store（隔离 UI 状态与熔断器）
+    const isolated = !!this.config.isolatedStore
+    const store = isolated ? null : useAgentStore.getState()
     const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const runStartTime = Date.now()
     const RUN_TIMEOUT = 300_000
@@ -144,8 +222,8 @@ export class V4UnifiedRuntime {
       }
     }
 
-    // 熔断器
-    const circuitCheck = store.checkCircuit()
+    // 熔断器（isolated 子 agent 视为允许——其失败只影响当次任务，父 agent 自身仍在熔断保护内）
+    const circuitCheck = store ? store.checkCircuit() : { allowed: true }
     if (!circuitCheck.allowed) {
       return {
         success: false, text: circuitCheck.reason || '服务暂时不可用',
@@ -155,8 +233,8 @@ export class V4UnifiedRuntime {
       }
     }
 
-    store.startRun(runId)
-    store.setPhase('EXECUTE')
+    store?.startRun(runId)
+    store?.setPhase('EXECUTE')
 
     // ── ① Assemble context ──
     let totalPromptTokens = 0
@@ -175,7 +253,12 @@ export class V4UnifiedRuntime {
     this._userMessage = input.userMessage
     // v12.14.0: 统一使用 hasTaskKeywords 判断文件操作意图
     this._userRequestedFileOp = hasTaskKeywords(input.userMessage)
+    // v14.1.0: 提取任务清单（null = 单任务/聊天/提取失败 → 走原逻辑）
+    this.taskList = extractTaskList(input.userMessage)
+    this.taskDone = this.taskList ? this.taskList.map(() => false) : []
     let _hasWriteCall = false
+    // v15: 子 agent 委托用量累加器（analyze_file/edit_file_task 上报）
+    const subUsageAccum = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, calls: 0 }
 
     // v12.5.1: 阶段感知温度 — 初始为创作阶段
     let isExecutionPhase = false
@@ -235,7 +318,7 @@ export class V4UnifiedRuntime {
       }
 
       iteration++
-      store.setIteration(iteration)
+      store?.setIteration(iteration)
       this.emitter.emit('thinking:start', {
         intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now(),
       })
@@ -278,12 +361,15 @@ export class V4UnifiedRuntime {
         this.messagesForApi.push({ role: 'system', content: readNudge3 })
       }
 
+      // v14.1.0: 每轮注入任务状态（替换式，模型随时知道还剩什么任务）
+      this.injectTaskStatus()
+
       // ── API Call (with single retry for transient failures) ──
       const API_TIMEOUT = 180_000  // v12.16.4: 大型上下文需要更多响应时间
       let response = undefined
       let lastApiErr: Error | null = null
 
-      diagnosticLogger.recordApiCallStart()
+      if (!isolated) diagnosticLogger.recordApiCallStart()
 
       // v12.5.1: 阶段感知温度
       // 创作轮: 用户设定的创作温度 (默认 1.0)
@@ -323,22 +409,22 @@ export class V4UnifiedRuntime {
 
       if (!response) {
         collectedText = `错误: ${lastApiErr?.message || 'API 调用失败'}`
-        store.recordApiFailure()
+        store?.recordApiFailure()
         break
       }
 
-      store.recordApiSuccess()
+      store?.recordApiSuccess()
       totalPromptTokens += response.usage.inputTokens
       totalCompletionTokens += response.usage.outputTokens
       totalCacheHitTokens += response.usage.cacheHitTokens || 0
       totalCacheCreationTokens += (response.usage as any).cacheCreationTokens || 0
       totalCost += response.usage.cost || 0
       // Token 累计由 UI 层（AIChatWindow）统一管理，避免双重计数
-      diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
+      if (!isolated) diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
 
       // ── finishReason: truncated → inject continuation ──
       if (response.finishReason === 'max_tokens' || response.finishReason === 'length') {
-        diagnosticLogger.recordInfo(`输出截断: ${response.finishReason}`)
+        if (!isolated) diagnosticLogger.recordInfo(`输出截断: ${response.finishReason}`)
         this.messagesForApi.push({ role: 'user', content: '[系统] 上一轮输出因token限制被截断。请继续完成。' })
       }
 
@@ -356,20 +442,60 @@ export class V4UnifiedRuntime {
           continue
         }
 
-        // ── Done detection (v11.5.1: expanded to cover natural completions) ──
+        // ── Done detection (v11.5.1 ~ v14.1.0: 完成判定) ──
         // v12.16.2: 必须实际执行了写工具才接受"完成"声明
-        // 防止模型说"全部完成！"但 create_file/edit_file 根本没调用
-        // v13.x: 「已处理」收窄为「已处理完毕/完成」，避免命中"已处理前两章"；
-        // 「综上」要求句内出现"完成"且以句末标点结束，避免命中"综上，我建议…"
-        const donePhrase = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已(?:经)?完成[了！。]?|完成了[！。]?|搞定[！。]?|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]/.test(collectedText)
-        if (donePhrase && (_hasWriteCall || !this._userRequestedFileOp)) {
+        // v14.1.0: 有任务清单时完成判定对照清单（未清空绝不接受）；无清单保留原正则逻辑
+        const completionDeclared = DONE_PHRASE_RE.test(collectedText) || TRUST_DONE_RE.test(collectedText)
+
+        // ── ① 有任务清单: 完成判定对照清单（现象B修复: "完成 4/6 就停"不再被接受）──
+        if (this.taskList) {
+          this.updateTaskProgressFromText(collectedText)
+          // 严格全局完成声明 + 写过文件 → 信任全局完成（部分声明"已完成N项"不触发）
+          if (GLOBAL_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
+          if (this.allTasksDone()) {
+            // 说了"完成"但没写 → 不通过，进入自愈恢复
+            if (this._userRequestedFileOp && !_hasWriteCall) {
+              this.messagesForApi.push({
+                role: 'user',
+                content: '你说"完成"了，但工具调用记录显示你没有调用 create_file 或 edit_file。任务未完成——请实际执行写入操作。',
+              })
+              continue
+            }
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
+          // 向用户提问 → 不干预（等用户回答），防止"要继续吗？"被 nudge 死循环
+          if (/[？?]/.test(collectedText)) {
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
+          // 未全部完成 → 注入剩余任务 nudge，继续
+          this._nudgeCount++
+          const remainingItems = this.taskList
+            .map((t, i) => ({ t, i }))
+            .filter(({ i }) => !this.taskDone[i])
+            .map(({ t }) => `${t.id})${t.desc.slice(0, 60)}`)
+            .join('; ')
+          this.messagesForApi.push({
+            role: 'user',
+            content: `任务尚未全部完成：还有 ${remainingItems ? remainingItems.split('; ').length : 0} 项未完成（${remainingItems}）。请继续调用工具完成剩余任务，不要停下。全部完成后再说"全部完成"。`,
+          })
+          continue
+        }
+
+        // ── ② 无任务清单: 原有 donePhrase 完成检测（保留）──
+        if (completionDeclared && (_hasWriteCall || !this._userRequestedFileOp)) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
           break
         }
         // 说了"完成"但没写 → 不通过，进入自愈恢复
-        if (donePhrase && this._userRequestedFileOp && !_hasWriteCall) {
+        if (completionDeclared && this._userRequestedFileOp && !_hasWriteCall) {
           this.messagesForApi.push({
             role: 'user',
             content: '你说"完成"了，但工具调用记录显示你没有调用 create_file 或 edit_file。任务未完成——请实际执行写入操作。',
@@ -377,9 +503,15 @@ export class V4UnifiedRuntime {
           continue
         }
 
-        // ── Continuing detection removed in v12.13.0 ──
-        // 之前的 "继续/接下来/下一步" 关键词会无限绕过 Nudge 系统，导致只读死锁。
-        // 现在所有文本响应都经过 nudge → 死锁检测 → 完成度自检 的完整链路。
+        // ── 分支1B: 分析/讨论型请求（非文件操作）→ 模型已读文件并输出文本 = 分析完成，接受 ──
+        // v14.1.1: 修复"检查第3章/看看大纲"类请求读完文件输出短分析被自愈阶梯误 nudge 的问题
+        //（旧逻辑仅长文本(>200字)会被接受，短分析会进入"未完成"nudge 循环）
+        if (!this._userRequestedFileOp && this.toolsUsed.length > 0 && !_hasWriteCall) {
+          this.emitter.emit('response:streaming', {
+            text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+          })
+          break
+        }
 
         // ── No tools used → 模型自己选择不调工具 ──
         // v12.16.3: 用户要求了文件操作 → 不能接受"不用工具"，推入自愈恢复
@@ -401,7 +533,7 @@ export class V4UnifiedRuntime {
         // ── Model used tools, now speaking text ──
 
         // Track write tool usage across iterations（统一引用 WRITE_TOOLS）
-        if (this.toolsUsed.some(t => WRITE_TOOLS.has(t))) _hasWriteCall = true
+        if (this.toolsUsed.some(t => WRITE_TOOLS.has(t)) || this.toolsUsed.some(t => SUBAGENT_WRITE_TOOLS.has(t))) _hasWriteCall = true
 
         // ── v12.16.0: 自愈恢复系统（替换梯度 Nudge）──
         // 思路: 不催促"快做！"，而是帮助模型分析问题、找到解决方案。
@@ -416,14 +548,40 @@ export class V4UnifiedRuntime {
             this._nudgeCount++
             continue
           }
+          // v14.1.0: 写过后长文本不再直接 break——落入下方③继续性检测判断
+          // 非文件操作的长文本（分析/讨论）→ 收尾接受（保持原行为）
+          if (!this._userRequestedFileOp) {
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
+        }
+
+        // ── ③ v14.1.0: 写过后 → 继续性文本检测（替代旧的 `if (_hasWriteCall) break`）──
+        // 现象A/B修复: 模型写完一部分后说"继续/接下来…" → 不结束，督促其执行剩余工作
+        if (_hasWriteCall) {
+          // 向用户提问 → 不干预（等用户回答）
+          if (/[？?]/.test(collectedText)) {
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
+          if (CONTINUATION_RE.test(collectedText) && (this._userRequestedFileOp || !!this.taskList)) {
+            this._nudgeCount++
+            const continuationNudge = this._nudgeCount >= 5
+              ? `已尝试 ${this._nudgeCount} 轮。你提到了继续/接下来，但本轮没有调用工具。请直接调用工具执行剩余工作；若已全部完成，请明确说"全部完成"。`
+              : `你提到"继续/接下来/下一步"，但本轮没有调用任何工具。剩余工作请直接调用 create_file / edit_file 执行，不要只输出文字描述。若已全部完成，请明确说"全部完成"。`
+            this.messagesForApi.push({ role: 'user', content: continuationNudge })
+            continue
+          }
+          // 写过后普通文本 = 收尾 → 接受（与旧 `if (_hasWriteCall) break` 行为等价）
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
           break
         }
-
-        // 已写入 → 任务完成
-        if (_hasWriteCall) break
 
         // ── 以下: 用户要求了文件操作，但模型还没写 ──
         this._nudgeCount++
@@ -506,7 +664,7 @@ export class V4UnifiedRuntime {
         })),
         thinkingBlocks: response.thinkingBlocks,  // v11.5.1: preserve for multi-turn
       } as Message
-      if (response.reasoningContent) store.setStreamingText(response.reasoningContent)
+      if (response.reasoningContent) store?.setStreamingText(response.reasoningContent)
       this.messagesForApi.push(assistantMsg)
 
       // Execute tools: reads parallel, writes sequential
@@ -523,16 +681,32 @@ export class V4UnifiedRuntime {
         emitter: this.emitter,
         iteration,
         store: {
-          addToolExecution: (id: string, name: string) => store.addToolExecution(id, name),
+          addToolExecution: (id: string, name: string) => store?.addToolExecution(id, name),
           completeTool: (id: string, status: 'success' | 'error', summary: string, detail?: string) =>
-            store.completeTool(id, status, summary, detail),
-          setStreamingText: (text: string) => store.setStreamingText(text),
+            store?.completeTool(id, status, summary, detail),
+          setStreamingText: (text: string) => store?.setStreamingText(text),
+          // v15: 子 agent 委托用量上报（isolated 下同样累加，供父 runtime 统计）
+          reportSubAgentUsage: (usage: NonNullable<import('../state/types').ToolResult['subAgentUsage']>) => {
+            subUsageAccum.promptTokens += usage.promptTokens
+            subUsageAccum.completionTokens += usage.completionTokens
+            subUsageAccum.totalTokens += usage.totalTokens
+            subUsageAccum.cacheHitTokens += usage.cacheHitTokens
+            subUsageAccum.cacheCreationTokens += usage.cacheCreationTokens
+            subUsageAccum.cost += usage.cost
+            subUsageAccum.calls += usage.calls
+          },
         },
       }
 
-      // Parallel reads
-      if (readOnlyCalls.length > 0 && !this.config.abortSignal.aborted) {
-        await Promise.all(readOnlyCalls.map(tc => executeSingleTool(tc, execCtx)))
+      // Parallel reads（v15: SERIAL_TOOLS 子 agent 工具拆出串行执行，避免双子 agent 并发交错）
+      const serialReads = readOnlyCalls.filter(tc => SERIAL_TOOLS.has(tc.name))
+      const parallelReads = readOnlyCalls.filter(tc => !SERIAL_TOOLS.has(tc.name))
+      if (parallelReads.length > 0 && !this.config.abortSignal.aborted) {
+        await Promise.all(parallelReads.map(tc => executeSingleTool(tc, execCtx)))
+      }
+      for (const tc of serialReads) {
+        if (this.config.abortSignal.aborted) break
+        await executeSingleTool(tc, execCtx)
       }
       // Sequential writes
       for (const tc of writeCalls) {
@@ -540,6 +714,8 @@ export class V4UnifiedRuntime {
         await executeSingleTool(tc, execCtx)
       }
       if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
+      // v15: 子 agent 委托完成文件操作（edit_file_task）也视为"已写"
+      if (serialReads.some(tc => SUBAGENT_WRITE_TOOLS.has(tc.name))) _hasWriteCall = true
 
       // v13.2.0: 跟踪 tool_search 发现的工具 → 动态加入后续轮次可用集
       const tsStep = this.toolCallSteps.find(s => s.tool === 'tool_search' && s.iteration === iteration)
@@ -615,7 +791,7 @@ export class V4UnifiedRuntime {
           const failedTools = this.toolCallSteps.filter(s => s.status === 'error').slice(-3)
             .map(s => s.tool + ': ' + s.summary).join('; ')
           collectedText = '抱歉，连续 ' + this._consecutiveFailures + ' 次工具调用都失败了。最近的错误：' + failedTools + '。\n\n请给我更具体的信息——比如准确的文件路径、你想做什么操作，或者直接把相关的内容粘贴到对话中，我来帮你处理。'
-          diagnosticLogger.recordInfo('连续失败强制终止: ' + this._consecutiveFailures + '次 (' + failedTools + ')')
+          if (!isolated) diagnosticLogger.recordInfo('连续失败强制终止: ' + this._consecutiveFailures + '次 (' + failedTools + ')')
           break
         }
       }
@@ -636,8 +812,8 @@ export class V4UnifiedRuntime {
     }
 
     // ── ③ Done ──
-    store.setIsStreaming(false)
-    store.endRun()
+    store?.setIsStreaming(false)
+    store?.endRun()
 
     // v13.2.0: 估算下一次 API 请求的上下文 token 数（进度条用）
     const estimatedContextTokens = this.compressor.estimateMessages(this.messagesForApi)
@@ -682,6 +858,8 @@ export class V4UnifiedRuntime {
       contextBreakdown: contextResult.breakdown,
       estimatedContextTokens,
       iterationCount: iteration,
+      // v15: 子 agent 委托用量（仅实际发生过委托时携带；不并入 totalTokens，主/子分开统计）
+      ...(subUsageAccum.calls > 0 ? { subAgentUsage: subUsageAccum } : {}),
     }
   }
 }

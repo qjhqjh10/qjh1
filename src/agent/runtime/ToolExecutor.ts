@@ -32,6 +32,12 @@ export const WRITE_TOOLS = new Set([
   'generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
+/** v15: 子 agent 委托工具（内部跑独立 runtime）— 串行执行，不进 readOnly 并行管线 */
+export const SERIAL_TOOLS = new Set(['analyze_file', 'edit_file_task'])
+
+/** v15: 子 agent 委托完成文件操作视为"已写"（_hasWriteCall 计入，避免自愈误判 nudge） */
+export const SUBAGENT_WRITE_TOOLS = new Set(['edit_file_task'])
+
 /** Split tool calls into read-only (parallel) and write (sequential) groups. */
 export function classifyToolCalls(toolCalls: ToolCallRequest[]): {
   readOnlyCalls: ToolCallRequest[]
@@ -49,6 +55,13 @@ export function classifyToolCalls(toolCalls: ToolCallRequest[]): {
   return { readOnlyCalls, writeCalls }
 }
 
+/** v15: per-tool 超时（毫秒）— 子 agent 委托工具内部跑独立 runtime，需更长预算 */
+const PER_TOOL_TIMEOUT_MS: Record<string, number> = {
+  analyze_file: 300_000,      // 子 agent 最多 6 轮
+  edit_file_task: 300_000,
+  analyze_text_style: 180_000, // AI 分析较长内容时 120s 偏紧
+}
+
 export interface ToolExecContext {
   toolExecutor: ToolExecutorFn
   projectId: string | null
@@ -64,6 +77,8 @@ export interface ToolExecContext {
     addToolExecution: (callId: string, toolName: string) => void
     completeTool: (callId: string, status: 'success' | 'error', summary: string, detail?: string) => void
     setStreamingText: (text: string) => void
+    /** v15: 工具内部委托子 agent 的用量上报（主 runtime 累加进 run 结果） */
+    reportSubAgentUsage?: (usage: NonNullable<ToolResult['subAgentUsage']>) => void
   }
 }
 
@@ -105,10 +120,10 @@ export async function executeSingleTool(
     return
   }
 
-  // Execute (120s — analyze_text_style calls AI, needs >60s)
+  // Execute (v15: per-tool 超时查表，默认 120s — analyze_text_style/子 agent 工具更长)
   const t0 = Date.now()
   let result: ToolResult
-  const TOOL_TIMEOUT = 120_000
+  const TOOL_TIMEOUT = PER_TOOL_TIMEOUT_MS[tc.name] ?? 120_000
   const execPromise = ctx.toolExecutor(args, {
     projectId: ctx.projectId,
     configId: ctx.configId,
@@ -120,6 +135,11 @@ export async function executeSingleTool(
     setTimeout(() => r({ status: 'error', summary: `工具 ${tc.name} 执行超时` }), TOOL_TIMEOUT)
   )
   result = await Promise.race([execPromise, timeoutPromise])
+
+  // v15: 子 agent 委托用量上报（analyze_file/edit_file_task 返回 subAgentUsage）
+  if (result.subAgentUsage) {
+    ctx.store.reportSubAgentUsage?.(result.subAgentUsage)
+  }
 
   const durationMs = Date.now() - t0
   ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments, matchedTools: (result as any).matchedTools })

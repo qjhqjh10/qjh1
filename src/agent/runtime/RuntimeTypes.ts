@@ -26,6 +26,8 @@ export interface V4AgentConfig {
   temperature?: number
   /** v12.5.1: 工具执行轮温度上限 — 深度推理关闭时执行轮使用 (默认 0.5) */
   toolTemperature?: number
+  /** v15: 无头运行（子 agent）— 跳过共享 AgentStore 与诊断日志，避免污染主 agent 的 UI 状态与熔断器 */
+  isolatedStore?: boolean
 }
 
 export interface V4AgentRunInput {
@@ -58,6 +60,16 @@ export interface V4AgentRunResult {
   /** v13.2.0: 下一次 API 请求的预估上下文 token 数（含 system/history/工具结果等） */
   estimatedContextTokens?: number
   iterationCount: number
+  /** v15: 子 agent 委托任务用量（独立上下文窗口，主/子分开统计；不并入 totalTokens） */
+  subAgentUsage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    cacheHitTokens: number
+    cacheCreationTokens: number
+    cost: number
+    calls: number
+  }
 }
 
 // ── Dependency Contracts ──

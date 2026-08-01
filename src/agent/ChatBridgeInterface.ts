@@ -44,6 +44,8 @@ export interface BridgeSendResult {
   contextBreakdown?: Array<{ domain: string; tokens: number }>
   /** v13.2.0: 下一次 API 请求的预估上下文 token 数 */
   estimatedContextTokens?: number
+  /** v15: 子 agent 委托任务用量（独立上下文窗口，主/子分开统计；不并入 totalTokens） */
+  subAgentUsage?: V4AgentRunResult['subAgentUsage']
 }
 
 /** 两个 Bridge 实现都满足的接口 */

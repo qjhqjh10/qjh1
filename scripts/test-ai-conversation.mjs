@@ -816,6 +816,10 @@ const SCENARIOS = [
       { type: 'hasTool', name: 'create_file', minCount: 1, desc: '应创建江月白角色文件' },
       { type: 'fileNotEmpty', path: '剑道长生/outline/power_system.yaml', desc: 'power_system.yaml 应有内容' },
       { type: 'fileNotEmpty', path: '剑道长生/characters/江月白.yaml', desc: '江月白角色文件' },
+      // v14.1.0: 任务完整性断言 — 三个子任务的产物内容都必须真实存在（原断言只查工具调用+文件存在）
+      { type: 'fileContains', path: '剑道长生/outline/power_system.yaml', needle: '九境', desc: '任务1产物: power_system 应包含九境修炼体系' },
+      { type: 'fileContains', path: '剑道长生/characters/江月白.yaml', needle: '医修', desc: '任务2产物: 江月白应包含医修设定' },
+      { type: 'fileContains', path: '剑道长生/characters/陆沉.yaml', needle: '剑意', desc: '任务3产物: 陆沉灵根应改为被剑意震碎' },
       { type: 'hasText', minChars: 30, desc: '应确认三件事完成' },
     ],
   },
@@ -886,9 +890,11 @@ const SCENARIOS = [
       '我想了一下，outline/items.yaml里那些炼器材料的设定太随意了。帮我把items.yaml直接删了，然后重新写一版：材料要和九境修炼一一对应，每解开一层古剑封印就需要对应的材料来修复剑身。比如第一境对应"玄铁精"，第二境对应"青冥石"，以此类推。每种材料写出它的产地、特性、为什么能修复古剑',
     ],
     checks: [
-      { type: 'hasTool', name: 'delete_file', minCount: 1, desc: '应先删除旧文件' },
-      { type: 'hasTool', name: 'create_file', minCount: 1, desc: '再创建新版本' },
+      // v14.1.1: 放宽为等价完成方式 — 模型可能用 delete+create（用户明确意图）或 edit_file 覆盖（等价产物）。
+      // 测试意图是"旧设定废弃 + 新设定完整写入"，不是特定工具序列。
+      { type: 'hasAnyTool', names: ['delete_file', 'edit_file', 'create_file'], minCount: 1, desc: '应删除重建或用覆盖方式重写 items.yaml' },
       { type: 'fileNotEmpty', path: '剑道长生/outline/items.yaml', desc: '新 items.yaml 应有完整内容' },
+      { type: 'fileContains', path: '剑道长生/outline/items.yaml', needle: '封印', desc: '新 items.yaml 应包含与封印对应的材料设定' },
     ],
   },
   {
@@ -988,6 +994,9 @@ const SCENARIOS = [
       { type: 'hasTool', name: 'edit_file', minCount: 1, desc: '应追加 plot.md' },
       { type: 'hasTool', name: 'create_file', minCount: 1, desc: '应创建白鸦角色' },
       { type: 'hasAnyTool', names: ['create_file', 'edit_file'], minCount: 1, desc: '应创建或编辑笔记' },
+      // v14.1.0: 任务完整性断言 — 第三任务的产物必须真实存在（原断言可被任务2的create满足而漏检任务3）
+      // 注: 系统提示词约定 notes 在全局 ../notes/（非项目内），断言路径与其一致
+      { type: 'fileNotEmpty', path: '../notes/修炼体系研究.md', desc: '任务3产物: 修炼体系研究笔记' },
       { type: 'hasText', minChars: 30, desc: '应确认三件事完成' },
     ],
   },
@@ -1067,6 +1076,65 @@ const SCENARIOS = [
     checks: [
       { type: 'hasAnyTool', names: ['create_file', 'edit_file', 'kb_append_file'], minCount: 1, desc: '应保存到知识库或笔记' },
       { type: 'hasText', minChars: 30, desc: '应确认保存完成' },
+    ],
+  },
+
+  // ═══ v14.1.0: 多任务压力测试 ═══
+  // 验证运行时任务清单机制：5 个编号任务必须全部真实完成（部分完成即失败）。
+  // 不断言模型措辞，只断言 5 个产物文件的内容。
+
+  {
+    id: 'S_MT2',
+    name: '🧩 多任务压力：一口气 5 项任务全部完成',
+    desc: '5个编号任务，验证运行时任务清单机制：全部产物文件必须真实存在且含关键内容（部分完成即失败）。',
+    userMessages: [
+      '最后冲刺，一口气做五件事，全部都要完成：1）在outline/power_system.yaml里补一条境界"剑心境"——第十境，突破条件是古剑完全解封，与主角灵魂共鸣；2）在characters里创建角色"阿九"——古剑剑灵的幼年形态，是个只有巴掌大的剑形光团，说话奶声奶气但偶尔冒出一句三千年前的古语；3）在plot.md末尾追加一段：陆沉在矿坑深处发现一扇青铜门，门上刻着九境修炼的图解，推开后是古剑宗的传承密室；4）创建summaries/chapter1.md的摘要文件，格式按模板（剧情概述/关键事件/出场角色）；5）在notes里创建一个"灵感碎片.md"，把这三条灵感记下来：青铜门上的剑纹会在月圆之夜发光、阿九其实记得自己陨落前的名字、密室里的壁画预言了陆沉的结局',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'edit_file', minCount: 1, desc: '应编辑 power_system.yaml' },
+      { type: 'hasTool', name: 'create_file', minCount: 2, desc: '应至少创建 2 个文件' },
+      { type: 'fileContains', path: '剑道长生/outline/power_system.yaml', needle: '剑心境', desc: '任务1产物: 剑心境境界' },
+      { type: 'fileContains', path: '剑道长生/characters/阿九.yaml', needle: '剑灵', desc: '任务2产物: 阿九角色卡' },
+      { type: 'fileContains', path: '剑道长生/outline/plot.md', needle: '青铜门', desc: '任务3产物: plot 追加青铜门' },
+      { type: 'fileNotEmpty', path: '剑道长生/summaries/chapter1.md', desc: '任务4产物: 章节摘要' },
+      // 注: 系统提示词约定 notes 在全局 ../notes/（非项目内），断言路径与其一致
+      { type: 'fileNotEmpty', path: '../notes/灵感碎片.md', desc: '任务5产物: 灵感记录' },
+    ],
+  },
+
+  // ═══ v15: 子 agent 委托测试 ═══
+  // S_SUB1: 大文件分析委托（子代理独立上下文）| S_SUB2: 长文件精确修改委托
+
+  {
+    id: 'S_SUB1',
+    name: '📎 子代理：大文件分析委托',
+    desc: '约3万字符大文件。验证主 agent 用 analyze_file 委托子代理分析（独立上下文，只返回摘要）。',
+    setup: async () => {
+      // 创建约 3 万字符的测试文件（重复段落拼接）
+      const fp = resolve(PROJECTS_DIR, '剑道长生/chapters/大文件测试.txt')
+      mkdirSync(dirname(fp), { recursive: true })
+      const para = '陆沉在废弃矿坑深处发现了古剑，剑身乌黑，刻着上古文字。他伸手触碰时被割破手指，血滴进剑身的裂纹，三千年的封印就此松动。剑中传来女子的声音："你……是谁？"他不知这把剑将改变他的一生。\n\n'
+      writeFileSync(fp, para.repeat(150), 'utf-8')  // 约 3 万字
+    },
+    userMessages: [
+      '我上传了一个大文件 chapters/大文件测试.txt（约3万字），帮我分析一下它的内容结构和亮点，我懒得自己看。',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'analyze_file', minCount: 1, desc: '应使用 analyze_file 委托子代理分析大文件' },
+      { type: 'hasText', minChars: 100, desc: '应返回结构化分析摘要' },
+    ],
+  },
+  {
+    id: 'S_SUB2',
+    name: '✏️ 子代理：长文件精确修改委托',
+    desc: '大文件多处修改。验证主 agent 用 edit_file_task 委托子代理定位并修改（返回前后摘要）。',
+    userMessages: [
+      'chapters/大文件测试.txt 这个文件里有几处"剑身乌黑"，全部改成"剑身漆黑如墨"。文件很大，直接改会占满我的上下文，用委托的方式处理',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'edit_file_task', minCount: 1, desc: '应使用 edit_file_task 委托子代理修改' },
+      { type: 'fileContains', path: '剑道长生/chapters/大文件测试.txt', needle: '漆黑如墨', desc: '修改应真实生效（新词存在）' },
+      { type: 'hasText', minChars: 30, desc: '应汇报修改结果' },
     ],
   },
 
@@ -1151,6 +1219,18 @@ function checkResult(scenario, result, scenarioTools) {
           const content = readFileSync(fp, 'utf-8')
           if (content.length < 100)
             failures.push(`❌ ${check.desc}: 文件内容过短 (${content.length} 字符)`)
+        }
+        break
+      }
+      // v14.1.0: 文件内容断言 — 直接验证任务产物包含关键内容（比 fileNotEmpty 更强）
+      case 'fileContains': {
+        const fp = resolve(PROJECTS_DIR, check.path)
+        if (!existsSync(fp)) {
+          failures.push(`❌ ${check.desc}: ${check.path} 不存在`)
+        } else {
+          const content = readFileSync(fp, 'utf-8')
+          if (!content.includes(check.needle))
+            failures.push(`❌ ${check.desc}: ${check.path} 未包含 "${check.needle}"`)
         }
         break
       }

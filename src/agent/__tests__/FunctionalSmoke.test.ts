@@ -82,14 +82,16 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 27个工具 (v13.2.0: -lsp_diagnose/-update_config/-list_audit)', () => {
+  it('工具注册: 29个工具 (v15: +analyze_file/+edit_file_task 子 agent 委托)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBe(27)
+    expect(names.length).toBe(29)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('read_file')
     expect(names).toContain('edit_file')
     expect(names).toContain('create_file')
+    expect(names).toContain('analyze_file')
+    expect(names).toContain('edit_file_task')
   })
 
   // ── 6. 系统提示词 (v10.2.0: Skill-First) ──

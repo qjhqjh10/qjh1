@@ -13,9 +13,11 @@ import { harnessTools } from './harnessTools'
 import { httpTools } from './httpTools'
 import { browserTools } from './browserTools'
 import { toolSearchTools, CORE_TOOL_NAMES } from './toolSearchTools'
+import { subagentTools } from './subagentTools'
 import type { ToolDefinition } from '../types'
 
 // v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 11 核心。
+// v15: +2 子 agent 委托工具（analyze_file/edit_file_task）→ 29 工具
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools
@@ -29,10 +31,11 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...httpTools,      // 2 tools
   ...browserTools,   // 2 tools
   ...toolSearchTools, // 1 tool: tool_search
+  ...subagentTools,  // v15: 2 tools: analyze_file / edit_file_task
 ]
 
 export {
   fileTools, kbTools, noteTools, imageTools, templateTools,
   projectTools, promptTools, harnessTools, httpTools, browserTools,
-  toolSearchTools,
+  toolSearchTools, subagentTools,
 }

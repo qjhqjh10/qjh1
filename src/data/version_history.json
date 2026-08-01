@@ -1,7 +1,32 @@
 {
-  "currentVersion": "14.0.2",
+  "currentVersion": "14.1.1",
   "currentDate": "2026-08-01",
   "history": [
+    {
+      "version": "14.1.1",
+      "date": "2026-08-01",
+      "features": [
+        "子 agent 上下文隔离架构: analyze_file/edit_file_task 委托独立上下文窗口的子代理（SubagentService + SubagentPrompt + createSubagentAdapter，29 工具），主 agent 只接收结构化摘要——上传大文件/长文件读写不再撑爆主上下文窗口",
+        "tokens 主/子分开统计: V4AgentRunResult.subAgentUsage 贯穿 ToolExecutor→Runtime→Bridge→UI 消息页脚（紫色'子代理 入/出/合计'），会话累计保持主口径，全局 usage.jsonl 自动覆盖子代理调用",
+        "isolatedStore: 子代理 run 完全隔离共享 AgentStore（父 UI 状态与熔断器不受污染）；SERIAL_TOOLS 串行执行防双子代理并发交错",
+        "per-tool 超时查表: 子代理工具 300s / analyze_text_style 180s（默认 120s 不变）",
+        "子代理提示词内置青剑工具约定（batch_replace 全局替换 / __FULL_REPLACE__ 全量覆写 / old_string 匹配不唯一处理）",
+        "测试: SubagentService 5 + subagentTools 7 + V4RuntimeSubagent 4 用例；对话场景 S_SUB1（大文件分析委托，子代理真实读取 13950 字返回摘要）/ S_SUB2（长文件 150 处全局替换委托）"
+      ],
+      "fixes": []
+    },
+    {
+      "version": "14.1.0",
+      "date": "2026-08-01",
+      "features": [
+        "任务清单运行时状态: taskExtraction 四重门控提取编号任务（1.2.3./①②③，宁漏勿错）→ 每轮注入[当前任务]进度 → 完成检测对照清单（未清空绝不接受'完成'声明）——修复'6 任务完成 4 个就停'与'读完文件就停'",
+        "完成判定重写: 删除'写过即停'break、继续性文本检测（接下来/继续→督促而非结束）、GLOBAL_DONE_RE 严格全局完成正则（部分声明'已完成N项'不误判）、进度声明解析（已完成3/6/第2项完成/任务X/Y完成）",
+        "分支 1B 修复: 分析型请求（非文件操作）读文件后输出短文本不再被自愈阶梯误 nudge",
+        "S6 修复: 提示词明确'删了重写→delete_file+create_file'，S6 断言放宽为等价完成方式 + 内容断言",
+        "测试: taskExtraction 13 + V4TaskList 12 集成测试；对话场景 S_MT2（5 任务压力，实测 5/5 全部完成）"
+      ],
+      "fixes": []
+    },
     {
       "version": "14.0.2",
       "date": "2026-08-01",

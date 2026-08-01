@@ -22,6 +22,9 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   list_directory: ['status', 'summary', 'detail'],
   search_content: ['status', 'summary', 'detail'],
   kb_index_file:  ['status', 'summary', 'detail'],
+  // ── v15: 子 agent 委托工具：detail 保留（执行器已截断 4000/2000）──
+  analyze_file:   ['status', 'summary', 'detail'],
+  edit_file_task: ['status', 'summary', 'detail'],
   // ── Write tools: strip detail to stay lean ──
   create_file:    ['status', 'summary'],
   edit_file:      ['status', 'summary'],

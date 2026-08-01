@@ -6,6 +6,16 @@ export interface ToolResult {
   summary: string
   detail?: string
   matchedTools?: string[]  // v13.2.0: tool_search 返回的匹配工具名
+  /** v15: 工具内部委托子 agent 的用量（analyze_file/edit_file_task） */
+  subAgentUsage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    cacheHitTokens: number
+    cacheCreationTokens: number
+    cost: number
+    calls: number
+  }
 }
 
 export interface ToolExecutionContext {

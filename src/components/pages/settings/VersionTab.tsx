@@ -2,6 +2,18 @@ import { useState } from 'react'
 import versionData from '@/data/version_history.json'
 import SoftwareGuideModal from './SoftwareGuideModal'
 
+/** 语义化版本比较：a > b 返回正数，a < b 返回负数，相等返回 0 */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0
+    const nb = pb[i] || 0
+    if (na !== nb) return na - nb
+  }
+  return 0
+}
+
 export function VersionTab() {
   const [checkResult, setCheckResult] = useState<'idle' | 'checking' | 'latest' | 'update' | 'error'>('idle')
   const [latestVersion, setLatestVersion] = useState('')
@@ -22,7 +34,8 @@ export function VersionTab() {
       const remoteVer = data.tag_name?.replace(/^v/, '') || ''
       setLatestVersion(remoteVer)
       setReleaseUrl(data.html_url || repoUrl)
-      if (remoteVer && remoteVer !== currentVersion) {
+      // 语义化版本比较：仅当远端版本高于当前版本才提示更新（避免远端版本较旧时误报）
+      if (remoteVer && compareVersions(remoteVer, currentVersion) > 0) {
         setCheckResult('update')
       } else {
         setCheckResult('latest')

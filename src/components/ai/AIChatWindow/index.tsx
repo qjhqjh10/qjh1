@@ -771,6 +771,8 @@ export default function AIChatWindow() {
               cost: runResult.cost || 0,
               cacheHitTokens: runResult.cacheHitTokens || 0,
               cacheCreationTokens: (runResult as any).cacheCreationTokens || 0,
+              // v15: 子 agent 委托用量（主/子分开统计）
+              subAgentUsage: (runResult as any).subAgentUsage,
             } : undefined,
             totalIterations: runResult.iterationCount || 1,
           }])
@@ -1304,6 +1306,12 @@ export default function AIChatWindow() {
                       <span style={{ color: '#16a34a', fontWeight: 600 }}>📦 缓存命中 {(msg.usage.cacheHitTokens || 0).toLocaleString()}</span>
                     )}
                     {msg.usage.cost > 0 && <span> {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
+                    {/* v15: 子 agent 委托用量（独立上下文窗口，主/子分开显示） */}
+                    {(msg.usage as any).subAgentUsage?.totalTokens > 0 && (
+                      <span style={{ color: '#7c3aed', fontWeight: 600 }}>
+                        子代理 入 {((msg.usage as any).subAgentUsage.promptTokens || 0).toLocaleString()} | 出 {((msg.usage as any).subAgentUsage.completionTokens || 0).toLocaleString()} | 合计 {((msg.usage as any).subAgentUsage.totalTokens || 0).toLocaleString()}
+                      </span>
+                    )}
                   </div>
                 )}
                 {/* Tool usage summary — shows which tools were called in this response */}

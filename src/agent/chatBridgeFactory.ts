@@ -203,6 +203,7 @@ export abstract class BaseChatBridge {
         toolCallSteps: result.toolCallSteps,
         contextBreakdown: result.contextBreakdown,
         estimatedContextTokens: result.estimatedContextTokens,
+        subAgentUsage: result.subAgentUsage,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

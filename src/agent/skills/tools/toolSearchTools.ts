@@ -19,12 +19,15 @@ export const CORE_TOOL_NAMES = new Set([
 
 // v13.2.0: 后续消息扩展工具集 — 首条全量 27 个，后续发这 11 个高频工具
 // kb_search 是知识库场景最高频工具，加入后续集合避免额外 tool_search 往返
+// v15: +analyze_file/edit_file_task（子 agent 委托，第 2 轮起保持可用）
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   'find_files',
   'batch_replace',
   'rename_file',
   'kb_search',
+  'analyze_file',
+  'edit_file_task',
 ])
 
 export const toolSearchTools: ToolDefinition[] = [{
