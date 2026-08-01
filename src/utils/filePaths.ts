@@ -35,42 +35,45 @@ export function isStructuredDataFile(fp: string): boolean {
 // ═══════════════════════════════════════════════════
 //  路径构造（项目数据文件）
 // ═══════════════════════════════════════════════════
+// M1: projectId 实为路径前缀（projectPath），命名对齐；路径构造函数统一由此产出。
 
 /** 角色文件路径 */
-export function characterPath(projectId: string, name: string): string {
-  return `${projectId}/characters/${name}${STRUCTURED_DATA_EXT}`
+export function characterPath(projectPath: string, name: string): string {
+  return `${projectPath}/characters/${name}${STRUCTURED_DATA_EXT}`
 }
 
 /** 细纲文件路径 */
-export function detailedOutlinePath(projectId: string, chapterId: string): string {
-  return `${projectId}/detailed_outline/${chapterId}${STRUCTURED_DATA_EXT}`
+export function detailedOutlinePath(projectPath: string, chapterId: string): string {
+  return `${projectPath}/detailed_outline/${chapterId}${STRUCTURED_DATA_EXT}`
 }
 
-/** 大纲 Tab 文件路径 */
-export function outlineTabPath(projectId: string, tabName: string): string {
-  return `${projectId}/outline/${tabName}${STRUCTURED_DATA_EXT}`
+// M1: 大纲 Tab → 实际文件名映射（与 OutlinePage/create_project 初始文件对齐）。
+// basic/worldbuilding 是 .md；其余 snake_case .yaml；powerSystem camelCase → power_system。
+// foreshadow/threads 无独立文件（存于 outline_meta.yaml），characters 读 characters/ 目录，均不在此表。
+const TAB_FILE_MAP: Record<string, string> = {
+  basic: 'plot.md',
+  worldbuilding: 'worldbuilding.md',
+  items: 'items.yaml',
+  locations: 'locations.yaml',
+  factions: 'factions.yaml',
+  powerSystem: 'power_system.yaml',
+  emotion: 'emotion.yaml',
+}
+
+/** 大纲 Tab 文件路径（按 TAB_FILE_MAP 解析真实文件名） */
+export function outlineTabPath(projectPath: string, tabName: string): string {
+  const file = TAB_FILE_MAP[tabName]
+  return `${projectPath}/outline/${file || tabName + STRUCTURED_DATA_EXT}`
 }
 
 /** 场景配置文件路径 */
-export function sceneConfigPath(projectId: string, chapterId: string): string {
-  return `${projectId}/scenes/${chapterId}${STRUCTURED_DATA_EXT}`
+export function sceneConfigPath(projectPath: string, chapterId: string): string {
+  return `${projectPath}/scenes/${chapterId}${STRUCTURED_DATA_EXT}`
 }
 
 // ═══════════════════════════════════════════════════
 //  扩展名操作
 // ═══════════════════════════════════════════════════
-
-/** 获取同名旧版 JSON 路径（向后兼容读取） */
-export function legacyJsonPath(filePath: string): string {
-  return filePath.replace(/\.ya?ml$/, '.json')
-}
-
-/** 确保路径以 YAML 扩展名结尾 */
-export function yamlExtension(fp: string): string {
-  if (fp.endsWith('.yaml') || fp.endsWith('.yml')) return fp
-  if (fp.endsWith('.json')) return fp.replace(/\.json$/, '.yaml')
-  return fp + '.yaml'
-}
 
 /** 去除扩展名 */
 export function stripExtension(fp: string): string {

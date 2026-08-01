@@ -7,7 +7,7 @@ export interface ModelConfig {
   name: string
   provider: string                // Main 默认提供商
   apiUrl: string                  // Main 默认 API 地址
-  apiKey: string                  // Main 默认 API 密钥 (加密存储)
+  apiKey: string                  // Main 默认 API 密钥 (明文存储, v13.x 决策)
   encrypted?: boolean
 
   // ── 💪 Main 模型 ──

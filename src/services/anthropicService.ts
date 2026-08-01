@@ -42,9 +42,9 @@ export const anthropicService = {
     temperature?: number
     onChunk?: (data: { chunk: string; accumulated: string }) => void
   }): Promise<AnthropicStreamResult> => {
+    let unsubChunk: (() => void) | undefined
     try {
       // 注册实时 chunk 回调（如果有）
-      let unsubChunk: (() => void) | undefined
       if (params.onChunk) {
         unsubChunk = e().ai.onAnthropicChunk(params.onChunk)
       }
@@ -58,15 +58,14 @@ export const anthropicService = {
         temperature: params.temperature,
       })
 
-      // 清理 chunk 监听
-      unsubChunk?.()
-
       const parsed = JSON.parse(raw)
       return {
         text: parsed.text || '',
         toolUses: parsed.toolUses || [],
         stopReason: parsed.stopReason || 'end_turn',
         usage: parsed.usage,
+        // H7: 主进程失败时返回 stopReason:'error' + error 字段，透传给上层判断
+        error: parsed.error,
       }
     } catch (err) {
       logError('anthropicService.chatAnthropicStream failed', err)
@@ -74,7 +73,12 @@ export const anthropicService = {
         text: '',
         toolUses: [],
         stopReason: 'error',
+        // H7: IPC 抛异常（本地错误）时携带消息，不再吞掉
+        error: err instanceof Error ? err.message : 'Anthropic 请求失败',
       }
+    } finally {
+      // H7: 成功/失败路径都清理 chunk 监听，防止泄漏
+      unsubChunk?.()
     }
   },
 
@@ -117,7 +121,7 @@ export const anthropicService = {
     const usage = result.usage
     return {
       text: result.text || '',
-      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: (usage as any).cost || 0 } : undefined,
+      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0 } : undefined,
     }
   },
 
@@ -143,10 +147,15 @@ export const anthropicService = {
       configId: params.configId,
       onChunk,
     }).then(result => {
+      // H7: 请求失败（主进程 stopReason:'error' 或本地错误）→ 走 onError，不再表现为"成功但空文本"
+      if (result.error || result.stopReason === 'error') {
+        onError(new Error(result.error || 'Anthropic 请求失败'))
+        return
+      }
       const usage = result.usage
       onDone({
         text: result.text || '',
-        usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: (usage as any).cost || 0 } : undefined,
+        usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0 } : undefined,
       })
     }).catch(onError)
     return { abort: () => anthropicService.abortAnthropicStream() }

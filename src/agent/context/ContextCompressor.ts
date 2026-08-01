@@ -7,7 +7,7 @@
 //   Stage 2 (80%): Summarize oldest user/assistant pairs
 //   Stage 3 (90%): Collapse early conversation into summary
 //
-// Never compressed: system prompt, last 5 messages, pending tool calls.
+// Never compressed: system prompt, most recent segment (后半段分段保留), pending tool calls.
 //
 // Also provides LLM-based compression for user-triggered manual compression
 // (right-click → compress in chat UI). Single entry point for all compression.
@@ -67,7 +67,7 @@ export class ContextCompressor {
 
     switch (stage) {
       case 'strip_detail': return this.stripDetail(messages)
-      case 'summarize_pairs': return this.summarizePairs(messages, protectRecent)
+      case 'summarize_pairs': return this.summarizePairs(messages)
       case 'collapse_early': return this.collapseEarly(messages, protectRecent)
       default: return messages
     }
@@ -100,41 +100,54 @@ export class ContextCompressor {
   // keeping recent ones for context continuity.
   // Preserves: system messages, last 5 messages (via keeping second half of pairs).
 
-  private summarizePairs(messages: Message[], protectRecent = 5): Message[] {
-    // Build list of (userIdx, assistantIdx) pair indices
-    const pairs: Array<{ userIdx: number; asstIdx: number }> = []
-    let i = 0
-    while (i < messages.length - 1) {
-      const userIdx = messages.findIndex((m, idx) => idx >= i && m.role === 'user')
-      if (userIdx < 0) break
-      const asstIdx = messages.findIndex((m, idx) => idx > userIdx && m.role === 'assistant')
-      if (asstIdx < 0) break
-      pairs.push({ userIdx, asstIdx })
-      i = asstIdx + 1
+  private summarizePairs(messages: Message[]): Message[] {
+    // H3: 按 user 消息分段 — 每段 = [user, 直到下一个 user 之前的所有消息]
+    // （含 assistant(tool_calls)/tool 结果/assistant 正文）。整段加入删除集合，
+    // 避免只删 user+assistant 后中间的 tool 结果成为孤儿（无对应 tool_use → API 报错）。
+    const segments: Array<{ start: number; end: number }> = []
+    let segStart = -1
+    for (let idx = 0; idx < messages.length; idx++) {
+      if (messages[idx].role === 'user') {
+        if (segStart >= 0) segments.push({ start: segStart, end: idx - 1 })
+        segStart = idx
+      }
     }
+    if (segStart >= 0) segments.push({ start: segStart, end: messages.length - 1 })
 
-    if (pairs.length <= 1) return messages // Nothing worth compressing
+    if (segments.length <= 1) return messages // Nothing worth compressing
 
-    // Compress the first half of pairs, keep the second half intact
+    // Compress the first half of segments, keep the second half intact
     // (paired structure naturally protects recent conversation context)
-    const compressCount = Math.ceil(pairs.length / 2)
-    const toCompress = pairs.slice(0, compressCount)
+    const compressCount = Math.ceil(segments.length / 2)
+    const toCompress = segments.slice(0, compressCount)
 
-    // Build single compressed summary message
-    const pairSummaries = toCompress.map(p =>
-      `用户: "${String(messages[p.userIdx].content || '').slice(0, 80)}" → AI: "${String(messages[p.asstIdx].content || '').slice(0, 80)}"`,
-    )
+    // Build single compressed summary message.
+    // 摘要取段内最后一个非空 assistant 正文（跳过 tool_calls 空 content 消息）；
+    // 段内无 assistant 文本时回退到 user 内容；再空则省略该行。
+    const pairSummaries = toCompress.map(seg => {
+      const userText = String(messages[seg.start].content || '').slice(0, 80)
+      let asstText = ''
+      for (let k = seg.end; k > seg.start; k--) {
+        const m = messages[k]
+        if (m.role === 'assistant' && m.content && typeof m.content === 'string') {
+          asstText = String(m.content).slice(0, 80)
+          break
+        }
+      }
+      // 审查修正: 无 assistant 正文（纯工具轮/aborted）时省略 AI 行，
+      // 不再把用户内容标成 AI 回复（原实现会误导模型以为该轮已作答）
+      return asstText ? `用户: "${userText}" → AI: "${asstText}"` : `用户: "${userText}"`
+    })
 
     const summary: Message = {
       role: 'system',
       content: `[已压缩] 前${toCompress.length}轮对话:\n${pairSummaries.join('\n')}`,
     }
 
-    // Collect indices to remove (both user and assistant for compressed pairs)
+    // Collect indices to remove (entire segments — user/assistant/tool 一并删除)
     const indicesToRemove = new Set<number>()
-    for (const p of toCompress) {
-      indicesToRemove.add(p.userIdx)
-      indicesToRemove.add(p.asstIdx)
+    for (const seg of toCompress) {
+      for (let k = seg.start; k <= seg.end; k++) indicesToRemove.add(k)
     }
 
     // Rebuild: preserve un-compressed messages, insert summary at first removed position

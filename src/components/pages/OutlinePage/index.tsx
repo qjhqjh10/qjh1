@@ -6,6 +6,7 @@ import { useStore } from '@/store'
 import { fileService } from '@/services/fileService'
 import { sceneService } from '@/services/sceneService'
 import { loadCharacters } from '@/services/characterService'
+import { outlineTabPath } from '@/utils/filePaths'
 import { loadOutlineContent, saveOutlineContent, loadWorldbuildingContent, saveWorldbuildingContent } from '@/services/outlineService'
 import { htmlToMarkdown } from '@/utils/markdownConverter'
 import { nanoid } from 'nanoid'
@@ -163,15 +164,17 @@ export default function OutlinePage() {
     const pp = projectPath.replace(/\\/g, '/').toLowerCase()
     const projectName = pp.split('/').filter(Boolean).pop() || ''
     const rel = (sub: string) => `${projectName}/${sub}`.toLowerCase()
-    const outlinePath = rel('outline/plot.md')
+    // M1: 文件型 tab 路径统一由 filePaths.outlineTabPath 产出（含 basic/worldbuilding 的 .md 与 powerSystem→power_system 映射）
+    const tabPath = (tab: string) => outlineTabPath(projectName, tab).toLowerCase()
+    const outlinePath = tabPath('basic')
     const outlineLegacyPath = rel('outline/outline.json')
-    const wbPath = rel('outline/worldbuilding.md')
+    const wbPath = tabPath('worldbuilding')
     const metaPath = rel('outline/outline_meta.yaml')
-    const itemsPath = rel('outline/items.yaml')
-    const locationsPath = rel('outline/locations.yaml')
-    const factionsPath = rel('outline/factions.yaml')
-    const powerPath = rel('outline/power_system.yaml')
-    const emotionPath = rel('outline/emotion.yaml')
+    const itemsPath = tabPath('items')
+    const locationsPath = tabPath('locations')
+    const factionsPath = tabPath('factions')
+    const powerPath = tabPath('powerSystem')
+    const emotionPath = tabPath('emotion')
 
     let handled = false
     if (normalized === outlinePath || normalized === outlineLegacyPath) {

@@ -54,3 +54,6 @@ scripts/workflow-log-*
 # Test images & test data
 images/
 test_data/
+scripts/v2-*.mjs
+scripts/v3-*.mjs
+scripts/v4-*.mjs

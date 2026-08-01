@@ -66,6 +66,8 @@ export interface AnthropicStreamResult {
     input: Record<string, unknown>
   }>
   stopReason: string
+  /** H7: 请求失败时的错误信息（stopReason==='error' 时由主进程/本地 catch 填充） */
+  error?: string
   thinking?: string
   /** v11.5.1: Extended thinking blocks — preserved for multi-turn conversation */
   thinkingBlocks?: Array<{ thinking: string; signature: string }>
@@ -74,6 +76,8 @@ export interface AnthropicStreamResult {
     output_tokens: number
     cache_creation_input_tokens?: number
     cache_read_input_tokens?: number
+    /** v13.x: 主进程按配置计价后随 invoke 返回值下发 */
+    cost?: number
   }
 }
 

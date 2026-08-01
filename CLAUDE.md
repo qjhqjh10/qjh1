@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.0.0
+# AI写作软件—青剑 v14.0.2
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,7 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.0.0)
+## 当前架构 (v14.0.2)
 
 ### 项目目录分离
 - `projects/` — 普通写作项目
@@ -84,8 +84,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (385 passed + 15 skipped，共 400) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (120 用例) |
+| `npx vitest run` | 全量单元测试 (457 passed + 15 skipped，共 472) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (140 用例) |
 
 ## 22 场景对话测试
 

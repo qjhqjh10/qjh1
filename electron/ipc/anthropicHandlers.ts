@@ -101,8 +101,8 @@ export function registerAnthropicHandlers(
       const configs = store.get('configs', []) as StoredConfig[]
       const config = configs.find(c => c.id === params.configId)
       if (!config) {
-        event.sender.send('ai:anthropic-error', { message: '[AUTH_ERROR] API 配置未找到' })
-        return JSON.stringify({ text: '', toolUses: [], stopReason: 'error', error: 'Config not found' })
+        // M3: 错误经 invoke 返回值下发（error 字段），与其余错误路径文案统一（categorizeError）
+        return JSON.stringify({ text: '', toolUses: [], stopReason: 'error', error: '[AUTH_ERROR] API 配置未找到' })
       }
 
       const apiKey = config.apiKey
@@ -228,9 +228,9 @@ export function registerAnthropicHandlers(
           )
         }
 
-        // 5. 解析 SSE 流
-        const text = await response.text()
-        const events = parseSSEStream(text)
+        // 5. 增量解析 SSE 流（H6: 边读边解析边发送 ai:anthropic-chunk，实时预览恢复）
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('SSE 响应无流')
 
         const contentBlocks: Array<{
           type: string
@@ -254,10 +254,10 @@ export function registerAnthropicHandlers(
         let outputTokens = 0
         let cacheCreationTokens = 0
         let cacheReadTokens = 0
+        let eventCount = 0
 
-        for (const evt of events) {
-          if (abortController.signal.aborted) break
-
+        const handleEvent = (evt: SSEEvent) => {
+          eventCount++
           switch (evt.type) {
             case 'message_start': {
               const usage = (evt.data as any)?.message?.usage
@@ -357,6 +357,27 @@ export function registerAnthropicHandlers(
           }
         }
 
+        // 增量读取主循环
+        const decoder = new TextDecoder()
+        let sseBuffer = ''
+        for (;;) {
+          if (abortController.signal.aborted) break
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value, { stream: true })
+          const { events, rest } = feedSSE(sseBuffer, chunk)
+          sseBuffer = rest
+          for (const evt of events) {
+            if (abortController.signal.aborted) break
+            handleEvent(evt)
+          }
+        }
+        // 冲刷尾部残留事件（feedSSE 以 \n\n 切分——补终止空行让未以空行结尾的最终事件被解析，
+        // 否则 message_stop 等末事件会滞留在 rest 被静默丢弃）
+        const tail = feedSSE(sseBuffer, '\n\n')
+        for (const evt of tail.events) handleEvent(evt)
+        decoder.decode() // flush 流式解码残留的多字节尾字符
+
         // v11.5.1: Extract thinking blocks from SSE content blocks for multi-turn support
         const thinkingBlocks = contentBlocks
           .filter((cb: any) => cb.type === 'thinking' && cb.thinking)
@@ -380,7 +401,7 @@ export function registerAnthropicHandlers(
               inputTokens,
               outputTokens,
               stopReason,
-              eventsReceived: events.length,
+              eventsReceived: eventCount,
             }, null, 2))
           } catch {}
         }
@@ -407,17 +428,7 @@ export function registerAnthropicHandlers(
         ipcMain.removeListener('ai:abort-anthropic', onAbort)
         abortHandlers.delete(wcId)
 
-        event.sender.send('ai:anthropic-done', {
-          text: fullText,
-          usage: {
-            prompt_tokens: inputTokens,
-            completion_tokens: outputTokens,
-            total_tokens: inputTokens + outputTokens,
-            cost: calculateCost(inputTokens, outputTokens, cacheHitTotal, config),
-            cacheHitTokens: cacheHitTotal,
-          },
-        })
-
+        // M3: usage/cost 随 invoke 返回值下发（下方 JSON），冗余的 ai:anthropic-done 事件已删除
         return JSON.stringify({
           text: fullText,
           toolUses,
@@ -438,15 +449,17 @@ export function registerAnthropicHandlers(
         abortHandlers.delete(wcId)
 
         if (err instanceof Error && err.name === 'AbortError') {
+          // 中止时 text 必须为空——H6 增量解析后 fullText 携带部分文本，
+          // 若回传会被 onDone 当作完成内容提交（写编辑器+存版本+自动摘要），与 v14.0.0 行为不符
           return JSON.stringify({
-            text: fullText || '',
+            text: '',
             toolUses: [],
             stopReason: 'aborted',
           })
         }
 
         const errMsg = categorizeError(err)
-        event.sender.send('ai:anthropic-error', { message: errMsg })
+        // M3: 错误信息随 invoke 返回值下发（下方 JSON 的 error 字段），冗余的 ai:anthropic-error 事件已删除
         return JSON.stringify({
           text: '',
           toolUses: [],
@@ -458,36 +471,54 @@ export function registerAnthropicHandlers(
   )
 }
 
-// ── SSE 解析 ──
+// ── SSE 解析（H6: 增量版，支持流式喂入）──
 
-interface SSEEvent {
+export interface SSEEvent {
   type: string
   data: unknown
 }
 
-function parseSSEStream(text: string): SSEEvent[] {
-  const events: SSEEvent[] = []
-  // SSE events are separated by double newlines
-  const chunks = text.split(/\n\n/)
-  for (const chunk of chunks) {
-    if (!chunk.trim()) continue
-    const lines = chunk.split('\n')
-    let dataLine = ''
-    let eventType = ''
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        eventType = line.slice(6).trim()
-      } else if (line.startsWith('data:')) {
-        dataLine = line.slice(5).trim()
-      }
-    }
-    if (!dataLine) continue
-    try {
-      const parsed = JSON.parse(dataLine)
-      events.push({ type: eventType || parsed.type || 'unknown', data: parsed })
-    } catch {
-      // 跳过无法解析的行
+export interface SSEFeedResult {
+  events: SSEEvent[]
+  rest: string
+}
+
+/** 解析单个 SSE 块（event:/data: 行；跳过注释行；多行 data 行 join）。解析失败返回 null。 */
+function parseSSEChunk(chunk: string): SSEEvent | null {
+  const lines = chunk.split('\n')
+  let dataLine = ''
+  let eventType = ''
+  for (const line of lines) {
+    if (line.startsWith(':')) continue // SSE 注释行（keep-alive ping）
+    if (line.startsWith('event:')) {
+      eventType = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      const seg = line.slice(5).trim()
+      dataLine = dataLine ? dataLine + '\n' + seg : seg // 多行 data 累积
     }
   }
-  return events
+  if (!dataLine) return null
+  try {
+    const parsed = JSON.parse(dataLine)
+    return { type: eventType || parsed.type || 'unknown', data: parsed }
+  } catch {
+    return null // 跳过无法解析的行
+  }
+}
+
+/**
+ * 增量喂入 SSE 文本：把 buffer+新文本 按 \n\n 切出完整事件，残留保留在 rest。
+ * CRLF（\r\n）归一化为 \n —— 原一次性解析对 \r\n\r\n 分隔的流找不到分隔符会整段丢失。
+ */
+export function feedSSE(buffer: string, text: string): SSEFeedResult {
+  const combined = buffer + text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const chunks = combined.split('\n\n')
+  const rest = chunks.pop() ?? ''
+  const events: SSEEvent[] = []
+  for (const chunk of chunks) {
+    if (!chunk.trim()) continue
+    const evt = parseSSEChunk(chunk)
+    if (evt) events.push(evt)
+  }
+  return { events, rest }
 }

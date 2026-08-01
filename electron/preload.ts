@@ -119,16 +119,7 @@ const api = {
       ipcRenderer.on('ai:anthropic-chunk', handler)
       return () => ipcRenderer.removeListener('ai:anthropic-chunk', handler)
     },
-    onAnthropicDone: (callback: (data: { text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number } }) => void) => {
-      const handler = (_event: unknown, data: { text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number } }) => callback(data)
-      ipcRenderer.on('ai:anthropic-done', handler)
-      return () => ipcRenderer.removeListener('ai:anthropic-done', handler)
-    },
-    onAnthropicError: (callback: (data: { message: string }) => void) => {
-      const handler = (_event: unknown, data: { message: string }) => callback(data)
-      ipcRenderer.on('ai:anthropic-error', handler)
-      return () => ipcRenderer.removeListener('ai:anthropic-error', handler)
-    },
+    // M3: onAnthropicDone/onAnthropicError 已删除——usage/cost/error 全部随 invoke 返回值下发
   },
   settings: {
     saveConfigs: (configs: ModelConfig[]): Promise<{warning?: string}> =>
@@ -158,7 +149,7 @@ const api = {
     getRewriteProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getRewriteProjectsPath'),
     openFolder: (folderPath: string): Promise<void> => ipcRenderer.invoke('app:openFolder', folderPath),
     openFile: (filePath: string): Promise<void> => ipcRenderer.invoke('app:openFile', filePath),
-    getSystemPrompt: (): Promise<string> => ipcRenderer.invoke('app:getSystemPrompt'),
+    // v14.0.1: getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   },
   kb: {
     list: (): Promise<KnowledgeMetadata> => ipcRenderer.invoke('kb:list'),

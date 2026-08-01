@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSafePath } from '../utils'
+import { isSafePath, mergeConfigKeys } from '../utils'
 
 // ── isSafePath ──
 
@@ -67,9 +67,9 @@ describe('MASKED_KEY', () => {
     expect(MASKED_KEY.length).toBeGreaterThan(0)
   })
 
-  it('is used for loading configs (security: never return real keys to renderer)', async () => {
+  it('is used for loading configs (明文存储 — MASKED_KEY 是主进程保存时的保护哨兵)', async () => {
     const { MASKED_KEY } = await import('../utils')
-    // The renderer receives this placeholder, never the real key
+    // 审查修正: v13.x 明文存储决策下 loadConfigs 返回真实密钥，MASKED_KEY 仅用于 saveConfigs 的三态合并保护
     expect(typeof MASKED_KEY).toBe('string')
   })
 })
@@ -80,5 +80,52 @@ describe('readFileWithEncoding', () => {
   it('exports as a function', async () => {
     const { readFileWithEncoding } = await import('../utils')
     expect(typeof readFileWithEncoding).toBe('function')
+  })
+})
+
+// ── mergeConfigKeys (H5) ──
+
+describe('mergeConfigKeys (H5)', () => {
+  const oldConfig = {
+    apiKey: 'old-main-key',
+    mainApiKey: 'old-legacy-key',
+    imageApiKey: 'old-img-key',
+    embeddingApiKey: 'old-emb-key',
+  }
+
+  it('MASKED_KEY 占位符保留磁盘旧密钥', () => {
+    const out = mergeConfigKeys(oldConfig, {
+      apiKey: '••••••••', imageApiKey: '••••••••', embeddingApiKey: '••••••••',
+      model: 'deepseek-chat',
+    })
+    expect(out.apiKey).toBe('old-main-key')
+    expect(out.imageApiKey).toBe('old-img-key')
+    expect(out.embeddingApiKey).toBe('old-emb-key')
+    expect(out.model).toBe('deepseek-chat') // 非密钥字段不受影响
+  })
+
+  it('带空格的 MASKED_KEY 同样保留旧值（trim）', () => {
+    const out = mergeConfigKeys(oldConfig, { apiKey: ' •••••••• ' })
+    expect(out.apiKey).toBe('old-main-key')
+  })
+
+  it('空串清空密钥（用户主动删除）', () => {
+    const out = mergeConfigKeys(oldConfig, { apiKey: '' })
+    expect(out.apiKey).toBe('')
+  })
+
+  it('真实新值正常写入', () => {
+    const out = mergeConfigKeys(oldConfig, { apiKey: 'new-key' })
+    expect(out.apiKey).toBe('new-key')
+  })
+
+  it('字段缺失（undefined）保留旧值', () => {
+    const out = mergeConfigKeys(oldConfig, { model: 'x' })
+    expect(out.apiKey).toBe('old-main-key')
+  })
+
+  it('无旧 config（新用户）时 MASKED_KEY 存空串而非字面量', () => {
+    const out = mergeConfigKeys(undefined, { apiKey: '••••••••' })
+    expect(out.apiKey).toBe('')
   })
 })

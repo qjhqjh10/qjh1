@@ -4,8 +4,36 @@ import type { ModelConfig } from '../../src/types/settings'
 import { logError } from './logger'
 
 // ====================== Encryption ======================
+// v13.x 决策：API key 明文存储（safeStorage 加密曾实现后移除）。
+// encryptKey/decryptKey 保留为未来能力（decryptKey 被 kb/agent handlers 消费，
+// 因 encrypted 恒 false 而原样返回）；saveConfigs 的 MASKED_KEY 保护见 mergeConfigKeys。
 
 export const MASKED_KEY = '••••••••'
+
+/** 密钥字段清单（与 ModelConfig 的 apiKey/mainApiKey/imageApiKey/embeddingApiKey 一致） */
+export const KEY_FIELDS = ['apiKey', 'mainApiKey', 'imageApiKey', 'embeddingApiKey'] as const
+
+/**
+ * H5: 合并密钥字段（三态规则），防止掩码占位符字面量覆写真实密钥：
+ * - undefined 或 MASKED_KEY（trim 后）→ 保留旧值（无旧值时为空串）
+ * - '' → 清空（用户主动删除）
+ * - 其它 → 写入新值
+ */
+export function mergeConfigKeys(
+  oldConfig: Record<string, unknown> | undefined,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...incoming }
+  for (const field of KEY_FIELDS) {
+    const v = incoming[field]
+    const oldValue = oldConfig && typeof oldConfig[field] === 'string' ? oldConfig[field] : ''
+    if (v === undefined) { result[field] = oldValue; continue }
+    const trimmed = typeof v === 'string' ? v.trim() : v
+    if (trimmed === MASKED_KEY) { result[field] = oldValue; continue }
+    result[field] = v
+  }
+  return result
+}
 
 export function decryptKey(apiKey: string, encrypted: boolean, safeStorage: SafeStorage): string {
   if (!apiKey) return ''

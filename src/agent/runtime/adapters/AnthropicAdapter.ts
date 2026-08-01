@@ -208,6 +208,12 @@ export class AnthropicAdapter implements ProtocolAdapter {
       temperature: params.temperature,
     })
 
+    // H7: 请求失败（stopReason:'error'）→ 抛错让 runtime 的重试/错误路径接管，
+    // 避免空文本被当作"模型拒绝调用工具"进入自愈循环
+    if (streamResult.stopReason === 'error') {
+      throw new Error(streamResult.error || 'Anthropic 请求失败')
+    }
+
     // 4. Normalize to canonical format
     // v11.7.0: 拆分 cacheCreation vs cacheRead — 首轮 creation 不计入 display 扣除
     const cacheCreation = streamResult.usage?.cache_creation_input_tokens || 0

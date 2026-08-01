@@ -83,8 +83,7 @@ export interface AIAPI {
   }) => Promise<string>
   abortAnthropicStream: () => void
   onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void
-  onAnthropicDone: (callback: (data: { text: string; usage?: StreamUsage & { cacheHitTokens?: number } }) => void) => () => void
-  onAnthropicError: (callback: (data: { message: string }) => void) => () => void
+  // M3: onAnthropicDone/onAnthropicError 已删除——usage/cost/error 全部随 invoke 返回值下发
 }
 
 export interface DialogAPI {
@@ -99,7 +98,7 @@ export interface AppAPI {
   getContinuationProjectDirsPath: () => Promise<string>
   getRewriteProjectsPath: () => Promise<string>
   getStoryWorkspacePath: () => Promise<string>
-  getSystemPrompt: () => Promise<string>
+  // v14.0.1: getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   openFolder: (folderPath: string) => Promise<void>
   openFile: (filePath: string) => Promise<void>
 }

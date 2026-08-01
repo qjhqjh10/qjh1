@@ -68,6 +68,16 @@ export function useStyleWorkshop() {
   const saveCounter = useRef(0)
   const isDirty = useRef(false)
 
+  // H11: selectedProjectRef 同步最新项目供落盘——
+  // 函数式 setSelectedProject 只更新 React 内存 state，批量保存的闭包会读到分析前的旧对象，
+  // 整轮分析结束后落盘全被旧数据覆盖（刷新即丢）。setProjectBoth 同步写 ref + state，杜绝分叉。
+  const selectedProjectRef = useRef<StyleProject | null>(null)
+  useEffect(() => { selectedProjectRef.current = selectedProject }, [selectedProject])
+  const setProjectBoth = (next: StyleProject | null) => {
+    selectedProjectRef.current = next
+    setSelectedProject(next)
+  }
+
   // Auto-expand all dimensions ONLY for brand-new templates (no id = '__new__')
   // For existing templates, keep previous collapsed state (don't override user preference)
   const prevEditId = useRef<string | undefined>(undefined)
@@ -268,7 +278,7 @@ export function useStyleWorkshop() {
       }
       await styleProjectService.saveProject(project)
       await loadProjects()
-      setSelectedProject(project)
+      setProjectBoth(project)
       setEnabledDimensions(dims)
       setView('detail')
     } catch (err) { logError('导入TXT失败', err); alert('导入失败') }
@@ -282,7 +292,7 @@ export function useStyleWorkshop() {
       proj.chapters = proj.chapters.map(c => ({ ...c, analysis: c.analysis || null, analyzed: c.analyzed || false }))
       if (!proj.novelType) proj.novelType = '通用'
       if (!proj.enabledDimensions?.length) proj.enabledDimensions = NOVEL_TYPE_DIMS[proj.novelType] || NOVEL_TYPE_DIMS['通用']
-      setSelectedProject(proj); setSelectedChapterId(proj.chapters[0]?.id || null)
+      setProjectBoth(proj); setSelectedChapterId(proj.chapters[0]?.id || null)
       setEnabledDimensions(proj.enabledDimensions)
       setAnalyzeIds(new Set()); setAnalyzeProgress(''); setView('detail')
     } catch { /* */ }
@@ -304,7 +314,7 @@ export function useStyleWorkshop() {
       chapters: selectedProject.chapters.map(c => c.id === chapterId ? { ...c, analysis: null, analyzed: false } : c),
       profile: selectedProject.profile ? { ...selectedProject.profile, analyzedChapterCount: Math.max(0, (selectedProject.profile.analyzedChapterCount || 1) - 1) } : null,
     }
-    setSelectedProject(updated)
+    setProjectBoth(updated)
     await styleProjectService.saveProject(updated)
     await loadProjects()
   }
@@ -318,16 +328,17 @@ export function useStyleWorkshop() {
     return a
   }
 
-  const batchSaveProject = () => {
+  // H11: 保存函数参数化——调用方传入最新项目（或回退 ref），不再捕获分析前的旧闭包
+  const batchSaveProject = (project?: StyleProject) => {
     saveCounter.current++
-    if (saveCounter.current % 10 === 0 && selectedProject) {
-      styleProjectService.saveProject(selectedProject).catch(err => logError('批量保存失败', err))
+    if (saveCounter.current % 10 === 0) {
+      const target = project || selectedProjectRef.current
+      if (target) styleProjectService.saveProject(target).catch(err => logError('批量保存失败', err))
     }
   }
-  const finalSaveProject = () => {
-    if (selectedProject) {
-      styleProjectService.saveProject(selectedProject).catch(err => logError('最终保存失败', err))
-    }
+  const finalSaveProject = (project?: StyleProject) => {
+    const target = project || selectedProjectRef.current
+    if (target) styleProjectService.saveProject(target).catch(err => logError('最终保存失败', err))
   }
 
   const handleAnalyze = async () => {
@@ -345,8 +356,8 @@ export function useStyleWorkshop() {
           try {
             const ch = sample[idx]
             const reply = await chatAI([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-            updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
-            batchSaveProject()
+            const updated = updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
+            batchSaveProject(updated || undefined)
           } catch (err) { logError(`分析章节失败: ${sample[idx].title}`, err) }
           setAnalyzeProgress(`抽样分析: ${idx + 1}/${sample.length}`)
         }
@@ -358,8 +369,8 @@ export function useStyleWorkshop() {
           for (const ch of batches[i]) {
             try {
               const reply = await chatAI([{ role: 'user' as const, content: `${buildStyleAnalyzePrompt(enabledDimensions, selectedProject.novelType)}\n\n[${ch.title}]\n${ch.content}` }], activeConfigId)
-              updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
-              batchSaveProject()
+              const updated = updateChapterAnalysis(ch.id, parseStyleAnalysisReply(reply, enabledDimensions))
+              batchSaveProject(updated || undefined)
             } catch (err) { logError(`分析章节失败: ${ch.title}`, err) }
           }
         }
@@ -370,16 +381,17 @@ export function useStyleWorkshop() {
     setAnalyzeLoading(false)
   }
 
-  const updateChapterAnalysis = async (chapterId: string, analysis: ChapterAnalysis) => {
-    if (!selectedProject) return
-    setSelectedProject(prev => {
-      if (!prev) return prev
-      const updated = {
-        ...prev,
-        chapters: prev.chapters.map(c => c.id === chapterId ? { ...c, analysis, analyzed: true } : c),
-      }
-      return updated
-    })
+  // H11: 基于 ref 计算更新并同步写 ref + state，返回最新对象供调用方立即落盘
+  const updateChapterAnalysis = (chapterId: string, analysis: ChapterAnalysis): StyleProject | null => {
+    const prev = selectedProjectRef.current
+    if (!prev) return null
+    const updated = {
+      ...prev,
+      chapters: prev.chapters.map(c => c.id === chapterId ? { ...c, analysis, analyzed: true } : c),
+    }
+    selectedProjectRef.current = updated
+    setSelectedProject(updated)
+    return updated
   }
 
   const handleSummarize = async () => {
@@ -483,7 +495,7 @@ export function useStyleWorkshop() {
           : undefined,
       }
       const updated = { ...selectedProject, profile }
-      setSelectedProject(updated)
+      setProjectBoth(updated)
       await styleProjectService.saveProject(updated)
       await loadProjects()
       setResultTab('overall')
@@ -494,7 +506,7 @@ export function useStyleWorkshop() {
   const handleClearProfile = async () => {
     if (!selectedProject) return
     const updated = { ...selectedProject, profile: null }
-    setSelectedProject(updated)
+    setProjectBoth(updated)
     await styleProjectService.saveProject(updated)
     await loadProjects()
   }
@@ -624,7 +636,7 @@ ${dimList}
       } else {
         await styleProjectService.deleteProject(id)
         await loadProjects()
-        if (selectedProject?.id === id) { setSelectedProject(null); setView('library') }
+        if (selectedProject?.id === id) { setProjectBoth(null); setView('library') }
       }
     } catch { alert('删除失败') }
     setDeleteConfirm(null)
@@ -720,7 +732,7 @@ ${dimList}
     updateComplexData,
     generatePrompt,
     addRule, updateRule, removeRule,
-    selectedProject, setSelectedProject,
+    selectedProject, setProjectBoth,
     selectedChapterId, setSelectedChapterId,
     analyzeIds, setAnalyzeIds,
     analyzeProgress, setAnalyzeProgress,

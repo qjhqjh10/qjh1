@@ -128,7 +128,7 @@ export default function App() {
   }, [setProjectsBasePath, setImitationProjectsPath, setContinuationProjectDirsPath, setRewriteProjectsPath])
 
   // Load configs from electron-store into Zustand on startup.
-  // electron-store is authoritative (stores encrypted API keys); localStorage is a mirror.
+  // electron-store is authoritative (明文存储 API keys); localStorage is a mirror.
   useEffect(() => {
     settingsService.loadConfigs().then(storedConfigs => {
       if (Array.isArray(storedConfigs) && storedConfigs.length > 0) {

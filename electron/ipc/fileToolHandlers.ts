@@ -31,6 +31,13 @@ const BACKUP_DIR = '.ai_backups'
 const MAX_BACKUPS_PER_FILE = 10
 const BACKUP_SEPARATOR = '___'
 
+// M2: 全局资源目录顶层段（safeResolve/resolveArgNoRealpath 按首段匹配解析到 appRoot）。
+// 与 list_directory 的 globalDirs（含 knowledge_base/files 等复合路径）互补——此处只取顶层段，
+// 使 read_file/create_file/edit_file 等能直接解析 `notes/x.md`、`style_templates/x.yaml` 等全局路径。
+const GLOBAL_DIR_NAMES = new Set([
+  'style_templates', 'scene_templates', 'knowledge_base', 'uploads', 'notes', '.aiharness',
+])
+
 function timestamp(): string {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -81,11 +88,10 @@ async function safeResolve(
     }
   }
 
-  // ── Determine base path (v11.4: global dirs resolve against appRoot) ──
-  const GLOBAL_DIRS: Set<string> = new Set()
+  // ── Determine base path (v11.4 + M2: 全局资源目录按首段解析到 appRoot) ──
   const appRoot = path.dirname(projectPath)
   const firstSegment = clean.split('/')[0].split('\\')[0]
-  const isGlobalPath = GLOBAL_DIRS.has(firstSegment)
+  const isGlobalPath = GLOBAL_DIR_NAMES.has(firstSegment)
   // Global paths → resolve against appRoot; project paths → resolve against projectPath
   const basePath = isGlobalPath ? appRoot : projectPath
 
@@ -120,6 +126,8 @@ function resolveArgNoRealpath(
   const raw = args[key]
   if (typeof raw !== 'string' || raw.length === 0) return null
   let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
+  // Reject absolute Windows paths (C:\...) — 与 safeResolve 一致
+  if (/^[A-Za-z]:[/\\]/.test(clean)) return null
   // If path starts with ../ → each ../ navigates up one directory from projectPath
   if (clean.startsWith('../')) {
     let base = projectPath
@@ -131,8 +139,15 @@ function resolveArgNoRealpath(
     // Block system dirs only
     const lowered = resolved.toLowerCase()
     if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
+    // M2 审查: 与 safeResolve 一致，超出 userDataRoot 的逃逸拒绝（防 rename_file new_path 等逃出应用根）
+    const userDataRoot = path.dirname(path.dirname(projectPath))
+    if (!isSafePath(resolved, userDataRoot)) return null
     return resolved
   }
+  // M2: 全局资源目录按首段解析到 appRoot（与 safeResolve 一致，保证读/写工具语义统一）
+  const appRoot = path.dirname(projectPath)
+  const firstSegment = clean.split('/')[0].split('\\')[0]
+  const basePath = GLOBAL_DIR_NAMES.has(firstSegment) ? appRoot : projectPath
   // For project-relative paths, strip any remaining ../ for safety
   let prev = ''
   while (prev !== clean) {
@@ -140,8 +155,8 @@ function resolveArgNoRealpath(
     clean = clean.replace(/\.\.\//g, '')
   }
   clean = clean.replace(/\/\.\.$/, '').replace(/^\.\.$/, '')
-  const joined = path.join(projectPath, clean)
-  if (!isSafePath(joined, projectPath)) return null
+  const joined = path.join(basePath, clean)
+  if (!isSafePath(joined, basePath)) return null
   return joined
 }
 
@@ -596,68 +611,15 @@ export async function executeFileTool(
         return { callId, toolName, status: 'success', summary, detail }
       }
 
-      // ── Backup listing ──
-
-      case 'list_backups': {
-        const targetFile = args.file_path as string | undefined
-        const backupDir = path.join(getBackupRoot(projectPath), BACKUP_DIR)
-
-        if (targetFile) {
-          const fp = resolvePath('file_path')
-          if (!fp || !isSafePath(fp, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
-          const backups = await listBackupsForFile(fp, projectPath)
-          if (backups.length === 0) {
-            return { callId, toolName, status: 'success', summary: `无备份: ${targetFile}`, detail: '该文件没有备份记录' }
-          }
-          const detail = backups.map((b, i) =>
-            `[${i + 1}] ${b.timestamp} — 备份路径: ${b.relativePath}`,
-          ).join('\n')
-          return { callId, toolName, status: 'success', summary: `${backups.length} 份备份 (上限${MAX_BACKUPS_PER_FILE})`, detail }
-        }
-
-        // List all backups grouped by original file
-        const groups = new Map<string, BackupEntry[]>()
-        let allEntries: fs.Dirent[]
-        try { allEntries = await fsp.readdir(backupDir, { withFileTypes: true }) } catch {
-          return { callId, toolName, status: 'success', summary: '无备份', detail: '备份目录为空或不存在' }
-        }
-        for (const e of allEntries) {
-          if (!e.isFile()) continue
-          const parsed = parseBackupName(e.name)
-          if (!parsed) continue
-          const entry: BackupEntry = {
-            fullPath: path.join(backupDir, e.name),
-            relativePath: `${BACKUP_DIR}/${e.name}`,
-            timestamp: parsed.timestamp,
-            originalName: parsed.originalName,
-          }
-          const group = groups.get(parsed.originalName) || []
-          group.push(entry)
-          groups.set(parsed.originalName, group)
-        }
-
-        if (groups.size === 0) {
-          return { callId, toolName, status: 'success', summary: '无备份', detail: '备份目录为空' }
-        }
-
-        const lines: string[] = []
-        for (const [origName, entries] of groups) {
-          entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-          lines.push(`📄 ${origName} (${entries.length} 份):`)
-          for (const e of entries) {
-            lines.push(`    ${e.timestamp} — ${e.relativePath}`)
-          }
-        }
-        return { callId, toolName, status: 'success', summary: `${groups.size} 个文件共 ${lines.length - groups.size} 份备份`, detail: lines.join('\n') }
-      }
-
       // ── Write operations ──
 
       case 'create_file': {
         const fp = resolvePath('file_path')
-        // ../ paths resolve to parentDir (userData) — safety boundary must cover that
+        // M2: 全局目录（notes/style_templates 等首段命中）解析到 appRoot——安全基准须与之匹配，
+        // 否则 fp 已解析到 appRoot 却被 isSafePath(fp, projectPath) 拒绝，create_file 全局路径永远失败
         const rawPath = String(args.file_path || '')
-        const isGlobalPath = rawPath.startsWith('../')
+        const cleanFirst = rawPath.replace(/\\/g, '/').replace(/^\/+/, '').split('/')[0]
+        const isGlobalPath = rawPath.startsWith('../') || GLOBAL_DIR_NAMES.has(cleanFirst)
         const safetyBase = isGlobalPath ? path.dirname(path.dirname(projectPath)) : projectPath
         if (!fp || !isSafePath(fp, safetyBase)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(rawPath) }
         const content = args.content as string
@@ -708,22 +670,12 @@ export async function executeFileTool(
       }
 
       case 'edit_file': {
-        const resolveNotePath = async (): Promise<string | null> => {
-          const notesPath = (args.file_path as string || '').replace(/\\/g, '/')
-          if (!notesPath.startsWith('notes/')) return null
-          const globalNotesDir = path.join(path.dirname(projectPath), 'notes')
-          // Strip 'notes/' prefix since globalNotesDir already is the notes root
-          const cleanPath = notesPath.replace(/^notes\//, '')
-          return await safeResolve('file_path', { ...args, file_path: cleanPath }, globalNotesDir)
-        }
+        // M2 审查: resolveNotePath 已冗余——GLOBAL_DIR_NAMES 含 notes，safeResolve 直接解析到 appRoot/notes
         let fp = await safeResolve('file_path', args, projectPath)
-        // Fallback: try global notes dir for notes/* paths
-        if (!fp) fp = await resolveNotePath()
-        // Also try if resolved path doesn't exist on disk
+        // File must exist on disk
         if (fp) {
           try { await fsp.stat(fp) } catch { fp = null }
         }
-        if (!fp) fp = await resolveNotePath()
         if (!fp) return deny(callId, toolName, '路径不在项目目录内')
         const stat = await fsp.stat(fp).catch(() => null as fs.Stats | null)
         if (!stat) return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
@@ -945,49 +897,6 @@ export async function executeFileTool(
         const srcRel = path.relative(projectPath, fp).replace(/\\/g, '/')
         const dstRel = path.relative(projectPath, np).replace(/\\/g, '/')
         return { callId, toolName, status: 'success', summary: `已重命名: ${srcRel} → ${dstRel}`, detail: `原路径: ${args.file_path}\n新路径: ${args.new_path}` }
-      }
-
-      // ── Restore ──
-
-      case 'restore_backup': {
-        const backupRelPath = args.backup_path as string
-        const targetFilePath = args.target_path as string
-        if (!backupRelPath) return deny(callId, toolName, '未指定备份文件路径')
-
-        const backupFullPath = path.join(projectPath, backupRelPath.replace(/\\/g, '/'))
-        if (!isSafePath(backupFullPath, projectPath)) return deny(callId, toolName, '备份路径不在项目目录内')
-
-        // Determine target file path
-        let restoreTarget: string
-        if (targetFilePath) {
-          const resolved = resolvePath('target_path')
-          if (!resolved) return deny(callId, toolName, '目标路径不在项目目录内')
-          restoreTarget = resolved
-        } else {
-          const parsed = parseBackupName(path.basename(backupRelPath))
-          if (!parsed) return deny(callId, toolName, '无法解析备份文件名')
-          restoreTarget = path.join(projectPath, parsed.originalName)
-        }
-        if (!isSafePath(restoreTarget, projectPath)) return deny(callId, toolName, '恢复目标路径不在项目目录内')
-
-        // Verify backup exists
-        let backupContent: string
-        try { backupContent = await readFileWithEncoding(backupFullPath) } catch {
-          return { callId, toolName, status: 'error', summary: `备份文件不存在: ${backupRelPath}` }
-        }
-
-        // Issue #6: Backup current file before overwriting with restore
-        let preRestoreBackup = ''
-        try { preRestoreBackup = await backupFile(restoreTarget, projectPath) } catch { /* proceed even if no current file */ }
-
-        await fsp.mkdir(path.dirname(restoreTarget), { recursive: true })
-        await fsp.writeFile(restoreTarget, backupContent, 'utf-8')
-        const targetRel = path.relative(projectPath, restoreTarget).replace(/\\/g, '/')
-        return {
-          callId, toolName, status: 'success',
-          summary: `已从备份恢复: ${targetRel}`,
-          detail: `备份: ${backupRelPath}\n恢复到: ${targetRel}\n内容长度: ${backupContent.length} 字符${preRestoreBackup ? `\n恢复前备份: ${preRestoreBackup}` : ''}`,
-        }
       }
 
       // ── 项目管理 ──

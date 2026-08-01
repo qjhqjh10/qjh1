@@ -133,9 +133,8 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作对话助手
 - 追加到已有文件 → read_file(仅1次) → 取末尾30-50字做 old_string → edit_file 追加
 - 替换片段 → read_file(仅1次) → 找到要替换的原文 → edit_file(old_string=原文, new_string=新文)
 - 同文件多处独立修改 → batch_replace(file_path, [{old_string, new_string}, ...])，一次调用完成所有替换
-- 删除文件 → delete_file（自动备份到 .ai_backups/，可恢复）
+- 删除文件 → delete_file（自动备份到 .ai_backups/，恢复需在文件管理器中手动操作）
 - 重命名/移动文件 → rename_file(当前路径, 新路径)
-- 恢复误删 → list_backups(file_path) 查看备份列表 → restore_backup(file_path, backupId)
 - 不确定文件路径 → list_directory 探索(仅1次) → 确定路径后立即操作，不要再探索
 - 任何工具调用返回 error → 仔细阅读 error 的 summary，理解失败原因。最多尝试 1 次修正后重试
 
@@ -247,15 +246,9 @@ tool_search("关键词") 发现。首条消息全部直接可用。
 
 > 常用操作（角色14字段、章节格式、YAML规范等）已在路径速查中——能凭记忆写就不要再读。`
 
-// v13.x: 从 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 载入
-// 用户可以查看和编辑此文件来定制 AI 行为。文件缺失时回退到内置默认。
-export async function buildSystemPrompt(): Promise<string> {
-  try {
-    const e = (window as any).electron
-    if (e?.app?.getSystemPrompt) {
-      const content = await e.app.getSystemPrompt()
-      if (content && content.trim().length > 50) return content
-    }
-  } catch { /* 回退到默认 */ }
+// v14.0.1: 移除 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 文件化提示词——
+// 该 MD 是 v13.2 瘦身前的旧版（15 字段/内嵌 12 节手册，与代码分叉），且打包不含 prompts 目录，
+// 导致开发环境用旧版、打包环境用新版的行为不一致。现以代码内 CORE_SYSTEM_PROMPT 为唯一来源。
+export function buildSystemPrompt(): string {
   return CORE_SYSTEM_PROMPT
 }

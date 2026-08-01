@@ -977,7 +977,7 @@ export default function AIChatWindow() {
                 if (!activeConfig) return
                 const newTemp = Math.max(0, +(activeConfig.temperature || 0.8).toFixed(1) - 0.1)
                 useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
-                await settingsService.saveConfigs(useSettingsStore.getState().configs) // API keys encrypted via safeStorage before disk write
+                await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
               <span style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', minWidth: 36, textAlign: 'center', cursor: 'default' }}>
                 {activeConfig?.temperature?.toFixed(1) ?? '0.8'}°C
@@ -986,7 +986,7 @@ export default function AIChatWindow() {
                 if (!activeConfig) return
                 const newTemp = Math.min(2, +(activeConfig.temperature || 0.8).toFixed(1) + 0.1)
                 useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
-                await settingsService.saveConfigs(useSettingsStore.getState().configs) // API keys encrypted via safeStorage before disk write
+                await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />

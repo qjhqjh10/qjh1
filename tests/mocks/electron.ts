@@ -97,7 +97,7 @@ export function createMockElectronBridge() {
     app: {
       getProjectsBasePath: vi.fn().mockResolvedValue('/mock/projects'),
       getAppPath: vi.fn().mockReturnValue('/mock/app'),
-      getSystemPrompt: vi.fn().mockRejectedValue(new Error('not available')),
+      // v14.0.1: getSystemPrompt 已移除
     },
     settings: {
       loadConfigs: vi.fn().mockResolvedValue([]),

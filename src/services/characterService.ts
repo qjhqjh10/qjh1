@@ -162,16 +162,12 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
 ]
 
 import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
-import { stripExtension, isStructuredDataFile, readAndMigrate } from '@/utils/filePaths'
-
-function charPath(projectPath: string, id: string) {
-  return `${projectPath}/characters/${id}.yaml`
-}
+import { stripExtension, isStructuredDataFile, readAndMigrate, characterPath } from '@/utils/filePaths'
 
 export async function saveCharacter(projectPath: string, character: Character) {
   try {
     const yaml = yamlStringify(character)
-    await fileService.write(charPath(projectPath, character.id), yaml)
+    await fileService.write(characterPath(projectPath, character.id), yaml)
   } catch (e) {
     logError(`保存角色失败: ${character.name}`, e)
     throw e

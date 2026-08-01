@@ -42,6 +42,9 @@ export default function ContinuationWorkspacePage() {
   const [selectedChapterIdx, setSelectedChapterIdx] = useState(0)
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<number>>(new Set())
   const chaptersRef = useRef(chapters)
+  // H12: projectRef 同步最新项目——批量分析循环里 save 依赖闭包 project 会基于旧对象合并，
+  // 多次调用互相覆盖，最终只保留最后一章分析
+  const projectRef = useRef<ContinuationProject | null>(null)
   const abortRef = useRef(false)
   const pausedRef = useRef(false)
 
@@ -86,6 +89,7 @@ export default function ContinuationWorkspacePage() {
     styleTemplateService.list().then(setStyleTemplates).catch(() => {})
   }, [])
   useEffect(() => { chaptersRef.current = chapters }, [chapters])
+  useEffect(() => { projectRef.current = project }, [project])
 
   useEffect(() => {
     if (!activeProjectId) { navigate('/continuation'); return }
@@ -109,6 +113,8 @@ export default function ContinuationWorkspacePage() {
       const list = await continuationService.list() as ContinuationProject[]
       const found = list.find(p => p.id === activeProjectId || p.name === activeProjectId)
       if (found) {
+        projectRef.current = found
+        chaptersRef.current = found.sourceChapters
         setProject(found)
         setChapters(found.sourceChapters)
         setStoryUnderstand(found.storyUnderstanding || null)
@@ -123,9 +129,13 @@ export default function ContinuationWorkspacePage() {
   }
 
   const save = async (updates: Partial<ContinuationProject>) => {
-    if (!project) return
-    const updated = { ...project, ...updates, updatedAt: new Date().toISOString() }
+    const base = projectRef.current
+    if (!base) return
+    const updated = { ...base, ...updates, updatedAt: new Date().toISOString() }
     const saved = await continuationService.save(updated)
+    // H12: 同步写 ref（不能只靠 useEffect——批量循环的下一轮迭代可能先于 commit 执行）
+    projectRef.current = saved
+    chaptersRef.current = saved.sourceChapters
     setProject(saved)
     setChapters(saved.sourceChapters)
     return saved
@@ -144,12 +154,14 @@ export default function ContinuationWorkspacePage() {
         chapterNumber: i + 1, title: r.title, content: r.content, wordCount: countChineseWords(r.content),
       }))
       setChapters(chs)
+      chaptersRef.current = chs
       const proj: ContinuationProject = {
         id: project?.id || '', name: project?.name || result.name.replace(/\.txt$/i, ''),
         sourceFileName: result.name, sourceChapters: chs, writtenChapters: [],
         status: 'imported', createdAt: project?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
       const saved = await continuationService.save(proj)
+      projectRef.current = saved
       setProject(saved)
     } catch (err) { logError('导入失败', err) }
     setImporting(false)
@@ -161,18 +173,23 @@ export default function ContinuationWorkspacePage() {
       chapterNumber: i + 1, title: r.title, content: r.content, wordCount: countChineseWords(r.content),
     }))
     setChapters(chs)
+    chaptersRef.current = chs
     const proj: ContinuationProject = {
       id: project?.id || '', name: project?.name || name.replace(/\.txt$/i, ''),
       sourceFileName: name, sourceChapters: chs, writtenChapters: [],
       status: 'imported', createdAt: project?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
     const saved = await continuationService.save(proj)
+    projectRef.current = saved
     setProject(saved)
   }
 
   const handleAnalyzeChapter = async (idx: number) => {
-    if (!activeConfigId || !project) return
-    const ch = chapters[idx]
+    if (!activeConfigId) return
+    // H12: 从 ref 取最新章节——批量循环里闭包 chapters 是旧快照，多次调用互相覆盖
+    const current = chaptersRef.current
+    const ch = current[idx]
+    if (!ch) return
     setAnalyzingChapter(idx)
     try {
       const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
@@ -195,12 +212,13 @@ export default function ContinuationWorkspacePage() {
           factionSnapshots: (json.factionSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '活跃') as any, leader: s.leader || '' })),
           locationSnapshots: (json.locationSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '存在') as any, significance: s.significance || '' })),
         }
-        const updated = [...chapters]
+        const updated = [...current]
         updated[idx] = { ...ch, analysis }
+        chaptersRef.current = updated
         setChapters(updated)
         await save({ sourceChapters: updated, status: 'analyzed' })
       }
-    } catch (err) { logError('分析失败', err); setWorkspaceError(`第${chapters[idx]?.chapterNumber || '?'}章分析失败: ${err instanceof Error ? err.message : '未知错误'}`); setTimeout(() => setWorkspaceError(''), 8000) }
+    } catch (err) { logError('分析失败', err); setWorkspaceError(`第${chaptersRef.current[idx]?.chapterNumber || '?'}章分析失败: ${err instanceof Error ? err.message : '未知错误'}`); setTimeout(() => setWorkspaceError(''), 8000) }
     setAnalyzingChapter(null)
   }
 
@@ -235,9 +253,11 @@ export default function ContinuationWorkspacePage() {
   }
 
   const handleReanalyzeChapter = async (idx: number) => {
-    if (!activeConfigId || !project) return
-    const ch = chapters[idx]
-    if (!ch.analysis) return
+    if (!activeConfigId) return
+    // H12: 同 handleAnalyzeChapter——从 ref 取最新章节
+    const current = chaptersRef.current
+    const ch = current[idx]
+    if (!ch?.analysis) return
     setAnalyzingChapter(idx)
     try {
       const prompt = cs.buildChapterAnalysisPrompt(ch.title, ch.content, ch.chapterNumber, enabledDims)
@@ -264,8 +284,9 @@ export default function ContinuationWorkspacePage() {
           factionSnapshots: (json.factionSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '活跃') as any, leader: s.leader || '' })),
           locationSnapshots: (json.locationSnapshots || []).map((s: any) => ({ name: s.name || '', status: (s.status || '存在') as any, significance: s.significance || '' })),
         }
-        const updated = [...chapters]
+        const updated = [...current]
         updated[idx] = { ...ch, analysis }
+        chaptersRef.current = updated
         setChapters(updated)
         await save({ sourceChapters: updated, status: 'analyzed' })
       }
@@ -460,9 +481,12 @@ export default function ContinuationWorkspacePage() {
   }
 
   const handleSaveWritten = async () => {
-    if (!writingChapter || !project) return
-    const updated = { ...project, styleTemplateId: selectedStyleTplId || undefined, writtenChapters: [...project.writtenChapters.filter(c => c.chapterNumber !== writingChapter.chapterNumber), writingChapter].sort((a, b) => a.chapterNumber - b.chapterNumber) }
+    if (!writingChapter) return
+    const base = projectRef.current
+    if (!base) return
+    const updated = { ...base, styleTemplateId: selectedStyleTplId || undefined, writtenChapters: [...base.writtenChapters.filter(c => c.chapterNumber !== writingChapter.chapterNumber), writingChapter].sort((a, b) => a.chapterNumber - b.chapterNumber) }
     const saved = await continuationService.save(updated)
+    projectRef.current = saved
     setProject(saved)
     setWritingChapter(null); setWritingContent('')
   }
@@ -748,7 +772,7 @@ export default function ContinuationWorkspacePage() {
                 {/* 模板注入选择器 */}
                 <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)' }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>模板注入</div>
-                  <select value={selectedStyleTplId} onChange={e => { const v = e.target.value; setSelectedStyleTplId(v); if (project) setProject({ ...project, styleTemplateId: v || undefined }) }} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit', marginBottom: 4 }}>
+                  <select value={selectedStyleTplId} onChange={e => { const v = e.target.value; setSelectedStyleTplId(v); if (project) { const next = { ...project, styleTemplateId: v || undefined }; projectRef.current = next; setProject(next) } }} style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 10, fontFamily: 'inherit', marginBottom: 4 }}>
                     <option value="">风格: 无</option>
                     {styleTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>

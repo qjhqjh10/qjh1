@@ -93,4 +93,86 @@ describe('ContextCompressor', () => {
     expect(real.needsCompression(600_000)).toBe(false)
     expect(real.needsCompression(750_000)).toBe(true)
   })
+
+  // ── H3: 工具轮整段压缩，不产生孤儿 tool 消息 ──
+
+  it('summarize_pairs: 工具轮整段删除，无孤立 tool 消息', () => {
+    const msgs: Message[] = [
+      { role: 'user', content: '帮我写第三章' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'success', summary: '读取成功', detail: '内容' }) },
+      { role: 'assistant', content: '好的，这是第三章内容……' },
+      { role: 'user', content: '继续' },
+      { role: 'assistant', content: '正在创作……' },
+    ]
+    const result = comp.compress(msgs, 850) // 85% → summarize
+
+    // 压缩后: system 摘要 + 第二段完整保留
+    expect(result[0].role).toBe('system')
+    expect(result[0].content).toContain('已压缩')
+    // 摘要含 assistant 正文（而非空 tool_calls 消息）
+    expect(result[0].content).toContain('好的，这是第三章内容')
+    // 无孤立 tool 消息（tool 消息必须紧跟其 assistant(tool_calls) 之后）
+    for (let i = 0; i < result.length; i++) {
+      if (result[i].role === 'tool') {
+        const prev = result[i - 1]
+        expect(prev.role).toBe('assistant')
+        expect(Array.isArray(prev.tool_calls)).toBe(true)
+      }
+    }
+    // 最近轮次保留
+    expect(result.some(m => m.content === '正在创作……')).toBe(true)
+  })
+
+  it('summarize_pairs: 段尾是 tool 消息（aborted 轮）不残留孤儿', () => {
+    const msgs: Message[] = [
+      { role: 'user', content: '读文件' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'success', summary: 'ok', detail: 'd' }) },
+      { role: 'user', content: '再读' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c2', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c2', content: JSON.stringify({ status: 'success', summary: 'ok', detail: 'd' }) },
+      { role: 'user', content: '写正文' },
+      { role: 'assistant', content: '正文来了' },
+    ]
+    const result = comp.compress(msgs, 850)
+    // 压缩后不存在 role==='tool' 的孤儿消息
+    for (const m of result) {
+      if (m.role === 'tool') {
+        const idx = result.indexOf(m)
+        const prev = result[idx - 1]
+        expect(prev.role).toBe('assistant')
+        expect(Array.isArray(prev.tool_calls)).toBe(true)
+      }
+    }
+    expect(result.some(m => m.content === '正文来了')).toBe(true)
+  })
+
+  it('summarize_pairs: 无 assistant 文本段省略 AI 行（不把用户内容标成 AI 回复，审查修正）', () => {
+    const msgs: Message[] = [
+      { role: 'user', content: '读文件' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'success', summary: 'ok', detail: 'd' }) },
+      { role: 'user', content: '写正文' },
+      { role: 'assistant', content: '正文来了' },
+    ]
+    const result = comp.compress(msgs, 850)
+    expect(result[0].content).toContain('用户: "读文件"')
+    expect(result[0].content).not.toContain('→ AI: "读文件"') // 不再误标
+    expect(result.some(m => m.content === '正文来了')).toBe(true)
+  })
+
+  it('summarize_pairs: 连续 user 消息（无 assistant）段安全压缩', () => {
+    const msgs: Message[] = [
+      { role: 'user', content: '第一问' },
+      { role: 'user', content: '补充信息' },
+      { role: 'assistant', content: '回答' },
+      { role: 'user', content: '最近的问题' },
+      { role: 'assistant', content: '最近的回答' },
+    ]
+    const result = comp.compress(msgs, 850)
+    // 不抛异常，且摘要存在；最近轮次保留
+    expect(result[0].role).toBe('system')
+    expect(result.some(m => m.content === '最近的回答')).toBe(true)
+  })
 })

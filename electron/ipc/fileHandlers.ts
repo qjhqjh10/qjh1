@@ -2,11 +2,56 @@ import { IpcMain } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as chokidar from 'chokidar'
+import { isPrivateIP, resolvesToPrivateIP } from './ssrfGuard'
 
 const pendingSaves = new Map<string, boolean>()
 let onFileWrite: ((filePath: string, content: string) => void) | null = null
 let projectsBasePath = ''
 let appRoot = ''
+
+// ── H8: saveImageUrl 防护常量 ──
+const IMAGE_FETCH_TIMEOUT = 15_000
+const MAX_REDIRECTS = 3
+
+const MIME_EXT_MAP: Record<string, string> = {
+  'image/svg+xml': 'svg',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/avif': 'avif',
+  'image/bmp': 'bmp',
+  'image/ico': 'ico',
+}
+
+/** data:image MIME → 扩展名（拒绝非白名单，未知回退 png） */
+export function mimeToExt(mime: string): string {
+  return MIME_EXT_MAP[mime] || 'png'
+}
+
+/** 解析 data:image/*;base64, URL（base64 段必须非空），格式不符返回 null */
+export function parseDataImageUrl(url: string): { mime: string; base64: string } | null {
+  const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(url)
+  if (!m || !m[2]) return null
+  return { mime: m[1], base64: m[2] }
+}
+
+/** H8: 远程图片 URL 校验 — http(s) 白名单 + 私网/内网拦截（SSRF）。非法返回 false。
+ *  注意：先校验原始输入协议再 URL 解析归一化——sanitizeUrl 会把 ftp:// 等补成伪 https:// 前缀，
+ *  直接对它做协议白名单会被绕过；new URL 失败（无效输入）一律拒绝。 */
+export async function validateRemoteImageUrl(url: string): Promise<boolean> {
+  try {
+    const trimmed = url.trim()
+    if (!/^https?:\/\//i.test(trimmed)) return false
+    const parsed = new URL(trimmed) // 无效输入抛错 → false
+    const normalized = parsed.toString() // 归一化（hostname 小写）后私网检查
+    if (isPrivateIP(normalized)) return false
+    if (await resolvesToPrivateIP(normalized)) return false
+    return true
+  } catch {
+    return false
+  }
+}
 
 // ── System-critical directories (NEVER accessible — hard block) ──
 const SYSTEM_BLOCKED = [
@@ -148,22 +193,64 @@ export function registerFileHandlers(
   ipcMain.handle('files:saveImageUrl', async (_event, imageUrl: string, projectPath: string) => {
     const resolved = resolveWritePath(projectPath)
     if (!resolved) throw new Error('Access denied')
-    if (!imageUrl || (!imageUrl.startsWith('http') && !imageUrl.startsWith('data:image/'))) throw new Error('Invalid URL')
+    if (!imageUrl) throw new Error('Invalid URL')
     try {
-      let buf: Buffer
+      let buf: Buffer | undefined
+      let ext = 'jpg'
       if (imageUrl.startsWith('data:image/')) {
-        const base64 = imageUrl.split(',')[1] || ''
-        buf = Buffer.from(base64, 'base64')
+        // H8: data URL — 格式校验（必须 base64 且非空）+ 解码前大小校验（同 writeBinary 系数）
+        const parsed = parseDataImageUrl(imageUrl)
+        if (!parsed) throw new Error('Invalid data URL')
+        if (parsed.base64.length > MAX_IMAGE_SIZE * 1.4) throw new Error('Image too large')
+        buf = Buffer.from(parsed.base64, 'base64')
+        ext = mimeToExt(parsed.mime)
       } else {
-        const res = await fetch(imageUrl)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const arrayBuf = await res.arrayBuffer()
-        if (arrayBuf.byteLength > MAX_IMAGE_SIZE) throw new Error('Image too large')
-        buf = Buffer.from(arrayBuf)
+        // H8: http(s) URL — SSRF 防护（协议白名单 + 私网拦截）+ 15s 超时 + redirect 逐跳校验
+        if (!(await validateRemoteImageUrl(imageUrl))) throw new Error('URL not allowed')
+        let currentUrl = imageUrl
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          const controller = new AbortController()
+          // 超时覆盖 fetch 头 + 整个响应体读取（防"头秒回、体无限慢"挂死 IPC）
+          const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT)
+          try {
+            const res = await fetch(currentUrl, { redirect: 'manual', signal: controller.signal })
+            if (res.status >= 300 && res.status < 400) {
+              await res.body?.cancel().catch(() => {})
+              if (hop === MAX_REDIRECTS) throw new Error('Too many redirects')
+              const loc = res.headers.get('location')
+              if (!loc) throw new Error('Redirect without location')
+              const next = new URL(loc, currentUrl).toString()
+              if (!(await validateRemoteImageUrl(next))) throw new Error('URL not allowed')
+              currentUrl = next
+              continue
+            }
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            if (!res.body) throw new Error('No response body')
+            // 流式读取：边读边累计，超限立即中断（避免整包缓冲进内存后才发现超限）
+            const chunks: Uint8Array[] = []
+            let total = 0
+            const reader = res.body.getReader()
+            for (;;) {
+              if (controller.signal.aborted) throw new Error('Fetch timeout')
+              const { done, value } = await reader.read()
+              if (done) break
+              total += value.byteLength
+              if (total > MAX_IMAGE_SIZE) {
+                await reader.cancel().catch(() => {})
+                throw new Error('Image too large')
+              }
+              chunks.push(value)
+            }
+            buf = Buffer.concat(chunks)
+            break
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+        if (!buf) throw new Error('Fetch failed')
       }
       const imagesDir = path.join(resolved, 'images')
       await fs.mkdir(imagesDir, { recursive: true })
-      const ext = imageUrl.startsWith('data:image/') ? (imageUrl.split(';')[0]?.split('/')[1] || 'png') : 'jpg'
       const fileName = `img_${Date.now().toString(36)}.${ext}`
       const fp = path.join(imagesDir, fileName)
       await fs.writeFile(fp, buf)

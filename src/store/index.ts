@@ -329,150 +329,160 @@ export const useSettingsStore = create<SettingsState>()(
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
       }),
-      migrate: (persisted: unknown, version: number) => {
-        if (version < 1) {
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          return {
-            configs: Array.isArray(p.configs) ? p.configs as ModelConfig[] : [],
-            activeConfigId: typeof p.activeConfigId === 'string' ? p.activeConfigId : null,
-            prompts: Array.isArray(p.prompts) && (p.prompts as PromptTemplate[]).length > 0
-              ? p.prompts : DEFAULT_PROMPTS,
-            aiSettings: { ...DEFAULT_AI_SETTINGS, ...(p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings as Partial<AIAssistantSettings> : {}) },
-            displaySettings: { ...DEFAULT_DISPLAY_SETTINGS, ...(p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings as Partial<DisplaySettings> : {}) },
-          }
-        }
-        if (version < 2) {
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          const aiSettings = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
-          const oldCG = (aiSettings.chapterGen && typeof aiSettings.chapterGen === 'object' ? aiSettings.chapterGen : {}) as Record<string, unknown>
-
-          const migrateOutlineTabs = (): OutlineTabToggles => ({
-            ...DEFAULT_OUTLINE_TABS,
-            plot: oldCG.useOutline === true,
-            worldbuilding: oldCG.useWorldbuilding === true,
-            characters: oldCG.useCharacters === true,
-          })
-
-          const migrateDetailedToggles = (): DetailedOutlineToggles => ({
-            ...DEFAULT_DETAILED_OUTLINE_TOGGLES,
-            plotOverview: oldCG.useDetailedOutline === true,
-            chapterCharacters: oldCG.useDetailedOutline === true,
-            location: oldCG.useDetailedOutline === true,
-            keyEvents: oldCG.useDetailedOutline === true,
-          })
-
-          const newChapterGen: ChapterGenSettings = {
-            outlineTabs: migrateOutlineTabs(),
-            detailedOutlineFields: migrateDetailedToggles(),
-            wordTarget: typeof oldCG.wordTarget === 'number' ? oldCG.wordTarget : 4000,
-            streamMode: oldCG.streamMode === true,
-            replaceMode: oldCG.replaceMode !== false,
-            selectedSceneId: typeof oldCG.selectedSceneId === 'string' ? oldCG.selectedSceneId : '',
-            selectedStyleTemplateId: typeof oldCG.selectedStyleTemplateId === 'string' ? oldCG.selectedStyleTemplateId : '',
-            selectedCharacterIds: Array.isArray(oldCG.selectedCharacterIds) ? oldCG.selectedCharacterIds : [],
-            selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
-            selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
-            styleStrength: (oldCG as any).styleStrength === 'light' || (oldCG as any).styleStrength === 'strong' ? (oldCG as any).styleStrength : 'normal',
-            prevTextEnabled: typeof (oldCG as any).prevTextEnabled === 'boolean' ? (oldCG as any).prevTextEnabled : true,
-            prevTextSourceChapterId: typeof (oldCG as any).prevTextSourceChapterId === 'string' ? (oldCG as any).prevTextSourceChapterId : '',
-            prevTextSelectedContent: typeof (oldCG as any).prevTextSelectedContent === 'string' ? (oldCG as any).prevTextSelectedContent : '',
-          }
-
-          return {
-            ...p,
-            aiSettings: { ...aiSettings, chapterGen: newChapterGen },
-          }
-        }
-        if (version < 3) {
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          const ds = (p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings : {}) as Record<string, unknown>
-          let theme = 'warm-purple'
-          if (ds.theme === 'dark') theme = 'neon-dark'
-          else if (ds.theme === 'light') theme = 'warm-purple'
-          else if (typeof ds.theme === 'string' && ds.theme !== 'light' && ds.theme !== 'dark') theme = ds.theme
-          return { ...p, displaySettings: { ...ds, theme } }
-        }
-        if (version < 4) {
-          // v4: ModelConfig type restructured — clear old configs to avoid immer proxy errors
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          return { ...p, configs: [], activeConfigId: null }
-        }
-        if (version < 6) {
-          // v6 (v13.x): 移除「润色」菜单项（与改写重复），存量润色模板并入改写类型
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          if (Array.isArray(p.prompts)) {
-            const prompts = (p.prompts as PromptTemplate[]).map(t =>
-              (t as { type?: string }).type === '润色' ? { ...t, type: '改写' as PromptType } : t
-            )
-            return { ...p, prompts }
-          }
-        }
-        if (version < 7) {
-          // v7 (v13.x): 知识库设置 — 为存量 aiSettings 补齐 kbSettings 默认值
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
-          const aiSettings = {
-            ...ai,
-            kbSettings: { ...DEFAULT_KB_SETTINGS, ...((ai.kbSettings && typeof ai.kbSettings === 'object') ? ai.kbSettings : {}) },
-          }
-          return { ...p, aiSettings }
-        }
-        if (version < 8) {
-          // v8 (v13.x): 知识库设置分场景 — 旧平铺结构 → agent/generation 两场景同值
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
-          const oldKb = (ai.kbSettings && typeof ai.kbSettings === 'object' ? ai.kbSettings : {}) as Record<string, unknown>
-          const flat = {
-            searchTopK: typeof oldKb.searchTopK === 'number' ? oldKb.searchTopK : 5,
-            fallbackPerFileMaxChars: typeof oldKb.fallbackPerFileMaxChars === 'number' ? oldKb.fallbackPerFileMaxChars : 5000,
-            fallbackTotalMaxChars: typeof oldKb.fallbackTotalMaxChars === 'number' ? oldKb.fallbackTotalMaxChars : 10000,
-          }
-          const kbSettings = {
-            agent: { ...DEFAULT_KB_SCENE, ...flat },
-            generation: { ...DEFAULT_KB_SCENE, ...flat },
-          }
-          return { ...p, aiSettings: { ...ai, kbSettings } }
-        }
-        if (version < 5) {
-          // v5 (v13.0): 多角色系统 — 从旧 customRoles 迁移到 roleTemplates
-          const p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
-          const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
-          const oldRoles = Array.isArray(ai.customRoles) ? ai.customRoles as { id: string; name: string; prompt: string }[] : []
-          const hasTemplates = Array.isArray(ai.roleTemplates) && (ai.roleTemplates as unknown[]).length > 0
-          if (oldRoles.length > 0 && !hasTemplates) {
-            // 内联 createDefaultCharacter + createDefaultRoleTemplate（migrate 必须同步）
-            const makeChar = (isUser: boolean, name: string, identity: string, personality = '', relationship = ''): Record<string, unknown> => ({
-              id: `char_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-              name, identity, gender: '男', personality,
-              avatar: '', relationship: relationship || (isUser ? '' : 'AI助手'),
-              isUser, firstMessage: isUser ? undefined : `你好！我是${name}，有什么可以帮你的？`,
-              exampleDialogue: '',
-            })
-            const aiChars = oldRoles.map(r => makeChar(false, r.name, '助手', r.prompt))
-            const template: Record<string, unknown> = {
-              id: `rt_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-              name: '经典模式',
-              characters: [makeChar(true, '写作者', '作者'), ...aiChars],
-              worldSetting: '',
-              scenarioSetting: '',
-            }
-            return {
-              ...p,
-              aiSettings: {
-                ...ai,
-                roleTemplates: [template],
-                activeRoleTemplateId: template.id,
-              },
-            }
-          }
-          // 确保字段存在
-          const updatedAi = { ...ai }
-          if (!Array.isArray(updatedAi.roleTemplates)) (updatedAi as any).roleTemplates = []
-          if (typeof updatedAi.activeRoleTemplateId !== 'string') (updatedAi as any).activeRoleTemplateId = ''
-          return { ...p, aiSettings: updatedAi }
-        }
-        return persisted
-      },
+      migrate: migrateSettings,
     }
   )
 )
+
+/**
+ * persist 迁移链（H2 修复）：累积式迁移。
+ * 原实现每个分支 `if (version < N) return` 提前返回 + v5 分支排在 v6/v7/v8 之后——
+ * version<5 的持久化命中更早分支直接返回，v5（customRoles→roleTemplates）逻辑上永不可达，
+ * version=4 用户升级错过 v5/v7/v8，且 roleTemplates 缺失时 addRoleTemplate 会崩溃。
+ * 现改为各分支在累加结果上顺序变换（v1→v2→v3→v4→v6→v7→v8→v5），最后统一返回。
+ */
+export function migrateSettings(persisted: unknown, version: number): Record<string, unknown> {
+  let p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>
+
+  if (version < 1) {
+    // v1: 初始形状 — 从原始持久化重建基础字段（v1 是首分支，p 此时即原始值）
+    p = {
+      configs: Array.isArray(p.configs) ? p.configs as ModelConfig[] : [],
+      activeConfigId: typeof p.activeConfigId === 'string' ? p.activeConfigId : null,
+      prompts: Array.isArray(p.prompts) && (p.prompts as PromptTemplate[]).length > 0
+        ? p.prompts : DEFAULT_PROMPTS,
+      aiSettings: { ...DEFAULT_AI_SETTINGS, ...(p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings as Partial<AIAssistantSettings> : {}) },
+      displaySettings: { ...DEFAULT_DISPLAY_SETTINGS, ...(p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings as Partial<DisplaySettings> : {}) },
+    }
+  }
+
+  if (version < 2) {
+    const aiSettings = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const oldCG = (aiSettings.chapterGen && typeof aiSettings.chapterGen === 'object' ? aiSettings.chapterGen : {}) as Record<string, unknown>
+
+    const migrateOutlineTabs = (): OutlineTabToggles => ({
+      ...DEFAULT_OUTLINE_TABS,
+      plot: oldCG.useOutline === true,
+      worldbuilding: oldCG.useWorldbuilding === true,
+      characters: oldCG.useCharacters === true,
+    })
+
+    const migrateDetailedToggles = (): DetailedOutlineToggles => ({
+      ...DEFAULT_DETAILED_OUTLINE_TOGGLES,
+      plotOverview: oldCG.useDetailedOutline === true,
+      chapterCharacters: oldCG.useDetailedOutline === true,
+      location: oldCG.useDetailedOutline === true,
+      keyEvents: oldCG.useDetailedOutline === true,
+    })
+
+    const newChapterGen: ChapterGenSettings = {
+      outlineTabs: migrateOutlineTabs(),
+      detailedOutlineFields: migrateDetailedToggles(),
+      wordTarget: typeof oldCG.wordTarget === 'number' ? oldCG.wordTarget : 4000,
+      streamMode: oldCG.streamMode === true,
+      replaceMode: oldCG.replaceMode !== false,
+      selectedSceneId: typeof oldCG.selectedSceneId === 'string' ? oldCG.selectedSceneId : '',
+      selectedStyleTemplateId: typeof oldCG.selectedStyleTemplateId === 'string' ? oldCG.selectedStyleTemplateId : '',
+      selectedCharacterIds: Array.isArray(oldCG.selectedCharacterIds) ? oldCG.selectedCharacterIds : [],
+      selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
+      selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
+      styleStrength: (oldCG as any).styleStrength === 'light' || (oldCG as any).styleStrength === 'strong' ? (oldCG as any).styleStrength : 'normal',
+      prevTextEnabled: typeof (oldCG as any).prevTextEnabled === 'boolean' ? (oldCG as any).prevTextEnabled : true,
+      prevTextSourceChapterId: typeof (oldCG as any).prevTextSourceChapterId === 'string' ? (oldCG as any).prevTextSourceChapterId : '',
+      prevTextSelectedContent: typeof (oldCG as any).prevTextSelectedContent === 'string' ? (oldCG as any).prevTextSelectedContent : '',
+    }
+
+    p = { ...p, aiSettings: { ...aiSettings, chapterGen: newChapterGen } }
+  }
+
+  if (version < 3) {
+    const ds = (p.displaySettings && typeof p.displaySettings === 'object' ? p.displaySettings : {}) as Record<string, unknown>
+    let theme = 'warm-purple'
+    if (ds.theme === 'dark') theme = 'neon-dark'
+    else if (ds.theme === 'light') theme = 'warm-purple'
+    else if (typeof ds.theme === 'string' && ds.theme !== 'light' && ds.theme !== 'dark') theme = ds.theme
+    p = { ...p, displaySettings: { ...ds, theme } }
+  }
+
+  if (version < 4) {
+    // v4: ModelConfig type restructured — clear old configs to avoid immer proxy errors
+    p = { ...p, configs: [], activeConfigId: null }
+  }
+
+  if (version < 6) {
+    // v6 (v13.x): 移除「润色」菜单项（与改写重复），存量润色模板并入改写类型
+    if (Array.isArray(p.prompts)) {
+      const prompts = (p.prompts as PromptTemplate[]).map(t =>
+        (t as { type?: string }).type === '润色' ? { ...t, type: '改写' as PromptType } : t
+      )
+      p = { ...p, prompts }
+    }
+  }
+
+  if (version < 7) {
+    // v7 (v13.x): 知识库设置 — 为存量 aiSettings 补齐 kbSettings 默认值
+    const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const aiSettings = {
+      ...ai,
+      kbSettings: { ...DEFAULT_KB_SETTINGS, ...((ai.kbSettings && typeof ai.kbSettings === 'object') ? ai.kbSettings : {}) },
+    }
+    p = { ...p, aiSettings }
+  }
+
+  if (version < 8) {
+    // v8 (v13.x): 知识库设置分场景 — 旧平铺结构 → agent/generation 两场景同值
+    const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const oldKb = (ai.kbSettings && typeof ai.kbSettings === 'object' ? ai.kbSettings : {}) as Record<string, unknown>
+    const flat = {
+      searchTopK: typeof oldKb.searchTopK === 'number' ? oldKb.searchTopK : 5,
+      fallbackPerFileMaxChars: typeof oldKb.fallbackPerFileMaxChars === 'number' ? oldKb.fallbackPerFileMaxChars : 5000,
+      fallbackTotalMaxChars: typeof oldKb.fallbackTotalMaxChars === 'number' ? oldKb.fallbackTotalMaxChars : 10000,
+    }
+    const kbSettings = {
+      agent: { ...DEFAULT_KB_SCENE, ...flat },
+      generation: { ...DEFAULT_KB_SCENE, ...flat },
+    }
+    p = { ...p, aiSettings: { ...ai, kbSettings } }
+  }
+
+  if (version < 5) {
+    // v5 (v13.0): 多角色系统 — 从旧 customRoles 迁移到 roleTemplates
+    const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const oldRoles = Array.isArray(ai.customRoles) ? ai.customRoles as { id: string; name: string; prompt: string }[] : []
+    const hasTemplates = Array.isArray(ai.roleTemplates) && (ai.roleTemplates as unknown[]).length > 0
+    if (oldRoles.length > 0 && !hasTemplates) {
+      // 内联 createDefaultCharacter + createDefaultRoleTemplate（migrate 必须同步）
+      const makeChar = (isUser: boolean, name: string, identity: string, personality = '', relationship = ''): Record<string, unknown> => ({
+        id: `char_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name, identity, gender: '男', personality,
+        avatar: '', relationship: relationship || (isUser ? '' : 'AI助手'),
+        isUser, firstMessage: isUser ? undefined : `你好！我是${name}，有什么可以帮你的？`,
+        exampleDialogue: '',
+      })
+      const aiChars = oldRoles.map(r => makeChar(false, r.name, '助手', r.prompt))
+      const template: Record<string, unknown> = {
+        id: `rt_mig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: '经典模式',
+        characters: [makeChar(true, '写作者', '作者'), ...aiChars],
+        worldSetting: '',
+        scenarioSetting: '',
+      }
+      p = {
+        ...p,
+        aiSettings: {
+          ...ai,
+          roleTemplates: [template],
+          activeRoleTemplateId: template.id,
+        },
+      }
+    } else {
+      // 确保字段存在（无 customRoles 或已有模板时也兜底）
+      const updatedAi = { ...ai }
+      if (!Array.isArray(updatedAi.roleTemplates)) (updatedAi as any).roleTemplates = []
+      if (typeof updatedAi.activeRoleTemplateId !== 'string') (updatedAi as any).activeRoleTemplateId = ''
+      p = { ...p, aiSettings: updatedAi }
+    }
+  }
+
+  return p
+}

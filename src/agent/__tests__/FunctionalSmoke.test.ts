@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { buildSystemPrompt, CORE_SYSTEM_PROMPT } from '../V4SystemPrompt'
+import { isPureGreeting, hasTaskKeywords, isKnowledgeOnly } from '../utils/taskDetection'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import { ContextAssembler } from '../context/ContextAssembler'
@@ -14,19 +15,15 @@ beforeAll(() => {
 })
 
 describe('功能冒烟测试 (项目"1")', () => {
-  // ── 1. 意图分类逻辑 ──
-  it('意图分类: 多要求→complex, 查看→simple, 闲聊→chat', () => {
-    const classify = (msg: string) => {
-      if (/^(你好|谢谢|再见|嗯)/.test(msg)) return 'chat'
-      if (/写|创建|修改|删除|编辑|生成|续写/.test(msg) &&
-          (msg.match(/[，,；;。\n]/g) || []).length >= 2) return 'complex'
-      if (/写|创建|生成|续写/.test(msg)) return 'complex'
-      if (/查看|检查|列出|读取|看看|搜索/.test(msg)) return 'simple'
-      return 'chat'
-    }
-    expect(classify('帮我完善世界观，创建5个角色，写前3章细纲')).toBe('complex')
-    expect(classify('看看角色列表')).toBe('simple')
-    expect(classify('你好')).toBe('chat')
+  // ── 1. 意图分类（真实 taskDetection 函数——M4: 原内联 classify 是已删除逻辑的重写残留） ──
+  it('意图分类: isPureGreeting/hasTaskKeywords/isKnowledgeOnly 边界正确', () => {
+    expect(isPureGreeting('你好')).toBe(true)
+    expect(isPureGreeting('谢谢')).toBe(true)
+    expect(isPureGreeting('帮我创建5个角色')).toBe(false)
+    expect(hasTaskKeywords('帮我完善世界观，创建5个角色，写前3章细纲')).toBe(true)
+    expect(hasTaskKeywords('你好')).toBe(false)
+    expect(isKnowledgeOnly('什么是修仙境界？')).toBe(true)
+    expect(isKnowledgeOnly('帮我写大纲')).toBe(false)
   })
 
   // ── 2. 任务画像匹配 ──
@@ -87,7 +84,7 @@ describe('功能冒烟测试 (项目"1")', () => {
   // ── 5. 工具注册 ──
   it('工具注册: 27个工具 (v13.2.0: -lsp_diagnose/-update_config/-list_audit)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBeGreaterThanOrEqual(25)
+    expect(names.length).toBe(27)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('read_file')
@@ -131,15 +128,5 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(c.needsCompression(90_000)).toBe(true)
   })
 
-  // ── 12. IntentClassifier fallback ──
-  it('IntentClassifier: 输出格式"意图|要求数"解析', () => {
-    const parse = (text: string) => {
-      const match = text.match(/(chat|simple|complex)\|?(\d+)?/)
-      return { intent: match?.[1] || 'chat', count: parseInt(match?.[2] || '0') || 0 }
-    }
-    expect(parse('complex|4')).toEqual({ intent: 'complex', count: 4 })
-    expect(parse('simple|1')).toEqual({ intent: 'simple', count: 1 })
-    expect(parse('chat|0')).toEqual({ intent: 'chat', count: 0 })
-    expect(parse('garbage')).toEqual({ intent: 'chat', count: 0 })
-  })
+  // M4: IntentClassifier 类已从 src 删除（v13.x），原测试 12 测的是内联重写残留——已移除
 })

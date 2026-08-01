@@ -34,8 +34,9 @@ function parsePackagingRules(): PackagingRules | null {
   const blacklist: PackagingRules['blacklist'] = []
   const safelist: PackagingRules['safelist'] = []
 
-  // Match blacklist table rows
-  const blacklistRegex = /\| `([^`]+)` \| ([^|]+) \| [^|]+ \| ([^|]+) \| ([^|]+) \|/g
+  // Match blacklist table rows（表头: 目录/文件 | 内容 | 风险等级 | gitignore? | 打包风险）
+  // M4 审查修正: 原正则跳过的是"内容"列导致 risk 绑定错列 → highRisk 恒空、断言恒真空
+  const blacklistRegex = /\| `([^`]+)` \| [^|]+ \| ([^|]+) \| ([^|]+) \| ([^|]+) \|/g
   let match
   while ((match = blacklistRegex.exec(content)) !== null) {
     const dir = match[1]
@@ -245,24 +246,32 @@ describe('打包安全验证', () => {
   })
 
   // ── 6. 当前项目中的用户数据目录未被 git 跟踪 ──
-  it('6. 实际目录检查 — 用户数据目录存在但不被 git 跟踪', () => {
+  it('6. 实际目录检查 — 存在的用户数据目录必须被 .gitignore 覆盖', () => {
     const rules = parsePackagingRules()
     if (!rules) return
+
+    const gitignore = loadGitignore()
 
     const userDirs = rules.blacklist.map(b => {
       const dirName = b.dir.replace(/\/$/, '').split('/').pop()!
       return { name: dirName, path: path.join(PROJECT_ROOT, dirName) }
     })
 
+    let checked = 0
     for (const dir of userDirs) {
       if (fs.existsSync(dir.path)) {
         const size = getDirSize(dir.path)
         if (size > 0) {
-          // 目录存在且有内容 → 验证它有合理的用途（不做断言，只记录）
-          console.log(`  ℹ ${dir.name}/ 存在 (${(size / 1024).toFixed(1)}KB) — 确保不被 git 跟踪`)
+          // M4: 真实断言——存在的用户数据目录必须被 gitignore 覆盖（精确或通配前缀）
+          const ignored = [...gitignore].some(g =>
+            g === dir.name || g.startsWith(dir.name + '/') || g.startsWith('**/' + dir.name))
+          expect(ignored).toBe(true)
+          checked++
         }
       }
     }
+    // 防空洞：必须实际检查到至少一个目录
+    expect(checked).toBeGreaterThan(0)
   })
 
   // ── 7. electron-builder.yml 不包含 asar.unpack 敏感文件 ──
@@ -310,67 +319,23 @@ describe('打包安全验证', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('图片上下文安全 — 图片不入对话上下文', () => {
-  it('图片消息不在 buildHistoryMessages 输出中', () => {
-    // 模拟 buildHistoryMessages 的核心过滤逻辑
-    const buildHistoryMessages = (msgs: Array<{ role: string; content: string; images?: string[]; previewUrl?: string }>) => {
-      return msgs
-        .filter(m => (m.role === 'user' || m.role === 'assistant'))
-        .map(m => ({ role: m.role, content: m.content }))
-    }
-
-    const msgs = [
-      { role: 'user', content: '帮我生成一张古风图', images: undefined },
-      { role: 'assistant', content: '图片已生成：images/img_001.png', images: ['https://example.com/img.png'] },
-      { role: 'user', content: '继续写第三章' },
-    ]
-
-    const history = buildHistoryMessages(msgs as any)
-
-    // 图片 URL 不应出现在历史中
-    for (const h of history) {
-      expect(h).not.toHaveProperty('images')
-      expect(h).not.toHaveProperty('previewUrl')
-    }
-
-    // 历史消息只包含 role + content
-    for (const h of history) {
-      const keys = Object.keys(h)
-      expect(keys.length).toBe(2)
-      expect(keys).toContain('role')
-      expect(keys).toContain('content')
-    }
-  })
-
-  it('attachment.previewUrl 仅用于 UI 显示，不进入用户消息 content', () => {
-    // 模拟 handleSend 中的图片附件处理
-    const attachment = {
-      type: 'image' as const,
-      name: 'test.png',
-      content: '[上传图片: test.png]',
-      previewUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-    }
-
-    // 发送时只会把 attachment.content 加入消息
-    const attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
-    const fullContent = `${attachText}\n\n请分析这张图片`
-
-    // previewUrl（base64 图片数据）不在 content 中！
-    expect(fullContent).not.toContain('base64')
-    expect(fullContent).not.toContain('data:image')
-    expect(fullContent).not.toContain(attachment.previewUrl)
-  })
-
-  it('ContractExecutor 中图片工具结果不包含 base64 图片数据', () => {
-    // 模拟 generate_image 工具结果
+  it('ContractExecutor 剥离 generate_image 结果的 base64/数据字段', async () => {
+    // M4: 引用真实 ContractExecutor（原测试自造字面量断言恒真）
+    const { ContractExecutor } = await import('../src/agent/context/ContractExecutor')
     const imageResult = {
       status: 'success',
       summary: '已生成图片',
       detail: '图片路径: images/ai_001.png\n花费: $0.02',
+      // 模拟工具实现泄露敏感字段（真实执行器不应透传）
+      base64Data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      dataUrl: 'data:image/png;base64,xxx',
     }
+    const { resultForApi } = ContractExecutor.filterForContext('generate_image', imageResult as any)
 
-    // 图片工具结果只有路径和花费，没有 base64
-    expect(imageResult.detail).not.toContain('base64')
-    expect(imageResult.detail).not.toContain('data:image')
-    expect(imageResult.detail!.length).toBeLessThan(100) // 很小
+    // generate_image 契约 = status/summary/detail → base64/dataUrl 必须被剥离
+    expect(resultForApi).not.toHaveProperty('base64Data')
+    expect(resultForApi).not.toHaveProperty('dataUrl')
+    expect(JSON.stringify(resultForApi)).not.toContain('base64')
+    expect(resultForApi.detail!.length).toBeLessThan(100)
   })
 })

@@ -18,7 +18,7 @@ export function DetailView({ ws }: { ws: any }) {
       {/* Header */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => { ws.setView('library'); ws.setSelectedProject(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', display: 'flex', padding: 4 }}><ArrowLeftIcon style={{ width: 20, height: 20 }} /></button>
+          <button onClick={() => { ws.setView('library'); ws.setProjectBoth(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', display: 'flex', padding: 4 }}><ArrowLeftIcon style={{ width: 20, height: 20 }} /></button>
           <h2 style={{ fontSize: 17, fontWeight: 700, color: '#2d2520' }}>{ws.selectedProject.name}</h2>
           <span style={{ fontSize: 11, color: '#9b8e84' }}>{ws.selectedProject.chapters.length}章 {(ws.selectedProject.totalCharCount/10000).toFixed(1)}万字</span>
           {ws.selectedProject.profile && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✓ 已总结</span>}
@@ -343,7 +343,7 @@ export function DetailView({ ws }: { ws: any }) {
             </div>
           ))}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
-            <Button onClick={() => { ws.setShowDimConfig(false); if (ws.selectedProject) { const updated = { ...ws.selectedProject, enabledDimensions: ws.enabledDimensions }; styleProjectService.saveProject(updated).catch(err => logError('保存维度配置失败', err)); ws.setSelectedProject(updated) } }}>确定</Button>
+            <Button onClick={() => { ws.setShowDimConfig(false); if (ws.selectedProject) { const updated = { ...ws.selectedProject, enabledDimensions: ws.enabledDimensions }; styleProjectService.saveProject(updated).catch(err => logError('保存维度配置失败', err)); ws.setProjectBoth(updated) } }}>确定</Button>
           </div>
         </div>
       </Modal>

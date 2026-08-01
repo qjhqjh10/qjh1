@@ -1,7 +1,51 @@
 {
-  "currentVersion": "14.0.0",
+  "currentVersion": "14.0.2",
   "currentDate": "2026-08-01",
   "history": [
+    {
+      "version": "14.0.2",
+      "date": "2026-08-01",
+      "features": [],
+      "fixes": [
+        "系统提示词统一: 删除 .aiharness/prompts/CORE_SYSTEM_PROMPT.md（v13.2 瘦身前旧版，15 字段/内嵌手册与代码分叉），移除 getSystemPrompt IPC 链，代码内 CORE_SYSTEM_PROMPT 为唯一来源——修复开发环境用旧版、打包环境用新版的行为不一致",
+        "SSRF: 修复 IPv6 私网绕过（IPv4-mapped ::ffff:127.0.0.1/未指定 ::/ULA fc00::/链路本地 fe80:: 全部拦截）",
+        "SSRF: saveImageUrl 响应体改为流式读取+全程超时（防恶意服务器挂死 IPC、防整包缓冲内存膨胀）",
+        "Anthropic: 中止时不再提交截断文本（增量解析后 abort 带部分内容的回归修复）",
+        "Anthropic: SSE 尾部冲刷修复（未以空行结尾的末事件不再丢失）+ 流式解码 flush",
+        "M2: create_file 全局路径支持修复（GLOBAL_DIR_NAMES 首段匹配与安全基准一致）",
+        "M2: resolveArgNoRealpath 补绝对路径拒绝与 ../ 逃逸校验（与 safeResolve 一致）；删除冗余 resolveNotePath",
+        "H9: 情色弹窗 3 处 checkbox 追加补前导逗号（与 setKinkField 分隔符一致，防条目粘连）",
+        "M3 残留: config-not-found 错误通道删除 + error 文案与 categorizeError 统一",
+        "H3: 压缩摘要无 assistant 文本时省略 AI 行（不再把用户内容标成 AI 回复）",
+        "H10: 自定义正则拆章支持 ^ 行首锚定（gm 标志）",
+        "H11/H12: 视图层 ref 同步补漏（hook 导出 setProjectBoth、JSX 内联 setProject 同步 projectRef）",
+        "M4: PackagingSafety 黑名单解析列绑定修正（风险列错位致 highRisk 断言恒空——修正后暴露并补齐真实缺口）",
+        "M4: 测试补强（IPv6 SSRF 用例、SSE 未终止尾部、零长正则、迁移单步、压缩 fallback 断言等）"
+      ]
+    },
+    {
+      "version": "14.0.1",
+      "date": "2026-08-01",
+      "features": [],
+      "fixes": [
+        "H1: 5轮外 read_file 结果压缩生效（tool_call_id 回溯工具名，旧文件全文不再占满上下文）",
+        "H2: persist 迁移链修复（累积式，v4 用户一次性获得 v5/v7/v8 迁移）",
+        "H3: 上下文压缩不再产生孤儿 tool 消息（按 user 分段整段压缩）",
+        "H4: 移除不可达的 list_backups/restore_backup 死代码（v14 本意删除的残留）",
+        "H5: API key 明文存储文案如实化，MASKED_KEY 占位符不再覆写真实密钥",
+        "H6: Anthropic 流式改为增量 SSE 解析（实时预览恢复，顺带修复 CRLF 分隔符整段丢失）",
+        "H7: Anthropic 请求错误不再被吞（error 透传 + onError 触发 + chunk 监听器泄漏修复）",
+        "H8: files:saveImageUrl 加 SSRF 防护（私网拦截/15s超时/redirect 逐跳/大小与 MIME 校验）",
+        "H9: 情色场景弹窗 4 个下拉选择中文值失效修复（\\w→[^,]+，不再追加重复值）",
+        "H10: 改写向导自定义正则拆章错位修复（matchAll 按行拆分，免疫捕获组）",
+        "H11: 风格工坊批量分析落盘旧闭包修复（ref 同步最新项目，刷新不再丢数据）",
+        "H12: 续写工作区批量分析互相覆盖修复（ref 读写最新章节）",
+        "M1: filePaths 路径集中管理落地（3 个 service + OutlinePage 改用统一路径函数，TAB_FILE_MAP 对齐实际文件名）",
+        "M2: GLOBAL_DIRS 全局路径解析生效（notes/style_templates 等无需 ../ 前缀）",
+        "M3: 删除冗余 ai:anthropic-done/ai:anthropic-error 事件通道（数据经 invoke 返回值下发）",
+        "M4: 测试质量修复（SevenLayerCache 改测真实实现；删除恒真断言/已删逻辑残留测试）"
+      ]
+    },
     {
       "version": "14.0.0",
       "date": "2026-08-01",

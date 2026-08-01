@@ -28,6 +28,21 @@ import {
   SOUND_DENSITIES, MOAN_STYLES, DEGRADE_LANGS,
 } from './eroticSceneConstants'
 
+/**
+ * H9: 更新 customKink 的键值字段（如 `风格:沉浸式长镜`）。
+ * 删除旧值（[^,]+ 可匹配中文——原 \w 不匹配中文导致追加重复值且读不到旧值）→
+ * 清理重复/首尾逗号 → 非空值追加新条目；空值（-- 占位）只删不添。
+ */
+export function setKinkField(kink: string, key: string, value: string): string {
+  const cleared = kink
+    .replace(new RegExp(`${key}:[^,]+`, 'g'), '')
+    .replace(/,+/g, ',')
+    .replace(/^,|,$/g, '')
+    .trim()
+  if (!value) return cleared
+  return cleared ? `${cleared},${key}:${value}` : `${key}:${value}`
+}
+
 const DEFAULT_CONFIG: EroticSceneConfig = {
   characters: [], location: '卧室', time: '深夜', atmosphere: '羞辱', publicity: '私密',
   selectedKinks: [], kinkNote: '',
@@ -308,13 +323,13 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
             <div style={{ padding: 12, borderRadius: 12, background: '#faf9f8' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>5. 身体焦点与技法</div>
               <div style={{ fontSize: 11, marginBottom: 4 }}>体液优先级: {['精液','爱液','汗液','乳汁','尿液','血液'].map(f => (
-                <label key={f} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`体液:${f}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`体液:${f}`) ? config.customKink.replace(`体液:${f},`,'').replace(`体液:${f}`,'') : config.customKink + `体液:${f},`})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{f}</label>
+                <label key={f} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`体液:${f}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`体液:${f}`) ? config.customKink.replace(`体液:${f},`,'').replace(`体液:${f}`,'') : (config.customKink ? config.customKink + `,体液:${f}` : `体液:${f}`)})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{f}</label>
               ))}</div>
               <div style={{ fontSize: 11, marginBottom: 4 }}>身体焦点: {['胸','腿','脚','臀','腰','颈','手','眼','唇','发'].map(p => (
-                <label key={p} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`焦点:${p}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`焦点:${p}`) ? config.customKink.replace(`焦点:${p},`,'').replace(`焦点:${p}`,'') : config.customKink + `焦点:${p},`})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{p}</label>
+                <label key={p} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`焦点:${p}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`焦点:${p}`) ? config.customKink.replace(`焦点:${p},`,'').replace(`焦点:${p}`,'') : (config.customKink ? config.customKink + `,焦点:${p}` : `焦点:${p}`)})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{p}</label>
               ))}</div>
               <div style={{ fontSize: 11 }}>触感优先: {['温度','湿度','压力','摩擦','振动'].map(t => (
-                <label key={t} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`触感:${t}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`触感:${t}`) ? config.customKink.replace(`触感:${t},`,'').replace(`触感:${t}`,'') : config.customKink + `触感:${t},`})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{t}</label>
+                <label key={t} style={{ display:'inline-flex',alignItems:'center',gap:3,marginRight:8,cursor:'pointer' }}><input type="checkbox" checked={config.customKink.includes(`触感:${t}`)} onChange={() => setConfig({...config, customKink: config.customKink.includes(`触感:${t}`) ? config.customKink.replace(`触感:${t},`,'').replace(`触感:${t}`,'') : (config.customKink ? config.customKink + `,触感:${t}` : `触感:${t}`)})} style={{ width:11,height:11,accentColor:'#ec4899' }} />{t}</label>
               ))}</div>
             </div>
 
@@ -322,9 +337,9 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
             <div style={{ padding: 12, borderRadius: 12, background: '#faf9f8' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>6. 叙事技法</div>
               <div style={{ display:'flex',gap:8,flexWrap:'wrap',fontSize:11 }}>
-                叙事风格: <select value={config.customKink.match(/风格:(\w+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/风格:\w+/,'') + `风格:${e.target.value}`})} style={mini}><option value="">--</option><option>沉浸式长镜</option><option>旁观式扫射</option><option>蒙太奇快切</option><option>慢镜头特写</option></select>
-                时间: <select value={config.customKink.match(/时间:(\w+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/时间:\w+/,'') + `时间:${e.target.value}`})} style={mini}><option value="">--</option><option>实时</option><option>压缩</option><option>拉长</option><option>倒叙</option></select>
-                内省: <select value={config.customKink.match(/内省:(\w+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/内省:\w+/,'') + `内省:${e.target.value}`})} style={mini}><option value="">--</option><option>无</option><option>低</option><option>中</option><option>高</option></select>
+                叙事风格: <select value={config.customKink.match(/风格:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: setKinkField(config.customKink, '风格', e.target.value)})} style={mini}><option value="">--</option><option>沉浸式长镜</option><option>旁观式扫射</option><option>蒙太奇快切</option><option>慢镜头特写</option></select>
+                时间: <select value={config.customKink.match(/时间:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: setKinkField(config.customKink, '时间', e.target.value)})} style={mini}><option value="">--</option><option>实时</option><option>压缩</option><option>拉长</option><option>倒叙</option></select>
+                内省: <select value={config.customKink.match(/内省:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: setKinkField(config.customKink, '内省', e.target.value)})} style={mini}><option value="">--</option><option>无</option><option>低</option><option>中</option><option>高</option></select>
               </div>
               <input value={config.customKink.match(/锚点:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/锚点:[^,]+/,'').replace(/,+/g,',') + (e.target.value ? `锚点:${e.target.value}` : '')})} placeholder="感官锚点(特定重复意象)" style={{ ...inputStyle, marginTop:4, fontSize:11, padding:'4px 10px' }} />
             </div>
@@ -351,7 +366,7 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
             <div style={{ padding: 12, borderRadius: 12, background: '#faf9f8' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#2d2520', marginBottom: 8 }}>8. 情绪与心理</div>
               <div style={{ display:'flex',gap:8,fontSize:11,alignItems:'center',flexWrap:'wrap' }}>
-                主导: <select value={config.customKink.match(/情绪:(\w+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/情绪:\w+/,'') + `情绪:${e.target.value}`})} style={mini}><option value="">--</option><option>羞辱</option><option>快感</option><option>恐惧</option><option>温柔</option><option>支配</option><option>臣服</option><option>渴求</option><option>羞耻</option><option>爱慕</option><option>仇恨</option></select>
+                主导: <select value={config.customKink.match(/情绪:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: setKinkField(config.customKink, '情绪', e.target.value)})} style={mini}><option value="">--</option><option>羞辱</option><option>快感</option><option>恐惧</option><option>温柔</option><option>支配</option><option>臣服</option><option>渴求</option><option>羞耻</option><option>爱慕</option><option>仇恨</option></select>
                 曲线: <input value={config.customKink.match(/曲线:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/曲线:[^,]+/,'').replace(/,+/g,',') + (e.target.value ? `曲线:${e.target.value}` : '')})} placeholder="起始→最高→结束" style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11,width:140 }} />
                 触发词: <input value={config.customKink.match(/触发:([^,]+)/)?.[1] || ''} onChange={e => setConfig({...config, customKink: config.customKink.replace(/触发:[^,]+/,'').replace(/,+/g,',') + (e.target.value ? `触发:${e.target.value}` : '')})} placeholder="一说就崩溃的词" style={{ padding:'3px 8px',borderRadius:6,border:'1px solid rgba(0,0,0,0.1)',fontSize:11,width:120 }} />
               </div>

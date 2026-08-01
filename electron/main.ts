@@ -93,10 +93,10 @@ async function syncAiharnessResources(parentDir: string, projectsPath: string) {
   const destBases = [parentDir]
 
   // Static resources to sync (NOT audit/, learnings.json, design/, hooks/)
+  // v14.0.1: prompts 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   const toCopy = [
     { src: 'templates', dest: 'templates' },
     { src: 'rules', dest: 'rules' },
-    { src: 'prompts', dest: 'prompts' },
     { src: 'aiharness.json', dest: 'aiharness.json' },
     { src: 'AGENTS.md', dest: 'AGENTS.md' },
   ]
@@ -257,19 +257,8 @@ app.whenReady().then(async () => {
   registerMCPHandlers(ipcMain)
   registerLSPHandlers(ipcMain)
 
-  // ── 系统提示词文件读取 ──
-  // 用户可在 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 中查看和编辑
-  const promptsDir = join(parentDir, '.aiharness', 'prompts')
-  const DEFAULT_SYSTEM_PROMPT = '你是青剑，一个小说创作对话助手。'
-  ipcMain.handle('app:getSystemPrompt', async () => {
-    try {
-      return await import('fs/promises').then(fs =>
-        fs.readFile(join(promptsDir, 'CORE_SYSTEM_PROMPT.md'), 'utf-8'),
-      )
-    } catch {
-      return DEFAULT_SYSTEM_PROMPT
-    }
-  })
+  // v14.0.1: app:getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
+  // （原 MD 文件是 v13.2 瘦身前旧版且打包不含 prompts，造成开发/打包行为不一致）
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {

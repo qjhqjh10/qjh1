@@ -4,11 +4,7 @@ import { logError } from '@/utils/logger'
 import { loadSummary } from '@/services/summaryService'
 import { safeJsonParse } from '@/utils/safeJsonParse'
 import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
-import { isStructuredDataFile, stripExtension, readAndMigrate } from '@/utils/filePaths'
-
-function chapPath(projectPath: string, id: string) {
-  return `${projectPath}/detailed_outline/${id}.yaml`
-}
+import { isStructuredDataFile, stripExtension, readAndMigrate, detailedOutlinePath } from '@/utils/filePaths'
 
 /** Fix unescaped newlines inside JSON string values. */
 function fixJsonNewlines(json: string): string {
@@ -76,7 +72,7 @@ export function repairJson(raw: string): string | null {
 
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
   try {
-    await fileService.write(chapPath(projectPath, chapter.id), yamlStringify(chapter))
+    await fileService.write(detailedOutlinePath(projectPath, chapter.id), yamlStringify(chapter))
   } catch (e) {
     logError(`保存细纲失败: ${chapter.title || chapter.id}`, e)
     throw e

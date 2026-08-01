@@ -94,6 +94,27 @@ describe('read_file', () => {
     expect(result.status).toBe('success')
     expect(result.detail).toContain('草稿内容')
   })
+
+  it('M2: 无前缀 notes/ 路径解析到全局目录（GLOBAL_DIR_NAMES 首段匹配）', async () => {
+    const result = await executeFileTool(makeCall('read_file', { file_path: 'notes/灵感.md' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('草稿内容')
+  })
+
+  it('M2: style_templates 全局目录可读', async () => {
+    const appRoot = path.dirname(projectPath)
+    await fsp.mkdir(path.join(appRoot, 'style_templates'), { recursive: true })
+    await fsp.writeFile(path.join(appRoot, 'style_templates', 'a.yaml'), 'name: 测试模板', 'utf-8')
+    const result = await executeFileTool(makeCall('read_file', { file_path: 'style_templates/a.yaml' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('测试模板')
+  })
+
+  it('M2: 项目内普通路径解析不受影响', async () => {
+    const result = await executeFileTool(makeCall('read_file', { file_path: 'characters/zhangsan.json' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('张三')
+  })
 })
 
 describe('search_content', () => {
@@ -360,15 +381,6 @@ describe('delete_project', () => {
   it('rejects non-existent project', async () => {
     const result = await executeFileTool(makeCall('delete_project', { project_name: 'notExist' }), projectPath)
     expect(result.status).toBe('error')
-  })
-})
-
-// ── Backups (disabled) ──
-
-describe('list_backups', () => {
-  it('returns empty when backups disabled', async () => {
-    const result = await executeFileTool(makeCall('list_backups', { file_path: 'outline/plot.md' }), projectPath)
-    expect(result.status).toBe('success')
   })
 })
 

@@ -33,6 +33,33 @@ const STEPS = [
 
 type StepKey = typeof STEPS[number]['key']
 
+/**
+ * H10: 自定义正则拆章。
+ * 用 matchAll（免疫捕获组错位——原 split 方案对含捕获组的正则奇偶错位、无捕获组时标题被吞）。
+ * 标题 = 匹配所在的整行（剥离行首 # 标记）——与用户"正则匹配标题行"的直觉一致；
+ * 正文 = 标题行之后到下一标题行之前。首个匹配之前的内容丢弃（与原行为一致）；
+ * 无匹配回退"全文"；零长匹配过滤。
+ */
+export function splitByCustomRegex(content: string, customRegex: string): Array<{ title: string; content: string }> {
+  if (!customRegex.trim()) throw new Error('请输入自定义拆分正则')
+  const re = new RegExp(customRegex, 'gm') // 'm': 用户按直觉写 ^第.+章 锚定行首时逐行匹配（审查修正）
+  const matches = [...content.matchAll(re)].filter(m => m[0].length > 0)
+  if (matches.length === 0) return [{ title: '全文', content }]
+  // 预先计算每个匹配所在行的行首/行尾偏移
+  const bounds = matches.map(m => {
+    const lineStart = content.lastIndexOf('\n', m.index - 1) + 1
+    let lineEnd = content.indexOf('\n', m.index)
+    if (lineEnd === -1) lineEnd = content.length
+    return { lineStart, lineEnd }
+  })
+  return matches.map((m, i) => {
+    const title = content.slice(bounds[i].lineStart, bounds[i].lineEnd).replace(/^#{1,6}\s*/, '').trim() || `章节${i + 1}`
+    const start = bounds[i].lineEnd
+    const end = i + 1 < bounds.length ? bounds[i + 1].lineStart : content.length
+    return { title, content: content.slice(start, end).trim() }
+  })
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -120,17 +147,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
       if (splitMethod === 'heading') {
         results = splitChaptersByHeadings(fileContent)
       } else {
-        // Custom regex split
-        if (!customRegex.trim()) throw new Error('请输入自定义拆分正则')
-        const regex = new RegExp(customRegex, 'g')
-        // Split by custom regex — simple approach: match heading lines
-        const parts = fileContent.split(regex)
-        results = []
-        for (let i = 1; i < parts.length; i += 2) {
-          const title = (parts[i - 1] || '').trim().split('\n').pop()?.trim() || `章节${(i + 1) / 2}`
-          results.push({ title, content: parts[i] || '' })
-        }
-        if (results.length === 0) results.push({ title: '全文', content: fileContent })
+        results = splitByCustomRegex(fileContent, customRegex)
       }
 
       if (results.length === 0) throw new Error('未检测到章节结构')
@@ -192,14 +209,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
       if (splitMethod === 'heading') {
         splitResults = splitChaptersByHeadings(fileContent)
       } else {
-        const regex = new RegExp(customRegex, 'g')
-        const parts = fileContent.split(regex)
-        splitResults = []
-        for (let i = 1; i < parts.length; i += 2) {
-          const title = (parts[i - 1] || '').trim().split('\n').pop()?.trim() || `章节${(i + 1) / 2}`
-          splitResults.push({ title, content: parts[i] || '' })
-        }
-        if (splitResults.length === 0) splitResults.push({ title: '全文', content: fileContent })
+        splitResults = splitByCustomRegex(fileContent, customRegex)
       }
 
       const sourceWordCount = countCJKChars(fileContent)

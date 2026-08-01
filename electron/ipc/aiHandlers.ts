@@ -1,7 +1,7 @@
 import { IpcMain, SafeStorage, app } from 'electron'
 
 import { logTokenUsage } from './statsHandlers'
-import { getOpenAI, getConfigStore, localISOString, calculateCost } from './utils'
+import { getOpenAI, getConfigStore, localISOString, calculateCost, mergeConfigKeys } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
@@ -274,10 +274,18 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const store = await getConfigStore(); return (store as any).get('pexelsApiKey', '')
   })
 
-  // Save configs from renderer (encrypt keys, preserve existing keys for masked placeholders)
+  // H5: 明文存储（v13.x 决策），MASKED_KEY 占位符/缺失字段保留磁盘旧密钥，防止占位符字面量覆写真实密钥
   ipcMain.handle('settings:saveConfigs', async (_event, configs: ModelConfig[]) => {
     const store = await getConfigStore()
-    const toStore = configs.map(c => ({ ...c, encrypted: false }))
+    const existing = store.get('configs', []) as StoredConfig[]
+    const toStore = configs.map(c => ({
+      ...c,
+      ...mergeConfigKeys(
+        existing.find(e => e.id === c.id) as Record<string, unknown> | undefined,
+        c as unknown as Record<string, unknown>,
+      ),
+      encrypted: false,
+    })) as StoredConfig[]
 
     store.set('configs', toStore)
     return {}

@@ -22,8 +22,25 @@ import type { Message } from '../state/types'
 
 // v13.x: 超过 N 轮的 read_file 结果 → 保留摘要+前200字，可重读
 const MAX_READ_RESULT_TURNS = 5
-function cleanOldReadResults(history: Message[]): Message[] {
+// H1: 工具结果消息（role:'tool'）经 ContractExecutor 按契约过滤后只剩 status/summary/detail，
+// 无 toolName 字段——从 assistant 消息的 tool_calls 建立 id → 工具名映射判断。
+// 查不到映射（如历史被压缩/裁剪）时安全降级为不压缩。
+// 职责边界（审查补充）: 生产 UI 路径（AIChatWindow.buildHistoryMessages）在送入 runtime 前
+// 已把旧轮次替换为摘要且不保留 tool 消息，本函数对完整 tool 历史的调用方（集成测试/模拟/直接 setHistory）
+// 才是主生效路径——作为防御层保留，主路径依赖 UI 侧摘要。
+export function cleanOldReadResults(history: Message[]): Message[] {
   if (history.length === 0) return history
+
+  const toolNameById = new Map<string, string>()
+  for (const m of history) {
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls as Array<{ id?: string; name?: string; function?: { name?: string } }>) {
+        // 双形状兼容: runtime 产 {type,id,function:{name}}, AnthropicAdapter 产 {id,name}
+        const name = tc.function?.name ?? tc.name
+        if (tc.id && name) toolNameById.set(tc.id, name)
+      }
+    }
+  }
 
   // 从末尾向前数 user 消息（每轮一个 user）
   const userTurnIndices: number[] = []
@@ -38,7 +55,9 @@ function cleanOldReadResults(history: Message[]): Message[] {
 
   return history.map((m, i) => {
     if (i >= keepFrom) return m  // 最近 5 轮不动
-    if (m.role !== 'tool' || (m as any).toolName !== 'read_file') return m
+    if (m.role !== 'tool') return m
+    const toolName = m.tool_call_id ? toolNameById.get(m.tool_call_id) : undefined
+    if (toolName !== 'read_file') return m
 
     // 压缩: 保留概要信息+前200字，告知可重读
     let content = typeof m.content === 'string' ? m.content : ''
