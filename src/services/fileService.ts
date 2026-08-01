@@ -2,7 +2,7 @@ import { logError } from '@/utils/logger'
 import type { ModelConfig } from '@/types/settings'
 import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
-import type { ModelPrice, SessionStatsResult } from '@/types/electron'
+import type { SessionStatsResult } from '@/types/electron'
 import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import { getFileCache, setFileCache, invalidateFileCache, invalidateDirCache } from '@/utils/fileReadCache'
@@ -186,8 +186,8 @@ export const kbService = {
   write: (fileId: string, content: string, configId?: string) => e().kb.write(fileId, content, configId),
   index: (fileId: string, configId: string) =>
     e().kb.index(fileId, configId),
-  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) =>
-    e().kb.search(query, projectId, configId, topK, fileIds),
+  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]) =>
+    e().kb.search(query, projectId, configId, topK, fileIds, excludeFileIds),
   assignProject: (fileId: string, projectId: string, assigned: boolean) =>
     e().kb.assignProject(fileId, projectId, assigned),
   getEmbedding: (text: string, configId: string) =>
@@ -224,10 +224,8 @@ export const settingsService = {
 }
 
 export const statsService = {
-  getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }) =>
+  getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string; source?: string }) =>
     e().stats.getUsage(opts || {}),
-  getPrices: () => e().stats.getPrices(),
-  savePrices: (prices: ModelPrice[]) => e().stats.savePrices(prices),
   deleteByLine: (lineNumber: number) => e().stats.deleteByLine(lineNumber),
   getMonthCost: () => e().stats.getMonthCost(),
   getSessionStats: () => e().stats.getSessionStats(),

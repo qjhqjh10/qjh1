@@ -17,12 +17,26 @@ import type {
   V4AgentRunResult,
   ToolExecutorFn,
   ContextAssemblerFn,
+  SubagentSummary,
 } from './RuntimeTypes'
 import type { ProtocolAdapter } from './adapters/ProtocolAdapter'
 import type { Message } from '../state/types'
 
 // v13.x: 超过 N 轮的 read_file 结果 → 保留摘要+前200字，可重读
 const MAX_READ_RESULT_TURNS = 5
+
+// ── v14 批处理: run 墙钟超时按迭代数动态估算 ──
+// 每轮预算 60s；下限 5min（保底），上限 15min（防长任务 UI 锁定过久）。
+// maxIterations 本身终止循环，此墙钟仅兜底"每轮都很快但总轮数拖死"之外的拖长场景；
+// 中断由 taskProgress + [续跑] 机制恢复，宽松无害。
+export function computeRunTimeoutMs(maxIterations: number): number {
+  return Math.min(900_000, Math.max(300_000, maxIterations * 60_000))
+}
+
+// v14.3: 验收督促有界轮数（超过后放行——允许模型向用户汇报或继续修复，不卡死）
+const MAX_VERIFY_FAIL_ROUNDS = 2
+// v14.3: 子代理执行快照收集上限（防 run 内多次委托撑爆返回结果；UI 持久化还会再截 slice(-5)）
+const MAX_SUBAGENT_SUMMARIES = 10
 
 // ── v14.1.0: 任务清单完成检测正则 ──
 // donePhrase: 原有完成声明（保留，仅作触发信号，验收依据是任务清单+工具证据）
@@ -70,7 +84,9 @@ export function cleanOldReadResults(history: Message[]): Message[] {
     if (i >= keepFrom) return m  // 最近 5 轮不动
     if (m.role !== 'tool') return m
     const toolName = m.tool_call_id ? toolNameById.get(m.tool_call_id) : undefined
-    if (toolName !== 'read_file') return m
+    // v14.3: 纳入 analyze_file（子代理分析结果同样防旧轮占满上下文；verify_task 除外——
+    // 其 detail 是紧凑 JSON，截 200 字破坏可读性）
+    if (toolName !== 'read_file' && toolName !== 'analyze_file') return m
 
     // 压缩: 保留概要信息+前200字，告知可重读
     let content = typeof m.content === 'string' ? m.content : ''
@@ -119,6 +135,9 @@ export class V4UnifiedRuntime {
   private taskList: TaskItem[] | null = null  // v14.1.0: 本次 run 提取的任务清单（null = 无清单）
   private taskDone: boolean[] = []            // v14.1.0: 与 taskList 等长的完成标记（单调置位）
   private _verifyHintInjected = false         // v14.2.1: 验收提示只注入一次（不强制）
+  private subagentSummaries: SubagentSummary[] = []  // v14.3: 子代理执行快照收集（随 run 结果返回）
+  private _verifyFailed = false               // v14.3: 最近一次验收判定未通过（完成声明闸门依据）
+  private _verifyFailedRounds = 0             // v14.3: 验收未通过轮数（每轮至多 +1；超过 MAX_VERIFY_FAIL_ROUNDS 放行）
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -209,11 +228,14 @@ export class V4UnifiedRuntime {
     const store = isolated ? null : useAgentStore.getState()
     const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const runStartTime = Date.now()
-    const RUN_TIMEOUT = 300_000
 
     if (this.config.maxIterations < 1) {
       this.config.maxIterations = 30
     }
+    // v14 批处理: RUN_TIMEOUT 按 maxIterations 动态估算（每轮 60s 预算），替代 5 分钟硬墙——
+    // 批量任务（30 轮）从 5min 提到 15min 封顶；子代理（10 轮）10min；4 轮以内保持 5min 下限。
+    // 轮间墙钟兜底 + maxIterations 终止循环 + [续跑] 中断恢复，宽松无害。
+    const RUN_TIMEOUT = computeRunTimeoutMs(this.config.maxIterations)
     if (!this.toolExecutor) {
       return {
         success: false, text: '工具执行器未配置',
@@ -249,6 +271,9 @@ export class V4UnifiedRuntime {
     this.toolCallSteps = []
     this._nudgeCount = 0      // reset per run
     this._verifyHintInjected = false  // v14.2.1: reset per run
+    this.subagentSummaries = []  // v14.3: reset per run
+    this._verifyFailed = false   // v14.3: reset per run
+    this._verifyFailedRounds = 0 // v14.3: reset per run
     this._discoveredToolNames = new Set()  // v13.2.0: reset per run
     this._consecutiveFailures = 0
     this._consecutivePathErrors = 0
@@ -259,7 +284,7 @@ export class V4UnifiedRuntime {
     this.taskList = extractTaskList(input.userMessage)
     this.taskDone = this.taskList ? this.taskList.map(() => false) : []
     // v14.2.0: 跨 run 续跑 — 记录是否"中断未完成"（abort/超时/API失败/迭代耗尽）
-    // 只有任务清单存在时才可能为 true（无清单 → taskProgress 不返回，无意义）
+    // v14.3.1: 无任务清单时也会置位（truncated 标记无论有无清单都返回）
     let interrupted = false
     let _hasWriteCall = false
     // v15: 子 agent 委托用量累加器（analyze_file/edit_file_task 上报）
@@ -343,7 +368,8 @@ export class V4UnifiedRuntime {
       if (this.compressor.needsCompression(estimatedTokens)) {
         const newSinceCompress = this.lastCompressLength > 0
           ? this.messagesForApi.length - this.lastCompressLength : 0
-        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress))
+        // v14 批处理: 第 4 参保护最近 2 轮 tool detail（strip_detail 阶段不截断）
+        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress), 2)
         this.lastCompressLength = this.messagesForApi.length
       }
 
@@ -358,14 +384,16 @@ export class V4UnifiedRuntime {
         if (READ_TOOLS_RE.test(step.tool)) consecutiveReads++
         else break  // non-read, non-write tool → stop counting
       }
-      const readNudge5 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
-      const readNudge3 = `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`
+      // v14.3.1: 阈值放宽（3→5 / 5→8）——写作任务合法需要读多个文件（大纲/细纲/角色/前章）才动笔，
+      // 原 3 次即催写会在多文件探索中途打断；仍保留兜底防"只读不写"死循环
+      const readNudge8 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
+      const readNudge5 = `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`
       // v13.x: 按 content 去重——压缩可能移动 system 消息位置，不能按位置判断
       const hasNudge = (content: string) => this.messagesForApi.some(m => m.role === 'system' && m.content === content)
-      if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp && !hasNudge(readNudge5)) {
+      if (!hasWritten && consecutiveReads >= 8 && this._userRequestedFileOp && !hasNudge(readNudge8)) {
+        this.messagesForApi.push({ role: 'system', content: readNudge8 })
+      } else if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp && !hasNudge(readNudge5)) {
         this.messagesForApi.push({ role: 'system', content: readNudge5 })
-      } else if (!hasWritten && consecutiveReads >= 3 && this._userRequestedFileOp && !hasNudge(readNudge3)) {
-        this.messagesForApi.push({ role: 'system', content: readNudge3 })
       }
 
       // v14.1.0: 每轮注入任务状态（替换式，模型随时知道还剩什么任务）
@@ -429,17 +457,30 @@ export class V4UnifiedRuntime {
       totalCost += response.usage.cost || 0
       // Token 累计由 UI 层（AIChatWindow）统一管理，避免双重计数
       if (!isolated) diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
+      // v14 批处理: 审计接线 — 会话统计（readSessionStats）由此获得 api:call 的 cost/model
+      this.config.auditTrail?.recordApiCall(response.usage.inputTokens, response.usage.outputTokens,
+        { cost: response.usage.cost || 0, model: this.config.model })
 
-      // ── finishReason: truncated → inject continuation ──
-      if (response.finishReason === 'max_tokens' || response.finishReason === 'length') {
-        if (!isolated) diagnosticLogger.recordInfo(`输出截断: ${response.finishReason}`)
-        this.messagesForApi.push({ role: 'user', content: '[系统] 上一轮输出因token限制被截断。请继续完成。' })
-      }
+      // ── finishReason: truncated → 标记（处理下移到对应分支：回写部分输出 + 强制继续）──
+      // v14.3.1: 修复两个缺陷：① 截断文本此前不进上下文 → 续写时模型看不到自己写了什么，导致分叉/重复；
+      // ② 截断尾部若含"完成"字样会命中完成检测 → 残缺内容被当作正常收尾。
+      const wasTruncated = response.finishReason === 'max_tokens' || response.finishReason === 'length'
 
       // ── No tool calls → model is speaking. Trust what it says. ──
       if (response.toolCalls.length === 0) {
         isExecutionPhase = false  // v12.5.1: 回到创作阶段
         collectedText = response.text || ''
+
+        // v14.3.1: 输出截断 → 把部分输出回写为 assistant 消息（模型续写时可见已写内容，从断点继续），
+        // 并跳过完成检测强制继续（截断尾部可能含"完成"字样，不能作为收尾依据）
+        if (wasTruncated) {
+          if (!isolated) diagnosticLogger.recordInfo(`输出截断: ${response.finishReason}`)
+          if (collectedText.trim()) {
+            this.messagesForApi.push({ role: 'assistant', content: collectedText })
+          }
+          this.messagesForApi.push({ role: 'user', content: '[系统] 上一轮输出因token限制被截断。请从上次断点继续完成，不要重新开始。' })
+          continue
+        }
 
         // H5: Empty response fallback
         if (!collectedText.trim()) {
@@ -454,6 +495,20 @@ export class V4UnifiedRuntime {
         // v12.16.2: 必须实际执行了写工具才接受"完成"声明
         // v14.1.0: 有任务清单时完成判定对照清单（未清空绝不接受）；无清单保留原正则逻辑
         const completionDeclared = DONE_PHRASE_RE.test(collectedText) || TRUST_DONE_RE.test(collectedText)
+
+        // ── v14.3: 验收失败督促闸门（有界：最多注入 MAX_VERIFY_FAIL_ROUNDS 次督促后放行）──
+        // 防"验收未通过却被'完成'声明放行"：产物不合格时强制修复→复验闭环。
+        // 问句不拦截（"全部完成了吗？"含"全部完成"子串）；无验收失败时 _verifyFailed 恒 false，零干扰。
+        // _verifyFailedRounds 在每次注入督促时 +1（每轮完成检测至多一次）→ 有界，不卡死。
+        if (completionDeclared && this._verifyFailed && this._verifyFailedRounds < MAX_VERIFY_FAIL_ROUNDS
+            && !/[？?]/.test(collectedText)) {
+          this._verifyFailedRounds++
+          this.messagesForApi.push({
+            role: 'user',
+            content: `[验收督促] 验收子代理判定产物未通过验收（第 ${this._verifyFailedRounds} 次督促）。请用 edit_file_task 修复未满足项（详见上文验收结果），然后再次调用 verify_task 验收；验收通过后才能声明完成。`,
+          })
+          continue
+        }
 
         // ── ① 有任务清单: 完成判定对照清单（现象B修复: "完成 4/6 就停"不再被接受）──
         if (this.taskList) {
@@ -699,6 +754,8 @@ export class V4UnifiedRuntime {
         toolCallSteps: this.toolCallSteps,
         emitter: this.emitter,
         iteration,
+        // v14.3: 子代理执行快照收集器（ToolExecutor 在委托成功后 push）
+        subagentSummaries: this.subagentSummaries,
         store: {
           addToolExecution: (id: string, name: string) => store?.addToolExecution(id, name),
           completeTool: (id: string, status: 'success' | 'error', summary: string, detail?: string) =>
@@ -745,6 +802,30 @@ export class V4UnifiedRuntime {
       if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
       // v15: 子 agent 委托完成文件操作（edit_file_task）也视为"已写"
       if (serialReads.some(tc => SUBAGENT_WRITE_TOOLS.has(tc.name))) _hasWriteCall = true
+      // v14.3.1: 截断 + 工具调用轮 → 继续消息插在工具结果之后（tool 结果已 push，顺序合法），
+      // 引导模型继续完成剩余工作
+      if (wasTruncated) {
+        this.messagesForApi.push({ role: 'user', content: '[系统] 上一轮输出因token限制被截断。请继续完成剩余工作。' })
+      }
+
+      // ── v14.3: 本轮 verify_task 结果扫描（按 iteration 过滤）──
+      // summary 由 verify_task executor 构造（非模型文本）："验收未通过" = 判定失败（完成闸门置位），
+      // "验收通过" = 闸门释放；"验收完成"（非 JSON 降级）与"验收失败"（执行错误）不触发。
+      // 注：督促次数（_verifyFailedRounds）不在本处递增——只在闸门注入督促时 +1（督促本身有界，
+      // 防"模型不修复反复说完成"时计数不涨导致无限拦截）。
+      let verifyFailedThisRound = false
+      let verifyPassedThisRound = false
+      for (const s of this.toolCallSteps) {
+        if (s.tool !== 'verify_task' || s.iteration !== iteration) continue
+        if (s.summary.includes('验收未通过')) verifyFailedThisRound = true
+        else if (s.summary.includes('验收通过')) verifyPassedThisRound = true
+      }
+      if (verifyFailedThisRound) {
+        // 同轮多文件验收：任一未通过 → 严格语义
+        this._verifyFailed = true
+      } else if (verifyPassedThisRound) {
+        this._verifyFailed = false  // 通过 → 闸门释放（rounds 保留，无碍）
+      }
 
       // v13.2.0: 跟踪 tool_search 发现的工具 → 动态加入后续轮次可用集
       const tsStep = this.toolCallSteps.find(s => s.tool === 'tool_search' && s.iteration === iteration)
@@ -835,14 +916,18 @@ export class V4UnifiedRuntime {
         const dupSet = [...new Set(dupReads)].join('、')
         this.messagesForApi.push({
           role: 'user',
-          content: `已重复读取: ${dupSet}。对话历史中已有这些结果——直接引用，不要重复。现在用 create_file 或 edit_file 写入。`,
+          // v14.3.1: 文案修正——压缩机制（70% 阈值/5 轮清理）会销毁历史内容，
+          // "直接引用历史"可能要求模型引用已不存在的内容；明确区分两种情形
+          content: `已重复读取: ${dupSet}。若对话历史中该文件内容仍然完整（未被压缩清理），直接引用不要重复读取；若历史已被压缩丢失细节，重新读取是必要的。读取后请用 create_file 或 edit_file 写入产物。`,
         })
       }
     }
 
     // v14.2.0: 迭代耗尽 — 循环自然结束（iteration 触顶）且任务未全部完成 → 中断未完成（可续跑）
     // 正常 break 的完成/提问路径不会走到这里（清单完成即 break，interrupted 保持 false）
-    if (this.taskList && !this.allTasksDone() && iteration >= this.config.maxIterations) {
+    // v14.3.1: 无任务清单时同样标记（子代理场景——迭代触顶 = 部分完成，防"假成功"：
+    // 此前子代理 6 轮耗尽 success 仍为 true，主代理把不完整结果当完成）
+    if (iteration >= this.config.maxIterations) {
       interrupted = true
     }
 
@@ -895,6 +980,8 @@ export class V4UnifiedRuntime {
       iterationCount: iteration,
       // v15: 子 agent 委托用量（仅实际发生过委托时携带；不并入 totalTokens，主/子分开统计）
       ...(subUsageAccum.calls > 0 ? { subAgentUsage: subUsageAccum } : {}),
+      // v14.3: 子代理执行快照（仅实际委托过时携带；供 UI 持久化 + 跨 run 注入复用）
+      ...(this.subagentSummaries.length > 0 ? { subagentSummaries: this.subagentSummaries.slice(0, MAX_SUBAGENT_SUMMARIES) } : {}),
       // v14.2.0: 任务清单进度快照（仅提取到任务清单时返回；供跨 run 续跑持久化）
       ...(this.taskList ? {
         taskProgress: {
@@ -903,6 +990,9 @@ export class V4UnifiedRuntime {
           interrupted,
         },
       } : {}),
+      // v14.3.1: 中断标记（迭代耗尽/超时/API失败/abort）— 无论有无任务清单都返回；
+      // 子代理据此判定"部分完成"（success 仍可能为 true）
+      ...(interrupted ? { truncated: true } : {}),
     }
   }
 }

@@ -27,11 +27,22 @@ export const kbTools: ToolDefinition[] = [
       try {
         const { kbService } = await import('@/services/fileService')
         const topK = Math.min(Math.max(Number(args.topK) || 5, 1), 20)
+        // v14.3.1: 工具检索**不受用户勾选限定**——模型自主检索时覆盖全部知识库文件：
+        // 用户可能在对话中直接指定某文件（未勾选/未开知识库按钮），工具必须能搜到。
+        // projectId 传 '' → 全库检索（不受项目归属过滤；知识库为全局目录，projects[] 仅归属标记）
+        // v14.3: 排除已注入上下文的知识库文件（按钮注入 + 工具检索去重，避免同一片段重复进入上下文）
+        let excludeFileIds: string[] | undefined
+        try {
+          const { injectedKbFileIds } = await import('@/agent/context/BridgeContextBuilder')
+          if (injectedKbFileIds.size > 0) excludeFileIds = [...injectedKbFileIds]
+        } catch { /* 不可用 → 不去重 */ }
         const results = await kbService.search(
           String(args.query || '').slice(0, 4000),
-          ctx.projectId || '',
+          '',  // 全库检索
           ctx.configId,
           topK,
+          undefined,
+          excludeFileIds,
         )
         if (!results || results.length === 0) {
           return { status: 'success', summary: '未找到匹配的知识库内容' }

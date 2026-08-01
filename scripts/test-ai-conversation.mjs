@@ -1148,7 +1148,7 @@ const SCENARIOS = [
     name: '🔁 跨 run 续跑：中断→[续跑]注入→剩余任务全部完成',
     desc: '第一轮受限迭代中断（taskProgress.interrupted=true），第二轮注入[续跑]提示后继续完成剩余任务，全部产物必须存在。',
     autoResume: true,
-    roundMaxIterations: [3, 25],  // 第一轮受限 3 轮（模拟中断——5 任务 3 轮内几乎不可能完成），第二轮恢复
+    roundMaxIterations: [1, 25],  // 第一轮受限 1 轮（模拟中断——模型效率提升后 3 轮内可完成 5 任务，中断不再必然触发；1 轮保证中断），第二轮恢复
     userMessages: [
       '帮我做这几件事，全部都要完成：1）创建 characters/燕轻尘.yaml 角色卡——古剑宗弟子，剑意凌厉性格孤傲，师承剑宗长老，与陆沉是宿敌；2）在 outline/plot.md 末尾追加一段：陆沉在传承密室得到剑宗老祖的剑意传承，剑鸣三日不止；3）在 outline/items.yaml 里新增一件物品"云纹玉佩"，品阶灵器，可凝神静气；4）创建 notes/跨run续跑测试.md，记录本次任务测试的笔记；5）创建 summaries/chapter_resume_test.md，按摘要模板格式填写第一章的摘要',
       '继续完成剩余任务',
@@ -1215,6 +1215,74 @@ const SCENARIOS = [
     checks: [
       { type: 'hasAnyTool', names: ['search_images', 'browser_search'], minCount: 1, desc: '应使用搜索/图片工具' },
       { type: 'hasText', minChars: 50, desc: '应展示或说明搜索结果' },
+    ],
+  },
+
+  // ═══ v14.3: 子代理信息复用 + 验收督促闭环 ═══
+
+  {
+    id: 'S_SUB_MEM',
+    name: '📸 子代理快照跨run复用（v14.3）',
+    desc: '第一轮 analyze_file 分析大文件 → 快照注入 sharedMessages → 第二轮模型直接引用上轮分析结论（含角色名），不再重复委托分析。',
+    userMessages: [
+      '用 analyze_file 委托子代理分析 chapters/角色发展.md（两万字长文件），提取：三个主要角色的名字、各自的关键性格描写原文片段（每段 50 字以内）。',
+      '基于你上一轮的分析结果（子代理快照），把陆沉的性格描写改一句话。直接告诉我改了什么，不用重新分析文件。',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'analyze_file', minCount: 1, maxCount: 1, desc: '第一轮委托子代理分析一次' },
+      { type: 'hasText', minChars: 150, desc: '第一轮应输出分析结论' },
+      { type: 'hasText', minChars: 50, desc: '第二轮应基于快照给出答复' },
+      { type: 'hasTool', name: 'analyze_file', maxCount: 1, desc: '第二轮未重复委托（快照已注入）' },
+    ],
+    setup: () => {
+      // 生成两万字角色发展文件（子代理委托触发条件）
+      const dir = resolve(PROJECTS_DIR, TEST_PROJECT, 'chapters')
+      mkdirSync(dir, { recursive: true })
+      const parts = []
+      for (let i = 0; i < 180; i++) {
+        parts.push(`第${i}节 陆沉在山中修炼，性格坚韧不拔。苏念卿在旁指点，性格冷傲却护短。林晚照远眺云海，性格温婉寡言。`)
+      }
+      writeFileSync(resolve(dir, '角色发展.md'), parts.join('\n'))
+    },
+  },
+
+  {
+    id: 'S_ASK',
+    name: '💬 子代理会话追问（v14.3）',
+    desc: '第一轮 analyze_file 建立该文件的子代理会话 → 第二轮 subagent_ask 复用会话上下文追问细节（无需重新读取大文件）。',
+    userMessages: [
+      '用 analyze_file 委托子代理分析 chapters/主角成长线.md（两万字长文件），提取：主角在每个阶段的实力变化。',
+      '用 subagent_ask 追问同一个文件：第三阶段的突破场景原文片段（50 字以内）。',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'analyze_file', minCount: 1, maxCount: 1, desc: '第一轮建立会话（仅一次）' },
+      { type: 'hasTool', name: 'subagent_ask', minCount: 1, desc: '第二轮应调用 subagent_ask 追问' },
+      { type: 'hasText', minChars: 50, desc: '追问应有实质回复' },
+    ],
+    setup: () => {
+      const dir = resolve(PROJECTS_DIR, TEST_PROJECT, 'chapters')
+      mkdirSync(dir, { recursive: true })
+      const parts = []
+      for (let i = 0; i < 180; i++) {
+        parts.push(`第${i}段 第一阶段练气，陆沉剑气初成。第二阶段筑基，苏念卿传授剑诀。第三阶段金丹，古剑共鸣突破。第四阶段元婴，剑灵苏醒。`)
+      }
+      writeFileSync(resolve(dir, '主角成长线.md'), parts.join('\n'))
+    },
+  },
+
+  {
+    id: 'S_VERIFY_FIX',
+    name: '🔁 验收失败修复闭环（v14.3）',
+    desc: '两步式：先创建仅含姓名的简略角色卡 → verify_task 首验必失败（缺性格/经历）→ edit_file_task 补全 → 复验通过。验证 runtime 验收督促闸门 + 修复闭环。',
+    userMessages: [
+      '分两步完成：第一步，先创建 characters/验收角色.yaml，只包含姓名字段（name: 林晚照），不要写其他内容。第二步，调用 verify_task 对照标准验收：1) 文件存在 2) 含姓名"林晚照" 3) 含性格描写 4) 含经历描写。若验收未通过，就调用 edit_file_task 补全性格和经历，再重新 verify_task 验收，直到通过为止。',
+    ],
+    checks: [
+      { type: 'hasTool', name: 'verify_task', minCount: 2, desc: '至少验收两次（首验失败 + 复验）' },
+      { type: 'hasAnyTool', names: ['create_file', 'edit_file_task', 'edit_file'], minCount: 1, desc: '创建/修复了角色文件' },
+      { type: 'lastVerifyPassed', desc: '最后一次验收判定通过（verify 子代理真实读文件逐条核对）' },
+      { type: 'fileContains', path: `${TEST_PROJECT}/characters/验收角色.yaml`, needle: '林晚照', desc: '角色文件包含姓名' },
+      { type: 'hasText', minChars: 50, desc: '应汇报最终结果' },
     ],
   },
 ]
@@ -1305,6 +1373,17 @@ function checkResult(scenario, result, scenarioTools) {
         }
         break
       }
+      // v14.3: 验收闭环 — 最后一次 verify_task 的 summary 以"验收通过"开头（修复→复验成功）
+      case 'lastVerifyPassed': {
+        const steps = result._toolCallSteps || []
+        const verifySteps = steps.filter(s => s.tool === 'verify_task')
+        const last = verifySteps[verifySteps.length - 1]
+        if (!last)
+          failures.push(`❌ ${check.desc}: 未调用 verify_task`)
+        else if (!String(last.summary || '').startsWith('验收通过'))
+          failures.push(`❌ ${check.desc}: 最后一次验收未通过 (${last.summary})`)
+        break
+      }
     }
   }
   return failures
@@ -1319,6 +1398,9 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
   const toolsCalled = []
   let lastEstimatedContextTokens = 0  // v13.2.0: 最终上下文估算
   let lastTaskProgress = null  // v14.2.0: 跨 run 续跑 — 最终一轮的 taskProgress 快照
+  let lastToolCallSteps = null  // v14.3: 最终一轮的 toolCallSteps（lastVerifyPassed 断言用）
+  // v14 批处理(④数据收集): 每轮 估算 vs 真实 input tokens（tokenEstimation 精度回归用）
+  const usageRounds = []
 
   for (let mi = 0; mi < scenario.userMessages.length; mi++) {
     const userMsg = scenario.userMessages[mi]
@@ -1344,8 +1426,24 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
       return { toolsCalled, text: `[ERROR] ${e.message}`, success: false }
     }
 
+    // v14 批处理(④数据收集): 记录本轮 估算 vs 真实。
+    // 口径警示: DeepSeek 兼容接口的 input_tokens 疑似只统计缓存未命中部分，
+    // 且 estimatedContextTokens 是对"下一次请求"的估算（错位一轮）——
+    // 估/真 仅作数量级参考，系数校准以 scripts/measure-token-density.mjs 直接测量为准。
+    const _realInput = response.promptTokens || 0
+    const _estTokens = response.estimatedContextTokens || 0
+    usageRounds.push({
+      round: mi + 1,
+      estTokens: _estTokens,
+      realInput: _realInput,
+      ratio: _estTokens > 0 && _realInput > 0 ? _estTokens / _realInput : null,
+    })
+
     // v14.2.0: 捕获 taskProgress（第一轮中断 → 第二轮恢复后仍保留首轮快照供断言）
     if (response.taskProgress) lastTaskProgress = response.taskProgress
+
+    // v14.3: 捕获最终一轮 toolCallSteps（lastVerifyPassed 断言）
+    lastToolCallSteps = response.toolCallSteps || null
 
     // 将响应加入共享消息历史（用于跨场景上下文传递）
     const lastText = response.text || ''
@@ -1365,6 +1463,24 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
       sharedMessages.push({ role: 'system', content: `[续跑] 上一轮运行中断于任务 ${doneCount}/${tp.tasks.length}，任务未全部完成。已完成: ${doneList || '无'}。剩余: ${remaining}。请直接继续完成剩余任务，不要重新开始或重复已完成的工作。全部完成后明确说"全部完成"。` })
       bridge.updateHistory([...sharedMessages])
       console.log(`   🔁 检测到中断（${doneCount}/${tp.tasks.length} 已完成）→ 已注入 [续跑] 提示`)
+    }
+
+    // v14.3: 子代理快照注入模拟 — 复刻 UI 层 maybeInjectSubagentSummaries：
+    // 本轮委托了子代理 → 把结果快照注入 sharedMessages，下一轮/下一场景可直接引用（无需重新委托）。
+    // 最多注入最近 3 条，每条 detail 截 800 字，标注"信息为当时快照"。
+    if (response.subagentSummaries?.length) {
+      const entries = response.subagentSummaries.slice(-3)
+      const lines = entries.map((s, i) => {
+        const detail = String(s.detail || '').slice(0, 800)
+        const mark = s.status === 'error' ? '✗' : '✓'
+        return `${i + 1}. [${s.tool}] ${s.filePath || '(无路径)'} — ${mark} ${s.summary || ''}${detail ? `\n   ${detail}` : ''}`
+      })
+      // v14.4.0 修复: 与 autoResume 分支对齐——先补本轮 user 消息再注入 system 快照，
+      // 避免历史出现连续 assistant 消息（严格 OpenAI 交替校验会 400；UI 层作用于完整历史）
+      sharedMessages.push({ role: 'user', content: userMsg })
+      sharedMessages.push({ role: 'system', content: `[子代理快照] 上次委托子代理的结果（信息为当时快照，文件可能已修改；需要最新内容请重新委托分析）:\n${lines.join('\n')}` })
+      bridge.updateHistory([...sharedMessages])
+      console.log(`   📸 已注入子代理快照（${entries.length} 条）`)
     }
 
     // 从 toolCallSteps 收集工具调用
@@ -1395,7 +1511,7 @@ async function runScenarioViaBridge(scenario, bridge, sharedMessages) {
     }
   }
 
-  return { toolsCalled, text, success: true, _estimatedContextTokens: lastEstimatedContextTokens, _taskProgress: lastTaskProgress }
+  return { toolsCalled, text, success: true, _estimatedContextTokens: lastEstimatedContextTokens, _taskProgress: lastTaskProgress, _toolCallSteps: lastToolCallSteps, _usageRounds: usageRounds }
 }
 
 async function main() {
@@ -1511,6 +1627,21 @@ async function main() {
   // 汇总
   console.log('\n' + '═'.repeat(60))
   console.log(`📊 ${passed}/${scenarios.length} 通过`)
+
+  // v14 批处理(④数据收集): token 估算 vs 真实 usage 对比（tokenEstimation 精度回归参考，
+  // 系数已校准为 CJK 1.2 / Latin 4.5——校准依据 scripts/measure-token-density.mjs 直接测量）
+  console.log('\n📈 token 估算 vs 真实 input（④ 数据收集）')
+  for (const { scenario, result } of scenarioResults) {
+    const rounds = result._usageRounds || []
+    if (rounds.length === 0) continue
+    const estTotal = rounds.reduce((s, r) => s + r.estTokens, 0)
+    const realTotal = rounds.reduce((s, r) => s + r.realInput, 0)
+    const ratios = rounds.filter(r => r.ratio).map(r => r.ratio)
+    const avgRatio = ratios.length ? ratios.reduce((s, r) => s + r, 0) / ratios.length : 0
+    const estReal = realTotal > 0 ? (estTotal / realTotal).toFixed(2) : '-'
+    console.log(`   ${scenario.id}: ${rounds.length} 轮 | 估算Σ=${estTotal} | 真实Σ=${realTotal} | 估/真=${estReal} (avgRatio=${avgRatio.toFixed(2)})`)
+  }
+  console.log('   口径警示: DeepSeek input_tokens 疑似只计缓存未命中部分，且估算错位一轮 → 估/真仅为数量级参考')
 
   // 展示生成的文件
   for (const name of ['test-project', '仙途', '剑道长生']) {

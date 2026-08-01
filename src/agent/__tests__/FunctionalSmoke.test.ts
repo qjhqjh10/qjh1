@@ -9,6 +9,9 @@ import { isPureGreeting, hasTaskKeywords, isKnowledgeOnly } from '../utils/taskD
 import { toolRegistry } from '../skills/ToolRegistry'
 import { ALL_TOOLS } from '../skills/tools'
 import { ContextAssembler } from '../context/ContextAssembler'
+import { createToolExecutor } from '../bridge/toolExecutorFactory'
+import { AuditTrail } from '../audit/AuditTrail'
+import type { ToolExecutionContext } from '../skills/types'
 
 beforeAll(() => {
   toolRegistry.registerAll(ALL_TOOLS)
@@ -81,10 +84,56 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(fence.check('create_file', { file_path: 'characters/test.json', content: '{"name":"test"}' }).allowed).toBe(true)
   })
 
+  it('安全围栏: 条件审批 — find_files scope=project 免审批 / scope=computer 需确认', () => {
+    const fence = new V4SecurityFence('1')
+    expect(fence.check('find_files', { pattern: '*.yaml' }).needsApproval).toBe(false)
+    expect(fence.check('find_files', { pattern: '*.yaml', scope: 'computer' }).needsApproval).toBe(true)
+  })
+
+  it('审计: recordApiCall 两种签名向后兼容（无 extra / 带 cost+model）', () => {
+    const trail = new AuditTrail()
+    trail.startSession('test-sess')
+    trail.recordApiCall(100, 50)
+    trail.recordApiCall(200, 80, { cost: 0.0036, model: 'deepseek-v4-flash' })
+
+    const apiCalls = trail.getEvents().filter(e => e.event === 'api:call')
+    expect(apiCalls).toHaveLength(2)
+    // 无 extra：data 只有 promptTokens/completionTokens（旧格式）
+    expect(Object.keys(apiCalls[0].data).sort()).toEqual(['completionTokens', 'promptTokens'])
+    // 带 extra：data 含 cost/model（新格式）
+    expect(apiCalls[1].data).toMatchObject({ cost: 0.0036, model: 'deepseek-v4-flash' })
+  })
+
+  it('安全围栏: 无审批路径（如子 agent）时 needsApproval 工具直接拒绝，不执行', async () => {
+    const executor = createToolExecutor({
+      securityFence: new V4SecurityFence('1'),
+      auditTrail: new AuditTrail(),
+      projectId: '1',
+      // 不传 onApprovalRequired —— 模拟子 agent 环境（find_files scope=computer 等场景）
+    })
+    const mkCtx = (toolName: string, callId: string): ToolExecutionContext => ({
+      projectId: '1', configId: 'test', callId, toolName, signal: new AbortController().signal,
+    })
+    // 无审批路径 + 需要审批 → 拒绝（修复前会直接放行执行）
+    const denied = await executor(
+      { file_path: 'chapters/ch3.txt' },
+      mkCtx('delete_file', 't1'),
+    )
+    expect(denied.status).toBe('error')
+    expect(denied.summary).toContain('需要用户确认')
+    // find_files scope=computer 同样拒绝（子 agent 只能软件内搜索）
+    const deniedFind = await executor(
+      { pattern: '*.md', scope: 'computer' },
+      mkCtx('find_files', 't2'),
+    )
+    expect(deniedFind.status).toBe('error')
+    expect(deniedFind.summary).toContain('需要用户确认')
+  })
+
   // ── 5. 工具注册 ──
-  it('工具注册: 30个工具 (v14.2.1: +verify_task 验收子代理)', () => {
+  it('工具注册: 31个工具 (v14.3: +subagent_ask 子代理追问)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBe(30)
+    expect(names.length).toBe(31)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('read_file')
@@ -93,6 +142,7 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(names).toContain('analyze_file')
     expect(names).toContain('edit_file_task')
     expect(names).toContain('verify_task')
+    expect(names).toContain('subagent_ask')
   })
 
   // ── 6. 系统提示词 (v10.2.0: Skill-First) ──

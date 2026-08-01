@@ -80,7 +80,4 @@ export function registerBrowserHandlers(ipcMain: IpcMain, config?: { allowPrivat
     }
   })
 
-  ipcMain.handle('browser:screenshot', async () => {
-    return { status: 'error', summary: '截图功能需要安装 puppeteer-core。在 Electron 窗口外运行: npm install puppeteer-core' }
-  })
 }

@@ -572,3 +572,164 @@ describe('Task List: 验收提示注入', () => {
     expect(hintCalls[4]).toBe(1)
   })
 })
+
+// ══════════════════════════════════════════════════════════════
+// 验收失败督促闸门 (v14.3): verify 未通过 → 完成声明被拦截 + 有界督促
+// ══════════════════════════════════════════════════════════════
+
+describe('Task List: 验收失败督促闸门 (v14.3)', () => {
+  /** 按调用次序返回 verify 响应（默认先失败后通过；可传自定义序列）的 tracked executor */
+  function makeVerifyExecutor(responses?: Array<{ status: 'success'; summary: string; detail: string }>) {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+    let verifyIdx = 0
+    const seq = responses ?? [
+      { status: 'success' as const, summary: '验收未通过: 1/2 条标准未满足', detail: '{"passed": false, "items": [{"criterion": "存在", "passed": true}, {"criterion": "性格字段", "passed": false}]}' },
+      { status: 'success' as const, summary: '验收通过: 2 条标准全部满足', detail: '{"passed": true, "items": []}' },
+    ]
+    const executor = vi.fn(async (args: Record<string, unknown>, ctx: ToolExecutionContext) => {
+      calls.push({ name: ctx.toolName, args })
+      if (ctx.toolName === 'verify_task') return seq[Math.min(verifyIdx++, seq.length - 1)]
+      return { status: 'success' as const, summary: `${ctx.toolName} 完成`, detail: `${ctx.toolName} 执行成功` }
+    })
+    return { executor, calls, verifyCount: () => calls.filter(c => c.name === 'verify_task').length }
+  }
+
+  /** 最后一条 API 快照中累积的 [验收督促] 条数（督促消息随 messagesForApi 累积，等价于注入次数） */
+  function nudgeInLastCall(calls: Message[][]): number {
+    const last = calls[calls.length - 1] ?? []
+    return last.filter(m => typeof m.content === 'string' && m.content.startsWith('[验收督促]')).length
+  }
+
+  // 注意：任务描述必须含任务动词字符（门控 3："验收"不含 → 用"补齐"）——保证任务清单提取成功
+  const TASK_MSG = '1. 创建角色卡 2. 补齐验收产物'
+
+  it('T21 失败→督促→修复→复验通过：完成声明被拦截一次，验收通过后正常收尾', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '', toolCalls: [makeToolCall('v1', 'verify_task', { file_paths: ['x.md'], criteria: ['存在', '性格字段'] })] },
+      { text: '全部完成' },            // 验收未通过 → 闸门拦截 + 督促 1
+      { text: '', toolCalls: [makeToolCall('e1', 'edit_file', { file_path: 'x.md' })] },
+      { text: '', toolCalls: [makeToolCall('v2', 'verify_task', { file_paths: ['x.md'], criteria: ['存在', '性格字段'] })] },
+      { text: '全部完成' },            // 验收通过 → 无督促 → 清单完成 → 验收提示
+      { text: '全部完成' },            // 提示已注入 → break
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
+    const { executor, verifyCount } = makeVerifyExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: TASK_MSG,
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(verifyCount()).toBe(2)
+    expect(result.iterationCount).toBe(7)
+    // [验收督促] 注入 1 次（督促后的第一个快照 call3 可见 1 条；最终快照累积仍 1 条）
+    expect(nudgeInLastCall(calls)).toBe(1)
+    expect(calls[3].filter(m => typeof m.content === 'string' && m.content.startsWith('[验收督促]'))).toHaveLength(1)
+    // 最终上下文含验收通过 summary（闸门释放）
+    const lastMsgs = calls[calls.length - 1]
+    expect(lastMsgs.some(m => typeof m.content === 'string' && m.content.includes('验收通过: 2 条标准全部满足'))).toBe(true)
+  })
+
+  it('T22 有界放行：模型不修复反复说"全部完成" → 督促 2 次后放行（不触顶 maxIterations）', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '', toolCalls: [makeToolCall('v1', 'verify_task', { file_paths: ['x.md'], criteria: ['存在'] })] },
+      { text: '全部完成' },            // 督促 1（rounds=1）
+      { text: '全部完成' },            // 督促 2（rounds=2）
+      { text: '全部完成' },            // rounds=2 不 <2 → 放行 → 清单完成 → 验收提示
+      { text: '全部完成' },            // break
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
+    const { executor } = makeVerifyExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: TASK_MSG,
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(6)
+    expect(nudgeInLastCall(calls)).toBe(2)
+    // 未触顶（有界放行而非迭代耗尽）
+    expect(result.iterationCount).toBeLessThan(10)
+  })
+
+  it('T23 验收通过 → 完成声明直接接受（无督促消息）', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '', toolCalls: [makeToolCall('v1', 'verify_task', { file_paths: ['x.md'], criteria: ['存在'] })] },
+      { text: '全部完成' },            // 通过 → 无督促 → 验收提示
+      { text: '全部完成' },            // break
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
+    const { executor } = makeVerifyExecutor([
+      { status: 'success', summary: '验收通过: 1 条标准全部满足', detail: '{"passed": true, "items": []}' },
+    ])
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: TASK_MSG,
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(4)
+    expect(nudgeInLastCall(calls)).toBe(0)
+  })
+
+  it('T24 无任务清单场景：验收未通过 + 完成声明 → 同样有界督促', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '', toolCalls: [makeToolCall('v1', 'verify_task', { file_paths: ['x.md'], criteria: ['存在'] })] },
+      { text: '全部完成' },            // 督促 1
+      { text: '全部完成' },            // 督促 2
+      { text: '全部完成' },            // 放行 → 无清单分支 break
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
+    const { executor } = makeVerifyExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '帮我创建并验收角色卡',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(5)
+    expect(nudgeInLastCall(calls)).toBe(2)
+  })
+
+  it('T25 问句守卫：验收未通过但模型提问（"全部完成了吗？"）→ 不督促，break 等用户回答', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '', toolCalls: [makeToolCall('v1', 'verify_task', { file_paths: ['x.md'], criteria: ['存在'] })] },
+      { text: '全部完成了吗？' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 10 })
+    const { executor } = makeVerifyExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '帮我创建并验收角色卡',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(3)
+    expect(nudgeInLastCall(calls)).toBe(0)
+  })
+})

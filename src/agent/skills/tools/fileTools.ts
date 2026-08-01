@@ -252,7 +252,10 @@ export const fileTools: ToolDefinition[] = [
         required: ['pattern'],
       },
     },
+    // 条件审批：scope=project（默认）免审批直接执行；scope=computer 仍需用户确认。
+    // 安全前提：IPC 层强制 containment（dir_path 走 safeResolve，逃逸即拒绝）。
     permission: 'DANGEROUS_ASK',
+    approvalGate: (args) => String(args.scope || 'project') !== 'project',
     category: 'file',
     executor: async (args, ctx) => ipcExecute('find_files', args, ctx),
   },

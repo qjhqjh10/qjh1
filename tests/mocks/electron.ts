@@ -44,7 +44,6 @@ export function createMockElectronBridge() {
     browser: {
       open: vi.fn().mockResolvedValue({ status: 'success', summary: '', detail: '' }),
       search: vi.fn().mockResolvedValue({ status: 'success', summary: '', detail: '' }),
-      screenshot: vi.fn().mockResolvedValue({ status: 'error', summary: 'not supported' }),
     },
     shell: {
       exec: vi.fn().mockResolvedValue({ status: 'success', summary: '', detail: '' }),
@@ -58,12 +57,6 @@ export function createMockElectronBridge() {
       disconnectServer: vi.fn().mockResolvedValue(undefined),
       saveConfig: vi.fn().mockResolvedValue(undefined),
       loadConfig: vi.fn().mockResolvedValue([]),
-    },
-    agent: {
-      optimize: vi.fn().mockResolvedValue('mock output'),
-    },
-    lsp: {
-      diagnose: vi.fn().mockResolvedValue({ status: 'success', summary: '零错误', detail: '' }),
     },
     kb: {
       list: vi.fn().mockResolvedValue([]),
@@ -107,8 +100,6 @@ export function createMockElectronBridge() {
     },
     stats: {
       getUsage: vi.fn().mockResolvedValue({}),
-      getPrices: vi.fn().mockResolvedValue([]),
-      savePrices: vi.fn().mockResolvedValue(undefined),
       deleteByLine: vi.fn().mockResolvedValue(undefined),
       getMonthCost: vi.fn().mockResolvedValue(0),
     },

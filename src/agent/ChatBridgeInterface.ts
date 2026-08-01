@@ -48,6 +48,8 @@ export interface BridgeSendResult {
   subAgentUsage?: V4AgentRunResult['subAgentUsage']
   /** v14.2.0: 任务清单进度快照（中断未完成时 UI 据此注入续跑提示） */
   taskProgress?: V4AgentRunResult['taskProgress']
+  /** v14.3: 子代理执行快照（UI 持久化 + 跨 run 注入复用） */
+  subagentSummaries?: V4AgentRunResult['subagentSummaries']
 }
 
 /** 两个 Bridge 实现都满足的接口 */

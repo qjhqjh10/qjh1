@@ -37,15 +37,11 @@ export const mcpService = {
     e().mcp.loadConfig(),
 }
 
-export const agentService = {
-  optimize: (configId: string, command: string): Promise<string> =>
-    e().agent.optimize(configId, command),
-}
-
-// lspService removed in v13.2.0 — lsp_diagnose tool deleted
+// lspService removed in v13.2.0 — lsp_diagnose tool deleted（v14 批处理: lsp:diagnose IPC handler 亦移除）
+// agentService（agent:optimize 等）removed in v14 批处理 — agent-sessions 子系统整体删除
 
 // Centralized bridge — 主进程 IPC 服务聚合（file/project/export/ai/http/kb/stats/
-// styleProject/styleTemplate/sceneTemplate/continuation/extraction/story/agent/browser/mcp；
+// styleProject/styleTemplate/sceneTemplate/continuation/extraction/story/browser/mcp；
 // settings/dialog/app/rewrite 由 fileService 直接导出，各模块按需引用）
 export const bridge = {
   file: fileService,
@@ -62,7 +58,6 @@ export const bridge = {
   extraction: extractionService,
   story: storyService,
 
-  agent: agentService,
   browser: browserService,
   mcp: mcpService,
   // lsp removed in v13.2.0

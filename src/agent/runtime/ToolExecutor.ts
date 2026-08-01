@@ -2,7 +2,7 @@
 // Handles: tool argument parsing, execution with timeout, event emission, result filtering.
 
 import { ContractExecutor } from '../context/ContractExecutor'
-import type { ToolExecutorFn } from './RuntimeTypes'
+import type { ToolExecutorFn, SubagentSummary } from './RuntimeTypes'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 import type { AgentEventEmitter } from './AgentEventEmitter'
 import { nanoid } from 'nanoid'
@@ -34,12 +34,14 @@ export const WRITE_TOOLS = new Set([
 
 /**
  * v14.2.1: 子 agent 委托工具拆分（取代旧 SERIAL_TOOLS）— 批量并行分析（功能 2）
- * - PARALLEL_READ_TOOLS（analyze_file 只读）：可并行。isolatedStore 保证每个子代理独立
+ * - PARALLEL_READ_TOOLS（analyze_file/verify_task 只读）：可并行。isolatedStore 保证每个子代理独立
  *   上下文/store，并发安全；只读无副作用，互不干扰。
  * - SERIAL_WRITE_TOOLS（edit_file_task 写）：保持串行——写操作共享文件系统状态，
  *   同文件多处修改交错会互相覆盖。
+ * v14.3.1: +verify_task（只读验收子代理）— 此前归普通只读无限并行，多文件验收同时起多个
+ *   子代理有 API 限流风险；归入分片 ≤3 并行。
  */
-export const PARALLEL_READ_TOOLS = new Set(['analyze_file'])
+export const PARALLEL_READ_TOOLS = new Set(['analyze_file', 'verify_task'])
 export const SERIAL_WRITE_TOOLS = new Set(['edit_file_task'])
 
 /** v15: 子 agent 委托完成文件操作视为"已写"（_hasWriteCall 计入，避免自愈误判 nudge） */
@@ -66,8 +68,12 @@ export function classifyToolCalls(toolCalls: ToolCallRequest[]): {
 const PER_TOOL_TIMEOUT_MS: Record<string, number> = {
   analyze_file: 300_000,      // 子 agent 最多 6 轮
   edit_file_task: 300_000,
+  subagent_ask: 300_000,      // v14.3: 会话追问（可能复用长历史）
   analyze_text_style: 180_000, // AI 分析较长内容时 120s 偏紧
 }
+
+/** v14.3: 子代理快照 detail 收集截断上限（防 IndexedDB 膨胀；注入时还会再截） */
+const SUBAGENT_SUMMARY_DETAIL_CHARS = 1500
 
 export interface ToolExecContext {
   toolExecutor: ToolExecutorFn
@@ -79,6 +85,8 @@ export interface ToolExecContext {
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string; matchedTools?: string[] }>
   emitter: AgentEventEmitter
   iteration: number
+  /** v14.3: 子代理执行快照收集器（主 runtime 持有数组，run 结束随结果返回） */
+  subagentSummaries: SubagentSummary[]
   /** v9.5.5: Store for tool progress tracking */
   store: {
     addToolExecution: (callId: string, toolName: string) => void
@@ -146,6 +154,16 @@ export async function executeSingleTool(
   // v15: 子 agent 委托用量上报（analyze_file/edit_file_task 返回 subAgentUsage）
   if (result.subAgentUsage) {
     ctx.store.reportSubAgentUsage?.(result.subAgentUsage)
+    // v14.3: 子代理执行快照收集（subAgentUsage 存在 = 实际委托过；
+    // 参数校验失败无 usage 不收集；子代理失败仍有 usage → 失败快照也进跨 run 记忆）
+    ctx.subagentSummaries.push({
+      tool: tc.name,
+      filePath: extractFilePath(args),
+      status: result.status === 'error' ? 'error' : 'success',
+      summary: result.summary || '',
+      detail: (result.detail || '').slice(0, SUBAGENT_SUMMARY_DETAIL_CHARS),
+      iteration: ctx.iteration,
+    })
   }
 
   const durationMs = Date.now() - t0

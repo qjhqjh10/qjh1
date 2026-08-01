@@ -83,9 +83,14 @@ export class SkillToolRegistry {
     return this.getPermission(name)
   }
 
-  needsApproval(name: string): boolean {
-    const perm = this.getPermission(name)
-    return perm === 'DANGEROUS_ASK' || perm === 'PROJECT_ASK'
+  needsApproval(name: string, args?: Record<string, unknown>): boolean {
+    const def = this.tools.get(name)
+    if (!def) return false
+    const perm = def.permission
+    if (perm !== 'DANGEROUS_ASK' && perm !== 'PROJECT_ASK') return false
+    // 条件审批：有 approvalGate 且传入 args 时按参数判定（如 find_files 仅 scope=computer 需审批）
+    if (def.approvalGate && args) return def.approvalGate(args)
+    return true
   }
 
   /** 检查工具是否为危险操作（兼容旧 ToolRegistry） */

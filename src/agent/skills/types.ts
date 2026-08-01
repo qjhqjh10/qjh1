@@ -37,6 +37,10 @@ export interface ToolDefinition {
     }
   }
   permission: 'AUTO' | 'READ_ASK' | 'PROJECT_ASK' | 'DANGEROUS_ASK'
+  /** 条件审批：permission 为 *_ASK 时生效——仅当 gate(args) 返回 true 才需审批。
+   *  用于"默认安全、特定参数才危险"的工具（如 find_files：scope=computer 才需审批）。
+   *  不传则保持静态判定（始终审批）。 */
+  approvalGate?: (args: Record<string, unknown>) => boolean
   category: 'file' | 'kb' | 'note' | 'image' | 'template' | 'project' | 'prompt' | 'harness' | 'http' | 'browser' | 'shell' | 'lsp'
   executor: (args: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolResult>
 }

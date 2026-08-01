@@ -7,6 +7,11 @@
 import { estimateTokens } from '../utils/tokenEstimation'
 import type { Message } from '../state/types'
 
+// ── v14.3: 本轮知识库注入记录（渲染层共享状态） ──
+// BridgeContextBuilder 每轮 buildContext 时先清空，注入成功后记录文件 id；
+// kb_search 工具执行时据此排除已注入文件（excludeFileIds），避免同一片段重复进入上下文。
+export const injectedKbFileIds = new Set<string>()
+
 // ── Types ──
 
 export interface ContextBuilderOptions {
@@ -44,6 +49,8 @@ export class BridgeContextBuilder {
     // ── 2. KB search + Web search（始终执行，动态内容）──
     // v13.x: 知识库检索不再要求项目内 — 未指定项目时检索全部文件
     let searchContext = ''
+    // v14.3: 本轮已注入的知识库文件（kb_search 工具据此排除，避免同一片段重复进入上下文）
+    injectedKbFileIds.clear()
     if (this.opts.kbEnabled) {
       try {
         const { kbService } = await import('@/services/fileService')
@@ -56,6 +63,10 @@ export class BridgeContextBuilder {
         if (Array.isArray(results) && results.length > 0) {
           searchContext += '\n[知识库]\n' +
             results.map((r: any) => `📄 ${r.fileName || '(未知文件)'}\n${r.content || ''}`).join('\n---\n')
+          // v14.3: 记录注入文件 id（供 kb_search 工具 excludeFileIds 去重）
+          for (const r of results) {
+            if (r.fileId) injectedKbFileIds.add(String(r.fileId))
+          }
         }
       } catch { /* unavailable */ }
     }

@@ -294,4 +294,62 @@ describe('V4Runtime + Subagent', () => {
     expect(typeof useAgentStore.getState().run.activeTools).toBe('object')
     expect(Object.keys(useAgentStore.getState().run.activeTools)).toHaveLength(0)
   })
+
+  it('v14.3: 主 run 调 analyze_file → 结果携带 subagentSummaries 快照（tool/filePath/detail）', async () => {
+    makeSubAIResponses([
+      { toolCalls: [{ id: 's1', function: { name: 'read_file', arguments: '{"file_path":"test-project/chapters/ch1.txt"}' } }] },
+      { text: '【要点】古剑出土\n【结论】结构完整' },
+    ])
+    makeSubFileTools()
+
+    const { svc } = makeMainAI([
+      { toolCalls: [makeToolCall('m1', 'analyze_file', { file_path: 'test-project/chapters/ch1.txt', question: '分析结构' })] },
+      { text: '全部完成' },
+    ])
+    const runtime = makeMainRuntime(svc)
+    runtime.setToolExecutor(async (args, ctx) => toolRegistry.execute(ctx.toolName, args, ctx))
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '帮我分析大文件的结构',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.subagentSummaries).toBeDefined()
+    expect(result.subagentSummaries).toHaveLength(1)
+    expect(result.subagentSummaries![0]).toMatchObject({
+      tool: 'analyze_file',
+      filePath: 'test-project/chapters/ch1.txt',
+      status: 'success',
+    })
+    expect(result.subagentSummaries![0].detail).toContain('【要点】古剑出土')
+    expect(result.subagentSummaries![0].iteration).toBeGreaterThanOrEqual(1)
+  })
+
+  it('v14.3: 同轮 2 个 analyze_file 并行 → subagentSummaries 收集 2 条（包含性断言，顺序不定）', async () => {
+    makeSubAIResponses([{ text: '【要点】文件A' }, { text: '【要点】文件B' }])
+    makeSubFileTools()
+
+    const { svc } = makeMainAI([
+      {
+        toolCalls: [
+          makeToolCall('m1', 'analyze_file', { file_path: 'a.txt' }),
+          makeToolCall('m2', 'analyze_file', { file_path: 'b.txt' }),
+        ],
+      },
+      { text: '全部完成' },
+    ])
+    const runtime = makeMainRuntime(svc)
+    runtime.setToolExecutor(async (args, ctx) => toolRegistry.execute(ctx.toolName, args, ctx))
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({ userMessage: '分析两个文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    expect(result.subagentSummaries).toHaveLength(2)
+    const paths = (result.subagentSummaries || []).map(s => s.filePath).sort()
+    expect(paths).toEqual(['a.txt', 'b.txt'])
+    expect((result.subagentSummaries || []).every(s => s.status === 'success')).toBe(true)
+  })
 })

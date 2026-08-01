@@ -113,14 +113,6 @@ export interface SettingsAPI {
   loadPexelsKey: () => Promise<string>
 }
 
-export interface ModelPrice {
-  modelId: string
-  modelName: string
-  inputPricePerM: number
-  cacheHitPricePerM: number
-  outputPricePerM: number
-}
-
 export interface UsageResult {
   entries: { timestamp: string; projectId: string; configId: string; configName: string; model: string; inputTokens: number; outputTokens: number; cacheHitTokens: number; cost: number; source?: string; _line: number }[]
   totalCount: number
@@ -140,9 +132,17 @@ export interface SessionStatEntry {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /** v14 批处理: 会话内 API 调用费用（audit api:call cost 求和；旧日志无 → 0） */
+  cost: number
   toolCalls: Array<{ toolName: string; count: number; lastUsed: string }>
   operations: string[]
   errorCount: number
+  /** v14 批处理: 工具执行失败/被拦截次数（audit tool:result 非 success） */
+  toolErrors: number
+  /** v14 批处理: 权限拒绝次数（audit permission:decision effect=deny） */
+  permissionDenied: number
+  /** v14 批处理: 末事件时间戳（ISO） */
+  lastUsed: string
 }
 
 export interface SessionStatsResult {
@@ -154,13 +154,13 @@ export interface SessionStatsResult {
     completionTokens: number
     totalTokens: number
     toolCalls: number
+    /** v14 批处理: 全部会话 API 费用合计 */
+    cost: number
   }
 }
 
 export interface StatsAPI {
   getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string; source?: string }) => Promise<UsageResult>
-  getPrices: () => Promise<ModelPrice[]>
-  savePrices: (prices: ModelPrice[]) => Promise<void>
   deleteByLine: (lineNumber: number) => Promise<void>
   getMonthCost: () => Promise<number>
   getSessionStats: () => Promise<SessionStatsResult>
@@ -181,6 +181,8 @@ export interface KBSearchResult {
   content: string
   fileName: string
   score: number
+  /** v14.3: 来源文件 id（渲染层据此记录"已注入"文件，供 kb_search 工具去重） */
+  fileId?: string
 }
 
 export interface KBWebSearchResult {
@@ -204,7 +206,7 @@ export interface KBAPI {
   delete: (fileId: string) => Promise<void>
   write: (fileId: string, content: string, configId?: string) => Promise<void>
   index: (fileId: string, configId: string) => Promise<{ chunkCount: number }>
-  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]) => Promise<KBSearchResult[]>
+  search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>
   create: (name: string, content: string, projectId?: string) => Promise<{ id: string; name: string }>
@@ -255,7 +257,7 @@ export interface ElectronAPI {
   story: StoryAPI
 
   http: { fetch: (url: string, options?: Record<string, unknown>) => Promise<any>; get: (url: string) => Promise<any> }
-  browser: { open: (url: string) => Promise<any>; screenshot: (url: string, path?: string) => Promise<any>; search: (query: string) => Promise<any> }
+  browser: { open: (url: string) => Promise<any>; search: (query: string) => Promise<any> }
   mcp: {
     listServers: () => Promise<any>
     connectServer: (name: string, config: { name: string; command: string; args: string[]; env?: Record<string, string> }) => Promise<any>
@@ -264,17 +266,6 @@ export interface ElectronAPI {
     listTools: (serverName: string) => Promise<any>
     saveConfig: (servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>) => Promise<void>
     loadConfig: () => Promise<Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>>
-  }
-  lsp: { diagnose: (filePath?: string) => Promise<any> }
-  agent: {
-    sessionSave: (id: string, data: string) => Promise<{ success: boolean }>
-    sessionLoad: (id: string) => Promise<any>
-    sessionList: () => Promise<any[]>
-    sessionDelete: (id: string) => Promise<{ success: boolean }>
-    permissionRecord: (toolName: string, approved: boolean) => Promise<{ success: boolean }>
-    permissionPatterns: () => Promise<Record<string, any>>
-    getSessionsPath: () => Promise<string>
-    optimize: (configId: string, command: string) => Promise<string>
   }
   appendDebugLog: (name: string, line: string) => Promise<void>
 }

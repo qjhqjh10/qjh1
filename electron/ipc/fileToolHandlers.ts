@@ -1012,7 +1012,15 @@ export async function executeFileTool(
           if (args.dir_path) searchDirs.push({ root: String(args.dir_path), label: String(args.dir_path) })
         } else {
           searchDirs.push({ root: appRoot, label: '软件内' })
-          if (args.dir_path) searchDirs.push({ root: String(args.dir_path), label: String(args.dir_path) })
+          // find_files 免审批联动: dir_path 必须走 safeResolve 强制 containment——
+          // 修复前原样入列，绝对路径/深层 ../ 可越界搜索到软件目录外
+          if (args.dir_path) {
+            const dir = await safeResolve('dir_path', args, projectPath)
+            if (!dir) {
+              return { callId, toolName, status: 'error', summary: '搜索目录不在软件目录内，已拒绝' }
+            }
+            searchDirs.push({ root: dir, label: String(args.dir_path) })
+          }
         }
 
         async function walk(dir: string, depth: number): Promise<void> {

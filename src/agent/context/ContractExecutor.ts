@@ -26,6 +26,7 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   analyze_file:   ['status', 'summary', 'detail'],
   edit_file_task: ['status', 'summary', 'detail'],
   verify_task:    ['status', 'summary', 'detail'],  // v14.2.1: 验收报告 JSON
+  subagent_ask:   ['status', 'summary', 'detail'],  // v14.3: 追问结果（执行器已截断 8000）
   // ── Write tools: strip detail to stay lean ──
   create_file:    ['status', 'summary'],
   edit_file:      ['status', 'summary'],

@@ -27,10 +27,18 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
     const secCheck = securityFence.check(ctx.toolName, args)
     if (!secCheck.allowed) {
       auditTrail.recordToolResult(ctx.toolName, 'blocked', secCheck.reason || '')
+      // v14 批处理: 审计权限决策（会话统计的 permissionDenied 计数来源）
+      auditTrail.recordPermissionDecision(ctx.toolName, 'deny', secCheck.reason || '安全围栏拦截')
       return { status: 'error', summary: secCheck.reason || '操作被安全围栏拦截' }
     }
 
     // Approval: dangerous tools or external paths
+    // 无 onApprovalRequired（如子 agent）时 needsApproval 一律拒绝——否则条件审批可被绕过
+    if (secCheck.needsApproval && !onApprovalRequired) {
+      auditTrail.recordToolResult(ctx.toolName, 'blocked', '工具需要审批但当前执行环境无审批路径')
+      auditTrail.recordPermissionDecision(ctx.toolName, 'deny', '当前环境无审批路径')
+      return { status: 'error', summary: '此操作需要用户确认，当前环境不支持审批' }
+    }
     if (secCheck.needsApproval && onApprovalRequired) {
       const timeoutPromise = new Promise<boolean>(r =>
         setTimeout(() => r(false), approvalTimeoutMs),
@@ -39,6 +47,9 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
         onApprovalRequired([{ name: ctx.toolName, args }]),
         timeoutPromise,
       ])
+      // v14 批处理: 审计权限决策（allow/deny + 原因）
+      auditTrail.recordPermissionDecision(ctx.toolName, approved ? 'allow' : 'deny',
+        approved ? '用户批准' : '用户拒绝或审批超时')
       if (!approved) {
         return { status: 'error', summary: '用户拒绝了此操作' }
       }

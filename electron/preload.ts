@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ModelConfig } from '../src/types/settings'
 import type { StyleProject, SceneTemplate } from '../src/types/story'
 import type { KnowledgeFile, KnowledgeMetadata } from '../src/types/knowledge'
-import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, ModelPrice, UsageResult, SessionStatsResult } from '../src/types/electron'
+import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, UsageResult, SessionStatsResult } from '../src/types/electron'
 
 const api = {
   files: {
@@ -163,8 +163,9 @@ const api = {
     write: (fileId: string, content: string, configId?: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content, configId),
     index: (fileId: string, configId: string): Promise<{ chunkCount: number }> =>
       ipcRenderer.invoke('kb:index', fileId, configId),
-    search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[]): Promise<KBSearchResult[]> =>
-      ipcRenderer.invoke('kb:search', query, projectId, configId, topK ?? 3, fileIds),
+    search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]): Promise<KBSearchResult[]> =>
+      // v14.4.0 修复: 第 6 参 excludeFileIds 透传（此前丢弃 → v14.3 注入去重特性静默失效）
+      ipcRenderer.invoke('kb:search', query, projectId, configId, topK ?? 3, fileIds, excludeFileIds),
     assignProject: (fileId: string, projectId: string, assigned: boolean): Promise<void> =>
       ipcRenderer.invoke('kb:assignProject', fileId, projectId, assigned),
     rename: (fileId: string, newName: string): Promise<void> =>
@@ -186,10 +187,8 @@ const api = {
       ipcRenderer.invoke('notes:search', query, configId, topK ?? 3),
   },
   stats: {
-    getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string }): Promise<UsageResult> =>
+    getUsage: (opts?: { projectId?: string; year?: number; month?: number; day?: number; configId?: string; model?: string; source?: string }): Promise<UsageResult> =>
       ipcRenderer.invoke('stats:getUsage', opts || {}),
-    getPrices: (): Promise<ModelPrice[]> => ipcRenderer.invoke('stats:getPrices'),
-    savePrices: (prices: ModelPrice[]): Promise<void> => ipcRenderer.invoke('stats:savePrices', prices),
     deleteByLine: (lineNumber: number): Promise<void> => ipcRenderer.invoke('stats:deleteByLine', lineNumber),
     getMonthCost: (): Promise<number> => ipcRenderer.invoke('stats:getMonthCost'),
     getSessionStats: (): Promise<SessionStatsResult> => ipcRenderer.invoke('stats:getSessionStats'),
@@ -277,23 +276,12 @@ const api = {
 
 
   appendDebugLog: (name: string, line: string): Promise<void> => ipcRenderer.invoke('debug:append-log', name, line),
-  agent: {
-    sessionSave: (id: string, data: string): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:session-save', id, data),
-    sessionLoad: (id: string): Promise<any> => ipcRenderer.invoke('agent:session-load', id),
-    sessionList: (): Promise<any[]> => ipcRenderer.invoke('agent:session-list'),
-    sessionDelete: (id: string): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:session-delete', id),
-    permissionRecord: (toolName: string, approved: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke('agent:permission-record', toolName, approved),
-    permissionPatterns: (): Promise<Record<string, any>> => ipcRenderer.invoke('agent:permission-patterns'),
-    getSessionsPath: (): Promise<string> => ipcRenderer.invoke('agent:get-sessions-path'),
-    optimize: (configId: string, command: string): Promise<string> => ipcRenderer.invoke('agent:optimize', configId, command),
-  },
   http: {
     fetch: (url: string, options?: Record<string, unknown>): Promise<any> => ipcRenderer.invoke('http:fetch', url, options),
     get: (url: string): Promise<any> => ipcRenderer.invoke('http:get', url),
   },
   browser: {
     open: (url: string): Promise<any> => ipcRenderer.invoke('browser:open', url),
-    screenshot: (url: string, path?: string): Promise<any> => ipcRenderer.invoke('browser:screenshot', url, path),
     search: (query: string): Promise<any> => ipcRenderer.invoke('browser:search', query),
   },
   mcp: {
@@ -304,9 +292,6 @@ const api = {
     listTools: (serverName: string): Promise<any> => ipcRenderer.invoke('mcp:list-tools', serverName),
     saveConfig: (servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>): Promise<void> => ipcRenderer.invoke('mcp:save-config', servers),
     loadConfig: (): Promise<Array<{ name: string; command: string; args: string[]; env?: Record<string, string>; enabled?: boolean }>> => ipcRenderer.invoke('mcp:load-config'),
-  },
-  lsp: {
-    diagnose: (filePath?: string): Promise<any> => ipcRenderer.invoke('lsp:diagnose', filePath),
   },
 }
 

@@ -18,6 +18,8 @@ export function TokenStatsTab() {
   const [sessionStats, setSessionStats] = useState<SessionStatsResult | null>(null)
   const [showSessionDetail, setShowSessionDetail] = useState(false)
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
+  // v14.3.1: 当月真实总花费（跨所有项目/筛选——预算条口径与全局预算一致）
+  const [monthCost, setMonthCost] = useState<number>(0)
 
   const [filterConfigId, setFilterConfigId] = useState('')
   const [filterModel, setFilterModel] = useState('')
@@ -26,7 +28,7 @@ export function TokenStatsTab() {
   const [filterYear, setFilterYear] = useState<number | undefined>(undefined)
   const [filterMonth, setFilterMonth] = useState<number | undefined>(undefined)
   const [filterDay, setFilterDay] = useState<number | undefined>(undefined)
-  const [viewMode, setViewMode] = useState<'summary' | 'byDay' | 'byConfig'>('summary')
+  const [viewMode, setViewMode] = useState<'summary' | 'byDay' | 'byConfig' | 'byModel'>('summary')
   const [showDetail, setShowDetail] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
@@ -45,6 +47,11 @@ export function TokenStatsTab() {
   // Session stats — load on mount and when filters change (but independently)
   useEffect(() => {
     statsService.getSessionStats().then(data => setSessionStats(data)).catch(() => {})
+  }, [])
+
+  // v14.3.1: 当月真实总花费（预算条口径：全局预算 vs 全局当月花费，不受项目/来源/日期筛选影响）
+  useEffect(() => {
+    statsService.getMonthCost().then(v => setMonthCost(v ?? 0)).catch(() => {})
   }, [])
 
   const totals = usage?.totals
@@ -68,10 +75,10 @@ export function TokenStatsTab() {
           <option value="">全部模型</option>
           {models.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-        {/* v14.2.1: 按调用来源筛选 — 区分主 agent / 子代理 / 独立流水线 / 图片生成 */}
+        {/* v14.2.1: 按调用来源筛选 — 区分主 agent / 子代理 / 独立流水线 / 图片生成 / 知识库嵌入 */}
         <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="focus-ring" style={miniSelect}>
           <option value="">全部来源</option>
-          {(['main', 'subagent', 'pipeline', 'image'] as const).map(s => (
+          {(['main', 'subagent', 'pipeline', 'image', 'embedding'] as const).map(s => (
             <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
           ))}
         </select>
@@ -93,14 +100,14 @@ export function TokenStatsTab() {
 
       {/* View mode tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
-        {(['summary', 'byDay', 'byConfig'] as const).map(mode => (
+        {(['summary', 'byDay', 'byConfig', 'byModel'] as const).map(mode => (
           <button key={mode} onClick={() => setViewMode(mode)} style={{
             padding: '4px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12,
             background: viewMode === mode ? 'rgba(124,58,237,0.08)' : 'transparent',
             color: viewMode === mode ? '#7c3aed' : '#6b5e54',
             fontWeight: viewMode === mode ? 600 : 400,
           }}>
-            {mode === 'summary' ? '汇总' : mode === 'byDay' ? '按日' : '按配置'}
+            {mode === 'summary' ? '汇总' : mode === 'byDay' ? '按日' : mode === 'byConfig' ? '按配置' : '按模型'}
           </button>
         ))}
       </div>
@@ -126,6 +133,8 @@ export function TokenStatsTab() {
                   <span style={{ minWidth: 36, color: '#9b8e84' }}>{s.count}次</span>
                   <span style={{ minWidth: 66, color: '#2563eb' }}>入 {s.input.toLocaleString()}</span>
                   <span style={{ minWidth: 66, color: '#16a34a' }}>出 {s.output.toLocaleString()}</span>
+                  {/* v14.3.1: 补缓存命中列 */}
+                  <span style={{ minWidth: 66, color: '#ca8a04' }}>缓存 {s.cacheHit.toLocaleString()}</span>
                   <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{s.cost.toFixed(4)}</span>
                   <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                     <div style={{ height: '100%', background: '#7c3aed', width: totals.cost > 0 ? `${((s.cost / totals.cost) * 100).toFixed(0)}%` : '0%' }} />
@@ -135,17 +144,18 @@ export function TokenStatsTab() {
             </div>
           )}
 
-          {/* Budget bar */}
+          {/* Budget bar — v14.3.1: 口径修正为"全局当月真实花费"（getMonthCost，跨所有项目/不受筛选影响），
+              与全局预算设置同口径；此前用筛选后的 totals.cost，多项目用户预算进度失真 */}
           {aiSettings.monthlyBudget > 0 && (
             <div style={{ marginTop: 4 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b5e54', marginBottom: 4 }}>
-                <span>当月预算 {cSym}{totals.cost.toFixed(2)} / {cSym}{aiSettings.monthlyBudget.toFixed(2)}</span>
-                <span style={{ color: totals.cost > aiSettings.monthlyBudget ? '#dc2626' : totals.cost > aiSettings.monthlyBudget * 0.8 ? '#e67e00' : '#16a34a' }}>
-                  {totals.cost > aiSettings.monthlyBudget ? '已超预算' : totals.cost > aiSettings.monthlyBudget * 0.8 ? '接近上限' : '正常'}
+                <span>当月预算 {cSym}{monthCost.toFixed(2)} / {cSym}{aiSettings.monthlyBudget.toFixed(2)}（全局口径）</span>
+                <span style={{ color: monthCost > aiSettings.monthlyBudget ? '#dc2626' : monthCost > aiSettings.monthlyBudget * 0.8 ? '#e67e00' : '#16a34a' }}>
+                  {monthCost > aiSettings.monthlyBudget ? '已超预算' : monthCost > aiSettings.monthlyBudget * 0.8 ? '接近上限' : '正常'}
                 </span>
               </div>
               <div style={{ height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 3, background: totals.cost > aiSettings.monthlyBudget ? '#dc2626' : totals.cost > aiSettings.monthlyBudget * 0.8 ? '#e67e00' : '#7c3aed', width: `${Math.min(100, (totals.cost / aiSettings.monthlyBudget) * 100)}%`, transition: 'width 0.3s' }} />
+                <div style={{ height: '100%', borderRadius: 3, background: monthCost > aiSettings.monthlyBudget ? '#dc2626' : monthCost > aiSettings.monthlyBudget * 0.8 ? '#e67e00' : '#7c3aed', width: `${Math.min(100, (monthCost / aiSettings.monthlyBudget) * 100)}%`, transition: 'width 0.3s' }} />
               </div>
             </div>
           )}
@@ -153,7 +163,9 @@ export function TokenStatsTab() {
           {/* By Day view */}
           {viewMode === 'byDay' && usage.byDay.length > 0 && (
             <div style={{ marginTop: 4 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>日用量</div>
+              {/* v14.3: 按日趋势折线图（手绘 SVG，无第三方依赖；DeepSeek 官网风格） */}
+              <DayTrendChart data={usage.byDay} cSym={cSym} />
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>日用量明细</div>
               <div className="custom-scrollbar" style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {usage.byDay.map(d => (
                   <div key={d.date} style={{ display: 'flex', gap: 12, fontSize: 11, color: '#4a3f38', padding: '5px 8px', borderBottom: '1px solid rgba(0,0,0,0.03)' }}>
@@ -161,6 +173,8 @@ export function TokenStatsTab() {
                     <span style={{ minWidth: 40, color: '#9b8e84' }}>{d.count}次</span>
                     <span style={{ minWidth: 60, color: '#2563eb' }}>入 {d.input.toLocaleString()}</span>
                     <span style={{ minWidth: 60, color: '#16a34a' }}>出 {d.output.toLocaleString()}</span>
+                    {/* v14.3.1: 补缓存命中列（成本优化核心指标） */}
+                    <span style={{ minWidth: 60, color: '#ca8a04' }}>缓存 {d.cacheHit.toLocaleString()}</span>
                     <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{d.cost.toFixed(4)}</span>
                   </div>
                 ))}
@@ -174,16 +188,40 @@ export function TokenStatsTab() {
               <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>按配置统计</div>
               {usage.byConfig.map(c => (
                 <div key={c.configId} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, padding: '8px 10px', borderRadius: 8, background: '#faf9f8' }}>
-                  <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#4a3f38' }}>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#4a3f38', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 600, minWidth: 80 }}>{c.configName}</span>
                     <span style={{ color: '#9b8e84', minWidth: 60 }}>{c.model}</span>
                     <span style={{ minWidth: 40, color: '#9b8e84' }}>{c.count}次</span>
                     <span style={{ minWidth: 60, color: '#2563eb' }}>入 {c.input.toLocaleString()}</span>
                     <span style={{ minWidth: 60, color: '#16a34a' }}>出 {c.output.toLocaleString()}</span>
+                    {/* v14.3.1: 补缓存命中列 */}
+                    <span style={{ minWidth: 60, color: '#ca8a04' }}>缓存 {c.cacheHit.toLocaleString()}</span>
                     <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{c.cost.toFixed(4)}</span>
                   </div>
                   <div style={{ height: 3, borderRadius: 2, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                     <div style={{ height: '100%', borderRadius: 2, background: '#7c3aed', width: totals.cost > 0 ? `${((c.cost / totals.cost) * 100).toFixed(0)}%` : '0%' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* v14.3.1: By Model view — 后端 byModel 聚合此前已计算但前端无视图 */}
+          {viewMode === 'byModel' && usage.byModel.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginBottom: 8 }}>按模型统计</div>
+              {usage.byModel.map(m => (
+                <div key={m.model} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, padding: '8px 10px', borderRadius: 8, background: '#faf9f8' }}>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#4a3f38', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, minWidth: 100 }}>{m.model}</span>
+                    <span style={{ minWidth: 40, color: '#9b8e84' }}>{m.count}次</span>
+                    <span style={{ minWidth: 60, color: '#2563eb' }}>入 {m.input.toLocaleString()}</span>
+                    <span style={{ minWidth: 60, color: '#16a34a' }}>出 {m.output.toLocaleString()}</span>
+                    <span style={{ minWidth: 60, color: '#ca8a04' }}>缓存 {m.cacheHit.toLocaleString()}</span>
+                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>{cSym}{m.cost.toFixed(4)}</span>
+                  </div>
+                  <div style={{ height: 3, borderRadius: 2, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: 2, background: '#7c3aed', width: totals.cost > 0 ? `${((m.cost / totals.cost) * 100).toFixed(0)}%` : '0%' }} />
                   </div>
                 </div>
               ))}
@@ -198,11 +236,15 @@ export function TokenStatsTab() {
             {showDetail && (
               <div className="custom-scrollbar" style={{ maxHeight: 300, overflowY: 'auto', marginTop: 8 }}>
                 {usage.entries.map((e, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, fontSize: 10, color: '#6b5e54', padding: '4px 6px', borderBottom: '1px solid rgba(0,0,0,0.02)', alignItems: 'center' }}>
+                  <div key={i} style={{ display: 'flex', gap: 10, fontSize: 10, color: '#6b5e54', padding: '4px 6px', borderBottom: '1px solid rgba(0,0,0,0.02)', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ minWidth: 130 }}>{e.timestamp?.split('T')[0]} {e.timestamp?.split('T')[1]?.slice(0, 8)}</span>
                     <span style={{ minWidth: 60, color: '#4a3f38' }}>{e.configName || e.model}</span>
+                    {/* v14.3.1: 明细补 model / source / cacheHit 列（此前记录了但 UI 不显示，无法核对成本构成） */}
+                    <span style={{ minWidth: 90, color: '#9b8e84' }}>{e.model}</span>
+                    <span style={{ minWidth: 44, color: '#7c3aed' }}>{SOURCE_LABELS[(e as { source?: string }).source || 'main'] || 'main'}</span>
                     <span style={{ color: '#2563eb' }}>入 {e.inputTokens.toLocaleString()}</span>
                     <span style={{ marginLeft: 6, color: '#16a34a' }}>出 {e.outputTokens.toLocaleString()}</span>
+                    <span style={{ marginLeft: 6, color: '#ca8a04' }}>缓存 {((e as { cacheHitTokens?: number }).cacheHitTokens ?? 0).toLocaleString()}</span>
                     <span style={{ marginLeft: 6, color: '#7c3aed', fontWeight: 600 }}>{cSym}{((e as { cost?: number }).cost ?? 0).toFixed(4)}</span>
                     <button
                       onClick={() => setConfirmAction({ title: '删除记录', message: '确定要删除此条 Token 统计记录？', onConfirm: () => { statsService.deleteByLine(e._line).then(() => {
@@ -253,6 +295,8 @@ export function TokenStatsTab() {
               <StatCard label="输入 Token" value={sessionStats.totals.promptTokens.toLocaleString()} color="#7c3aed" />
               <StatCard label="输出 Token" value={sessionStats.totals.completionTokens.toLocaleString()} color="#16a34a" />
               <StatCard label="工具调用" value={sessionStats.totals.toolCalls.toLocaleString()} color="#ca8a04" />
+              {/* v14 批处理: 会话统计 API 费用合计（旧日志无 cost → 0） */}
+              <StatCard label="会话花费" value={`$${sessionStats.totals.cost.toFixed(4)}`} color="#0f766e" />
             </div>
 
             {/* Session list */}
@@ -310,6 +354,17 @@ export function TokenStatsTab() {
                               {s.errorCount} 错误
                             </span>
                           )}
+                          {/* v14 批处理: 失败/拒绝信号徽章（最有价值的运营数据） */}
+                          {s.toolErrors > 0 && (
+                            <span style={{ fontSize: 10, color: '#ea580c', background: 'rgba(234,88,12,0.06)', padding: '1px 6px', borderRadius: 6 }}>
+                              {s.toolErrors} 工具失败
+                            </span>
+                          )}
+                          {s.permissionDenied > 0 && (
+                            <span style={{ fontSize: 10, color: '#9333ea', background: 'rgba(147,51,234,0.06)', padding: '1px 6px', borderRadius: 6 }}>
+                              {s.permissionDenied} 权限拒绝
+                            </span>
+                          )}
                           <button
                             onClick={(e) => { e.stopPropagation(); setConfirmAction({ title: '删除会话记录', message: `确定删除会话 ${s.sessionId.slice(0, 8)}... 的记录？`, onConfirm: async () => { await statsService.deleteSession(s.sessionId); statsService.getSessionStats().then(setSessionStats).catch(() => {}) } }) }}
                             title="删除此会话"
@@ -327,6 +382,11 @@ export function TokenStatsTab() {
                               <span style={{ color: '#2563eb' }}>输入: {s.promptTokens.toLocaleString()}</span>
                               <span style={{ color: '#16a34a' }}>输出: {s.completionTokens.toLocaleString()}</span>
                               <span style={{ color: '#9b8e84' }}>合计: {s.totalTokens.toLocaleString()}</span>
+                              {/* v14 批处理: 会话级费用与最后使用时间 */}
+                              <span style={{ color: '#0f766e' }}>花费: ${s.cost.toFixed(4)}</span>
+                              <span style={{ color: '#9b8e84', marginLeft: 'auto' }}>
+                                最后使用: {s.lastUsed ? new Date(s.lastUsed).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                              </span>
                             </div>
 
                             {/* Operations */}
@@ -403,7 +463,142 @@ const miniSelect: React.CSSProperties = {
   outline: 'none', background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: '#4a3f38',
 }
 
-// v14.2.1: 调用来源显示名（main/subagent/pipeline/image）
+// v14.2.1: 调用来源显示名（main/subagent/pipeline/image）；v14 批处理: +embedding
 const SOURCE_LABELS: Record<string, string> = {
-  main: '主 agent', subagent: '子代理', pipeline: '独立流水线', image: '图片生成',
+  main: '主 agent', subagent: '子代理', pipeline: '独立流水线', image: '图片生成', embedding: '知识库嵌入',
+}
+
+// ════════════════════════════════════════════════════════════
+// v14.3: 按日趋势折线图（手绘 SVG，无第三方依赖）
+// 系列可切换：调用次数 / 输入 / 输出 / 缓存命中 / 花费；hover 显示当日数值
+// ════════════════════════════════════════════════════════════
+
+type TrendSeries = 'count' | 'input' | 'output' | 'cacheHit' | 'cost'
+
+const TREND_SERIES_META: Record<TrendSeries, { label: string; color: string }> = {
+  count: { label: '调用次数', color: '#6b5e54' },
+  input: { label: '输入 Token', color: '#2563eb' },
+  output: { label: '输出 Token', color: '#16a34a' },
+  cacheHit: { label: '缓存命中', color: '#ca8a04' },
+  cost: { label: '花费', color: '#7c3aed' },
+}
+
+interface TrendDay { date: string; count: number; input: number; output: number; cacheHit: number; cost: number }
+
+function DayTrendChart({ data, cSym }: { data: TrendDay[]; cSym: string }) {
+  const [series, setSeries] = useState<TrendSeries>('input')
+  const [hover, setHover] = useState<number | null>(null)
+
+  if (data.length === 0) return null
+  const W = 720
+  const H = 180
+  const PAD = { top: 18, right: 14, bottom: 24, left: 52 }
+  // byDay 为降序（新→旧）→ 图表升序（旧→新）
+  const ascending = [...data].reverse()
+  const getVal = (d: TrendDay) => series === 'count' ? d.count
+    : series === 'input' ? d.input
+    : series === 'output' ? d.output
+    : series === 'cacheHit' ? d.cacheHit
+    : d.cost
+  const values = ascending.map(getVal)
+  const max = Math.max(...values, 1)
+  const min = Math.min(...values, 0)
+  const range = max - min || 1
+  const x = (i: number) => PAD.left + (ascending.length === 1 ? (W - PAD.left - PAD.right) / 2 : (i / (ascending.length - 1)) * (W - PAD.left - PAD.right))
+  const y = (v: number) => H - PAD.bottom - ((v - min) / range) * (H - PAD.top - PAD.bottom)
+  const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const areaPts = `${PAD.left},${H - PAD.bottom} ${linePts} ${x(ascending.length - 1).toFixed(1)},${H - PAD.bottom}`
+  const meta = TREND_SERIES_META[series]
+  const fmt = (v: number) => series === 'cost' ? `${cSym}${v.toFixed(4)}` : v.toLocaleString()
+
+  // 底部日期标签：最多 6 个（首/尾 + 均匀取点）
+  const labelIdx: number[] = []
+  if (ascending.length <= 6) {
+    for (let i = 0; i < ascending.length; i++) labelIdx.push(i)
+  } else {
+    for (let k = 0; k < 6; k++) labelIdx.push(Math.round((k / 5) * (ascending.length - 1)))
+  }
+  const uniqLabelIdx = [...new Set(labelIdx)]
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const px = ((e.clientX - rect.left) / rect.width) * W
+    let best = 0
+    let bestDist = Infinity
+    for (let i = 0; i < ascending.length; i++) {
+      const d = Math.abs(x(i) - px)
+      if (d < bestDist) { bestDist = d; best = i }
+    }
+    setHover(best)
+  }
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', marginRight: 4 }}>日趋势</span>
+        {(Object.keys(TREND_SERIES_META) as TrendSeries[]).map(s => (
+          <button key={s} onClick={() => setSeries(s)} style={{
+            padding: '2px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11,
+            background: series === s ? `${TREND_SERIES_META[s].color}14` : 'transparent',
+            color: series === s ? TREND_SERIES_META[s].color : '#9b8e84',
+            fontWeight: series === s ? 600 : 400,
+          }}>
+            {TREND_SERIES_META[s].label}
+          </button>
+        ))}
+      </div>
+      <div style={{ overflowX: 'auto' }} className="custom-scrollbar">
+        <svg
+          width="100%"
+          style={{ minWidth: 360, display: 'block' }}
+          viewBox={`0 0 ${W} ${H}`}
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          {/* 网格线 */}
+          {[0, 0.25, 0.5, 0.75, 1].map(t => {
+            const gy = PAD.top + t * (H - PAD.top - PAD.bottom)
+            return (
+              <g key={t}>
+                <line x1={PAD.left} x2={W - PAD.right} y1={gy} y2={gy} stroke="rgba(0,0,0,0.05)" strokeWidth={1} />
+                <text x={PAD.left - 6} y={gy + 3} textAnchor="end" fontSize={9} fill="#b8aca1">
+                  {fmt(Math.round(min + (1 - t) * range))}
+                </text>
+              </g>
+            )
+          })}
+          {/* 面积 */}
+          <polygon points={areaPts} fill={meta.color} opacity={0.08} />
+          {/* 折线 */}
+          <polyline points={linePts} fill="none" stroke={meta.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          {/* 数据点 */}
+          {values.map((v, i) => (
+            <circle key={i} cx={x(i)} cy={y(v)} r={ascending.length <= 30 ? 2.4 : 1.6} fill="#fff" stroke={meta.color} strokeWidth={1.5} />
+          ))}
+          {/* hover 指示 */}
+          {hover !== null && hover >= 0 && hover < ascending.length && (
+            <g>
+              <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} stroke={meta.color} strokeWidth={1} strokeDasharray="3 3" opacity={0.5} />
+              <circle cx={x(hover)} cy={y(values[hover])} r={4} fill={meta.color} stroke="#fff" strokeWidth={2} />
+              <rect
+                x={Math.min(Math.max(x(hover) - 46, 2), W - 100)}
+                y={Math.max(PAD.top - 26, 2)}
+                width={92} height={22} rx={6}
+                fill="rgba(45,37,32,0.85)"
+              />
+              <text x={Math.min(Math.max(x(hover), 46), W - 48)} y={Math.max(PAD.top - 10, 13)} textAnchor="middle" fontSize={9.5} fill="#fff">
+                {ascending[hover].date.slice(5)} · {fmt(values[hover])}
+              </text>
+            </g>
+          )}
+          {/* 日期标签 */}
+          {uniqLabelIdx.map(i => (
+            <text key={i} x={x(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="#b8aca1">
+              {ascending[i].date.slice(5)}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </div>
+  )
 }

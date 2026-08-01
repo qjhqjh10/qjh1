@@ -21,7 +21,7 @@ import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
 
-import { makeConversation, parsePopupCommand, maybeInjectResume } from "./utils";
+import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
@@ -420,11 +420,21 @@ export default function AIChatWindow() {
       }
     }
 
-    // Cap total user messages
+    // Cap total user messages — v14.3.1: 超过 20 轮时早期轮次不再整体丢弃
+    // （长讨论中早期的写作偏好/决策/约定会完全丢失），改为折叠成一条摘要 system 消息
+    // （保留最近 8 条早期用户消息的前 60 字，至少留下讨论脉络）
     const allUserIndices: number[] = []
     filtered.forEach((m, i) => { if (m.role === 'user') allUserIndices.push(i) })
+    let earlySummary = ''
     if (allUserIndices.length > 20) {
       const cutoff = allUserIndices[allUserIndices.length - 20]
+      const earlyMsgs = filtered.slice(0, cutoff)
+      const earlyUserTexts = earlyMsgs
+        .filter(m => m.role === 'user')
+        .map(m => (m.content || '').replace(/\s+/g, ' ').slice(0, 60))
+      if (earlyUserTexts.length > 0) {
+        earlySummary = `[早期对话已折叠] 此前 ${earlyUserTexts.length} 轮的用户请求要点:\n${earlyUserTexts.slice(-8).map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+      }
       filtered = filtered.slice(cutoff)
       // Recalculate
       toolTurnUserIndices.length = 0
@@ -451,6 +461,10 @@ export default function AIChatWindow() {
       : 0
 
     const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string }> = []
+    // v14.3.1: 早期轮次折叠摘要（system 消息，置于历史最前）
+    if (earlySummary) {
+      result.push({ role: 'system', content: earlySummary })
+    }
 
     for (const m of filtered) {
       const msgIdx = filtered.indexOf(m)
@@ -710,7 +724,10 @@ export default function AIChatWindow() {
       // ── Agent Runtime (工厂创建：OpenAI 旧方案 or Anthropic 新方案) ──
       // v14.2.0: 跨 run 续跑 — 构建历史后检测上一条 assistant 消息的 taskProgress
       // 中断未完成 → 追加 [续跑] system 提示（提示模型继续剩余任务而非重新开始）
-      const resumeHistory = maybeInjectResume(buildHistoryMessages(messages), messages)
+      // v14.3: 子代理快照注入在前（[子代理快照]），[续跑] 在后（续跑指令更接近用户消息，操作性最强）
+      const builtHistory = buildHistoryMessages(messages)
+      const snapHistory = maybeInjectSubagentSummaries(builtHistory, messages)
+      const resumeHistory = maybeInjectResume(snapHistory, messages)
       if (!bridgeRef.current) {
         bridgeRef.current = await createChatBridge(latestProjectId)
         bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: resumeHistory, contextWindow: activeConfig?.contextWindow ?? 128000 })
@@ -781,6 +798,10 @@ export default function AIChatWindow() {
             // v14.2.0: 跨 run 续跑 — 任务清单进度快照随消息持久化（IndexedDB），
             // 中断未完成时下一条消息注入 [续跑] 提示
             taskProgress: (runResult as any).taskProgress,
+            // v14.3: 子代理执行快照随消息持久化（chatStorageService 全量 JSON 序列化，自动生效）；
+            // 下轮 maybeInjectSubagentSummaries 注入 [子代理快照] 供跨 run 复用。
+            // 持久化截断：只保留最近 5 条（防 IndexedDB/镜像膨胀）
+            subagentSummaries: (runResult as any).subagentSummaries?.slice(-5),
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -1318,6 +1339,48 @@ export default function AIChatWindow() {
                         子代理 入 {((msg.usage as any).subAgentUsage.promptTokens || 0).toLocaleString()} | 出 {((msg.usage as any).subAgentUsage.completionTokens || 0).toLocaleString()} | 合计 {((msg.usage as any).subAgentUsage.totalTokens || 0).toLocaleString()}
                       </span>
                     )}
+                  </div>
+                )}
+                {/* v14.3.1: 任务清单进度卡片（taskProgress 此前只用于续跑注入，聊天窗口无可视化） */}
+                {msg.role === 'assistant' && msg.taskProgress && msg.taskProgress.tasks.length > 0 && (
+                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 700, color: '#4a3f38' }}>📋 任务进度</span>
+                      <span style={{ color: '#7c3aed', fontWeight: 700 }}>
+                        {msg.taskProgress.tasks.filter(t => t.done).length}/{msg.taskProgress.tasks.length}
+                      </span>
+                      {msg.taskProgress.interrupted && !msg.taskProgress.allDone && (
+                        <span style={{ color: '#dc2626', fontSize: 10 }}>· 中断未完成，下条消息将提示续跑</span>
+                      )}
+                    </div>
+                    {msg.taskProgress.tasks.map((t, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, color: t.done ? '#16a34a' : '#9b8e84', padding: '1px 0' }}>
+                        <span>{t.done ? '✅' : '○'}</span>
+                        <span style={{ textDecoration: t.done ? 'none' : 'none' }}>{t.desc.length > 44 ? t.desc.slice(0, 44) + '…' : t.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* v14.3.1: 子代理简报（快照内容可视化——此前快照只用于跨 run 注入，用户看不到内容） */}
+                {msg.role === 'assistant' && msg.subagentSummaries && msg.subagentSummaries.length > 0 && (
+                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11 }}>
+                    <div style={{ fontWeight: 700, color: '#4a3f38', marginBottom: 4 }}>🤖 子代理简报</div>
+                    {msg.subagentSummaries.map((s, i) => (
+                      <div key={i} style={{ padding: '3px 0', borderTop: i > 0 ? '1px dashed rgba(0,0,0,0.05)' : 'none' }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span>{s.tool === 'verify_task' ? (s.status === 'success' ? '✅' : '❌') : s.tool === 'subagent_ask' ? '💬' : '🔍'}</span>
+                          <span style={{ fontWeight: 600, color: s.tool === 'verify_task' ? (s.status === 'success' ? '#16a34a' : '#dc2626') : '#7c3aed' }}>
+                            {s.tool === 'analyze_file' ? '分析' : s.tool === 'edit_file_task' ? '修改' : s.tool === 'verify_task' ? '验收' : '追问'}: {s.filePath || '(无路径)'}
+                          </span>
+                          <span style={{ color: '#6b5e54' }}>{s.summary}</span>
+                        </div>
+                        {s.detail && (
+                          <div style={{ color: '#9b8e84', whiteSpace: 'pre-wrap', marginTop: 2, fontSize: 10 }}>
+                            {s.detail.length > 400 ? s.detail.slice(0, 400) + '…' : s.detail}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
                 {/* Tool usage summary — shows which tools were called in this response */}

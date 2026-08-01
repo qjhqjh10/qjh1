@@ -3,7 +3,7 @@
 // Verifies: simple tasks, multi-turn dialog, multi-tool calls, token efficiency.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { V4UnifiedRuntime } from '../runtime/V4UnifiedRuntime'
+import { V4UnifiedRuntime, computeRunTimeoutMs } from '../runtime/V4UnifiedRuntime'
 import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { V4SecurityFence } from '../V4SecurityFence'
 import { toolRegistry } from '../skills/ToolRegistry'
@@ -397,6 +397,24 @@ describe('Agent 功能全景验证', () => {
     const fence = new V4SecurityFence('test')
     expect(fence.check('create_file', { file_path: 'test.json', content: '{bad' }).allowed).toBe(false)
     expect(fence.check('create_file', { file_path: 'test.json', content: '{"ok":true}' }).allowed).toBe(true)
+  })
+
+  it('功能07b: SecurityFence — find_files 条件审批（scope=project 免审批 / computer 需确认）', () => {
+    const fence = new V4SecurityFence('test')
+    // 默认 project 范围 → 免审批（批量任务不再弹确认框）
+    expect(fence.check('find_files', { pattern: '*.yaml' }).needsApproval).toBe(false)
+    expect(fence.check('find_files', { pattern: '*.yaml', scope: 'project' }).needsApproval).toBe(false)
+    // computer 范围 → 仍走审批
+    const comp = fence.check('find_files', { pattern: '*.md', scope: 'computer' })
+    expect(comp.allowed).toBe(true)
+    expect(comp.needsApproval).toBe(true)
+  })
+
+  it('功能07c: RUN_TIMEOUT 按 maxIterations 动态估算（每轮 60s，下限 5min 上限 15min）', () => {
+    expect(computeRunTimeoutMs(30)).toBe(900_000)   // 主 agent 30 轮 → 15min 封顶
+    expect(computeRunTimeoutMs(10)).toBe(600_000)   // 子代理 10 轮 → 10min
+    expect(computeRunTimeoutMs(4)).toBe(300_000)    // 短任务 → 5min 下限
+    expect(computeRunTimeoutMs(1000)).toBe(900_000) // 极端值 → 15min 封顶
   })
 
   // ── 工具注册 ──

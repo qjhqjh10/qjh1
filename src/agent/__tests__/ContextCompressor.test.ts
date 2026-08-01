@@ -47,6 +47,58 @@ describe('ContextCompressor', () => {
     expect(parsed.status).toBe('success')
   })
 
+  // ── v14 批处理: strip_detail 最近轮保护（不截断尾部 2 轮的 tool detail）──
+
+  function makePairRound(userText: string, detail: string, callId: string): Message[] {
+    return [
+      { role: 'user', content: userText },
+      { role: 'assistant', content: '', tool_calls: [{ id: callId, function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: callId, content: JSON.stringify({ status: 'success', summary: `读取${callId}`, detail }) },
+    ]
+  }
+
+  it('strip_detail: 保护最近 2 轮 — 旧轮 detail 截断、最近轮完整保留', () => {
+    const LONG = 'X'.repeat(1000)
+    const msgs: Message[] = [
+      ...makePairRound('第一轮', LONG, 'c1'),
+      ...makePairRound('第二轮', LONG, 'c2'),
+      ...makePairRound('第三轮', LONG, 'c3'),
+    ]
+    const result = comp.compress(msgs, 750) // 75% → strip_detail
+    expect(result.length).toBe(msgs.length) // 只截 detail，不删消息
+
+    const toolDetails = result.filter(m => m.role === 'tool').map(m => JSON.parse(m.content).detail as string)
+    // 旧轮（c1）被截断
+    expect(toolDetails[0].length).toBeLessThan(300)
+    expect(toolDetails[0].endsWith('…')).toBe(true)
+    // 最近 2 轮（c2/c3）完整保留
+    expect(toolDetails[1]).toBe(LONG)
+    expect(toolDetails[2]).toBe(LONG)
+  })
+
+  it('strip_detail: 单轮大文件场景全保护（保护优先于压缩收益）', () => {
+    const LONG = 'X'.repeat(1000)
+    const msgs = makePairRound('大文件', LONG, 'c1')
+    const result = comp.compress(msgs, 750)
+    expect(JSON.parse(result[2].content).detail).toBe(LONG) // 不足 2 轮 → 全保护
+  })
+
+  it('strip_detail: 保护后无孤儿 tool 消息（配对保持完整）', () => {
+    const LONG = 'Y'.repeat(1000)
+    const msgs: Message[] = [
+      ...makePairRound('第一轮', LONG, 'c1'),
+      ...makePairRound('第二轮', LONG, 'c2'),
+    ]
+    const result = comp.compress(msgs, 750)
+    for (let i = 0; i < result.length; i++) {
+      if (result[i].role === 'tool') {
+        const prev = result[i - 1]
+        expect(prev.role).toBe('assistant')
+        expect(Array.isArray(prev.tool_calls)).toBe(true)
+      }
+    }
+  })
+
   it('summarize_pairs: compresses oldest user/assistant pair', () => {
     const msgs: Message[] = [
       { role: 'user', content: '帮我写第3章' },

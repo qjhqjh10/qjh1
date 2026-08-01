@@ -6,11 +6,12 @@
 import type { ToolDefinition, ToolResult } from '../types'
 import { runSubagent, SUBAGENT_TOOL_NAMES } from '../../subagent/SubagentService'
 
-/** detail 回灌主上下文的截断上限（防撑爆） */
+/** detail 回灌主上下文的截断上限（防撑爆）— v14.3: 随子代理输出上限放宽（2500/1200 字）提升 */
 const MAX_DETAIL_CHARS: Record<string, number> = {
-  analyze_file: 4000,
-  edit_file_task: 2000,
-  verify_task: 4000,
+  analyze_file: 8000,
+  edit_file_task: 4000,
+  verify_task: 8000,
+  subagent_ask: 8000,
 }
 
 /**
@@ -75,12 +76,14 @@ export const subagentTools: ToolDefinition[] = [
           'analyze_file', filePath,
           question ? `分析问题: ${question}` : '分析问题: 请输出文件的整体结构、核心内容与亮点。',
         )
+        // v14.3: 委托成功后保存会话（供 subagent_ask 追问复用，避免重复读取大文件）
         const result = await runSubagent({
           role: 'analyze',
           projectId: ctx.projectId,
           configId,
           userMessage: taskMessage,
           signal: ctx.signal,
+          sessionKey: `${ctx.projectId ?? 'global'}::${filePath}`,
         })
 
         return {
@@ -125,12 +128,14 @@ export const subagentTools: ToolDefinition[] = [
         if (!configId) return { status: 'error', summary: '未配置AI' }
 
         const taskMessage = buildTaskMessage('edit_file_task', filePath, `修改指令: ${instruction}`)
+        // v14.3: 委托成功后保存会话（供 subagent_ask 追问复用）
         const result = await runSubagent({
           role: 'edit',
           projectId: ctx.projectId,
           configId,
           userMessage: taskMessage,
           signal: ctx.signal,
+          sessionKey: `${ctx.projectId ?? 'global'}::${filePath}`,
         })
 
         return {
@@ -188,38 +193,113 @@ export const subagentTools: ToolDefinition[] = [
           '验收标准清单（逐条判定通过/不通过）:',
           ...criteria.map((c, i) => `${i + 1}. ${c}`),
         ]
+        // v14.3: 会话 key 以首个文件为准（多文件验收以清单为准，追问按首文件复用）
         const result = await runSubagent({
           role: 'verify',
           projectId: ctx.projectId,
           configId,
           userMessage: lines.join('\n'),
           signal: ctx.signal,
+          sessionKey: `${ctx.projectId ?? 'global'}::${filePaths[0] ?? ''}`,
         })
 
         // 尝试解析 JSON 验收报告 → 结构化 detail（主 agent 可直接读 passed/items）
+        // v14.3: 同时解析 passed 判定 → summary 三态（通过/未通过/中性），
+        // 运行时据"验收未通过"字样识别验收失败并督促修复（错误路径保留"验收失败"文案，刻意区分）
         let detail = result.text.slice(0, MAX_DETAIL_CHARS.verify_task)
+        let passed: boolean | null = null
+        let failedCount = 0
         if (result.success) {
           try {
             const jsonMatch = result.text.match(/\{[\s\S]*\}/)
             if (jsonMatch) {
               const parsed = JSON.parse(jsonMatch[0])
               if (parsed && typeof parsed.passed === 'boolean') {
+                passed = parsed.passed
+                failedCount = (parsed.items || []).filter((i: { passed?: boolean }) => i.passed === false).length
                 detail = JSON.stringify({ passed: parsed.passed, items: (parsed.items || []).slice(0, 20) })
               }
             }
           } catch { /* 非 JSON → 原样文本 */ }
         }
 
+        let summary: string
+        if (result.success) {
+          if (passed === true) {
+            summary = `验收通过: ${criteria.length} 条标准全部满足`
+          } else if (passed === false) {
+            summary = `验收未通过: ${failedCount}/${criteria.length} 条标准未满足`
+          } else {
+            summary = `验收完成: ${filePaths.length} 个文件 × ${criteria.length} 条标准`
+          }
+        } else {
+          summary = `验收失败: ${filePaths.join('、')}`
+        }
+
         return {
           status: result.success ? 'success' : 'error',
-          summary: result.success
-            ? `验收完成: ${filePaths.length} 个文件 × ${criteria.length} 条标准`
-            : `验收失败: ${filePaths.join('、')}`,
+          summary,
           detail,
           subAgentUsage: result.usage,
         }
       } catch (e) {
         return { status: 'error', summary: `验收子代理异常: ${e instanceof Error ? e.message : '未知'}` }
+      }
+    },
+  },
+  {
+    schema: {
+      name: 'subagent_ask',
+      description:
+        '追问子分析代理（v14.3）：复用该文件上次委托子代理的会话上下文（analyze_file/edit_file_task/verify_task 均会建立会话），' +
+        '无需重新读取文件即可补充细节、追问结论。若该文件尚无会话，则与 analyze_file 相同执行全新分析。' +
+        '适用于大文件（超过2万字符）分析后的细节追问。注意：会话上下文基于之前的文件版本，文件可能已修改。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string', description: '要追问的文件路径（相对路径，须与之前委托时一致）' },
+          question: { type: 'string', description: '追问问题（具体细节、原文片段、结论补充等）' },
+        },
+        required: ['file_path', 'question'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'file',
+    executor: async (args: Record<string, unknown>, ctx): Promise<ToolResult> => {
+      const filePath = String(args.file_path || '').trim()
+      const question = String(args.question || '').trim()
+      if (!filePath) return { status: 'error', summary: 'file_path 为空' }
+      if (!question) return { status: 'error', summary: 'question 为空' }
+
+      try {
+        const { useSettingsStore } = await getSettingsStore()
+        const configId = useSettingsStore.getState().activeConfigId
+        if (!configId) return { status: 'error', summary: '未配置AI' }
+
+        const sessionKey = `${ctx.projectId ?? 'global'}::${filePath}`
+        const taskMessage = [
+          `任务文件: ${filePath}`,
+          `追问: ${question}`,
+          '（上下文基于该文件的之前分析，文件可能已修改——若内容与问题不符，请重新读取相关部分）',
+          '请结合已有上下文回答追问，输出结构化分析摘要。',
+        ].join('\n')
+        const result = await runSubagent({
+          role: 'analyze',
+          projectId: ctx.projectId,
+          configId,
+          userMessage: taskMessage,
+          signal: ctx.signal,
+          sessionKey,
+        })
+
+        return {
+          status: result.success ? 'success' : 'error',
+          summary: result.success ? `子代理追问完成: ${filePath}` : `子代理追问失败: ${filePath}`,
+          detail: result.text.slice(0, MAX_DETAIL_CHARS.subagent_ask),
+          subAgentUsage: result.usage,
+        }
+      } catch (e) {
+        return { status: 'error', summary: `子代理追问异常: ${e instanceof Error ? e.message : '未知'}` }
       }
     },
   },

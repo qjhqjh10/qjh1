@@ -2,8 +2,10 @@ import { IpcMain, app } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { join } from 'path'
+// v14 批处理: 会话统计接口收敛 — 以 src/types/electron.d.ts 为唯一来源（kbHandlers 引 types 先例）
+import type { SessionStatEntry, SessionStatsResult } from '../../src/types/electron'
 
-interface TokenUsageEntry {
+export interface TokenUsageEntry {
   timestamp: string
   projectId: string
   configId: string
@@ -13,16 +15,8 @@ interface TokenUsageEntry {
   outputTokens: number
   cacheHitTokens: number
   cost: number
-  /** v14.2.1: 调用来源 — main（主 agent）/ subagent（子代理）/ pipeline（续写仿写等独立流水线）/ image */
+  /** v14.2.1: 调用来源 — main（主 agent）/ subagent（子代理）/ pipeline（续写仿写等独立流水线）/ image / embedding（知识库嵌入） */
   source?: string
-}
-
-interface ModelPrice {
-  modelId: string
-  modelName: string
-  inputPricePerM: number
-  cacheHitPricePerM: number
-  outputPricePerM: number
 }
 
 let statsBasePath = ''
@@ -240,23 +234,6 @@ export function registerStatsHandlers(ipcMain: IpcMain, projectsPath?: string) {
     }
   })
 
-  ipcMain.handle('stats:getPrices', async () => {
-    try {
-      const raw = await fs.readFile(path.join(getStatsPath(), 'prices.json'), 'utf-8')
-      return JSON.parse(raw)
-    } catch {
-      return [
-        { modelId: 'gpt-4o', modelName: 'gpt-4o', inputPricePerM: 2.50, cacheHitPricePerM: 1.25, outputPricePerM: 10.00 },
-        { modelId: 'deepseek-v3', modelName: 'deepseek-v3', inputPricePerM: 0.27, cacheHitPricePerM: 0.07, outputPricePerM: 1.10 },
-      ]
-    }
-  })
-
-  ipcMain.handle('stats:savePrices', async (_event, prices: ModelPrice[]) => {
-    await ensureStatsDir()
-    await fs.writeFile(path.join(getStatsPath(), 'prices.json'), JSON.stringify(prices, null, 2), 'utf-8')
-  })
-
   ipcMain.handle('stats:deleteByLine', async (_event, lineNumber: number) => {
     const logPath = path.join(getStatsPath(), 'usage.jsonl')
     let content = ''
@@ -323,6 +300,7 @@ function emptyResult() {
 }
 
 // ── Session Statistics Types ──
+// v14 批处理: SessionStatEntry/SessionStatsResult 已收敛至 src/types/electron.d.ts（单一来源）
 
 interface AuditEvent {
   timestamp: number
@@ -331,32 +309,114 @@ interface AuditEvent {
   data: Record<string, unknown>
 }
 
-export interface SessionStatEntry {
-  sessionId: string
-  startedAt: string        // ISO timestamp
-  duration: number         // seconds
-  apiCallCount: number
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-  toolCalls: Array<{ toolName: string; count: number; lastUsed: string }>
-  operations: string[]     // human-readable operation descriptions
-  errorCount: number
-}
+// ── Session Stats Helper ──
 
-export interface SessionStatsResult {
-  sessions: SessionStatEntry[]
-  totalSessions: number
-  totals: {
-    apiCalls: number
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    toolCalls: number
+/**
+ * 纯函数：解析单个会话的 JSONL 行 → SessionStatEntry（导出供单测）。
+ * v14 批处理新增聚合：cost（api:call 求和）、toolErrors（tool:result 非 success）、
+ * permissionDenied（permission:decision effect=deny）、lastUsed（末事件时间戳）。
+ * 无 session:start 标记返回 null（跳过）。
+ */
+export function parseAuditJsonl(lines: string[], sessionId: string): SessionStatEntry | null {
+  let startedAt = ''
+  let lastTimestamp = 0
+  let apiCallCount = 0
+  let promptTokens = 0
+  let completionTokens = 0
+  let cost = 0
+  let toolErrors = 0
+  let permissionDenied = 0
+  const toolCallMap = new Map<string, { count: number; lastTimestamp: number }>()
+  const operations: string[] = []
+  let errorCount = 0
+
+  for (const line of lines) {
+    let ev: AuditEvent
+    try { ev = JSON.parse(line) } catch { continue }
+
+    if (ev.event === 'session:start') {
+      startedAt = new Date(ev.timestamp).toISOString()
+      lastTimestamp = ev.timestamp
+    }
+
+    if (ev.event === 'api:call') {
+      apiCallCount++
+      const pt = Number(ev.data.promptTokens) || 0
+      const ct = Number(ev.data.completionTokens) || 0
+      promptTokens += pt
+      completionTokens += ct
+      cost += Number(ev.data.cost) || 0
+      lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
+    }
+
+    if (ev.event === 'tool:call') {
+      const tn = String(ev.data.toolName || 'unknown')
+      const existing = toolCallMap.get(tn)
+      if (existing) {
+        existing.count++
+        existing.lastTimestamp = Math.max(existing.lastTimestamp, ev.timestamp)
+      } else {
+        toolCallMap.set(tn, { count: 1, lastTimestamp: ev.timestamp })
+      }
+      lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
+
+      // Generate operation description from tool + args
+      const args = ev.data.args as Record<string, unknown> | undefined
+      const opDesc = describeOperation(tn, args)
+      if (opDesc && !operations.includes(opDesc)) {
+        operations.push(opDesc)
+      }
+    }
+
+    if (ev.event === 'tool:result') {
+      // v14 批处理: 工具失败/被拦截计数（前端 toolErrors 徽章数据源）
+      if (String(ev.data.status) !== 'success') toolErrors++
+      lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
+    }
+
+    if (ev.event === 'permission:decision') {
+      // v14 批处理: 权限拒绝计数（前端 permissionDenied 数据源）
+      if (String(ev.data.effect) === 'deny') permissionDenied++
+      lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
+    }
+
+    if (ev.event === 'error') {
+      errorCount++
+    }
+  }
+
+  if (!startedAt) return null  // skip sessions without start marker
+
+  const duration = lastTimestamp > 0
+    ? Math.round((lastTimestamp - new Date(startedAt).getTime()) / 1000)
+    : 0
+
+  const toolCalls = [...toolCallMap.entries()]
+    .map(([toolName, { count, lastTimestamp: ts }]) => ({
+      toolName,
+      count,
+      lastUsed: new Date(ts).toISOString(),
+    }))
+    .sort((a, b) => b.count - a.count)
+
+  return {
+    // v14 批处理: 不再截断 sessionId（此前 slice(0,16) 导致 deleteSession 拼路径找不到文件）
+    sessionId,
+    startedAt,
+    duration,
+    apiCallCount,
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    cost,
+    toolCalls,
+    operations: operations.slice(0, 10),  // cap at 10 for readability
+    errorCount,
+    toolErrors,
+    permissionDenied,
+    lastUsed: lastTimestamp > 0 ? new Date(lastTimestamp).toISOString() : startedAt,
   }
 }
-
-// ── Session Stats Helper ──
 
 async function getAuditBasePath(projectsPath?: string): Promise<string[]> {
   // 两个可能位置：projectsPath/.aiharness/audit/ 和 appRoot/.aiharness/audit/
@@ -374,7 +434,7 @@ async function readSessionStats(projectsPath?: string): Promise<SessionStatsResu
   const empty: SessionStatsResult = {
     sessions: [],
     totalSessions: 0,
-    totals: { apiCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0 },
+    totals: { apiCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0, cost: 0 },
   }
 
   const auditDirs = await getAuditBasePath(projectsPath)
@@ -403,85 +463,8 @@ async function readSessionStats(projectsPath?: string): Promise<SessionStatsResu
     if (lines.length === 0) continue
 
     const sessionId = path.basename(filePath).replace('.jsonl', '')
-    let startedAt = ''
-    let lastTimestamp = 0
-    let apiCallCount = 0
-    let promptTokens = 0
-    let completionTokens = 0
-    const toolCallMap = new Map<string, { count: number; lastTimestamp: number }>()
-    const operations: string[] = []
-    let errorCount = 0
-
-    for (const line of lines) {
-      let ev: AuditEvent
-      try { ev = JSON.parse(line) } catch { continue }
-
-      if (ev.event === 'session:start') {
-        startedAt = new Date(ev.timestamp).toISOString()
-        lastTimestamp = ev.timestamp
-      }
-
-      if (ev.event === 'api:call') {
-        apiCallCount++
-        const pt = Number(ev.data.promptTokens) || 0
-        const ct = Number(ev.data.completionTokens) || 0
-        promptTokens += pt
-        completionTokens += ct
-        lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
-      }
-
-      if (ev.event === 'tool:call') {
-        const tn = String(ev.data.toolName || 'unknown')
-        const existing = toolCallMap.get(tn)
-        if (existing) {
-          existing.count++
-          existing.lastTimestamp = Math.max(existing.lastTimestamp, ev.timestamp)
-        } else {
-          toolCallMap.set(tn, { count: 1, lastTimestamp: ev.timestamp })
-        }
-        lastTimestamp = Math.max(lastTimestamp, ev.timestamp)
-
-        // Generate operation description from tool + args
-        const args = ev.data.args as Record<string, unknown> | undefined
-        const opDesc = describeOperation(tn, args)
-        if (opDesc && !operations.includes(opDesc)) {
-          operations.push(opDesc)
-        }
-      }
-
-      if (ev.event === 'error') {
-        errorCount++
-      }
-    }
-
-    if (!startedAt) continue  // skip sessions without start marker
-
-    const duration = lastTimestamp > 0
-      ? Math.round((lastTimestamp - new Date(startedAt).getTime()) / 1000)
-      : 0
-
-    const toolCalls = [...toolCallMap.entries()]
-      .map(([toolName, { count, lastTimestamp: ts }]) => ({
-        toolName,
-        count,
-        lastUsed: new Date(ts).toISOString(),
-      }))
-      .sort((a, b) => b.count - a.count)
-
-    const totalTokens = promptTokens + completionTokens
-
-    sessions.push({
-      sessionId: sessionId.slice(0, 16),
-      startedAt,
-      duration,
-      apiCallCount,
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      toolCalls,
-      operations: operations.slice(0, 10),  // cap at 10 for readability
-      errorCount,
-    })
+    const entry = parseAuditJsonl(lines, sessionId)
+    if (entry) sessions.push(entry)
   }
 
   // Sort by start time descending (newest first)
@@ -493,7 +476,8 @@ async function readSessionStats(projectsPath?: string): Promise<SessionStatsResu
     completionTokens: acc.completionTokens + s.completionTokens,
     totalTokens: acc.totalTokens + s.totalTokens,
     toolCalls: acc.toolCalls + s.toolCalls.reduce((sum, t) => sum + t.count, 0),
-  }), { apiCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0 })
+    cost: acc.cost + s.cost,
+  }), { apiCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0, cost: 0 })
 
   return {
     sessions,

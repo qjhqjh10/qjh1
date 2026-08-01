@@ -65,8 +65,14 @@ export class AuditTrail {
     this.record('permission:decision', { toolName, effect, reason })
   }
 
-  recordApiCall(promptTokens: number, completionTokens: number): void {
-    this.record('api:call', { promptTokens, completionTokens })
+  // v14 批处理: +cost/model（可选，旧日志无 → 聚合端 Number(x)||0 兜底）
+  recordApiCall(promptTokens: number, completionTokens: number, extra?: { cost?: number; model?: string }): void {
+    this.record('api:call', {
+      promptTokens,
+      completionTokens,
+      ...(extra?.cost != null ? { cost: extra.cost } : {}),
+      ...(extra?.model ? { model: extra.model } : {}),
+    })
   }
 
   recordError(message: string): void {
@@ -88,11 +94,19 @@ export class AuditTrail {
   }
 
   // Persist to disk as JSONL
+  // v14 批处理修复: 快照必须在任何 await 之前同步捕获——persist 是 fire-and-forget
+  // （startSession/run 结束处 .catch() 不 await），await import 会挂起执行，
+  // 恢复时 this.events/this.sessionId 可能已被下一次 startSession 重置：
+  // 旧实现把新会话的 session:start 写进旧会话文件，连续 sendMessage 时
+  // 所有会话文件只剩 session:start（api:call/tool:result 全丢）。
   async persist(): Promise<void> {
+    const sessionId = this.sessionId
+    const content = this.toJSONL()
+    if (!sessionId || !content) return
     try {
       const { fileService } = await import('@/services/fileService')
       await fileService.ensureDir('.aiharness/audit')
-      await fileService.write(`.aiharness/audit/${this.sessionId}.jsonl`, this.toJSONL())
+      await fileService.write(`.aiharness/audit/${sessionId}.jsonl`, content)
     } catch (err) { console.warn('[AuditTrail] 持久化失败:', err) }
   }
 }

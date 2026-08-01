@@ -60,13 +60,15 @@ export class ContextCompressor {
   /**
    * Apply progressive compression to messages.
    * Preserves: system prompt (first message), last N messages (protectRecent, default 5), pending tool context.
+   * protectRecentRounds (v14 批处理): strip_detail 阶段额外保护最近 N 轮（按 user 消息计数）的 tool detail
+   * 不截断——大文件内容被压缩后膨胀→压缩→失真循环的缓解；默认 2 轮。
    */
-  compress(messages: Message[], usedTokens: number, protectRecent = 5): Message[] {
+  compress(messages: Message[], usedTokens: number, protectRecent = 5, protectRecentRounds = 2): Message[] {
     const stage = this.getStage(usedTokens)
     if (stage === 'none') return messages
 
     switch (stage) {
-      case 'strip_detail': return this.stripDetail(messages)
+      case 'strip_detail': return this.stripDetail(messages, this.getRecentBoundary(messages, protectRecentRounds))
       case 'summarize_pairs': return this.summarizePairs(messages)
       case 'collapse_early': return this.collapseEarly(messages, protectRecent)
       default: return messages
@@ -75,9 +77,28 @@ export class ContextCompressor {
 
   // ── Stage 1: Strip verbose detail from tool results ──
 
-  private stripDetail(messages: Message[]): Message[] {
-    return messages.map(m => {
+  /**
+   * 计算 strip_detail 的保护边界（索引）：boundary 之前的 tool 消息截断 detail，>= boundary 保留。
+   * 按 user 消息从尾向前数（每轮恰一条 user，对齐轮次边界 → 不会切在 tool 链中间产生孤儿 tool）。
+   * - 找到倒数第 N 个 user → 返回其索引（该轮起全部保护）
+   * - 无 user 消息 → 返回 messages.length（全部截断，保持旧行为——纯 tool 链无轮次概念）
+   * - 有 user 但不足 N 轮 → 返回 0（全部保护——大文件单轮场景不截断，保护优先于压缩收益）
+   */
+  private getRecentBoundary(messages: Message[], protectRounds: number): number {
+    let found = 0
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        found++
+        if (found >= protectRounds) return i
+      }
+    }
+    return found === 0 ? messages.length : 0
+  }
+
+  private stripDetail(messages: Message[], boundary: number): Message[] {
+    return messages.map((m, i) => {
       if (m.role !== 'tool' || !m.content) return m
+      if (i >= boundary) return m  // 最近轮保护：不截断（v14 批处理）
       try {
         const parsed = JSON.parse(m.content)
         const compressed: Record<string, unknown> = {}

@@ -19,6 +19,16 @@ function makeWriteToolMsg(callId: string): Message {
   return { role: 'tool', tool_call_id: callId, content: JSON.stringify({ status: 'success', summary: '已创建' }) }
 }
 
+/** v14.3: analyze_file 子代理结果轮（detail 为结构化分析摘要） */
+function analyzeRound(round: number): Message[] {
+  const callId = `acall_${round}`
+  return [
+    { role: 'user', content: `第${round}轮分析请求` },
+    { role: 'assistant', content: '', tool_calls: [{ type: 'function', id: callId, function: { name: 'analyze_file', arguments: '{}' } }] },
+    makeReadFileToolMsg(callId, '【要点】子代理分析结论'.repeat(300)),
+  ]
+}
+
 /** 构造一轮历史: user + assistant(tool_calls 形状一) + tool 结果 */
 function oneRound(round: number, asstShape: 'runtime' | 'adapter' = 'runtime'): Message[] {
   const callId = `call_${round}`
@@ -112,6 +122,32 @@ describe('cleanOldReadResults (H1)', () => {
     expect(String(first.content)).toContain('已压缩')
     expect(String(first.content)).toContain('预览:')
     expect(String(first.content)).not.toContain('很长'.repeat(200))
+  })
+
+  it('v14.3: 超过 5 轮的 analyze_file 结果同样被压缩，最近 5 轮完整；create_file 不压缩', () => {
+    const history: Message[] = []
+    for (let r = 1; r <= 7; r++) history.push(...analyzeRound(r))
+    history.push(
+      { role: 'user', content: '创建' },
+      { role: 'assistant', content: '', tool_calls: [{ type: 'function', id: 'w1', function: { name: 'create_file', arguments: '{}' } }] },
+      makeWriteToolMsg('w1'),
+    )
+
+    const result = cleanOldReadResults(history)
+
+    const toolMsgs = result.filter(m => m.role === 'tool')
+    expect(toolMsgs).toHaveLength(8)
+    // 前 2 轮 analyze_file 被压缩
+    const firstAnalyze = JSON.parse(toolMsgs[0].content as string)
+    expect(firstAnalyze.detail).toContain('已压缩')
+    expect(firstAnalyze.detail).toContain('预览:')
+    expect(firstAnalyze.detail).not.toContain('【要点】子代理分析结论'.repeat(300))
+    // 最近 2 轮 analyze_file 完整
+    const lastAnalyze = JSON.parse(toolMsgs[6].content as string)
+    expect(lastAnalyze.detail).toContain('【要点】子代理分析结论')
+    // create_file 不压缩
+    const writeTool = result.find(m => m.role === 'tool' && m.tool_call_id === 'w1')!
+    expect(JSON.parse(writeTool.content as string).summary).toBe('已创建')
   })
 
   it('空历史返回空数组', () => {

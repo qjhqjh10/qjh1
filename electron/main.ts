@@ -16,12 +16,10 @@ import { registerContinuationHandlers } from './ipc/continuationHandlers'
 import { registerRewriteHandlers } from './ipc/rewriteHandlers'
 import { registerStoryHandlers } from './ipc/storyHandlers'
 
-import { registerAgentHandlers } from './ipc/agentHandlers'
 import { registerHttpHandlers } from './ipc/httpHandlers'
 import { registerBrowserHandlers } from './ipc/browserHandlers'
 
 import { registerMCPHandlers } from './ipc/mcpHandlers'
-import { registerLSPHandlers } from './ipc/lspHandlers'
 import { logError } from './ipc/logger'
 import { loadWindowBounds, saveWindowBounds } from './ipc/utils'
 
@@ -61,7 +59,6 @@ async function ensureRuntimeDirectories(parentDir: string) {
     join(parentDir, 'style_templates'),
     join(parentDir, 'scene_templates'),
     join(parentDir, 'knowledge_base'),
-    join(parentDir, 'agent-sessions'),
     join(parentDir, 'uploads', 'files'),
     join(parentDir, 'uploads', 'images'),
   ]
@@ -242,7 +239,6 @@ app.whenReady().then(async () => {
   registerRewriteHandlers(ipcMain, parentDir)
   registerStoryHandlers(ipcMain)
 
-  registerAgentHandlers(ipcMain, projectsPath)
   // Load HTTP config from aiharness.json (synced from extraResources at startup)
   let httpConfig = { allowPrivateIPs: false }
   try {
@@ -255,7 +251,6 @@ app.whenReady().then(async () => {
   registerBrowserHandlers(ipcMain, httpConfig)
 
   registerMCPHandlers(ipcMain)
-  registerLSPHandlers(ipcMain)
 
   // v14.0.1: app:getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   // （原 MD 文件是 v13.2 瘦身前旧版且打包不含 prompts，造成开发/打包行为不一致）

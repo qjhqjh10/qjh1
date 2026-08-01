@@ -132,14 +132,55 @@ export async function saveMetadata(meta: KnowledgeMetadata): Promise<void> {
 
 // ====================== Embedding ======================
 
-export async function getEmbedding(text: string, apiUrl: string, apiKey: string, model: string): Promise<number[]> {
+export interface EmbeddingResult {
+  embedding: number[]
+  /** v14 批处理: embedding 请求的 input token 数（response.usage.prompt_tokens，无则 0）——token 统计用 */
+  promptTokens: number
+}
+
+/** v14 批处理: getEmbedding 返回向量+usage（usage.jsonl 记账需要 token 数；部分兼容端点无 usage 字段 → 0） */
+export async function getEmbedding(text: string, apiUrl: string, apiKey: string, model: string): Promise<EmbeddingResult> {
   const OpenAI = await getOpenAI()
   const client = new OpenAI({ apiKey, baseURL: apiUrl || undefined })
   const response = await client.embeddings.create({
     model,
     input: text,
   })
-  return response.data[0]?.embedding || []
+  return {
+    embedding: response.data[0]?.embedding || [],
+    promptTokens: (response as any).usage?.prompt_tokens ?? 0,
+  }
+}
+
+/** 兼容包装：仅取向量（kb:getEmbedding IPC 前端契约不变，不记账） */
+export async function getEmbeddingVector(text: string, apiUrl: string, apiKey: string, model: string): Promise<number[]> {
+  const { embedding } = await getEmbedding(text, apiUrl, apiKey, model)
+  return embedding
+}
+
+/**
+ * v14 批处理: 构造 embedding 记账条目（source='embedding'，供 logTokenUsage）。
+ * projectId 兜底 file.projects[0]（kb:index 无 projectId 参数，metadata 含归属）→ '__global__'。
+ * cost 记 0：ModelConfig 无 embedding 价格字段且端点价格不一，固定常量会误导预算条；
+ * TODO(后续): 引入 EMBEDDING_PRICE_PER_M 常量或配置字段后补算。
+ */
+export function buildEmbeddingUsageEntry(
+  config: { id: string; name?: string },
+  file: { id: string; projects?: string[] } | null,
+  model: string,
+  inputTokens: number,
+): Omit<import('../statsHandlers').TokenUsageEntry, 'timestamp'> {
+  return {
+    projectId: file?.projects?.[0] || '__global__',
+    configId: config.id,
+    configName: config.name || '默认',
+    model,
+    inputTokens,
+    outputTokens: 0,
+    cacheHitTokens: 0,
+    cost: 0,
+    source: 'embedding',
+  }
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

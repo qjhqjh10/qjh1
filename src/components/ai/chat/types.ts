@@ -37,6 +37,15 @@ export interface Message {
     allDone: boolean
     interrupted: boolean
   }
+  /** v14.3: 子代理执行结果快照（随消息持久化；下轮 maybeInjectSubagentSummaries 注入 [子代理快照] 供跨 run 复用） */
+  subagentSummaries?: Array<{
+    tool: string
+    filePath: string
+    status: 'success' | 'error'
+    summary: string
+    detail: string
+    iteration?: number
+  }>
 }
 
 export interface Conversation {

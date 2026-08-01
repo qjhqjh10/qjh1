@@ -118,6 +118,9 @@ export abstract class BaseChatBridge {
         contextWindow: this.contextWindow,
         temperature: creativeTemp,
         toolTemperature: toolTemp,
+        // v14 批处理: 审计接线 — api:call 事件带 cost/model（会话统计消费）
+        auditTrail: this.auditTrail,
+        model: (modelConfig as any)?.model,
       }, adapter)
 
       // ── 2. 工具: 始终全量 — 前缀缓存使重复传输几乎免费 ──
@@ -206,6 +209,8 @@ export abstract class BaseChatBridge {
         subAgentUsage: result.subAgentUsage,
         // v14.2.0: 任务清单进度快照透传（中断未完成 → UI 持久化并注入续跑）
         taskProgress: result.taskProgress,
+        // v14.3: 子代理执行快照透传（UI 持久化 + 跨 run 注入）
+        subagentSummaries: result.subagentSummaries,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

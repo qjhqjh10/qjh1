@@ -112,6 +112,34 @@ export function maybeInjectResume(
 }
 
 /**
+ * v14.3: 子代理快照注入 — 检测对话中最后一条携带 subagentSummaries 的 assistant 消息，
+ * 生成 [子代理快照] system 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
+ * 目的：子代理的分析/修改/验收结论跨 run 复用——主代理不必重新委托即可引用上次结果。
+ * 反向扫描（最后一条纯聊天的 assistant 不拦截其之前有快照的消息）；
+ * 最多注入 opts.maxEntries 条（默认 3），每条 detail 截 opts.detailChars（默认 800）。
+ * 纯函数不改入参，便于单测。
+ */
+export function maybeInjectSubagentSummaries(
+  history: Array<{ role: string; content: string }>,
+  messages: Message[],
+  opts?: { maxEntries?: number; detailChars?: number },
+): Array<{ role: string; content: string }> {
+  const maxEntries = opts?.maxEntries ?? 3
+  const detailChars = opts?.detailChars ?? 800
+  const lastWithSummaries = [...messages].reverse().find(m => m.role === 'assistant' && (m.subagentSummaries?.length ?? 0) > 0)
+  const summaries = lastWithSummaries?.subagentSummaries
+  if (!summaries || summaries.length === 0) return history
+
+  const lines = summaries.slice(-maxEntries).map((s, i) => {
+    const detail = (s.detail || '').slice(0, detailChars)
+    const statusMark = s.status === 'error' ? '✗' : '✓'
+    return `${i + 1}. [${s.tool}] ${s.filePath || '(无路径)'} — ${statusMark} ${s.summary || ''}${detail ? `\n   ${detail}` : ''}`
+  })
+  const content = `[子代理快照] 上次委托子代理的结果（信息为当时快照，文件可能已修改；需要最新内容请重新委托分析）:\n${lines.join('\n')}`
+  return [...history, { role: 'system', content }]
+}
+
+/**
  * Parse the AI's thinking plan from [思考计划]...[/思考计划] block.
  * Extracts user intent, file list, and numbered steps with tool names.
  * Returns cleaned text (without the plan block) and the structured plan.

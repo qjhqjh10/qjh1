@@ -78,7 +78,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         model: config.model,
         messages: apiMessages as any,
         temperature: config.temperature,
-        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
+        max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
       })
 
       // Log token usage (always, even without projectId)
@@ -158,7 +158,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     try {
       const stream = await client.chat.completions.create({
         model: config.model, messages: apiMessages as any, temperature: config.temperature,
-        max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined, stream: true,
+        max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384, stream: true,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
       }, { signal: abortController.signal })
 
       let fullContent = ''
@@ -394,7 +394,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         const params: Record<string, unknown> = {
           model: config.model,
           messages: apiMessages,
-          max_tokens: config.maxTokens > 0 ? config.maxTokens : undefined,
+          max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
         }
         if (!useThinking) {
           params.temperature = effectiveTemperature
@@ -588,6 +588,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         outputTokens: 0,
         cacheHitTokens: 0,
         cost,
+        // v14.3: 标记图片生成来源（此前无 source → 混入 main，UI 的"图片生成"筛选永远为空）
+        source: 'image',
       })
 
       return { path: relativePath, url: imageUrl, cost, prompt }

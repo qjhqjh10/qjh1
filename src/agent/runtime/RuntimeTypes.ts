@@ -9,6 +9,7 @@ import type {
   ToolExecutionContext,
   Message,
 } from '../state/types'
+import type { AuditTrail } from '../audit/AuditTrail'
 
 // ── Config ──
 
@@ -28,6 +29,10 @@ export interface V4AgentConfig {
   toolTemperature?: number
   /** v15: 无头运行（子 agent）— 跳过共享 AgentStore 与诊断日志，避免污染主 agent 的 UI 状态与熔断器 */
   isolatedStore?: boolean
+  /** v14 批处理: 审计接线 — 每轮 API 调用后 recordApiCall（含 cost/model），供会话统计聚合 */
+  auditTrail?: AuditTrail
+  /** v14 批处理: 当前模型名（审计 api:call 事件记录用） */
+  model?: string
 }
 
 export interface V4AgentRunInput {
@@ -72,6 +77,26 @@ export interface V4AgentRunResult {
   }
   /** v14.2.0: 任务清单进度快照（仅本次 run 提取了任务清单时返回；用于跨 run 续跑持久化） */
   taskProgress?: TaskProgress
+  /** v14.3: 子代理执行结果快照（仅实际委托过子代理时返回；供 UI 持久化 + 跨 run 注入复用） */
+  subagentSummaries?: SubagentSummary[]
+  /** v14.3.1: 运行被中断（迭代耗尽/超时/API失败/abort）且工作未完成 — 无论有无任务清单都返回；
+   * 子代理据此判定"部分完成"（success 可能仍为 true，不能当作完整结果） */
+  truncated?: boolean
+}
+
+// ── v14.3: 子代理执行结果快照（跨 run 复用） ──
+
+export interface SubagentSummary {
+  /** 委托工具名：analyze_file | edit_file_task | verify_task | subagent_ask */
+  tool: string
+  /** 目标文件路径（从工具 args 提取，可空串） */
+  filePath: string
+  status: 'success' | 'error'
+  summary: string
+  /** 收集时已截断（SUBAGENT_SUMMARY_DETAIL_CHARS = 1500），供跨 run 注入引用 */
+  detail: string
+  /** 执行轮次 */
+  iteration: number
 }
 
 // ── v14.2.0: 跨 run 续跑 — 任务清单进度快照 ──

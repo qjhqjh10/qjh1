@@ -4,7 +4,8 @@ import { logError } from '../logger'
 import * as path from 'path';
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName } from './helpers';
+import { logTokenUsage } from '../statsHandlers'
+import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -173,17 +174,26 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const index = await loadIndex()
     index.chunks = index.chunks.filter(c => c.fileId !== file.id)
 
+    let totalEmbedTokens = 0
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i]
       let embedding: number[] = []
       try {
-        embedding = await getEmbedding(c.content, apiUrl, apiKey, embeddingModel)
+        const res = await getEmbedding(c.content, apiUrl, apiKey, embeddingModel)
+        embedding = res.embedding
+        totalEmbedTokens += res.promptTokens
       } catch (err) { logError(`Embedding 失败 (chunk ${i})`, err) }
       index.chunks.push({
         id: `${file.id}_chunk_${c.charStart}`, fileId: file.id, fileName: file.originalName,
         content: c.content, embedding, charStart: c.charStart, charEnd: c.charEnd,
       })
     }
+    // v14 批处理: 按文件合并记 1 条 embedding token（500 字/chunk 逐条记会爆量）
+    try {
+      if (totalEmbedTokens > 0) {
+        await logTokenUsage({ timestamp: new Date().toISOString(), ...buildEmbeddingUsageEntry(config, file, embeddingModel, totalEmbedTokens) })
+      }
+    } catch (err) { logError('Embedding 用量记录失败', err) }
 
     await saveIndex(index)
     const meta = await loadMetadata()
@@ -201,7 +211,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Semantic search
-  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, configId: string, topK: number = 5, fileIds?: string[]) => {
+  // v14.3: 第 7 参 excludeFileIds — 排除已注入上下文的知识库文件（按钮注入 + 工具检索去重）
+  ipcMain.handle('kb:search', async (_event, query: string, projectId: string, configId: string, topK: number = 5, fileIds?: string[], excludeFileIds?: string[]) => {
     // Look up config from electron-store (like ai:chat does)
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
@@ -215,7 +226,13 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     // Get query embedding
     let queryEmbedding: number[]
     try {
-      queryEmbedding = await getEmbedding(query, apiUrl, apiKey, embeddingModel)
+      const res = await getEmbedding(query, apiUrl, apiKey, embeddingModel)
+      queryEmbedding = res.embedding
+      // v14 批处理: 检索为真实 embedding 调用 → 记账（query 无文件归属 → __global__）
+      if (res.promptTokens > 0) {
+        logTokenUsage({ timestamp: new Date().toISOString(), ...buildEmbeddingUsageEntry(config, null, embeddingModel, res.promptTokens) })
+          .catch(err => logError('Embedding 用量记录失败', err))
+      }
     } catch {
       return []
     }
@@ -223,16 +240,24 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const index = await loadIndex()
 
-    // Filter chunks by project（projectId 为空 → 检索全部文件，无需在项目内）
-    let projectFiles = projectId
-      ? meta.files.filter(f => f.projects.includes(projectId))
-      : meta.files
-    // Further restrict to specific file IDs if provided
+    // v14.3: 作用域过滤 — 用户显式勾选（fileIds 非空）优先于项目归属：
+    // 勾选了其他项目的文件也能检索（不再被 projectId 过滤排除）；
+    // 未勾选时保持原语义（projectId 为空 → 检索全部文件）
+    let projectFiles: Array<{ id: string; projects: string[] }>
     if (fileIds && fileIds.length > 0) {
       const fileIdSet = new Set(fileIds)
-      projectFiles = projectFiles.filter(f => fileIdSet.has(f.id))
+      projectFiles = meta.files.filter(f => fileIdSet.has(f.id))
+    } else {
+      projectFiles = projectId
+        ? meta.files.filter(f => f.projects.includes(projectId))
+        : meta.files
     }
     const projectFileIds = new Set(projectFiles.map(f => f.id))
+
+    // v14.3: 排除已注入上下文的知识库文件（按钮注入 + 工具检索去重，避免同一片段重复进入上下文）
+    if (excludeFileIds && excludeFileIds.length > 0) {
+      for (const fid of excludeFileIds) projectFileIds.delete(fid)
+    }
 
     const relevantChunks = index.chunks.filter(c =>
       projectFileIds.has(c.fileId) && c.embedding.length > 0
@@ -246,6 +271,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
     scored.sort((a, b) => b.score - a.score)
     return scored.slice(0, topK).map(s => ({
+      // v14.3: 返回 fileId — 渲染层据此记录"已注入"文件，供 kb_search 工具去重
+      fileId: s.chunk.fileId,
       content: s.chunk.content,
       fileName: s.chunk.fileName,
       score: Math.round(s.score * 100) / 100,
@@ -326,7 +353,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
     const apiUrl = config.apiUrl
     const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
-    return await getEmbedding(text, apiUrl, apiKey, embeddingModel)
+    // v14 批处理: 用 getEmbeddingVector（IPC 契约返回 number[]；前端按钮低频测试用途，不记账）
+    return await getEmbeddingVector(text, apiUrl, apiKey, embeddingModel)
   })
 
   // Estimate chunks (for upload confirmation)
@@ -398,22 +426,41 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       const apiKey = decryptKey(config.apiKey, config.encrypted, safeStorage)
       const embeddingModel = config.embeddingModel || 'text-embedding-3-small'
 
+      // v14 批处理: 笔记检索也是真实 embedding 调用 → 记账（query + 全部 chunk 合并 1 条）
+      const recordEmbed = (inputTokens: number) => {
+        if (inputTokens > 0) {
+          logTokenUsage({ timestamp: new Date().toISOString(), ...buildEmbeddingUsageEntry(config, null, embeddingModel, inputTokens) })
+            .catch(err => logError('Embedding 用量记录失败', err))
+        }
+      }
+
       // Get query embedding
-      const queryEmbedding = await getEmbedding(query.slice(0, 500), config.apiUrl, apiKey, embeddingModel)
+      let queryEmbedTokens = 0
+      let queryEmbedding: number[]
+      try {
+        const qres = await getEmbedding(query.slice(0, 500), config.apiUrl, apiKey, embeddingModel)
+        queryEmbedding = qres.embedding
+        queryEmbedTokens = qres.promptTokens
+      } catch {
+        return []
+      }
 
       // Chunk + embed all notes
       const chunks: { content: string; fileName: string; embedding: number[] }[] = []
+      let chunkEmbedTokens = 0
       for (const f of mdFiles) {
         const filePath = path.join(notesDir, f)
         const content = await fs.readFile(filePath, 'utf-8')
         const fileChunks = chunkText(content)
         for (const c of fileChunks) {
           try {
-            const emb = await getEmbedding(c.content, config.apiUrl, apiKey, embeddingModel)
-            chunks.push({ content: c.content, fileName: f, embedding: emb })
+            const res = await getEmbedding(c.content, config.apiUrl, apiKey, embeddingModel)
+            chunks.push({ content: c.content, fileName: f, embedding: res.embedding })
+            chunkEmbedTokens += res.promptTokens
           } catch { /* skip failed chunks */ }
         }
       }
+      recordEmbed(queryEmbedTokens + chunkEmbedTokens)
 
       // Rank by cosine similarity
       const scored = chunks.map(c => ({ ...c, score: cosineSimilarity(queryEmbedding, c.embedding) }))

@@ -1,7 +1,7 @@
 // ── Tool Search (v11.7.1) ──
-// 让模型按需发现扩展工具，而非每轮发送全部 27 个 Schema。
+// 让模型按需发现扩展工具，而非每轮发送全部 31 个 Schema。
 // 首轮: 全部工具（建立全局认知）
-// 后续: 核心 7 个（含 tool_search）→ 模型按需调用 tool_search 查询扩展工具
+// 后续: 核心 15 个（含 tool_search）→ 模型按需调用 tool_search 查询扩展工具
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
 import { toolRegistry } from '../ToolRegistry'
@@ -17,10 +17,11 @@ export const CORE_TOOL_NAMES = new Set([
   'tool_search',
 ])
 
-// v13.2.0: 后续消息扩展工具集 — 首条全量 27 个，后续发这 11 个高频工具
+// v13.2.0: 后续消息扩展工具集 — 首条全量 31 个，后续发 15 个高频工具
 // kb_search 是知识库场景最高频工具，加入后续集合避免额外 tool_search 往返
 // v15: +analyze_file/edit_file_task（子 agent 委托，第 2 轮起保持可用）
 // v14.2.1: +verify_task（验收子代理，清单完成提示后即可用，无需 tool_search）
+// v14.3: +subagent_ask（子代理会话追问，多轮对话中高频，避免 tool_search 往返）
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   'find_files',
@@ -30,6 +31,7 @@ export const SUBSEQUENT_TOOL_NAMES = new Set([
   'analyze_file',
   'edit_file_task',
   'verify_task',
+  'subagent_ask',
 ])
 
 export const toolSearchTools: ToolDefinition[] = [{

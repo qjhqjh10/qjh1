@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import { ReliabilitySection } from './agent/ReliabilitySection'
 import { MCPSection } from './agent/MCPSection'
+import OperationHistorySection from './agent/OperationHistorySection'
 
-type AgentSubTab = 'reliability' | 'mcp'
+// v14.3: +history 子标签 — 操作记录从导航栏移入设置（原 /operation-history 页面内容复用）
+type AgentSubTab = 'reliability' | 'mcp' | 'history'
 
 const SUB_TABS: [AgentSubTab, string, string][] = [
   ['reliability', '可靠性', '🛡️'],
   ['mcp', 'MCP', '🔌'],
+  ['history', '操作记录', '📋'],
 ]
 
 export function AgentSettingsTab() {
@@ -66,6 +69,7 @@ export function AgentSettingsTab() {
       <div style={{ flex: 1, overflow: 'hidden', animation: 'fadeInUp 0.25s ease-out' }} className="custom-scrollbar" key={activeSubTab}>
         {activeSubTab === 'reliability' && <ReliabilitySection />}
         {activeSubTab === 'mcp' && <MCPSection />}
+        {activeSubTab === 'history' && <OperationHistorySection />}
       </div>
     </div>
   )

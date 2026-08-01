@@ -8,7 +8,7 @@ const runSubagentMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/agent/subagent/SubagentService', () => ({
   runSubagent: (...args: unknown[]) => runSubagentMock(...args),
-  SUBAGENT_TOOL_NAMES: new Set(['analyze_file', 'edit_file_task', 'verify_task']),
+  SUBAGENT_TOOL_NAMES: new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask']),
 }))
 
 vi.mock('@/store', () => ({
@@ -35,6 +35,8 @@ function makeExecCtx(overrides?: { messagesForApi?: Message[] }) {
   const toolsUsed: string[] = []
   const toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string }> = []
   const reported: Array<typeof SAMPLE_USAGE> = []
+  // v14.3: 子代理快照收集器（v15 起 ToolExecContext 必填字段）
+  const subagentSummaries: Array<{ tool: string; filePath: string; status: string; summary: string; detail: string; iteration: number }> = []
   return {
     ctx: {
       // 走真实工具注册表（analyze_file 的真实 executor → mock 的 runSubagent）
@@ -52,6 +54,7 @@ function makeExecCtx(overrides?: { messagesForApi?: Message[] }) {
         abort: vi.fn(),
       },
       iteration: 1,
+      subagentSummaries,
       store: {
         addToolExecution: vi.fn(),
         completeTool: vi.fn(),
@@ -60,6 +63,7 @@ function makeExecCtx(overrides?: { messagesForApi?: Message[] }) {
       },
     },
     reported,
+    subagentSummaries,
   }
 }
 
@@ -72,9 +76,9 @@ function getTool(name: string) {
 describe('analyze_file', () => {
   beforeEach(() => { runSubagentMock.mockReset() })
 
-  it('成功：返回 subAgentUsage + detail 截断（>4000 字被切）', async () => {
+  it('成功：返回 subAgentUsage + detail 截断（>8000 字被切）+ 会话 key 透传', async () => {
     runSubagentMock.mockResolvedValue({
-      success: true, text: '【要点】内容'.repeat(1000), toolCallSteps: [], usage: SAMPLE_USAGE,
+      success: true, text: '【要点】内容'.repeat(2000), toolCallSteps: [], usage: SAMPLE_USAGE,
     })
     const result = await getTool('analyze_file').executor(
       { file_path: '剑道长生/chapters/ch1.txt', question: '分析结构' },
@@ -82,11 +86,12 @@ describe('analyze_file', () => {
     )
     expect(result.status).toBe('success')
     expect(result.subAgentUsage).toEqual(SAMPLE_USAGE)
-    expect((result.detail || '').length).toBeLessThanOrEqual(4000)
-    // 任务消息包含文件路径与问题
+    expect((result.detail || '').length).toBeLessThanOrEqual(8000)
+    // 任务消息包含文件路径与问题；会话 key 供 subagent_ask 追问复用
     expect(runSubagentMock).toHaveBeenCalledWith(expect.objectContaining({
       role: 'analyze',
       userMessage: expect.stringContaining('剑道长生/chapters/ch1.txt'),
+      sessionKey: '剑道长生::剑道长生/chapters/ch1.txt',
     }))
   })
 
@@ -115,7 +120,7 @@ describe('analyze_file', () => {
 describe('edit_file_task', () => {
   beforeEach(() => { runSubagentMock.mockReset() })
 
-  it('成功：任务消息含 file_path 与 instruction；detail 截断 2000', async () => {
+  it('成功：任务消息含 file_path 与 instruction；detail 截断 4000', async () => {
     runSubagentMock.mockResolvedValue({
       success: true, text: '【修改前】a\n【修改后】b\n【修改位置】x'.repeat(500), toolCallSteps: [], usage: SAMPLE_USAGE,
     })
@@ -125,10 +130,11 @@ describe('edit_file_task', () => {
     )
     expect(result.status).toBe('success')
     expect(result.subAgentUsage).toEqual(SAMPLE_USAGE)
-    expect((result.detail || '').length).toBeLessThanOrEqual(2000)
+    expect((result.detail || '').length).toBeLessThanOrEqual(4000)
     expect(runSubagentMock).toHaveBeenCalledWith(expect.objectContaining({
       role: 'edit',
       userMessage: expect.stringContaining('李狗蛋'),
+      sessionKey: '剑道长生::剑道长生/chapters/ch1.txt',
     }))
   })
 
@@ -164,6 +170,49 @@ describe('executeSingleTool 集成', () => {
     expect(parsed.subAgentUsage).toBeUndefined()
   })
 
+  it('v14.3: 子代理执行快照收集（tool/filePath/status/detail 截断 ≤1500/iteration）', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true, text: '【要点】详情'.repeat(500), toolCallSteps: [], usage: SAMPLE_USAGE,
+    })
+    const { ctx, subagentSummaries } = makeExecCtx()
+    const tc: ToolCallRequest = {
+      id: 't2', name: 'analyze_file', arguments: JSON.stringify({ file_path: '剑道长生/chapters/ch1.txt' }),
+    }
+    await executeSingleTool(tc, ctx as any)
+
+    expect(subagentSummaries).toHaveLength(1)
+    expect(subagentSummaries[0]).toMatchObject({
+      tool: 'analyze_file',
+      filePath: '剑道长生/chapters/ch1.txt',
+      status: 'success',
+      iteration: 1,
+    })
+    expect(subagentSummaries[0].detail.length).toBeLessThanOrEqual(1500)
+  })
+
+  it('v14.3: 子代理失败也收集快照（含失败原因）；参数校验失败不收集', async () => {
+    // 子代理失败（usage 仍存在）→ 收集，status=error
+    runSubagentMock.mockResolvedValue({
+      success: false, text: '无法定位目标', toolCallSteps: [], usage: { ...SAMPLE_USAGE, calls: 1 },
+    })
+    const { ctx: ctx1, subagentSummaries: s1 } = makeExecCtx()
+    await executeSingleTool(
+      { id: 't3', name: 'edit_file_task', arguments: JSON.stringify({ file_path: 'a.txt', instruction: '改' }) },
+      ctx1 as any,
+    )
+    expect(s1).toHaveLength(1)
+    expect(s1[0]).toMatchObject({ tool: 'edit_file_task', status: 'error' })
+
+    // 参数校验失败（无 usage）→ 不收集
+    runSubagentMock.mockClear()
+    const { ctx: ctx2, subagentSummaries: s2 } = makeExecCtx()
+    await executeSingleTool(
+      { id: 't4', name: 'verify_task', arguments: JSON.stringify({ file_paths: [], criteria: ['存在'] }) },
+      ctx2 as any,
+    )
+    expect(s2).toHaveLength(0)
+  })
+
   it('analyze_file 归类为只读并行工具（PARALLEL_READ_TOOLS），不进写段', () => {
     const calls: ToolCallRequest[] = [
       { id: 'a', name: 'analyze_file', arguments: '{}' },
@@ -180,7 +229,7 @@ describe('executeSingleTool 集成', () => {
 describe('verify_task', () => {
   beforeEach(() => { runSubagentMock.mockReset() })
 
-  it('成功：任务消息含文件清单与验收标准；JSON 报告解析为结构化 detail', async () => {
+  it('成功：任务消息含文件清单与验收标准；JSON 解析为结构化 detail + summary 未通过三态', async () => {
     runSubagentMock.mockResolvedValue({
       success: true,
       text: '{"passed": false, "items": [{"criterion": "角色卡包含姓名", "passed": true, "reason": "已包含"}, {"criterion": "角色卡包含性格字段", "passed": false, "reason": "缺少"}]}',
@@ -198,9 +247,24 @@ describe('verify_task', () => {
     expect(parsed.passed).toBe(false)
     expect(parsed.items).toHaveLength(2)
     expect(parsed.items[1]).toMatchObject({ criterion: '角色卡包含性格字段', passed: false })
+    // v14.3: summary 三态 — 未通过（运行时督促依据）
+    expect(result.summary).toBe('验收未通过: 1/2 条标准未满足')
   })
 
-  it('子代理返回非 JSON 文本 → detail 原样保留', async () => {
+  it('v14.3: 验收通过 → summary "验收通过"（闸门释放依据）', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true,
+      text: '{"passed": true, "items": [{"criterion": "文件存在", "passed": true, "reason": "存在"}]}',
+      toolCallSteps: [], usage: SAMPLE_USAGE,
+    })
+    const result = await getTool('verify_task').executor(
+      { file_paths: ['a.md'], criteria: ['文件存在'] },
+      { projectId: null, configId: 'test-config', callId: 'c1', toolName: 'verify_task', signal: new AbortController().signal },
+    )
+    expect(result.summary).toBe('验收通过: 1 条标准全部满足')
+  })
+
+  it('子代理返回非 JSON 文本 → detail 原样保留 + summary 中性（不触发督促）', async () => {
     runSubagentMock.mockResolvedValue({
       success: true, text: '【总判定】通过\n【逐项】1. 文件存在: 通过', toolCallSteps: [], usage: SAMPLE_USAGE,
     })
@@ -210,6 +274,7 @@ describe('verify_task', () => {
     )
     expect(result.status).toBe('success')
     expect(result.detail).toContain('【总判定】通过')
+    expect(result.summary).toContain('验收完成')
   })
 
   it('参数校验：file_paths / criteria 为空直接 error，不调子代理', async () => {
@@ -233,6 +298,49 @@ describe('verify_task', () => {
     const result = await getTool('verify_task').executor(
       { file_paths: ['x.txt'], criteria: ['存在'] },
       { projectId: null, configId: 'test-config', callId: 'c1', toolName: 'verify_task', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('error')
+  })
+})
+
+describe('subagent_ask (v14.3)', () => {
+  beforeEach(() => { runSubagentMock.mockReset() })
+
+  it('成功：role=analyze + 会话 key + 追问消息（含"文件可能已修改"提醒）；detail 截断 8000', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true, text: '【结论】第2章开头…'.repeat(500), toolCallSteps: [], usage: SAMPLE_USAGE,
+    })
+    const result = await getTool('subagent_ask').executor(
+      { file_path: '剑道长生/chapters/ch2.txt', question: '第2章开头主角在做什么？' },
+      { projectId: '剑道长生', configId: 'test-config', callId: 'c1', toolName: 'subagent_ask', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('success')
+    expect(result.subAgentUsage).toEqual(SAMPLE_USAGE)
+    expect((result.detail || '').length).toBeLessThanOrEqual(8000)
+    expect(runSubagentMock).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'analyze',
+      sessionKey: '剑道长生::剑道长生/chapters/ch2.txt',
+      userMessage: expect.stringContaining('追问: 第2章开头主角在做什么？'),
+    }))
+    expect(runSubagentMock.mock.calls[0][0].userMessage).toContain('文件可能已修改')
+  })
+
+  it('参数校验：缺 question 直接 error，不调子代理', async () => {
+    const result = await getTool('subagent_ask').executor(
+      { file_path: 'x.txt' },
+      { projectId: null, configId: 'test-config', callId: 'c1', toolName: 'subagent_ask', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('error')
+    expect(runSubagentMock).not.toHaveBeenCalled()
+  })
+
+  it('子代理失败：返回 error 状态', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: false, text: '会话已失效', toolCallSteps: [], usage: { ...SAMPLE_USAGE, calls: 1 },
+    })
+    const result = await getTool('subagent_ask').executor(
+      { file_path: 'x.txt', question: '细节' },
+      { projectId: null, configId: 'test-config', callId: 'c1', toolName: 'subagent_ask', signal: new AbortController().signal },
     )
     expect(result.status).toBe('error')
   })

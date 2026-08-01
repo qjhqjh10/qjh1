@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.2.0
+# AI写作软件—青剑 v14.4.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,14 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.2.0)
+## 当前架构 (v14.4.0)
+
+### 安全与权限 (v14.4.0)
+- find_files 条件审批（approvalGate：scope=project 免审批 / computer 仍审批）+ 子代理 find_files
+- toolExecutorFactory 无审批路径时拒绝（防绕过）；IPC find_files dir_path 强制 containment
+- 会话统计: 审计事件接线（api:call+cost/model、permission:decision）→ 聚合 cost/toolErrors/permissionDenied/lastUsed；deleteSession 完整 id
+- RUN_TIMEOUT 动态化（maxIterations×60s，15min 封顶）；压缩 70% 保护最近 2 轮；子代理会话池 4→8
+- Token 估算实测校准（CJK 1.2 / Latin 4.5）；KB embedding 记账（source='embedding'）
 
 ### 项目目录分离
 - `projects/` — 普通写作项目
@@ -35,13 +42,14 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 通用: T0(2)+T1(5)+T2(4)+T3(1)=12维
 - 每种类型自动插入专属维度(socialRealism/cultivationCombat/romanceArc等)
 
-### 工具精简 (42→34→27→29)
+### 工具精简 (42→34→27→31)
 - v11.5: 删除冗余 note/kb 工具 (8个)
 - v13.2: 删除 lsp_diagnose (纯开发工具) + update_config/list_audit (用户可手动操作)
 - v14.1.1: +analyze_file/edit_file_task（子 agent 委托，独立上下文窗口）
 - v14.2.0: +verify_task（验收子代理）
+- v14.3.0: +subagent_ask（子代理会话追问，复用会话上下文）
 - create_file/edit_file 支持所有目录（项目/notes/KB/模板/上传）
-- 渐进披露: 首轮全量29工具 → 后续13核心 (含 tool_search 动态发现)
+- 渐进披露: 首轮全量31工具 → 后续15核心 (含 tool_search 动态发现)
 
 ### 任务清单运行时状态 (v14.1.0)
 - taskExtraction 四重门控提取编号任务 → 每轮注入 [当前任务] 进度 → 完成检测对照清单
@@ -90,29 +98,30 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 项目结构 & 数据格式 | `.aiharness/rules/project-structure.md` |
 | 金规则 | `.aiharness/rules/golden-rules.md` |
 | Harness 配置 | `.aiharness/aiharness.json` |
-| Agent 工具列表 | `src/agent/skills/tools/index.ts` (27 工具) |
+| Agent 工具列表 | `src/agent/skills/tools/index.ts` (31 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v14.1.1) |
+| 版本历史 | `src/data/version_history.json` (当前 v14.4.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `.aiharness/scripts/` (3 个) |
+| 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
 
 ## 验证命令
 
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (520 passed + 15 skipped，共 535) |
+| `npx vitest run` | 全量单元测试 (558 passed + 15 skipped，共 573) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (156 用例) |
 
-## 25 场景对话测试
+## 31 场景对话测试
 
 ```bash
 cd /d/3/novel-writing-app
 export AI_API_KEY=sk-xxx  # 替换为你的 DeepSeek API key
 
-# 全部 28 场景 (~30分钟)
+# 全部 31 场景 (~35分钟)
 npx tsx scripts/test-ai-conversation.mjs
 
 # 指定场景
@@ -120,6 +129,7 @@ npx tsx scripts/test-ai-conversation.mjs --scenario=S1,S2,S10,S_R1
 
 # 仅新增能力测试
 npx tsx scripts/test-ai-conversation.mjs --scenario=S_R1,S_R2,S_PD
+npx tsx scripts/test-ai-conversation.mjs --scenario=S_SUB_MEM,S_ASK,S_VERIFY_FIX   # v14.3 新增: 快照复用/会话追问/验收闭环
 npx tsx scripts/test-ai-conversation.mjs --scenario=S_RESUME,S_PAR,S_VERIFY   # v14.2 新增: 跨run续跑/批量并行/验收
 npx tsx scripts/test-ai-conversation.mjs --scenario=S_MT2,S_SUB1,S_SUB2   # v14.1 新增: 多任务压力/子代理委托
 ```

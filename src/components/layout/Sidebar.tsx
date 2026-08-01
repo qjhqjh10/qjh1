@@ -14,7 +14,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PencilIcon,
-  ClockIcon,
   ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline'
 import EmptyState from '@/components/common/EmptyState'
@@ -26,10 +25,10 @@ interface NavItem {
 }
 
 // Always-visible items (no project required)
+// v14.3: 操作记录入口移至 设置 → Agent → 操作记录（导航栏不再展示）
 const COMMON_ITEMS: NavItem[] = [
   { path: '/style-workshop', label: '风格工坊', icon: PaintBrushIcon },
   { path: '/scene-workshop', label: '场景工坊', icon: SparklesIcon },
-  { path: '/operation-history', label: '操作记录', icon: ClockIcon },
   { path: '/knowledge-base', label: '知识库', icon: BookOpenIcon },
   { path: '/scratchpad', label: '草稿本', icon: ClipboardDocumentIcon },
 ]

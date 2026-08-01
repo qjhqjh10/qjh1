@@ -38,7 +38,8 @@ export class V4SecurityFence {
     if (extCheck.needsApproval) return extCheck
 
     // ── Layer 4: Dangerous tool → approval ──
-    if (toolRegistry.needsApproval(toolName)) {
+    // 传 args 支持条件审批（如 find_files：仅 scope=computer 需确认）
+    if (toolRegistry.needsApproval(toolName, args)) {
       const perm = toolRegistry.getPermissionLevel(toolName)
       const label = perm === 'PROJECT_ASK' ? '项目操作' : '危险操作'
       return {

@@ -14,15 +14,19 @@ import { createSubagentAdapter } from './createSubagentAdapter'
 import { SUBAGENT_ANALYZE_PROMPT, SUBAGENT_EDIT_PROMPT, SUBAGENT_VERIFY_PROMPT } from './SubagentPrompt'
 import { estimateTokens } from '../utils/tokenEstimation'
 import type { V4AgentRunResult } from '../runtime/RuntimeTypes'
+import type { Message } from '../state/types'
 
 // ── 角色与工具集 ──
-// 注意：子 agent 工具集不含 find_files（DANGEROUS_ASK，无审批路径下会直接执行——权限绕过风险）
-//      不含 analyze_file/edit_file_task 本身 → 无递归委托风险
+// 安全边界（find_files 条件审批 + IPC containment 加固后加入）：
+//   1. find_files 条件审批：scope=computer 时 needsApproval=true → 子 agent 无审批路径 → executor 直接拒绝
+//   2. IPC 层强制 containment：scope=project 的 dir_path 走 safeResolve，逃逸即拒绝
+//   3. 子 agent 只能用 scope=project（默认）在软件目录内按文件名定位
+// 不含 analyze_file/edit_file_task 本身 → 无递归委托风险
 
 export type SubagentRole = 'analyze' | 'edit' | 'verify'
 
 export const ANALYZE_TOOL_NAMES = new Set([
-  'read_file', 'list_directory', 'search_content',
+  'read_file', 'list_directory', 'search_content', 'find_files',
   'kb_search', 'search_notes', 'analyze_text_style',
 ])
 
@@ -34,8 +38,8 @@ export const EDIT_TOOL_NAMES = new Set([
 /** v14.2.1: verify 角色 — 只读验收（复用 analyze 工具集） */
 export const VERIFY_TOOL_NAMES = ANALYZE_TOOL_NAMES
 
-/** 主 agent 侧的子 agent 委托工具名（用于渐进披露/串行执行/契约过滤） */
-export const SUBAGENT_TOOL_NAMES = new Set(['analyze_file', 'edit_file_task', 'verify_task'])
+/** 主 agent 侧的子 agent 委托工具名（用于渐进披露/串行执行/契约过滤）— v14.3: +subagent_ask 追问 */
+export const SUBAGENT_TOOL_NAMES = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask'])
 
 const ROLE_PROMPTS: Record<SubagentRole, string> = {
   analyze: SUBAGENT_ANALYZE_PROMPT,
@@ -62,6 +66,71 @@ export interface SubagentOptions {
   contextWindow?: number   // 默认跟随模型配置（配置未设时 128_000，与主 agent 一致）
   temperature?: number
   toolTemperature?: number
+  /** v14.3: 会话追问 key（`${projectId ?? 'global'}::${filePath}`）— 存在时优先复用该文件的上次子代理上下文；委托成功后保存会话 */
+  sessionKey?: string
+}
+
+// ── v14.3: 子代理会话池（内存，不持久化；供 subagent_ask 追问复用上下文，避免重复读取大文件）──
+// v14 批处理: MAX_SESSIONS 4→8（长讨论追多个文件时减少 LRU 淘汰；内存 ≈8×20K 字符，有界可接受）
+const MAX_SESSIONS = 8
+const MAX_SESSION_CHARS = 20000
+
+interface SessionEntry {
+  role: SubagentRole
+  /** 已过滤 system 消息（ROLE_PROMPT/[任务边界]/[当前任务] 等——追问时由新 runtime 重新注入） */
+  history: Message[]
+  lastUsed: number
+}
+
+const subagentSessions = new Map<string, SessionEntry>()
+
+function getSubagentSession(key: string): SessionEntry | undefined {
+  const entry = subagentSessions.get(key)
+  if (entry) entry.lastUsed = Date.now()
+  return entry
+}
+
+/** 字符预算裁剪：保留首条（任务描述）+ 尾部最近轮次；防孤儿 tool_result */
+function trimSessionHistory(history: Message[]): Message[] {
+  const total = history.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0)
+  if (total <= MAX_SESSION_CHARS) return history
+  let chars = typeof history[0].content === 'string' ? history[0].content.length : 0
+  let tailCount = 0
+  for (let i = history.length - 1; i > 0; i--) {
+    const len = typeof history[i].content === 'string' ? history[i].content.length : 0
+    if (chars + len > MAX_SESSION_CHARS) break
+    chars += len
+    tailCount++
+  }
+  if (tailCount === 0) return [history[0]]
+  // v14.3.1: 丢弃尾部开头的孤儿 tool 消息——其对应的 assistant tool_use 已被裁剪，
+  // 追问时 Anthropic API 会报 "tool_result must have a corresponding tool_use in the previous message" (400)
+  let start = history.length - tailCount
+  while (start < history.length && history[start].role === 'tool') start++
+  return start >= history.length ? [history[0]] : [history[0], ...history.slice(start)]
+}
+
+function saveSubagentSession(key: string, role: SubagentRole, messagesForApi: Message[]): void {
+  if (!key) return
+  let history = messagesForApi.filter(m => m.role !== 'system')
+  // v14.3.1: 丢弃末尾"多余"user 消息——API 失败/中断的痕迹（V4UnifiedRuntime 的 success 不反映 API 失败，
+  // 失败轮次以 user(当前消息) 结尾保存；不丢弃会导致下次追问产生连续 user 消息）。
+  // 注意：保留首条 user（任务描述）——文本收尾的 run 不 push assistant 消息，messagesForApi 以 user 结尾是正常形态
+  while (history.length > 1 && history[history.length - 1].role === 'user') history.pop()
+  if (history.length === 0) return
+  history = trimSessionHistory(history)
+  if (history.length === 0) return
+  subagentSessions.set(key, { role, history, lastUsed: Date.now() })
+  // LRU 淘汰：超过上限时移除最久未使用的会话
+  while (subagentSessions.size > MAX_SESSIONS) {
+    let oldestKey: string | null = null
+    let oldest = Infinity
+    for (const [k, e] of subagentSessions) {
+      if (e.lastUsed < oldest) { oldest = e.lastUsed; oldestKey = k }
+    }
+    if (oldestKey) subagentSessions.delete(oldestKey)
+    else break
+  }
 }
 
 export interface SubagentUsage {
@@ -84,8 +153,9 @@ export interface SubagentResult {
 // ── 工厂 ──
 
 export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult> {
-  const { role, projectId, configId, userMessage, signal } = opts
-  const maxIterations = opts.maxIterations ?? 6
+  const { role, projectId, configId, userMessage, signal, sessionKey } = opts
+  // v14.3.1: 默认 6 → 10 轮（大文件分段读取 + 修改 + 重读验证 + 重试的典型路径需要更多预算）
+  const maxIterations = opts.maxIterations ?? 10
 
   // 温度/窗口配置（同 chatBridgeFactory：跟随模型配置）
   const configs = useSettingsStore.getState().configs
@@ -118,6 +188,9 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   let result: V4AgentRunResult
 
   try {
+    // v14.3: 会话追问 — 复用该文件上次子代理的上下文（无会话则全新）
+    const session = sessionKey ? getSubagentSession(sessionKey) : undefined
+
     // 4. 独立 runtime（isolatedStore：不触碰共享 AgentStore，隔离 UI 状态与熔断器）
     const runtime = new V4UnifiedRuntime({
       configId,
@@ -128,6 +201,9 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
       temperature,
       toolTemperature,
       isolatedStore: true,
+      // v14 批处理: 审计接线 — 子代理 api:call 事件同样记录（会话统计消费）
+      auditTrail,
+      model: (modelConfig as any)?.model,
     }, adapter)
 
     runtime.setTools(schemas)
@@ -142,7 +218,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
         breakdown: [],
       }
     })
-    runtime.setHistory([])
+    // v14.3: 追问时注入会话历史（原历史的首条 user 即该文件的任务描述，runtime 自动加 [任务边界]）
+    runtime.setHistory(session ? session.history : [])
     runtime.setToolExecutor(createToolExecutor({
       securityFence: new V4SecurityFence(projectId),
       auditTrail,
@@ -154,6 +231,11 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
 
     // 5. 执行
     result = await runtime.run({ userMessage, attachments: [] })
+    // v14.3: 委托成功 → 保存会话快照（供 subagent_ask 追问复用；abort/截断不保存——上下文不完整）
+    // v14.3.1: +truncated 判定（迭代耗尽/超时中断 = 部分完成，不保存不完整快照）
+    if (sessionKey && result.success && !result.truncated) {
+      saveSubagentSession(sessionKey, role, runtime.getMessagesForApi())
+    }
   } catch (err) {
     return {
       success: false,
@@ -167,10 +249,26 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     auditTrail.persist().catch(() => {})
   }
 
+  // v14.3: 失败时回传子代理内部错误轨迹（主 agent 据此分析原因、换方法重试）
+  // 注意：拼接串与 error summary 均不含 { }（防 verify_task 的 JSON 贪婪正则被破坏）
+  let text = result.text || ''
+  // v14.3.1: 迭代耗尽/超时中断 → success 置 false（防"假成功"——此前子代理 6 轮耗尽 success 仍 true，
+  // 主 agent 把不完整结果当完成）。abort 路径 success 本就 false，无需重复标记。
+  const success = result.success && !result.truncated
+  if (result.truncated) {
+    text = `${text}\n\n[子代理未完成] 子代理在迭代/时间限制内未完成全部工作，返回结果可能不完整。请缩小范围或分步重试。`
+  }
+  if (!result.success) {
+    const errSteps = result.toolCallSteps.filter(s => s.status === 'error').slice(-2)
+    if (errSteps.length > 0) {
+      const errSummary = errSteps.map(s => `${s.tool}: ${s.summary.slice(0, 120)}`).join('；')
+      text = `${text}\n\n[子代理失败摘要] 最近错误: ${errSummary}`
+    }
+  }
+
   return {
-    // success 以 runtime 结果为准（runtime 内部已按 abortSignal 计算，finally 的 abort 不影响）
-    success: result.success,
-    text: result.text || '',
+    success,
+    text,
     toolCallSteps: result.toolCallSteps,
     usage: {
       promptTokens: result.promptTokens,

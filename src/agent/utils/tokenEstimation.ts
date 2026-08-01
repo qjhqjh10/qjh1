@@ -1,7 +1,11 @@
 // ── Token Estimation ──
 // Character-aware token estimator for Chinese/English mixed text.
-// Chinese/CJK characters are ~1.5-2 chars per token (vs ~4 for Latin).
-// Using 1.8 as a balanced divisor for Chinese-dominant novel text.
+// 系数实测校准（2026-08-01，DeepSeek 真实 usage 反推，见
+// .aiharness/design/token-estimation-data-2026-08-01.md）：
+//   CJK 1.2 字符/token —— 真实中文小说文本实测 1.19（含标点），纯汉字 1.72、标点密集 1.08；
+//   原 1.8 低估约 1.5 倍 → 压缩触发晚于真实越界（API 400/静默截断风险），已修正。
+//   Latin 4.5 字符/token —— 实测纯英文 4.49。
+// 高估方向安全（压缩略早触发），低估方向危险（越界）。
 
 export function estimateTokens(text: string): number {
   if (!text) return 0
@@ -19,7 +23,7 @@ export function estimateTokens(text: string): number {
       latin++
     }
   }
-  return Math.ceil(cjk / 1.8 + latin / 4)
+  return Math.ceil(cjk / 1.2 + latin / 4.5)
 }
 
 /** Estimate total tokens across an array of messages (includes ~4 tokens per message for role overhead) */
