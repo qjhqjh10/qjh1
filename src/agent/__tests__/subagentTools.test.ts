@@ -2,7 +2,7 @@
 // 验证 analyze_file / edit_file_task 工具：subAgentUsage 透传、detail 截断、失败路径、
 // executeSingleTool 集成（上报 + 契约过滤）。
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const runSubagentMock = vi.hoisted(() => vi.fn())
 
@@ -343,5 +343,112 @@ describe('subagent_ask (v14.3)', () => {
       { projectId: null, configId: 'test-config', callId: 'c1', toolName: 'subagent_ask', signal: new AbortController().signal },
     )
     expect(result.status).toBe('error')
+  })
+})
+
+describe('verify_task JSON 解析 (v14.5.0)', () => {
+  beforeEach(() => { runSubagentMock.mockReset() })
+
+  const ZERO_USAGE = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, calls: 0 }
+
+  it('正文含嵌套 {} 与尾部散文 → 配对提取首个 JSON，passed 判定正确', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true,
+      text: '验收报告 {"passed":false,"items":[{"name":"A","passed":false},{"name":"B","passed":true}]} 补充说明：注意对象 { 括号 } 不是 JSON。',
+      toolCallSteps: [], usage: ZERO_USAGE,
+    })
+    const result = await getTool('verify_task').executor(
+      { file_paths: ['剑道长生/x.md'], criteria: ['存在'] },
+      { projectId: '剑道长生', configId: 'test-config', callId: 'c1', toolName: 'verify_task', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('success')
+    expect(result.summary).toContain('验收未通过')
+    expect(String(result.detail)).toContain('"passed":false')
+    expect(String(result.detail)).toContain('"name":"A"')
+  })
+
+  it('坏 JSON + 关键词"验收未通过" → 降级 passed=false（督促闭环保留）', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true,
+      text: '验收未通过：文件缺失。{broken json 没有闭合',
+      toolCallSteps: [], usage: ZERO_USAGE,
+    })
+    const result = await getTool('verify_task').executor(
+      { file_paths: ['剑道长生/x.md'], criteria: ['存在'] },
+      { projectId: '剑道长生', configId: 'test-config', callId: 'c1', toolName: 'verify_task', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('success')
+    expect(result.summary).toContain('验收未通过')
+  })
+
+  it('纯散文无关键词 → 中性"验收完成"', async () => {
+    runSubagentMock.mockResolvedValue({
+      success: true,
+      text: '文件结构合理，内容完整。',
+      toolCallSteps: [], usage: ZERO_USAGE,
+    })
+    const result = await getTool('verify_task').executor(
+      { file_paths: ['剑道长生/x.md'], criteria: ['存在'] },
+      { projectId: '剑道长生', configId: 'test-config', callId: 'c1', toolName: 'verify_task', signal: new AbortController().signal },
+    )
+    expect(result.status).toBe('success')
+    expect(result.summary).toContain('验收完成')
+  })
+})
+
+describe('executeSingleTool 超时 abort (v14.5.0)', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  const TIMEOUT_TOOL = 'analyze_file'  // PER_TOOL_TIMEOUT_MS 300s；fake timers 下即时推进
+
+  it('子代理工具超时 → 传入 executor 的 signal 被 abort（不再孤儿运行）', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const hanging = vi.fn(async (_args: Record<string, unknown>, c: { signal: AbortSignal }) => {
+      capturedSignal = c.signal
+      await new Promise(() => {})  // 永不结算
+    })
+    const tc: ToolCallRequest = { id: 'c1', name: TIMEOUT_TOOL, arguments: '{}' }
+    const { ctx } = makeExecCtx()
+    const execPromise = executeSingleTool(tc, { ...ctx, toolExecutor: hanging } as any)
+    // 超时（300s fake）→ 返回 error + signal abort
+    const done = vi.advanceTimersByTimeAsync(300_000).then(() => execPromise)
+    await done
+    expect(capturedSignal?.aborted).toBe(true)
+    const toolStep = ctx.toolCallSteps[0]
+    expect(toolStep.status).toBe('error')
+    expect(toolStep.summary).toContain('执行超时')
+  })
+
+  it('非子代理工具超时 → signal 不被 abort（行为不变）', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const hanging = vi.fn(async (_args: Record<string, unknown>, c: { signal: AbortSignal }) => {
+      capturedSignal = c.signal
+      await new Promise(() => {})  // 永不结算
+    })
+    const tc: ToolCallRequest = { id: 'c1', name: 'read_file', arguments: '{}' }
+    const { ctx } = makeExecCtx()
+    const execPromise = executeSingleTool(tc, { ...ctx, toolExecutor: hanging } as any)
+    await vi.advanceTimersByTimeAsync(120_000).then(() => execPromise)
+    expect(capturedSignal?.aborted).toBe(false)
+  })
+
+  it('超时落败后迟到 resolve 带 subAgentUsage → 照常补记（用量不丢失）', async () => {
+    let resolveLate: ((v: any) => void) | undefined
+    const late = vi.fn(async () => {
+      await new Promise((res) => { resolveLate = res as (v: any) => void })
+      return { status: 'success' as const, summary: '迟到成功', subAgentUsage: SAMPLE_USAGE }
+    })
+    const tc: ToolCallRequest = { id: 'c1', name: TIMEOUT_TOOL, arguments: '{}' }
+    const { ctx, reported } = makeExecCtx()
+    const execPromise = executeSingleTool(tc, { ...ctx, toolExecutor: late } as any)
+    await vi.advanceTimersByTimeAsync(300_000).then(() => execPromise)
+    expect(reported).toHaveLength(0)  // 超时结果无 usage → 未上报
+    // 子代理"迟到"resolve → 补记
+    resolveLate!({ status: 'success', summary: '迟到成功', subAgentUsage: SAMPLE_USAGE })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toEqual(SAMPLE_USAGE)
   })
 })

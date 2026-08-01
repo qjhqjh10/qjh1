@@ -353,8 +353,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           if (m.tool_call_id) msg.tool_call_id = m.tool_call_id
           // v11.4: Preserve reasoning_content for DeepSeek V4 thinking mode
           // Required for multi-turn tool calling — model expects reasoning in history
-          if ((m as Record<string, unknown>).reasoning_content) {
-            msg.reasoning_content = (m as Record<string, unknown>).reasoning_content
+          // v14.5.0: runtime 历史消息为 camelCase（reasoningContent），补 camel 兜底
+          const reasoningContent = (m as Record<string, unknown>).reasoning_content
+            ?? (m as Record<string, unknown>).reasoningContent
+          if (reasoningContent) {
+            msg.reasoning_content = reasoningContent
           }
           // v3.1: Mark first system message for prefix caching (DeepSeek supports cache_control)
           if (i === 0 && m.role === 'system') {
@@ -377,8 +380,10 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         }
       } catch {}
 
-      // Hard timeout: abort API call after 90 seconds at the IPC level
-      const IPC_API_TIMEOUT = 90000
+      // Hard timeout: abort API call at the IPC level
+      // v14.5.0: 90s → 180s，与 runtime 的 API_TIMEOUT(180s) 对齐——
+      // 原 90s 先于 runtime 掐断长输出（大章节生成 max_tokens 16K 可超 90s），导致"无回复"误报
+      const IPC_API_TIMEOUT = 180_000
       let hardTimeout: ReturnType<typeof setTimeout> | null = null
 
       try {

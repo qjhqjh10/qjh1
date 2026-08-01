@@ -1,4 +1,4 @@
-import type { AgentPhase, AgentState, ToolCallRequest, ApiResponse } from '../state/types'
+import type { AgentPhase, AgentState, ToolCallRequest } from '../state/types'
 
 // ── Event Payloads ──
 
@@ -53,12 +53,6 @@ export interface ResponseChunk {
   timestamp: number
 }
 
-export interface ResponseComplete {
-  text: string
-  usage?: ApiResponse['usage']
-  timestamp: number
-}
-
 export interface PermissionRequest {
   toolName: string
   filePath?: string
@@ -87,7 +81,6 @@ export interface AgentEventMap {
   'tool:completed': ToolResultEvent
   'tool:failed': ToolResultEvent
   'response:streaming': ResponseChunk
-  'response:complete': ResponseComplete
   'permission:request': PermissionRequest
   'hook:blocked': { hookName: string; feedback: string; timestamp: number }
   'hook:passed': { hookName: string; passed: boolean; feedback: string; timestamp: number }

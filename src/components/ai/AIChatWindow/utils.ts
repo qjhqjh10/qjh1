@@ -32,33 +32,6 @@ export function parsePopupCommand(text: string): { text: string; popup?: { type:
   return { text }
 }
 
-export function parseInsertionSuggestion(text: string): {
-  plainText: string
-  insertion: Message['insertion']
-} {
-  // Rewrite pattern: 【改写参考】...【改写内容】...
-  const rewriteMatch = text.match(/【改写参考】\s*\n原文:\s*(.+?)\n\n【改写内容】\s*\n([\s\S]*?)$/)
-  if (rewriteMatch) {
-    const keyword = rewriteMatch[1].trim()
-    const content = rewriteMatch[2].trim()
-    const plainText = text.replace(/【改写参考】[\s\S]*?【改写内容】\s*\n?/, '').trim()
-    return { plainText, insertion: { keyword, position: 'after', content, mode: 'rewrite' } }
-  }
-
-  // Insert pattern: 【插入参考】...【生成内容】...
-  const match = text.match(/【插入参考】\s*\n原文关键词:\s*(.+?)\n建议位置:\s*(.+?)\n\n【生成内容】\s*\n([\s\S]*?)$/)
-  if (!match) return { plainText: text, insertion: undefined }
-
-  const keyword = match[1].trim()
-  const posRaw = match[2].trim()
-  const content = match[3].trim()
-  const position = posRaw.includes('前') ? 'before' as const : 'after' as const
-
-  const plainText = text.replace(/【插入参考】[\s\S]*?【生成内容】\s*\n?/, '').trim()
-
-  return { plainText, insertion: { keyword, position, content, mode: 'insert' } }
-}
-
 /**
  * Detect when the AI claims it performed an action (e.g. "已创建", "已修改")
  * but didn't actually call the corresponding tool. Returns a warning string
@@ -139,64 +112,3 @@ export function maybeInjectSubagentSummaries(
   return [...history, { role: 'system', content }]
 }
 
-/**
- * Parse the AI's thinking plan from [思考计划]...[/思考计划] block.
- * Extracts user intent, file list, and numbered steps with tool names.
- * Returns cleaned text (without the plan block) and the structured plan.
- */
-export function parseThinkingPlan(text: string): {
-  plainText: string
-  plan?: { intent: string; files: string[]; steps: { tool: string; action: string }[] }
-} {
-  if (!text) return { plainText: text }
-
-  const match = text.match(/\[思考计划\]\s*([\s\S]*?)\s*\[\/思考计划\]/)
-  if (!match) return { plainText: text }
-
-  const planContent = match[1].trim()
-  const plainText = text.replace(match[0], '').trim()
-
-  // Extract user intent
-  let intent = ''
-  const intentMatch = planContent.match(/用户意图[：:]\s*(.+)/)
-  if (intentMatch) intent = intentMatch[1].trim()
-
-  // Extract file list
-  const files: string[] = []
-  const filesMatch = planContent.match(/涉及文件[：:]\s*(.+)/)
-  if (filesMatch) {
-    const raw = filesMatch[1].trim()
-    if (raw !== '无' && raw !== '无。') {
-      files.push(...raw.split(/[,，、\s]+/).map(f => f.trim()).filter(Boolean))
-    }
-  }
-
-  // Extract numbered steps with tool names
-  const steps: { tool: string; action: string }[] = []
-  const stepBlock = planContent.match(/计划步骤[：:]\s*([\s\S]*)/)
-  if (stepBlock) {
-    const stepLines = stepBlock[1].split('\n')
-    for (const line of stepLines) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      // Match "第N步: [tool] → action" or "N. [tool] → action"
-      const stepMatch = trimmed.match(/第\s*(\d+)\s*步[：:]\s*\[(.*?)\]\s*[→>]\s*(.+)/)
-      if (stepMatch) {
-        steps.push({ tool: stepMatch[2].trim(), action: stepMatch[3].trim() })
-        continue
-      }
-      // Fallback: match bare numbered line
-      const bareMatch = trimmed.match(/^(\d+)[\.\)、]\s*(.+)/)
-      if (bareMatch) {
-        steps.push({ tool: '', action: bareMatch[2].trim() })
-      }
-    }
-  }
-
-  // If no structured steps found, store the raw plan content as one step
-  if (steps.length === 0) {
-    steps.push({ tool: '', action: planContent })
-  }
-
-  return { plainText, plan: { intent, files, steps } }
-}

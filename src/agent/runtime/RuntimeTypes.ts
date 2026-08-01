@@ -38,6 +38,9 @@ export interface V4AgentConfig {
 export interface V4AgentRunInput {
   userMessage: string
   attachments: Array<{ type: string; name: string; content: string }>
+  /** v14.5.0: 跨 run 续跑 — 上次中断的任务清单进度快照（interrupted && !allDone 时传入，
+   * 新消息不含编号任务时据此恢复清单与进度，保证"未清空不接受完成"门控在续跑场景仍生效） */
+  resumeTaskProgress?: TaskProgress
 }
 
 export interface V4AgentRunResult {

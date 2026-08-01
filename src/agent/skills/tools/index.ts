@@ -16,8 +16,8 @@ import { toolSearchTools, CORE_TOOL_NAMES } from './toolSearchTools'
 import { subagentTools } from './subagentTools'
 import type { ToolDefinition } from '../types'
 
-// v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 11 核心。
-// v15: +2 子 agent 委托工具（analyze_file/edit_file_task）→ 29 工具
+// v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 15 核心。
+// v14.1.1: +analyze_file/edit_file_task → 29；v14.2.0: +verify_task → 30；v14.3.0: +subagent_ask → 31
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools

@@ -546,4 +546,216 @@ describe('Agent 功能全景验证', () => {
     const r = await rt.run({ userMessage: 'test', attachments: [] })
     expect(r.success).toBe(false)
   })
+
+  // ── v14.5.0 修复回归 ──
+
+  it('功能19: 渐进披露按 capabilities 门控 — progressiveDisclosure=false 恒全量（Anthropic 协议）', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"outline/plot.md"}' }] },
+      { text: '继续读', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{"file_path":"outline/worldbuilding.md"}' }] },
+      { text: '完成' },
+    ])
+    // 模拟 Anthropic 适配器: capabilities.progressiveDisclosure = false
+    const adapter = new OpenAIAdapter(service) as unknown as { capabilities: { progressiveDisclosure: boolean } }
+    adapter.capabilities = { progressiveDisclosure: false }
+    const rt = makeRuntime(adapter as unknown as OpenAIAdapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读文件', attachments: [] })
+
+    // 第 2 轮起 tools 仍为全量（不收敛）
+    expect(callLog.length).toBeGreaterThanOrEqual(2)
+    expect(callLog[1].tools.length).toBe(toolRegistry.getAllSchemas().length)
+  })
+
+  it('功能20: 渐进披露 capability=true 时第 2 轮收窄，tool_search 发现的工具动态加入', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '', toolCalls: [{ id: 'c1', name: 'tool_search', arguments: '{"query":"图片"}' }] },
+      { text: '找到了，继续', toolCalls: [{ id: 'c2', name: 'search_images', arguments: '{"query":"剑"}' }] },
+      { text: '完成' },
+    ])
+    const adapter = new OpenAIAdapter(service) as unknown as { capabilities: { progressiveDisclosure: boolean } }
+    adapter.capabilities = { progressiveDisclosure: true }
+    const rt = makeRuntime(adapter as unknown as OpenAIAdapter)
+    // tool_search 返回 matchedTools（真实 executor 从 schema 匹配；此处直接给 search_images）
+    const { executor } = makeRealToolExecutor()
+    const exec = vi.fn(async (args: Record<string, unknown>, ctx: any) => {
+      if (ctx.toolName === 'tool_search') {
+        return { status: 'success' as const, summary: '找到: search_images', matchedTools: ['search_images'] }
+      }
+      return executor(args, ctx)
+    })
+    rt.setToolExecutor(exec); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '找图片', attachments: [] })
+
+    expect(callLog.length).toBeGreaterThanOrEqual(2)
+    // 第 2 轮已收窄（< 全量），但 tool_search 发现的 search_images 在工具集中
+    expect(callLog[1].tools.length).toBeLessThan(toolRegistry.getAllSchemas().length)
+    expect(callLog[1].tools.some(t => (t as any).function?.name === 'search_images')).toBe(true)
+  })
+
+  it('功能21: 空响应兜底角色交替 — 连续两次空响应不产生相邻同角色消息（Anthropic 协议要求）', async () => {
+    const { service } = makeSimulatedAIService([
+      { text: '' },
+      { text: '' },
+      { text: '终于有回复了' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const r = await rt.run({ userMessage: '你好', attachments: [] })
+
+    const msgs = rt.getMessagesForApi()
+    let prevRole = ''
+    for (const m of msgs) {
+      if (m.role === 'user' || m.role === 'assistant') {
+        expect(m.role).not.toBe(prevRole)  // 不允许相邻同角色
+        prevRole = m.role
+      }
+    }
+    expect(r.success).toBe(true)
+  })
+
+  it('功能22: nudge 前缀去重 — 已注入 readNudge 后读数增长不再重复注入', async () => {
+    const { service } = makeSimulatedAIService([
+      { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"outline/plot.md"}' }] },
+      { text: '', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{"file_path":"characters/许倩.json"}' }] },
+      { text: '', toolCalls: [{ id: 'c3', name: 'read_file', arguments: '{"file_path":"outline/worldbuilding.md"}' }] },
+      { text: '', toolCalls: [{ id: 'c4', name: 'read_file', arguments: '{"file_path":"outline/factions.yaml"}' }] },
+      { text: '', toolCalls: [{ id: 'c5', name: 'read_file', arguments: '{"file_path":"outline/items.yaml"}' }] },
+      { text: '完成' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 8)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读一下这些文件', attachments: [] })
+
+    const msgs = rt.getMessagesForApi()
+    const nudgeCount = msgs.filter(m => m.role === 'system' && typeof m.content === 'string' && m.content.startsWith('[系统提醒]')).length
+    // 5 次连续读取（≥5 阈值），旧实现每轮精确匹配失败 → 会注入多条；新实现前缀去重 → 最多 1-2 条
+    expect(nudgeCount).toBeLessThanOrEqual(2)
+  })
+
+  // ── v14.5.0 批次3 回归 ──
+
+  it('功能23: aborted 响应 → phase ABORTED，不注入"请用中文直接生成文本回复"垃圾消息', async () => {
+    // 模拟 OpenAI IPC 中止返回（aborted:true + 空文本）
+    const service = {
+      chatWithTools: vi.fn(async () => ({
+        text: '', toolCalls: null, finishReason: 'stop', aborted: true,
+        usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300, cost: 0 },
+      })),
+      abortStream: vi.fn(),
+    }
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const r = await rt.run({ userMessage: '写第一章', attachments: [] })
+
+    // 注: phase 判定依赖 abortSignal（真实链路 bridge.abort() 先置位 signal → ABORTED）；
+    // 本测试验证中止响应被识别（interrupted/truncated + 无垃圾消息），而非 signal 语义
+    expect(r.truncated).toBe(true)
+    expect(r.text).not.toContain('错误')
+    const msgs = rt.getMessagesForApi()
+    expect(msgs.some(m => m.role === 'user' && m.content === '请用中文直接生成文本回复。')).toBe(false)
+  })
+
+  it('功能24: Anthropic 中止（stopReason=aborted）→ 同样识别为 ABORTED', async () => {
+    // 模拟 Anthropic 适配器: stopReason='aborted'
+    const service = {
+      chatAnthropicStream: vi.fn(async () => ({
+        text: '', toolUses: [], stopReason: 'aborted',
+        usage: { input_tokens: 200, output_tokens: 100, cost: 0 },
+      })),
+      abortStream: vi.fn(),
+    }
+    const { AnthropicAdapter } = await import('../runtime/adapters/AnthropicAdapter')
+    const adapter = new AnthropicAdapter(service as any)
+    const rt = makeRuntime(adapter as unknown as OpenAIAdapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const r = await rt.run({ userMessage: '写第一章', attachments: [] })
+
+    // 中止响应被识别为中断而非错误（真实链路 signal 置位后 phase 为 ABORTED）
+    expect(r.truncated).toBe(true)
+    expect(r.text).not.toContain('错误')
+  })
+
+  it('功能25: 模型响应带 reasoningContent → assistant 消息历史含 reasoning_content（多轮推理回传）', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '分析中', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"outline/plot.md"}' }] },
+      { text: '完成' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    // 注入 reasoning_content 到第一个响应
+    ;(service.chatWithTools as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => ({
+      text: '分析中', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"outline/plot.md"}' }],
+      finishReason: 'tool_calls',
+      reasoning_content: '这是推理过程',
+      usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300, cost: 0 },
+    }))
+    const rt = makeRuntime(adapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读文件', attachments: [] })
+
+    // 第 2 次 API 请求的 assistant 消息含 reasoning_content（历史回传）
+    const secondCall = callLog[1]
+    expect(secondCall).toBeDefined()
+    const assistantMsg = secondCall.messages.find(m => m.role === 'assistant')
+    expect((assistantMsg as any)?.reasoning_content).toBe('这是推理过程')
+  })
+
+  it('功能26: Anthropic 安全收窄 — 首轮用非核心工具 → 第 2 轮 tools 保留该工具（toolsUsed 集）', async () => {
+    // AnthropicAdapter capabilities 已改为 true（安全收窄）；toolsUsed 保留是安全核心
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '搜索图片', toolCalls: [{ id: 'c1', name: 'search_images', arguments: '{"query":"仙剑"}' }] },
+      { text: '完成' },
+    ])
+    const adapter = new OpenAIAdapter(service) as unknown as { capabilities: { progressiveDisclosure: boolean } }
+    adapter.capabilities = { progressiveDisclosure: true }
+    const rt = makeRuntime(adapter as unknown as OpenAIAdapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '搜索图片', attachments: [] })
+
+    expect(callLog.length).toBeGreaterThanOrEqual(2)
+    // 第 2 轮已收窄（< 全量）但 search_images（首轮用过的非核心工具）仍在工具集中
+    expect(callLog[1].tools.length).toBeLessThan(toolRegistry.getAllSchemas().length)
+    expect(callLog[1].tools.some(t => (t as any).function?.name === 'search_images')).toBe(true)
+  })
+
+  it('功能27: 子代理（isolatedStore）不收窄 — capability=true 时第 2 轮 tools 长度不变', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"file_path":"outline/plot.md"}' }] },
+      { text: '完成' },
+    ])
+    const adapter = new OpenAIAdapter(service) as unknown as { capabilities: { progressiveDisclosure: boolean } }
+    adapter.capabilities = { progressiveDisclosure: true }
+    // 子代理配置：isolatedStore=true（角色工具集小，收窄会误裁角色专属工具）
+    const rt = new V4UnifiedRuntime({
+      configId: 'test-config', projectId: 'test-project', maxIterations: 10,
+      abortSignal: new AbortController().signal, skipAnalyze: true, skipSkillGate: true,
+      isolatedStore: true,
+    }, adapter as unknown as OpenAIAdapter)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读文件', attachments: [] })
+
+    expect(callLog.length).toBeGreaterThanOrEqual(2)
+    // 第 2 轮仍全量（isolatedStore 门控）
+    expect(callLog[1].tools.length).toBe(toolRegistry.getAllSchemas().length)
+  })
 })

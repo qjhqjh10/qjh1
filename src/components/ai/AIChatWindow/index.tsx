@@ -21,7 +21,7 @@ import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
 
-import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries } from "./utils";
+import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, detectHallucination } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
@@ -233,18 +233,21 @@ export default function AIChatWindow() {
     return [makeConversation('default', '新对话')]
   })
   const [convsLoaded, setConvsLoaded] = useState(false)
+  // v14.5.0: IndexedDB 写入失败提示节流（每会话至多一次）
+  const idbFailNotifiedRef = useRef(false)
   const [activeConversationId, setActiveConversationId] = useState('default')
   const [convToDelete, setConvToDelete] = useState<string | null>(null)
 
   // Init 3: Load conversations from IndexedDB on mount and migrate localStorage
   useEffect(() => {
     let cancelled = false
-    import('@/services/chatStorageService').then(async ({ loadConversations, loadLastActiveId, finalizeMigration }) => {
+    import('@/services/chatStorageService').then(async ({ loadConversations, loadLastActiveId, finalizeMigration, mergeConversations }) => {
       try {
         const stored = await loadConversations()
         if (cancelled) return
         if (stored.length > 0) {
-          setConversations(stored)
+          // v14.5.0: 合并而非覆盖——保留加载完成前用户已新建/更新的对话（原实现会丢失）
+          setConversations(prev => mergeConversations(stored, prev))
           const lastId = await loadLastActiveId()
           const activeId = (lastId && stored.some(c => c.id === lastId)) ? lastId : stored[stored.length - 1].id
           setActiveConversationId(activeId)
@@ -270,7 +273,12 @@ export default function AIChatWindow() {
   const persistConversations = useCallback(async (convs: Conversation[]) => {
     try {
       const { saveConversations, saveLastActiveId } = await import('@/services/chatStorageService')
-      await saveConversations(convs)
+      const { idbOk } = await saveConversations(convs)
+      // v14.5.0: IndexedDB 写入失败 → 每会话至多一次提示（文件镜像仍在写，数据不丢）
+      if (!idbOk && !idbFailNotifiedRef.current) {
+        idbFailNotifiedRef.current = true
+        alert('对话已保存到本地镜像文件，但 IndexedDB 写入失败（存储配额可能已满）。对话不会丢失，但请在设置中清理空间。')
+      }
       await saveLastActiveId(activeConversationId)
     } catch (e) { logError('保存对话历史失败', e) }
   }, [activeConversationId])
@@ -293,6 +301,17 @@ export default function AIChatWindow() {
   const [dragOver, setDragOver] = useState(false)
   const [pendingApproval, setPendingApproval] = useState<DangerousTool[] | null>(null)
   const approvalResolveRef = useRef<((approved: boolean) => void) | null>(null)
+  // v14.5.0 审查修复: 审批超时（toolExecutorFactory 侧 60s 拒绝）后自动关闭弹窗——
+  // 原实现弹窗残留，用户之后点"批准"会串扰下一个审批请求
+  useEffect(() => {
+    if (!pendingApproval) return
+    const t = setTimeout(() => {
+      approvalResolveRef.current?.(false)
+      approvalResolveRef.current = null
+      setPendingApproval(null)
+    }, 60_000)
+    return () => clearTimeout(t)
+  }, [pendingApproval])
 
 
   const [showConvList, setShowConvList] = useState(false)
@@ -313,7 +332,6 @@ export default function AIChatWindow() {
   const toggleThinking = useCallback((id: string) => setExpandedThinking(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
   const togglePlan = useCallback((id: string) => setExpandedPlans(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
   const handleContextMenu = useCallback((msgId: string, x: number, y: number) => setContextMenu({ msgId, x, y }), [])
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   const toggleSelectMsg = useCallback((id: string) => setSelectedMsgIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
 
@@ -460,7 +478,7 @@ export default function AIChatWindow() {
       ? toolTurnUserIndices[toolTurnUserIndices.length - PRESERVE_TOOL_TURNS]
       : 0
 
-    const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string }> = []
+    const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string; thinkingBlocks?: Array<{ thinking: string; signature: string }>; reasoning_content?: string }> = []
     // v14.3.1: 早期轮次折叠摘要（system 消息，置于历史最前）
     if (earlySummary) {
       result.push({ role: 'system', content: earlySummary })
@@ -473,10 +491,14 @@ export default function AIChatWindow() {
       if (msgIdx >= preserveStartIdx) {
         if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
           // Keep assistant message with tool_calls intact
+          // v14.5.0: 透传推理内容（thinkingBlocks/reasoningContent）——多轮工具调用时模型可见推理链
+          const reasoningContent = (m as any).reasoning_content ?? (m as any).reasoningContent
           result.push({
             role: 'assistant',
             content: m.content || '',
             tool_calls: m.tool_calls,
+            thinkingBlocks: (m as any).thinkingBlocks,
+            reasoning_content: reasoningContent,
           })
           // Find and append corresponding tool result messages from original msgs
           const tcIds = new Set(m.tool_calls.map(tc => tc.id))
@@ -493,7 +515,14 @@ export default function AIChatWindow() {
         }
         if (m.role === 'assistant') {
           // Assistant message without tool_calls — pass through
-          result.push({ role: 'assistant', content: m.content || '' })
+          // v14.5.0: 文本轮同样透传推理内容（thinking 模式的纯文本轮）
+          const reasoningContent = (m as any).reasoning_content ?? (m as any).reasoningContent
+          result.push({
+            role: 'assistant',
+            content: m.content || '',
+            thinkingBlocks: (m as any).thinkingBlocks,
+            reasoning_content: reasoningContent,
+          })
           continue
         }
         if (m.role === 'user') {
@@ -531,10 +560,11 @@ export default function AIChatWindow() {
   }
 
   const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
-  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); return }; setActiveConversationId(remaining[0].id); setConversations(remaining) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
+      setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
 
   // Dismiss context menu on click outside
   useEffect(() => {
@@ -544,16 +574,8 @@ export default function AIChatWindow() {
     return () => window.removeEventListener('click', dismiss)
   }, [contextMenu])
 
-  // Scroll to bottom when messages change, conversation switches, or window opens
-  useEffect(() => {
-    if (!isOpen) return
-    // Double rAF ensures DOM layout is complete before measuring scrollHeight
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      })
-    })
-  }, [messages, isOpen])
+  // v14.5.0: 自动滚动逻辑移入 VirtualMessageList（原 scrollRef 从未挂载到 DOM，
+  // 此 effect 是死代码——新回复溢出视口后用户必须手动滚动才能看到）
 
 
   // ══════════════════════════════════════════════════════════════════
@@ -621,6 +643,9 @@ export default function AIChatWindow() {
 
   // Double-send guard — prevents race between async checkApiConnection and setLoading
   const sendLockRef = useRef(false)
+  // v14.5.0: 发起 run 时的会话 id（ref 同步）——onComplete 的 token 状态更新只在仍是该会话时应用，
+  // 防止切换会话后旧 run 的 token 累计污染新会话显示
+  const activeConvIdRef = useRef(activeConversationId)
 
   const handleSend = async () => {
     const isRetry = !!pendingCorrection.current
@@ -630,6 +655,8 @@ export default function AIChatWindow() {
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
     if (sendLockRef.current || loading) return  // H8: prevent double-send during async gap
     sendLockRef.current = true
+    // v14.5.0: 记录发起会话——onComplete 的 token 更新只在仍是该会话时应用
+    const runStartConvId = activeConversationId
     setLoading(true)  // H8: sync UI guard with lock — eliminates gap where button appears clickable
 
     // Pre-flight: verify API connectivity
@@ -736,8 +763,15 @@ export default function AIChatWindow() {
         bridgeRef.current.updateHistory(resumeHistory)
       }
       let collectedText = ''
+      // v14.5.0: 跨 run 续跑 — 只取**最后一条** assistant 消息的中断快照（v14.5.0 审查修复：
+      // 原向前扫描会复活已完成 run 之前的陈旧中断快照，导致模型重复执行已完成的剩余任务）
+      const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')
+      const lastProgressMsg = (lastAssistantMsg?.taskProgress?.interrupted && !lastAssistantMsg?.taskProgress?.allDone)
+        ? lastAssistantMsg
+        : undefined
       const result = await bridgeRef.current.sendMessage(fullContent, {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
+        resumeTaskProgress: lastProgressMsg?.taskProgress,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           // Parse popup commands from AI response (【打开草稿】, 【生成本章】, etc.)
@@ -753,9 +787,13 @@ export default function AIChatWindow() {
             collectedText = popupResult.text || collectedText
           }
 
-          const fallbackText = runResult.toolsUsed.length > 0
-            ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
-            : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`
+          // v14.5.0: 用户主动停止生成 → 显示"已停止"而非误导性失败文案
+          // （runtime 中止时返回 phase:'ABORTED'，此前被 fallbackText 误显示为 API 超时）
+          const fallbackText = runResult.phase === 'ABORTED'
+            ? '已停止生成。'
+            : (runResult.toolsUsed.length > 0
+              ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
+              : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`)
           // Token breakdown — initial context only (first API call).
           // v13.2.0: 直接用 tokens 字段，避免 chars→tokens 重复转换导致低估 45%
           if (runResult.contextBreakdown && runResult.contextBreakdown.length > 0) {
@@ -795,6 +833,12 @@ export default function AIChatWindow() {
               subAgentUsage: (runResult as any).subAgentUsage,
             } : undefined,
             totalIterations: runResult.iterationCount || 1,
+            // v14.5.0: 幻觉检测接线（此前 detectHallucination 无调用点——banner/重试按钮是死代码）：
+            // AI 声称执行了操作但未调对应工具 → 显示警告 + 纠错重试入口
+            // 续跑场景跳过（toolsUsed 仅含本次 run，模型文本常引用早前 run 的成果 → 误报）
+            hallucinationWarning: lastProgressMsg
+              ? undefined
+              : (detectHallucination(collectedText || runResult.text || '', new Set(runResult.toolsUsed)) || undefined),
             // v14.2.0: 跨 run 续跑 — 任务清单进度快照随消息持久化（IndexedDB），
             // 中断未完成时下一条消息注入 [续跑] 提示
             taskProgress: (runResult as any).taskProgress,
@@ -815,11 +859,15 @@ export default function AIChatWindow() {
       // v13.x: 计算移出 updater——updater 必须纯函数（StrictMode 双调用 + 避免过期闭包）
       const billedTokens = Math.max(0, (result.totalTokens || 0) - (result.cacheHitTokens || 0))
       const newTotal = cumulativeTokens + billedTokens
-      setCumulativeTokens(newTotal)
+      // v14.5.0: 仅当仍在发起会话时更新 token 条——切换会话后旧 run 的累计不再污染新会话显示
+      // （assistant 消息落库与 totalTokens 回写不加守卫：闭包捕获发起会话 id，语义正确）
+      if (activeConvIdRef.current === runStartConvId) {
+        setCumulativeTokens(newTotal)
+        // v13.2.0: 进度条用 Runtime 估算的下次请求上下文 token 数（非累计计费值）
+        // 累计值会因每轮重复计入历史而虚高；estimatedContextTokens 基于 messagesForApi 真实大小
+        setCurrentContextTokens(result.estimatedContextTokens ?? newTotal)
+      }
       setConversations(innerPrev => innerPrev.map(c => c.id === activeConversationId ? { ...c, totalTokens: newTotal, lastPromptTokens: result.promptTokens || 0, peakPromptTokens: Math.max(c.peakPromptTokens || 0, result.promptTokens || 0) } : c))
-      // v13.2.0: 进度条用 Runtime 估算的下次请求上下文 token 数（非累计计费值）
-      // 累计值会因每轮重复计入历史而虚高；estimatedContextTokens 基于 messagesForApi 真实大小
-      setCurrentContextTokens(result.estimatedContextTokens ?? newTotal)
       useAgentStore.getState().addTokens(billedTokens)
     } catch (err) {
       setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
@@ -1537,7 +1585,11 @@ export default function AIChatWindow() {
                 </div>
               )}
               <textarea id="ai-chat-input" value={input} onChange={e => handleInputChange(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+              onKeyDown={e => {
+                // v14.5.0: IME 组合期确认候选的 Enter 不发送（中文输入法误发半截消息）
+                if ((e.nativeEvent as any).isComposing) return
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+              }}
               placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
               disabled={!activeConfigId} rows={3}
               className="focus-ring"

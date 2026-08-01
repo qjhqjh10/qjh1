@@ -69,6 +69,9 @@ export const anthropicService = {
         usage: parsed.usage,
         // H7: 主进程失败时返回 stopReason:'error' + error 字段，透传给上层判断
         error: parsed.error,
+        // v14.5.0: 透传 thinkingBlocks（主进程已下发；原实现丢弃 → 多轮工具调用时
+        // 模型看不到自己的推理链，Anthropic 端点可能对缺失 thinking/signature 报 400）
+        thinkingBlocks: parsed.thinkingBlocks || undefined,
       }
     } catch (err) {
       logError('anthropicService.chatAnthropicStream failed', err)

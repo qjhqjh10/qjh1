@@ -41,11 +41,30 @@ export const WRITE_TOOLS = new Set([
  * v14.3.1: +verify_task（只读验收子代理）— 此前归普通只读无限并行，多文件验收同时起多个
  *   子代理有 API 限流风险；归入分片 ≤3 并行。
  */
-export const PARALLEL_READ_TOOLS = new Set(['analyze_file', 'verify_task'])
+export const PARALLEL_READ_TOOLS = new Set(['analyze_file', 'verify_task', 'subagent_ask'])  // v14.5.0: +subagent_ask（防无限并发）
 export const SERIAL_WRITE_TOOLS = new Set(['edit_file_task'])
 
 /** v15: 子 agent 委托完成文件操作视为"已写"（_hasWriteCall 计入，避免自愈误判 nudge） */
 export const SUBAGENT_WRITE_TOOLS = new Set(['edit_file_task'])
+
+/**
+ * v14.5.0: 子代理委托工具名镜像（per-call abort 用）。
+ * 不 import subagentTools——避免 subagentTools → SubagentService → V4UnifiedRuntime → ToolExecutor 循环依赖。
+ */
+const SUBAGENT_TOOL_NAMES_LOCAL = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask'])
+
+/** v14.5.0: AbortSignal.any 兜底（旧运行时无 any 时手动组合两个信号） */
+function composeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const ctrl = new AbortController()
+  if (a.aborted || b.aborted) {
+    ctrl.abort()
+    return ctrl.signal
+  }
+  const onAbort = () => ctrl.abort()
+  a.addEventListener('abort', onAbort)
+  b.addEventListener('abort', onAbort)
+  return ctrl.signal
+}
 
 /** Split tool calls into read-only (parallel) and write (sequential) groups. */
 export function classifyToolCalls(toolCalls: ToolCallRequest[]): {
@@ -66,8 +85,9 @@ export function classifyToolCalls(toolCalls: ToolCallRequest[]): {
 
 /** v15: per-tool 超时（毫秒）— 子 agent 委托工具内部跑独立 runtime，需更长预算 */
 const PER_TOOL_TIMEOUT_MS: Record<string, number> = {
-  analyze_file: 300_000,      // 子 agent 最多 6 轮
+  analyze_file: 300_000,      // 子 agent 预算 10 轮 × 60s（SubagentService maxIterations 默认 10）
   edit_file_task: 300_000,
+  verify_task: 300_000,       // v14.5.0: 与其他子代理工具对齐（多文件×多标准验收可能超 120s）
   subagent_ask: 300_000,      // v14.3: 会话追问（可能复用长历史）
   analyze_text_style: 180_000, // AI 分析较长内容时 120s 偏紧
 }
@@ -85,6 +105,8 @@ export interface ToolExecContext {
   toolCallSteps: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number; arguments?: string; matchedTools?: string[] }>
   emitter: AgentEventEmitter
   iteration: number
+  /** v14.5.0: 子代理（isolatedStore）内部工具调用跳过全局操作历史写入（防污染） */
+  skipOpHistory?: boolean
   /** v14.3: 子代理执行快照收集器（主 runtime 持有数组，run 结束随结果返回） */
   subagentSummaries: SubagentSummary[]
   /** v9.5.5: Store for tool progress tracking */
@@ -122,34 +144,56 @@ export async function executeSingleTool(
     const errResult = { status: 'error' as const, summary: '工具参数 JSON 解析失败' }
     ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(errResult) })
     ctx.store.completeTool(tc.id, 'error', errResult.summary)
-    // v13.1.0: 记录解析失败
-    try {
-      const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
-      useOpHistoryStore.getState().addEntry({
-        id: nanoid(8), timestamp: new Date().toISOString(),
-        conversationId: ctx.projectId || 'global', toolName: tc.name,
-        filePath: '', args: {}, status: 'error',
-        summary: '工具参数 JSON 解析失败', detail: tc.arguments,
-      })
-    } catch { /* ignore */ }
+    // v13.1.0: 记录解析失败（v14.5.0: 子代理跳过——防内部调用污染全局操作历史）
+    if (!ctx.skipOpHistory) {
+      try {
+        const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
+        useOpHistoryStore.getState().addEntry({
+          id: nanoid(8), timestamp: new Date().toISOString(),
+          conversationId: ctx.projectId || 'global', toolName: tc.name,
+          filePath: '', args: {}, status: 'error',
+          summary: '工具参数 JSON 解析失败', detail: tc.arguments,
+        })
+      } catch { /* ignore */ }
+    }
     return
   }
 
   // Execute (v15: per-tool 超时查表，默认 120s — analyze_text_style/子 agent 工具更长)
   const t0 = Date.now()
   let result: ToolResult
+  let timedOut = false  // v14.5.0: 超时落败标记（补记判定用，替代字符串匹配）
   const TOOL_TIMEOUT = PER_TOOL_TIMEOUT_MS[tc.name] ?? 120_000
+  // v14.5.0: 子代理委托工具 per-call abort——超时/竞态时中止底层子代理 runtime，
+  // 消除"超时后孤儿运行 5 分钟 + 会话池被失败运行污染 + 用量漏记"
+  const perCallCtrl = SUBAGENT_TOOL_NAMES_LOCAL.has(tc.name) ? new AbortController() : null
+  const execSignal = perCallCtrl
+    ? (typeof AbortSignal.any === 'function'
+        ? AbortSignal.any([ctx.abortSignal, perCallCtrl.signal])
+        : composeSignals(ctx.abortSignal, perCallCtrl.signal))
+    : ctx.abortSignal
   const execPromise = ctx.toolExecutor(args, {
     projectId: ctx.projectId,
     configId: ctx.configId,
     callId: tc.id,
     toolName: tc.name,
-    signal: ctx.abortSignal,
+    signal: execSignal,
   })
   const timeoutPromise = new Promise<ToolResult>(r =>
-    setTimeout(() => r({ status: 'error', summary: `工具 ${tc.name} 执行超时` }), TOOL_TIMEOUT)
+    setTimeout(() => {
+      perCallCtrl?.abort()  // 超时即中止子代理 runtime（runSubagent 已支持 signal 传播）
+      timedOut = true
+      r({ status: 'error', summary: `工具 ${tc.name} 执行超时` })
+    }, TOOL_TIMEOUT)
   )
   result = await Promise.race([execPromise, timeoutPromise])
+  // v14.5.0: 超时落败时，迟到 resolve 的 subAgentUsage 照常补记（正常路径由下方统一上报，避免双计）。
+  // 布尔标记判定（原字符串匹配"执行超时"可能被工具自身错误摘要误命中 → 双计）
+  if (timedOut) {
+    execPromise.then((lateResult) => {
+      if (lateResult?.subAgentUsage) ctx.store.reportSubAgentUsage?.(lateResult.subAgentUsage)
+    }).catch(() => { /* 迟到错误无消费方 */ })
+  }
 
   // v15: 子 agent 委托用量上报（analyze_file/edit_file_task 返回 subAgentUsage）
   if (result.subAgentUsage) {
@@ -169,21 +213,23 @@ export async function executeSingleTool(
   const durationMs = Date.now() - t0
   ctx.toolCallSteps.push({ tool: tc.name, status: result.status, summary: result.summary || '', durationMs, iteration: ctx.iteration, arguments: tc.arguments, matchedTools: (result as any).matchedTools })
 
-  // ── v13.1.0: 操作记录持久化 ──
-  try {
-    const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
-    useOpHistoryStore.getState().addEntry({
-      id: nanoid(8),
-      timestamp: new Date().toISOString(),
-      conversationId: ctx.projectId || 'global',
-      toolName: tc.name,
-      filePath: extractFilePath(args),
-      args,
-      status: result.status === 'success' ? 'success' : 'error',
-      summary: result.summary || '',
-      detail: result.detail || '',
-    })
-  } catch { /* 记录写入失败不影响主流程 */ }
+  // ── v13.1.0: 操作记录持久化（v14.5.0: 子代理跳过——防内部调用污染全局操作历史）──
+  if (!ctx.skipOpHistory) {
+    try {
+      const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
+      useOpHistoryStore.getState().addEntry({
+        id: nanoid(8),
+        timestamp: new Date().toISOString(),
+        conversationId: ctx.projectId || 'global',
+        toolName: tc.name,
+        filePath: extractFilePath(args),
+        args,
+        status: result.status === 'success' ? 'success' : 'error',
+        summary: result.summary || '',
+        detail: result.detail || '',
+      })
+    } catch { /* 记录写入失败不影响主流程 */ }
+  }
 
   // Emit result
   if (result.status === 'success') {

@@ -149,7 +149,9 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
 
 export class AnthropicAdapter implements ProtocolAdapter {
   readonly capabilities: ProtocolCapabilities = {
-    progressiveDisclosure: false,
+    // v14.5.0: 安全收窄——runtime 收窄时保留历史已用工具（toolsUsed），历史 tool_use 始终有 schema；
+    // 基线（无条件收窄）31 场景实证 DeepSeek anthropic 端点对收窄宽松。子代理由 isolatedStore 门控恒全量。
+    progressiveDisclosure: true,
     systemRoleHints: false,
   }
 
@@ -238,6 +240,8 @@ export class AnthropicAdapter implements ProtocolAdapter {
       },
       reasoningContent: streamResult.thinkingBlocks?.map(b => b.thinking).join('\n') || streamResult.thinking,
       thinkingBlocks: streamResult.thinkingBlocks,
+      // v14.5.0: 用户中止（anthropicHandlers 返回 stopReason:'aborted'）→ 透传，runtime 识别为中止而非失败
+      aborted: streamResult.stopReason === 'aborted',
     }
   }
 

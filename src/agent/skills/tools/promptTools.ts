@@ -47,7 +47,8 @@ export const promptTools: ToolDefinition[] = [
         required: ['prompt_id', 'enabled'],
       },
     },
-    permission: 'READ_ASK',
+    // v14.5.0: READ_ASK → AUTO（可逆开关，不值得每次审批）
+    permission: 'AUTO',
     category: 'prompt',
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {
@@ -97,7 +98,8 @@ export const promptTools: ToolDefinition[] = [
         required: ['prompt_id'],
       },
     },
-    permission: 'READ_ASK',
+    // v14.5.0: READ_ASK → PROJECT_ASK（不可逆覆盖用户编写的提示词内容，值得审批）
+    permission: 'PROJECT_ASK',
     category: 'prompt',
     executor: async (args: Record<string, unknown>): Promise<ToolResult> => {
       try {

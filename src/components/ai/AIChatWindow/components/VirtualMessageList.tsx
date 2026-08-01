@@ -9,8 +9,6 @@ interface Props {
   estimateSize?: number
   /** Max messages before virtualization kicks in (default 20) */
   virtualizeThreshold?: number
-  /** Called when messages change (for auto-scroll) */
-  messagesUpdatedAt?: number
 }
 
 export function VirtualMessageList({
@@ -18,9 +16,15 @@ export function VirtualMessageList({
   renderMessage,
   estimateSize = 120,
   virtualizeThreshold = 20,
-  messagesUpdatedAt,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
+
+  // v14.5.0: 非虚拟化分支自动滚动（原实现依赖 index.tsx 的 scrollRef——从未挂载到 DOM，
+  // 新回复溢出视口后不自动滚底；挂载/消息数变化滚底；窗口重开时组件重挂载同样滚底）
+  useEffect(() => {
+    const el = parentRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages.length])
 
   // Only virtualize above threshold
   if (messages.length <= virtualizeThreshold) {
@@ -36,13 +40,12 @@ export function VirtualMessageList({
       messages={messages}
       renderMessage={renderMessage}
       estimateSize={estimateSize}
-      messagesUpdatedAt={messagesUpdatedAt}
     />
   )
 }
 
 function VirtualizedInner({
-  messages, renderMessage, estimateSize, messagesUpdatedAt,
+  messages, renderMessage, estimateSize,
 }: Omit<Props, 'virtualizeThreshold'>) {
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -61,7 +64,7 @@ function VirtualizedInner({
       virtualizer.scrollToIndex(messages.length - 1, { align: 'end' })
     }
     prevLen.current = messages.length
-  }, [messages.length, messagesUpdatedAt, virtualizer])
+  }, [messages.length, virtualizer])
 
   const items = virtualizer.getVirtualItems()
 

@@ -35,6 +35,8 @@ export interface ChatWithToolsResult {
   finishReason: string
   images?: string[]
   reasoning_content?: string
+  /** v14.5.0: 用户点击"停止生成"时主进程返回 aborted:true（此前被渲染层丢弃，中止被误显示为 API 失败） */
+  aborted?: boolean
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
 }
 

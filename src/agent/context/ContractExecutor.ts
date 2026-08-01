@@ -37,12 +37,13 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Search tools ──
   find_files:     ['status', 'summary', 'detail'],  // v9.5.3: read/search
   search_notes:   ['status', 'summary', 'detail'],  // v9.5.3: read
-  // ── HTTP tools: strip detail (response body) ──
-  http_get:       ['status', 'summary'],
-  http_fetch:     ['status', 'summary'],
+  // ── HTTP tools: 保留 detail（响应体）— v14.5.0: 原剥离导致模型永远看不到抓取内容，
+  // 工具形同虚设；截断上限在 filterForContext（4000 字符，压缩器 70% 阈值仍兜底）──
+  http_get:       ['status', 'summary', 'detail'],
+  http_fetch:     ['status', 'summary', 'detail'],
   // ── Browser tools ──
-  browser_open:   ['status', 'summary'],
-  browser_search: ['status', 'summary'],
+  browser_open:   ['status', 'summary', 'detail'],
+  browser_search: ['status', 'summary', 'detail'],
   // ── Image tools ──
   search_images:  ['status', 'summary', 'detail'],
   generate_image: ['status', 'summary', 'detail'],
@@ -59,6 +60,10 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   tool_search:    ['status', 'summary', 'detail'],
   // lsp_diagnose, update_config, list_audit removed in v13.2.0
 }
+
+/** v14.5.0: HTTP/浏览器 4 工具的 detail（响应体）截断上限——对齐子代理 detail 量级 */
+const HTTP_DETAIL_MAX_CHARS = 4000
+const HTTP_BROWSER_TOOLS = new Set(['http_get', 'http_fetch', 'browser_open', 'browser_search'])
 
 export class ContractExecutor {
   static filterResult(result: ToolResult, contract: string[]): ContractResult {
@@ -110,12 +115,18 @@ export class ContractExecutor {
     if (!contract) return { resultForApi: result }
 
     const { filtered, stripped } = ContractExecutor.filterResult(result, contract)
+    // v14.5.0: HTTP/浏览器工具响应体保留但截断（原剥离 → 模型拿不到内容）
+    let finalFiltered = filtered
+    if (HTTP_BROWSER_TOOLS.has(toolName)
+        && typeof filtered.detail === 'string' && filtered.detail.length > HTTP_DETAIL_MAX_CHARS) {
+      finalFiltered = { ...filtered, detail: filtered.detail.slice(0, HTTP_DETAIL_MAX_CHARS) + '\n…(已截断)' }
+    }
     if (stripped.length > 0) {
       return {
-        resultForApi: filtered,
+        resultForApi: finalFiltered,
         note: `已省略: ${stripped.join(', ')}`,
       }
     }
-    return { resultForApi: filtered }
+    return { resultForApi: finalFiltered }
   }
 }

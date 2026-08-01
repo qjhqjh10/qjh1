@@ -95,6 +95,28 @@ describe('chatAnthropicStream (H7)', () => {
     expect(result.error).toBe('boom')
   })
 
+  it('v14.5.0 透传 thinkingBlocks（多轮工具调用推理回传；原实现丢弃）', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: '分析中', toolUses: [], stopReason: 'tool_use',
+      thinkingBlocks: [{ thinking: '推理过程', signature: 'sig123' }],
+    })))
+    const result = await anthropicService.chatAnthropicStream({
+      system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], configId: 'c1',
+    })
+    expect(result.thinkingBlocks).toBeDefined()
+    expect(result.thinkingBlocks![0]).toMatchObject({ thinking: '推理过程', signature: 'sig123' })
+  })
+
+  it('v14.5.0 无 thinkingBlocks 时返回 undefined（不引入空数组）', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: 'ok', toolUses: [], stopReason: 'end_turn',
+    })))
+    const result = await anthropicService.chatAnthropicStream({
+      system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], configId: 'c1',
+    })
+    expect(result.thinkingBlocks).toBeUndefined()
+  })
+
   it('本地 catch 路径携带错误消息', async () => {
     setupElectronMock(Promise.reject(new Error('local error')))
     const result = await anthropicService.chatAnthropicStream({

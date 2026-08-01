@@ -95,8 +95,17 @@ async function readFile(filePath: string): Promise<string | null> {
 
 // ── Primary Save/Load ──
 
-/** Save conversations with write-ahead backup */
-export async function saveConversations(conversations: Conversation[]): Promise<void> {
+// v14.5.0: 防抖保存状态（尾随 800ms + 合并 + 串行化）。
+// 原实现每次 conversations 变化都做 5 次全量 IO（写前备份→IDB put→json 镜像→txt 镜像），
+// 每追加一条消息就全量写一遍；防抖后高频更新合并为一次。
+const SAVE_DEBOUNCE_MS = 800
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSave: Conversation[] | null = null
+let inFlight: Promise<void> | null = null
+let saveWaiters: Array<(ok: { idbOk: boolean }) => void> = []
+
+/** 底层保存（原 saveConversations 函数体）——写前备份→IDB→文件镜像 */
+async function doSave(conversations: Conversation[]): Promise<{ idbOk: boolean }> {
   const dir = await getStorageDir()
   const filePath = dir ? dir + '/chat-conversations.json' : null
 
@@ -119,11 +128,12 @@ export async function saveConversations(conversations: Conversation[]): Promise<
     const bakContent = await readFile(filePath + '.bak')
     if (bakContent && bakContent.length > newDataSize * 2) {
       console.warn('[ChatStorage] 拒绝覆盖：新数据仅有默认对话，备份有', bakContent.length, '字节')
-      return // Do NOT overwrite real data with empty default
+      return { idbOk: true } // 拒绝覆盖（数据未变），非写入失败
     }
   }
 
   // Save to IndexedDB
+  let idbOk = true
   try {
     const db = await getDb()
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -133,6 +143,7 @@ export async function saveConversations(conversations: Conversation[]): Promise<
       tx.onerror = () => reject(tx.error)
     })
   } catch (e) {
+    idbOk = false  // v14.5.0: 上报 IDB 失败（文件镜像仍在写，数据不丢）
     console.warn('[ChatStorage] IndexedDB save failed:', e)
   }
 
@@ -152,6 +163,58 @@ export async function saveConversations(conversations: Conversation[]): Promise<
     }
     await writeFile(filePath.replace('.json', '.txt'), log)
   }
+  return { idbOk }
+}
+
+/**
+ * v14.5.0: 防抖保存 — 尾随 800ms 合并高频更新，串行化避免并发全量写。
+ * 返回的 promise 在本次（合并后的）保存完成后 resolve，调用方 await 语义不变。
+ */
+export async function saveConversations(conversations: Conversation[]): Promise<{ idbOk: boolean }> {
+  pendingSave = conversations
+  const result = new Promise<{ idbOk: boolean }>(resolve => saveWaiters.push(resolve))
+  if (!saveTimer && !inFlight) {
+    saveTimer = setTimeout(() => {
+      saveTimer = null
+      const data = pendingSave!
+      pendingSave = null
+      inFlight = doSave(data).then(ok => {
+        // 通知所有等待者（合并语义：等待者拿到的是本次合并保存的结果）
+        const ws = saveWaiters
+        saveWaiters = []
+        for (const w of ws) w(ok)
+      }).catch(e => {
+        // v14.5.0: doSave 内部已 try/catch 大部分路径，但 JSON.stringify/镜像循环等仍可 reject——
+        // 吞掉 rejection 并通知等待者（否则该批次 await saveConversations 的调用方永久挂起）
+        console.warn('[ChatStorage] save failed:', e)
+        const ws = saveWaiters
+        saveWaiters = []
+        for (const w of ws) w({ idbOk: false })
+      }).finally(() => {
+        inFlight = null
+        // 保存期间又有新更新 → 调度下一轮
+        if (pendingSave) saveConversations(pendingSave)
+      })
+    }, SAVE_DEBOUNCE_MS)
+  }
+  return result
+}
+
+/**
+ * v14.5.0: 合并加载结果与本地状态 — IndexedDB 异步加载完成时无条件覆盖会丢掉
+ * 加载完成前用户已发送的消息；此函数保留本地新建/更新的对话。
+ */
+export function mergeConversations(stored: Conversation[], local: Conversation[]): Conversation[] {
+  const merged = [...stored]
+  for (const c of local) {
+    const i = merged.findIndex(x => x.id === c.id)
+    if (i === -1) {
+      merged.push(c)  // 本地新建的对话保留
+    } else if (c.messages.length > merged[i].messages.length) {
+      merged[i] = c   // 本地更新的消息保留
+    }
+  }
+  return merged
 }
 
 /** Load conversations: IndexedDB → file → file.bak → localStorage */

@@ -21,6 +21,7 @@ export interface OpenAIAIService {
     finishReason: string
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
     reasoning_content?: string
+    aborted?: boolean
   }>
   abortStream(): void
 }
@@ -72,6 +73,7 @@ export class OpenAIAdapter implements ProtocolAdapter {
         cost: (result.usage as any)?.cost,
       },
       reasoningContent: result.reasoning_content,
+      aborted: result.aborted === true,
     }
   }
 

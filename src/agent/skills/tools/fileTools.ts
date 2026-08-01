@@ -34,7 +34,10 @@ export const fileTools: ToolDefinition[] = [
         required: [],
       },
     },
-    permission: 'READ_ASK',
+    // v14.5.0: READ_ASK 无消费方（needsApproval 只认 DANGEROUS_ASK/PROJECT_ASK）——
+    // broad:true 扫描用户电脑目录需真实审批；普通目录浏览免审批（approvalGate 条件审批）
+    permission: 'DANGEROUS_ASK',
+    approvalGate: (args) => args.broad === true,
     category: 'file',
     executor: async (args, ctx) => ipcExecute('list_directory', args, ctx),
   },

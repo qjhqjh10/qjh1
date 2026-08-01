@@ -181,6 +181,8 @@ export abstract class BaseChatBridge {
       const result = await this.runtime.run({
         userMessage,
         attachments: [],
+        // v14.5.0: 跨 run 续跑 — 任务清单进度快照透传（中断未完成 → runtime 恢复门控语义）
+        resumeTaskProgress: options.resumeTaskProgress,
       })
 
       store.setIsStreaming(false)

@@ -128,6 +128,8 @@ export const aiService = {
         finishReason: parsed.finish_reason || 'stop',
         images: Array.isArray(parsed.images) ? parsed.images : undefined,
         reasoning_content: typeof parsed.reasoning_content === 'string' ? parsed.reasoning_content : undefined,
+        // v14.5.0: 透传中止标记（原实现丢弃 → 用户点"停止生成"被误显示为 API 超时失败）
+        aborted: parsed.aborted === true,
         usage: parsed.usage,
       }
     } catch (err) { logError('解析 chatWithTools 回复失败', err); return { text: raw, toolCalls: null, finishReason: 'stop' } }

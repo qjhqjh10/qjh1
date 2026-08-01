@@ -45,7 +45,13 @@ const DONE_PHRASE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任
 const TRUST_DONE_RE = /(?:全部|都)?(?:做完了|搞定了|处理完了)/
 // 清单模式严格全局完成声明: 锚定版——部分完成声明（"已完成N项"/"已完成3/6"）不命中。
 // 原 donePhrase 的 `已(?:经)?完成` 是子串匹配，会误把部分声明当全局完成（"已完成1项，继续…"）
-const GLOBAL_DONE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]|完成[了！。]?$|搞定[了！。]?$|(?:做完了|处理完了)/
+// v14.5.0: 删除 `完成[了！。]?$` 与 `搞定[了！。]?$` 两个裸尾部锚点——"第5项完成"/"任务2/3完成"
+// 这类部分声明会命中，导致清单门控被确定性绕过；部分声明改由 PARTIAL_DONE_RE 在判定处排除。
+const GLOBAL_DONE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]|(?:做完了|处理完了)/
+// v14.5.0: 部分进度声明检测（与 updateTaskProgressFromText 语义对齐）——
+// "第N项(…12字内)完成" / "任务X/Y" / "已完成N/N" / "已完成N项"。
+// 清单模式完成判定中，部分声明命中即排除全局声明（宁可多提示一轮，不漏放）。
+const PARTIAL_DONE_RE = /第\s*\d+\s*(?:项|个|步|件事?)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*\d+\s*(?:项|[\/／、和及~至\-—]+\s*\d+)/
 // 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
 // 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
 const CONTINUATION_RE = /接下来|下一步|下面|继续|我先|剩余|还有.{0,8}(?:任务|项|要做|需要做)/
@@ -220,6 +226,35 @@ export class V4UnifiedRuntime {
     this.messagesForApi.push({ role: 'system', content: status })
   }
 
+  // v14.5.0: 渐进披露按 adapter capabilities 门控 + 动态发现每轮生效。
+  // 双协议（OpenAI/Anthropic，progressiveDisclosure=true）→ 安全收窄：核心15 + 已发现 +
+  // 已用过的工具（toolsUsed 保留——历史 tool_use 始终有 schema，防 400）；
+  // 子代理（isolatedStore）→ 恒全量（角色工具集 ≤7，收窄会误裁角色专属工具）。
+  private refreshToolSet(): void {
+    if (!this.adapter.capabilities?.progressiveDisclosure) return
+    // v14.5.0: 子代理恒全量——角色工具集本就 ≤7（analyze/edit/verify 各 5-7 个），
+    // 收窄收益小、且角色专属工具（如 analyze_text_style）不在核心 15 内会被误裁
+    if (this.config.isolatedStore) return
+    // v14.5.0 审查修复: 历史消息（含跨 run 注入的 buildHistoryMessages）中出现的 tool_use
+    // 一并保留——收窄后其 schema 仍在请求 tools 中，严格 Anthropic 端点也不 400
+    const historicTools = new Set<string>()
+    for (const m of this.messagesForApi) {
+      if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+        for (const tc of m.tool_calls as Array<{ function?: { name?: string }; name?: string }>) {
+          const n = tc.function?.name ?? tc.name
+          if (n) historicTools.add(n)
+        }
+      }
+    }
+    this.tools = (this.fullTools as any[]).filter((t: any) => {
+      const name = t.function?.name || ''
+      return SUBSEQUENT_TOOL_NAMES.has(name)
+        || this._discoveredToolNames.has(name)
+        || this.toolsUsed.includes(name)
+        || historicTools.has(name)
+    })
+  }
+
   // ── Run ──
 
   async run(input: V4AgentRunInput): Promise<V4AgentRunResult> {
@@ -281,8 +316,15 @@ export class V4UnifiedRuntime {
     // v12.14.0: 统一使用 hasTaskKeywords 判断文件操作意图
     this._userRequestedFileOp = hasTaskKeywords(input.userMessage)
     // v14.1.0: 提取任务清单（null = 单任务/聊天/提取失败 → 走原逻辑）
+    // v14.5.0: 续跑时新消息可能不含编号（如"继续"）→ 从 resumeTaskProgress 快照恢复清单与进度，
+    // 使清单门控（未清空不接受完成）与进度注入在续跑场景保持正确语义
     this.taskList = extractTaskList(input.userMessage)
-    this.taskDone = this.taskList ? this.taskList.map(() => false) : []
+    if (!this.taskList && input.resumeTaskProgress && !input.resumeTaskProgress.allDone) {
+      this.taskList = input.resumeTaskProgress.tasks.map(t => ({ id: t.id, desc: t.desc }))
+    }
+    this.taskDone = this.taskList
+      ? this.taskList.map((_, i) => !!input.resumeTaskProgress?.tasks[i]?.done)
+      : []
     // v14.2.0: 跨 run 续跑 — 记录是否"中断未完成"（abort/超时/API失败/迭代耗尽）
     // v14.3.1: 无任务清单时也会置位（truncated 标记无论有无清单都返回）
     let interrupted = false
@@ -355,12 +397,10 @@ export class V4UnifiedRuntime {
         intent: `第 ${iteration} 轮`, steps: [], filesNeeded: [], estimatedTokens: 0, timestamp: Date.now(),
       })
 
-      // v13.2.0: 渐进披露 — 首轮全量，后续核心12 + tool_search动态发现的工具
+      // v13.2.0: 渐进披露 — 首轮全量，后续核心15 + tool_search动态发现的工具
+      // v14.5.0: 按 adapter capabilities 门控（Anthropic 安全收窄/子代理恒全量），并纳入已用过的工具名
       if (iteration === 2) {
-        this.tools = (this.fullTools as any[]).filter((t: any) => {
-          const name = t.function?.name || ''
-          return SUBSEQUENT_TOOL_NAMES.has(name) || this._discoveredToolNames.has(name)
-        })
+        this.refreshToolSet()
       }
 
       // ── Context Compression ──
@@ -389,10 +429,13 @@ export class V4UnifiedRuntime {
       const readNudge8 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
       const readNudge5 = `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`
       // v13.x: 按 content 去重——压缩可能移动 system 消息位置，不能按位置判断
-      const hasNudge = (content: string) => this.messagesForApi.some(m => m.role === 'system' && m.content === content)
-      if (!hasWritten && consecutiveReads >= 8 && this._userRequestedFileOp && !hasNudge(readNudge8)) {
+      // v14.5.0: 文案内嵌 consecutiveReads 数字导致精确匹配恒失败 → 改为前缀匹配
+      const hasReadNudge = (prefix: string) => this.messagesForApi.some(
+        m => m.role === 'system' && typeof m.content === 'string' && m.content.startsWith(prefix),
+      )
+      if (!hasWritten && consecutiveReads >= 8 && this._userRequestedFileOp && !hasReadNudge('[系统提醒] 已连续读取')) {
         this.messagesForApi.push({ role: 'system', content: readNudge8 })
-      } else if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp && !hasNudge(readNudge5)) {
+      } else if (!hasWritten && consecutiveReads >= 5 && this._userRequestedFileOp && !hasReadNudge('[系统提醒] 已读取')) {
         this.messagesForApi.push({ role: 'system', content: readNudge5 })
       }
 
@@ -466,6 +509,17 @@ export class V4UnifiedRuntime {
       // ② 截断尾部若含"完成"字样会命中完成检测 → 残缺内容被当作正常收尾。
       const wasTruncated = response.finishReason === 'max_tokens' || response.finishReason === 'length'
 
+      // v14.5.0: 用户点击"停止生成"（OpenAI: IPC aborted:true；Anthropic: stopReason='aborted'）→
+      // 标记中断退出，不再走空响应兜底（原行为：注入"请用中文直接生成文本回复"垃圾消息，
+      // UI 显示"AI 未生成回复（可能 API 超时）"误导文案）
+      if (response.aborted) {
+        interrupted = true
+        if (response.text && response.text.trim()) {
+          this.messagesForApi.push({ role: 'assistant', content: response.text })
+        }
+        break
+      }
+
       // ── No tool calls → model is speaking. Trust what it says. ──
       if (response.toolCalls.length === 0) {
         isExecutionPhase = false  // v12.5.1: 回到创作阶段
@@ -483,9 +537,11 @@ export class V4UnifiedRuntime {
         }
 
         // H5: Empty response fallback
+        // v14.5.0: 角色动态选择——Anthropic 协议要求消息角色交替，前一条是 user 时兜底改为 assistant
         if (!collectedText.trim()) {
+          const last = this.messagesForApi[this.messagesForApi.length - 1]
           this.messagesForApi.push({
-            role: 'user',
+            role: last?.role === 'user' ? 'assistant' : 'user',
             content: '请用中文直接生成文本回复。',
           })
           continue
@@ -514,7 +570,8 @@ export class V4UnifiedRuntime {
         if (this.taskList) {
           this.updateTaskProgressFromText(collectedText)
           // 严格全局完成声明 + 写过文件 → 信任全局完成（部分声明"已完成N项"不触发）
-          if (GLOBAL_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
+          // v14.5.0: PARTIAL_DONE_RE 排除"第N项完成/任务X/Y完成"等部分声明形态
+          if (GLOBAL_DONE_RE.test(collectedText) && !PARTIAL_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
           if (this.allTasksDone()) {
             // 说了"完成"但没写 → 不通过，进入自愈恢复
             if (this._userRequestedFileOp && !_hasWriteCall) {
@@ -737,6 +794,9 @@ export class V4UnifiedRuntime {
           function: { name: tc.name, arguments: tc.arguments },
         })),
         thinkingBlocks: response.thinkingBlocks,  // v11.5.1: preserve for multi-turn
+        // v14.5.0: 推理内容随消息历史回传（OpenAI 协议 aiHandlers 据此保留 reasoning_content，
+        // 多轮工具调用时模型可见自己的推理链）
+        reasoning_content: response.reasoningContent,
       } as Message
       if (response.reasoningContent) store?.setStreamingText(response.reasoningContent)
       this.messagesForApi.push(assistantMsg)
@@ -754,6 +814,8 @@ export class V4UnifiedRuntime {
         toolCallSteps: this.toolCallSteps,
         emitter: this.emitter,
         iteration,
+        // v14.5.0: 子代理（isolatedStore）内部工具调用跳过全局操作历史写入
+        skipOpHistory: !!this.config.isolatedStore,
         // v14.3: 子代理执行快照收集器（ToolExecutor 在委托成功后 push）
         subagentSummaries: this.subagentSummaries,
         store: {
@@ -828,9 +890,11 @@ export class V4UnifiedRuntime {
       }
 
       // v13.2.0: 跟踪 tool_search 发现的工具 → 动态加入后续轮次可用集
+      // v14.5.0: 收集后立即刷新工具集（原实现只在 iteration===2 过滤一次，之后发现的工具永不生效）
       const tsStep = this.toolCallSteps.find(s => s.tool === 'tool_search' && s.iteration === iteration)
       if (tsStep?.status === 'success' && tsStep.matchedTools?.length) {
         for (const name of tsStep.matchedTools) this._discoveredToolNames.add(name)
+        this.refreshToolSet()
       }
 
       // v12.6.0: 分级失败检测 + 路径错误单独追踪 + 自动目录诊断

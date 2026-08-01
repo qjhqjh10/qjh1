@@ -1098,7 +1098,9 @@ const SCENARIOS = [
       { type: 'fileContains', path: '剑道长生/outline/plot.md', needle: '青铜门', desc: '任务3产物: plot 追加青铜门' },
       { type: 'fileNotEmpty', path: '剑道长生/summaries/chapter1.md', desc: '任务4产物: 章节摘要' },
       // 注: 系统提示词约定 notes 在全局 ../notes/（非项目内），断言路径与其一致
-      { type: 'fileNotEmpty', path: '../notes/灵感碎片.md', desc: '任务5产物: 灵感记录' },
+      // v14.5.0: 用户未要求长度 → minChars 30（默认不限制；三条极简灵感也通过）。
+      // 字数遵从由 S_LEN 场景单独验证（用户明确要求长度时必须达标）
+      { type: 'fileNotEmpty', path: '../notes/灵感碎片.md', desc: '任务5产物: 灵感记录', minChars: 30 },
     ],
   },
 
@@ -1285,6 +1287,20 @@ const SCENARIOS = [
       { type: 'hasText', minChars: 50, desc: '应汇报最终结果' },
     ],
   },
+
+  {
+    id: 'S_LEN',
+    name: '📏 字数遵从：用户要求 100 字 → 产物必须达标（v14.5.0）',
+    desc: '用户明确要求"至少100字" → 断言产物 ≥100 字符。与 S_MT2 任务5（未要求长度，minChars 30）对照：默认不限制，用户有要求时必须满足。',
+    userMessages: [
+      '在 notes 里创建一个"字数遵从测试.md"，写一段关于剑道修炼的感悟，至少 100 字。',
+    ],
+    checks: [
+      { type: 'hasAnyTool', names: ['create_file', 'edit_file'], minCount: 1, desc: '应写入文件' },
+      // 用户明确要求了长度 → 默认严阈值 100 生效
+      { type: 'fileNotEmpty', path: '../notes/字数遵从测试.md', desc: '产物应 ≥100 字符（用户明确要求）' },
+    ],
+  },
 ]
 
 // ═══════════════════════════════════════════════════════════
@@ -1356,8 +1372,11 @@ function checkResult(scenario, result, scenarioTools) {
           failures.push(`❌ ${check.desc}: ${check.path} 不存在`)
         } else {
           const content = readFileSync(fp, 'utf-8')
-          if (content.length < 100)
-            failures.push(`❌ ${check.desc}: 文件内容过短 (${content.length} 字符)`)
+          // v14.5.0: 阈值参数化——默认 100（用户明确要求长度时用默认严阈值）；
+          // 场景未要求长度时用 minChars 放宽（如灵感碎片 30），避免"默认不限制却被断言卡死"
+          const minChars = check.minChars ?? 100
+          if (content.length < minChars)
+            failures.push(`❌ ${check.desc}: 文件内容过短 (${content.length} 字符, 需≥${minChars})`)
         }
         break
       }

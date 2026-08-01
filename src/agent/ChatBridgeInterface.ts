@@ -21,6 +21,8 @@ export interface SendOptions {
   kbEnabled?: boolean
   webSearchEnabled?: boolean
   selectedKbFileIds?: string[]
+  /** v14.5.0: 跨 run 续跑 — 上次中断的任务清单进度快照（UI 从消息 taskProgress 透传） */
+  resumeTaskProgress?: V4AgentRunResult['taskProgress']
   onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
   onComplete?: (result: V4AgentRunResult) => void
   onToolProgress?: (event: { callId: string; toolName: string; phase: string; progress: number; message: string; timestamp: number }) => void
@@ -68,6 +70,7 @@ export interface IChatBridge {
       kbEnabled?: boolean
       webSearchEnabled?: boolean
       selectedKbFileIds?: string[]
+      resumeTaskProgress?: V4AgentRunResult['taskProgress']
       onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
       onComplete?: (result: V4AgentRunResult) => void
       onToolProgress?: (event: {

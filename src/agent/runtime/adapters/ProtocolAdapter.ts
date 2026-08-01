@@ -22,6 +22,8 @@ export interface NormalizedModelResponse {
   reasoningContent?: string
   /** v11.5.1: Anthropic extended thinking blocks — populated for Anthropic protocol, undefined for OpenAI */
   thinkingBlocks?: Array<{ thinking: string; signature: string }>
+  /** v14.5.0: 用户点击"停止生成"（OpenAI: aiHandlers aborted:true；Anthropic: stopReason='aborted'） */
+  aborted?: boolean
 }
 
 /** Protocol adapter — one implementation per API protocol. */

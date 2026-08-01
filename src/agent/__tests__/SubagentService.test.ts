@@ -260,6 +260,39 @@ describe('subagent 会话池 (v14.3)', () => {
     expect(joined).toContain('追问: 第2章细节')
   })
 
+  it('v14.5.0 角色不符不复用：edit 会话被 analyze 追问 → 全新分析（无旧历史）', async () => {
+    // edit 角色子代理：先调普通写工具 edit_file（调 edit_file_task 会递归嵌套子代理，不可用于测试）→ 文本收尾
+    makeAIResponses([
+      { toolCalls: [{ id: 'e1', function: { name: 'edit_file', arguments: '{"file_path":"剑道长生/chapters/ch1.txt","old_string":"a","new_string":"b"}' } }] },
+      { text: '完成。' },
+    ])
+    // 第一次：edit_file_task 角色建立会话
+    await runSubagent({
+      role: 'edit',
+      projectId: '剑道长生',
+      configId: 'test-config',
+      userMessage: '任务文件: 剑道长生/chapters/ch1.txt\n修改指令: 改错别字',
+      sessionKey: '剑道长生::剑道长生/chapters/ch1.txt',
+    })
+    expect(chatWithToolsMock).toHaveBeenCalledTimes(2)
+
+    // 第二次：analyze 角色追问同一 key → 角色不符 → 不复用（全新分析）
+    await runSubagent({
+      role: 'analyze',
+      projectId: '剑道长生',
+      configId: 'test-config',
+      userMessage: '追问: 结构细节',
+      sessionKey: '剑道长生::剑道长生/chapters/ch1.txt',
+    })
+    expect(chatWithToolsMock).toHaveBeenCalledTimes(3)
+    const secondRunMessages = chatWithToolsMock.mock.calls[2]?.[0] as Array<{ role?: string; content?: string }>
+    const joined = (secondRunMessages || []).map(m => String(m.content || '')).join('\n')
+    // 无 edit 会话的任务消息（角色不符 → 全新分析）
+    expect(joined).not.toContain('修改指令')
+    // 新追问消息存在
+    expect(joined).toContain('追问: 结构细节')
+  })
+
   it('LRU 淘汰：超过 MAX_SESSIONS(8) 后最旧会话被淘汰，再追问退化为全新分析', async () => {
     makeAIResponses([{ text: '完成。' }])
     // 连续 9 个不同会话填满 8 槽（第 1 个最旧，将被淘汰）

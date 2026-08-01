@@ -88,8 +88,9 @@ export class SkillToolRegistry {
     if (!def) return false
     const perm = def.permission
     if (perm !== 'DANGEROUS_ASK' && perm !== 'PROJECT_ASK') return false
-    // 条件审批：有 approvalGate 且传入 args 时按参数判定（如 find_files 仅 scope=computer 需审批）
-    if (def.approvalGate && args) return def.approvalGate(args)
+    // 条件审批：有 approvalGate 时一律按 gate 判定（缺省参数按 gate 的缺省行为——
+    // v14.5.0: 原实现"无 args 直接 return true"会让 list_directory 无参数调用也弹审批）
+    if (def.approvalGate) return def.approvalGate(args ?? {})
     return true
   }
 

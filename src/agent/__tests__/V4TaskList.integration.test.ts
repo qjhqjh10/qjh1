@@ -506,6 +506,123 @@ describe('Task List: 跨 run 续跑 (taskProgress 快照)', () => {
     expect(result.taskProgress!.allDone).toBe(false)
     expect(result.taskProgress!.interrupted).toBe(false)  // 提问 break → 不标记中断
   })
+
+  it('T23 v14.5.0 续跑恢复清单: resumeTaskProgress → [当前任务] 注入与清单门控恢复', async () => {
+    // run1: 迭代耗尽中断（任务1完成，2/3 未做）
+    const { svc: svc1 } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '第1项完成。' },
+    ])
+    const runtime1 = makeRuntime(new OpenAIAdapter(svc1), { maxIterations: 2 })
+    const { executor: ex1 } = makeTrackedExecutor()
+    runtime1.setToolExecutor(ex1)
+    runtime1.setTools(toolRegistry.getCompactSchemas())
+    const result1 = await runtime1.run({ userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章', attachments: [] })
+    expect(result1.truncated).toBe(true)
+    expect(result1.taskProgress?.tasks[0].done).toBe(true)
+    const tp = result1.taskProgress!
+
+    // run2: 用户发"继续"（无编号任务）→ 从快照恢复清单
+    const { svc: svc2, calls: calls2 } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c2')] },
+      { text: '任务2/3完成' },
+      { text: '全部完成' },
+    ])
+    const runtime2 = makeRuntime(new OpenAIAdapter(svc2))
+    const { executor: ex2, callCount: cc2 } = makeTrackedExecutor()
+    runtime2.setToolExecutor(ex2)
+    runtime2.setTools(toolRegistry.getCompactSchemas())
+    const result2 = await runtime2.run({
+      userMessage: '继续',
+      attachments: [],
+      resumeTaskProgress: tp,
+    })
+
+    expect(result2.success).toBe(true)
+    // 清单已恢复: 轮次消息含 [当前任务] system 注入（无 resumeTaskProgress 时不会出现）
+    expect(calls2.some(msgs => msgs.some(m => m.role === 'system' && typeof m.content === 'string' && m.content.startsWith('[当前任务]')))).toBe(true)
+    // 恢复的进度: 任务1 已 done → "任务2/3完成" 置位任务2 → 全部完成后 allDone
+    expect(result2.taskProgress?.allDone).toBe(true)
+    expect(cc2()).toBe(1)
+  })
+})
+
+// ══════════════════════════════════════════════════════════════
+// 部分声明门控 (v14.5.0): "第N项完成/任务X/Y完成" 等不触发全局完成
+// ══════════════════════════════════════════════════════════════
+
+describe('Task List: 部分声明门控 (v14.5.0)', () => {
+  it('T20 部分声明矩阵: 第3项完成/任务2/3完成/已完成4项 → 不 markAllDone，任务照常执行', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '第3项完成。' },
+      { text: '', toolCalls: [CREATE('2')] },
+      { text: '任务2/3完成' },
+      { text: '', toolCalls: [CREATE('3')] },
+      { text: '已完成4项，继续' },
+      { text: '', toolCalls: [CREATE('c4')] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章 4. 创建笔记',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    // 四个写工具全部执行——部分声明未触发提前收尾（旧实现此断言会失败: 第3项完成即 markAllDone）
+    expect(callCount()).toBe(4)
+    // 未在部分声明轮 break
+    expect(calls.length).toBeGreaterThan(6)
+    expect(result.taskProgress?.allDone).toBe(true)
+  })
+
+  it('T21 全局声明正常触发: "任务完成。" → markAllDone 收尾', async () => {
+    const { svc } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '任务完成。' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡',
+      attachments: [],
+    })
+
+    expect(callCount()).toBe(1)
+    expect(result.taskProgress?.allDone).toBe(true)
+  })
+
+  it('T22 "已完成 3/6 项"（带空格）不触发全局完成', async () => {
+    const { svc } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '已完成 3/6 项，继续' },
+      { text: '', toolCalls: [CREATE('2')] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章',
+      attachments: [],
+    })
+
+    expect(callCount()).toBe(2)
+    expect(result.taskProgress?.allDone).toBe(true)
+  })
 })
 
 // ══════════════════════════════════════════════════════════════

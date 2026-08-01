@@ -1,621 +1,649 @@
 {
-  "currentVersion": "14.4.0",
-  "currentDate": "2026-08-01",
-  "history": [
-    {
-      "version": "14.4.0",
-      "date": "2026-08-01",
-      "features": [
-        "find_files 条件审批: ToolDefinition 新增 approvalGate（参数级审批）——scope=project 默认免审批（批量任务不再弹确认框打断），scope=computer 仍走用户确认；配套修复两个安全漏洞：toolExecutorFactory 无审批路径时直接拒绝（原注释'不传则拒绝'但代码放行=权限绕过）、IPC find_files 的 dir_path 强制 safeResolve containment（原样入列可越界搜索）",
-        "子代理获得 find_files: ANALYZE_TOOL_NAMES 加入 find_files（verify/edit 继承）——子代理可直接按文件名定位；安全边界三层闭环：条件审批 + executor 无审批路径拒绝 + IPC containment",
-        "死代码清理: 删除 stats:getPrices/savePrices、lsp:diagnose（整文件）、agent 系列 8 handler（session-save/load/list/delete/permission-record/permission-patterns/get-sessions-path/optimize，含 agent-sessions 孤儿数据）、browser:screenshot、debugLogService 11 个无调用者辅助函数；保留 debug:append-log（诊断日志唯一落盘通道）",
-        "会话统计增强: 审计事件接线——V4AgentConfig + auditTrail/model，runtime 每轮 recordApiCall（含 cost/model），toolExecutor 三处 permission:decision；readSessionStats 抽 parseAuditJsonl 纯函数 + 新增聚合 cost/toolErrors/permissionDenied/lastUsed；修复 deleteSession 因 sessionId 截断 16 字符而删除静默失败；TokenStatsTab 展示会话花费/工具失败/权限拒绝/最后使用时间",
-        "AuditTrail.persist 竞态修复: 快照在 await 前同步捕获——此前 await import 挂起期间 events 被下一次 startSession 重置，连续消息会话的 api:call/tool:result 全部丢失（所有会话文件只剩 session:start）",
-        "KB embedding token 记账: getEmbedding 返回 usage.prompt_tokens；索引按文件合并记 1 条、kb:search/notes:search 每次调用记 1 条 source='embedding'（cost 记 0，价格来源 TODO）；TokenStatsTab 来源筛选新增'知识库嵌入'",
-        "RUN_TIMEOUT 动态化: 5 分钟硬墙 → computeRunTimeoutMs = min(15min, max(5min, maxIterations×60s))——批量任务（30 轮）从 5min 提到 15min 封顶，中断仍由 [续跑] 机制恢复",
-        "压缩 70% 最近保护: strip_detail 不再全量截断——按 user 轮次边界保护最近 2 轮的 tool detail（大文件内容膨胀→压缩→失真循环缓解；不足 2 轮时全保护，无 user 消息保持旧行为）",
-        "子代理会话池扩容: MAX_SESSIONS 4→8（长讨论追多个文件时减少 LRU 淘汰）",
-        "Token 估算精度校准: 实测 DeepSeek 分词密度（scripts/measure-token-density.mjs，中文小说 1.19 字符/token）→ CJK 系数 1.8→1.2、Latin 4→4.5——原 1.8 低估 1.5 倍导致压缩触发晚于真实越界（API 400/静默截断风险）",
-        "修复: kb.search 第 6 参 excludeFileIds 透传缺失（v14.3 注入去重特性静默失效）；preload agent:{} 空命名空间残留",
-        "测试: 544 → 558 用例（approvalGate 条件审批/executor 拒绝/压缩最近轮保护/parseAuditJsonl 聚合/buildEmbeddingUsageEntry/RUN_TIMEOUT 公式/recordApiCall 签名）；对话脚本 token 估算对比表 + 快照注入对齐 user 消息修复"
-      ],
-      "fixes": []
-    },
-    {
-      "version": "14.3.0",
-      "date": "2026-08-01",
-      "features": [
-        "子代理信息跨 run 复用: V4AgentRunResult.subagentSummaries 快照（工具/文件/摘要+详情）→ ToolExecutor 收集 → Bridge 透传 → 消息持久化（IndexedDB）→ 下轮注入 [子代理快照] system 消息——主 agent 直接引用上次分析结论，不必重新委托；子代理 detail 上限放宽（4000→8000/2000→4000/4000→8000），analyze 输出上限 1500→2500 字（新增原文摘录能力）",
-        "子代理会话追问 subagent_ask（第 31 工具）: 内存会话池（4 会话 × 20K 字符，LRU 淘汰，快照过滤 system/孤儿 tool 防护）——复用该文件上次子代理上下文追问细节，无需重新读取大文件；无会话时退化为全新分析",
-        "验收失败强制督促闸门: verify_task summary 三态化（通过/未通过/中性）→ runtime 识别'验收未通过'→ 完成声明被拦截 + 注入 [验收督促]（有界 2 次后放行，问句不拦截）→ 修复 → 复验通过才算完成——防'验收未通过却被完成声明放行'",
-        "子代理失败诊断回传: 失败时拼入内部错误轨迹（最近 2 个错误步骤）供主 agent 换方法重试；cleanOldReadResults 纳入 analyze_file（防御层）",
-        "截断续写修复: 截断文本回写为 assistant 消息（续写可见已写内容，防分叉/重复）+ 截断时跳过完成检测强制继续（防残缺内容被当完成）；OpenAI 协议 max_tokens 兜底 16384（与 Anthropic 对齐）",
-        "子代理'假成功'修复: V4AgentRunResult.truncated 中断标记（迭代耗尽/超时/API失败/abort 无论有无任务清单都返回）→ runSubagent 判定失败 + [子代理未完成] 提示；maxIterations 6→10 轮；截断不保存会话快照",
-        "verify_task 归入 ≤3 分片并行（防多文件验收 API 限流）",
-        "Token 统计增强: 图片生成补 source:'image'（此前混入 main）；按日趋势折线图（手绘 SVG 零依赖，系列切换：次数/输入/输出/缓存命中/花费 + hover 数值）；新增按模型视图（byModel 此前白算）；预算条口径修正为全局当月真实花费（getMonthCost）；按日/按配置/按来源/明细补缓存命中列；明细补 model/source 列",
-        "操作记录迁移: 导航栏入口移除 → 设置 → Agent → 操作记录 子标签（内容组件化 OperationHistorySection，原路由保留兼容）",
-        "知识库修复: kb:search 勾选优先于项目归属过滤（勾选其他项目文件可检索）；kb_search 工具自由检索全部知识库文件（不受勾选/按钮状态限制）；按钮注入 + 工具检索去重（excludeFileIds，kb:search 返回 fileId）",
-        "长讨论记忆改善: buildHistoryMessages 20 轮硬截断 → 早期轮次折叠成摘要（写作偏好/早期决策不再完全丢失）；读 nudge 阈值放宽（3→5 / 5→8）；重复读提醒文案区分'历史完整/已被压缩'",
-        "前端可视化: 任务清单进度卡片（X/Y + 逐项勾选 + 中断标记）、子代理简报卡片（分析/修改/验收/追问摘要+详情）、ToolDetailPanel 补子代理工具图标/标签 + 取消 60 字截断",
-        "测试: 520 → 544 用例（verify 三态/subagent_ask/快照收集/会话池/验收闸门 T21-T25/快照注入 6 用例/孤儿 tool 回归）；对话场景 28 → 31（S_SUB_MEM 快照复用 / S_ASK 会话追问 / S_VERIFY_FIX 验收闭环）"
-      ],
-      "fixes": []
-    },
-    {
-      "version": "14.2.0",
-      "date": "2026-08-01",
-      "features": [
-        "跨 run 续跑: V4AgentRunResult.taskProgress 任务清单进度快照（中断标记：用户中止/超时/API失败/迭代耗尽；正常完成与提问不标记）→ Bridge 透传 → AIChatWindow 存消息（IndexedDB 持久化）→ 下一条消息注入 [续跑] 上次中断于 X/Y 提示——解决 30 轮/5 分钟硬上限中断后任务状态丢失",
-        "批量并行分析: SERIAL_TOOLS 拆分为 PARALLEL_READ_TOOLS（analyze_file 只读，分片 ≤3 并发防 API 限流，isolatedStore 保证并发安全）/ SERIAL_WRITE_TOOLS（edit_file_task 写，保持串行）——多文件分析从串行叠加变为分批并行",
-        "验收子代理: 新增 verify 角色 + verify_task 工具（第 30 工具，只读验收，对照标准逐项判定产出 {passed, items}）；任务清单完成且写过文件时注入一次 [验收提示]（不强制）——产物质量从'模型声称'升级为'独立视角核对'",
-        "子代理上下文窗口跟随模型配置: 硬编码 64K → 配置 contextWindow（可达 1M，兜底 128K 与主 agent 一致）——大文件（>7 万字符）不再因 70% 压缩阈值失真",
-        "Anthropic 统计口径修复: cacheHit 只统计真实命中（cache_read），cache_creation 按正常输入价计费（此前按命中价约 1/10 → 成本低估、缓存统计虚高）",
-        "tokens 按来源统计: logTokenUsage 加 source 字段（main 主 agent / subagent 子代理 / pipeline 独立流水线 / image），设置页新增来源筛选 + 按来源分布展示",
-        "并行委托并发 import 竞态修复: 子代理工具/适配器用 promise 缓存共享模块引用（vitest mock 下并发动态 import 会返回原始模块）",
-        "UI 显示'情色'→'涩涩': 类型 label/筛选按钮/维度名/帮助文本 20 文件（数据 value、提示词、软件指南保持不动）",
-        "测试: 498 → 520 用例（跨 run 续跑 6 + 并行/并发上限 + verify_task 5 + 验收提示 2 + verify 角色）；对话场景 25 → 28（S_RESUME 续跑 / S_PAR 批量并行 / S_VERIFY 验收）"
-      ],
-      "fixes": []
-    },
-    {
-      "version": "14.1.1",
-      "date": "2026-08-01",
-      "features": [
-        "子 agent 上下文隔离架构: analyze_file/edit_file_task 委托独立上下文窗口的子代理（SubagentService + SubagentPrompt + createSubagentAdapter，29 工具），主 agent 只接收结构化摘要——上传大文件/长文件读写不再撑爆主上下文窗口",
-        "tokens 主/子分开统计: V4AgentRunResult.subAgentUsage 贯穿 ToolExecutor→Runtime→Bridge→UI 消息页脚（紫色'子代理 入/出/合计'），会话累计保持主口径，全局 usage.jsonl 自动覆盖子代理调用",
-        "isolatedStore: 子代理 run 完全隔离共享 AgentStore（父 UI 状态与熔断器不受污染）；SERIAL_TOOLS 串行执行防双子代理并发交错",
-        "per-tool 超时查表: 子代理工具 300s / analyze_text_style 180s（默认 120s 不变）",
-        "子代理提示词内置青剑工具约定（batch_replace 全局替换 / __FULL_REPLACE__ 全量覆写 / old_string 匹配不唯一处理）",
-        "测试: SubagentService 5 + subagentTools 7 + V4RuntimeSubagent 4 用例；对话场景 S_SUB1（大文件分析委托，子代理真实读取 13950 字返回摘要）/ S_SUB2（长文件 150 处全局替换委托）"
-      ],
-      "fixes": []
-    },
-    {
-      "version": "14.1.0",
-      "date": "2026-08-01",
-      "features": [
-        "任务清单运行时状态: taskExtraction 四重门控提取编号任务（1.2.3./①②③，宁漏勿错）→ 每轮注入[当前任务]进度 → 完成检测对照清单（未清空绝不接受'完成'声明）——修复'6 任务完成 4 个就停'与'读完文件就停'",
-        "完成判定重写: 删除'写过即停'break、继续性文本检测（接下来/继续→督促而非结束）、GLOBAL_DONE_RE 严格全局完成正则（部分声明'已完成N项'不误判）、进度声明解析（已完成3/6/第2项完成/任务X/Y完成）",
-        "分支 1B 修复: 分析型请求（非文件操作）读文件后输出短文本不再被自愈阶梯误 nudge",
-        "S6 修复: 提示词明确'删了重写→delete_file+create_file'，S6 断言放宽为等价完成方式 + 内容断言",
-        "测试: taskExtraction 13 + V4TaskList 12 集成测试；对话场景 S_MT2（5 任务压力，实测 5/5 全部完成）"
-      ],
-      "fixes": []
-    },
-    {
-      "version": "14.0.2",
-      "date": "2026-08-01",
-      "features": [],
-      "fixes": [
-        "系统提示词统一: 删除 .aiharness/prompts/CORE_SYSTEM_PROMPT.md（v13.2 瘦身前旧版，15 字段/内嵌手册与代码分叉），移除 getSystemPrompt IPC 链，代码内 CORE_SYSTEM_PROMPT 为唯一来源——修复开发环境用旧版、打包环境用新版的行为不一致",
-        "SSRF: 修复 IPv6 私网绕过（IPv4-mapped ::ffff:127.0.0.1/未指定 ::/ULA fc00::/链路本地 fe80:: 全部拦截）",
-        "SSRF: saveImageUrl 响应体改为流式读取+全程超时（防恶意服务器挂死 IPC、防整包缓冲内存膨胀）",
-        "Anthropic: 中止时不再提交截断文本（增量解析后 abort 带部分内容的回归修复）",
-        "Anthropic: SSE 尾部冲刷修复（未以空行结尾的末事件不再丢失）+ 流式解码 flush",
-        "M2: create_file 全局路径支持修复（GLOBAL_DIR_NAMES 首段匹配与安全基准一致）",
-        "M2: resolveArgNoRealpath 补绝对路径拒绝与 ../ 逃逸校验（与 safeResolve 一致）；删除冗余 resolveNotePath",
-        "H9: 情色弹窗 3 处 checkbox 追加补前导逗号（与 setKinkField 分隔符一致，防条目粘连）",
-        "M3 残留: config-not-found 错误通道删除 + error 文案与 categorizeError 统一",
-        "H3: 压缩摘要无 assistant 文本时省略 AI 行（不再把用户内容标成 AI 回复）",
-        "H10: 自定义正则拆章支持 ^ 行首锚定（gm 标志）",
-        "H11/H12: 视图层 ref 同步补漏（hook 导出 setProjectBoth、JSX 内联 setProject 同步 projectRef）",
-        "M4: PackagingSafety 黑名单解析列绑定修正（风险列错位致 highRisk 断言恒空——修正后暴露并补齐真实缺口）",
-        "M4: 测试补强（IPv6 SSRF 用例、SSE 未终止尾部、零长正则、迁移单步、压缩 fallback 断言等）"
-      ]
-    },
-    {
-      "version": "14.0.1",
-      "date": "2026-08-01",
-      "features": [],
-      "fixes": [
-        "H1: 5轮外 read_file 结果压缩生效（tool_call_id 回溯工具名，旧文件全文不再占满上下文）",
-        "H2: persist 迁移链修复（累积式，v4 用户一次性获得 v5/v7/v8 迁移）",
-        "H3: 上下文压缩不再产生孤儿 tool 消息（按 user 分段整段压缩）",
-        "H4: 移除不可达的 list_backups/restore_backup 死代码（v14 本意删除的残留）",
-        "H5: API key 明文存储文案如实化，MASKED_KEY 占位符不再覆写真实密钥",
-        "H6: Anthropic 流式改为增量 SSE 解析（实时预览恢复，顺带修复 CRLF 分隔符整段丢失）",
-        "H7: Anthropic 请求错误不再被吞（error 透传 + onError 触发 + chunk 监听器泄漏修复）",
-        "H8: files:saveImageUrl 加 SSRF 防护（私网拦截/15s超时/redirect 逐跳/大小与 MIME 校验）",
-        "H9: 情色场景弹窗 4 个下拉选择中文值失效修复（\\w→[^,]+，不再追加重复值）",
-        "H10: 改写向导自定义正则拆章错位修复（matchAll 按行拆分，免疫捕获组）",
-        "H11: 风格工坊批量分析落盘旧闭包修复（ref 同步最新项目，刷新不再丢数据）",
-        "H12: 续写工作区批量分析互相覆盖修复（ref 读写最新章节）",
-        "M1: filePaths 路径集中管理落地（3 个 service + OutlinePage 改用统一路径函数，TAB_FILE_MAP 对齐实际文件名）",
-        "M2: GLOBAL_DIRS 全局路径解析生效（notes/style_templates 等无需 ../ 前缀）",
-        "M3: 删除冗余 ai:anthropic-done/ai:anthropic-error 事件通道（数据经 invoke 返回值下发）",
-        "M4: 测试质量修复（SevenLayerCache 改测真实实现；删除恒真断言/已删逻辑残留测试）"
-      ]
-    },
-    {
-      "version": "14.0.0",
-      "date": "2026-08-01",
-      "features": [
-        "改写/续写弹窗: 插入本章原文参考（默认勾选）— 参考原文紧贴处理对象，任务设定+标准优先级(用户要求>模板>默认)前置，防保守小改",
-        "角色卡片: 自定义信息条块（自由增删，前框特点/后框信息）；AI 生成的角色未知字段（修为体系等）自动吸收为条块",
-        "角色卡片: 移除关系图功能与关系标签（类型/服务/UI/校验器全链路同步）",
-        "章节编辑器右键菜单: 移除润色（与改写重复），默认润色模板并入改写为「轻度润色模板」",
-        "AI 生成角色弹窗: 新增知识库文件勾选参考（优先级 细纲>角色>大纲>知识库）",
-        "设置页: 新增「知识库」标签 — AI 写作助手/章节生成类分场景配置 topK 与全量注入上限（persist v8 迁移）",
-        "知识库全局化: AI 助手/生成类场景无需项目内即可选择全部知识库文件",
-        "AI 写作助手: 消息内文件图标 — 左键打开文件、右键打开文件夹（生成/修改的文件）",
-        "项目卡片: 支持修改项目名（project.json 存显示名，目录与路径引用不受影响）",
-        "schemaValidation 与角色卡字段同步（14 字段）— 修复 AI 保存角色误报缺少 relationshipTags 并陷入重试循环",
-        "Agent 架构: 双协议 Bridge 合并（chatBridgeFactory 基类，-95% 重复）；拖拽/缩放统一为 useDraggableResizable（6 处接入）"
-      ],
-      "fixes": [
-        "角色删除失败修复 — 以文件名为 id 唯一来源 + .yaml/.json/.txt 扩展名兜底",
-        "章节生成/批量生成弹窗知识库滚动失效 — flex 容器 minHeight:0（4 处）",
-        "改写/续写弹窗: 续写明确紧跟原文之后；改写强调执行幅度不被参考带偏",
-        "RewriteWorkspace 批量分析/改写旧闭包重复处理已分析章节",
-        "Scratchpad 切换笔记竞态 — 旧内容写入新笔记（flush+定时器校验）",
-        "StyleWorkshop 存为模板失效（setTimeout 旧闭包）+ tone/attitude 提取正则双重转义",
-        "ChapterListPanel 交换顺序只持久化两章（原地修改共享对象）",
-        "BatchGenerationModal autoSummary 摘要从未注入（闭包过期状态）",
-        "EditorToolbar 段落唯一样式清空失效（反向三元）",
-        "Agent 运行时: 超时/中止孤儿 tool 消息、压缩切点切断 tool 链、stripDetail 对 read_file 全文无效、只读提醒重复注入、写工具集合三处不一致",
-        "Anthropic 协议 cost 恒为 0（IPC 返回补 cost 字段）",
-        "anthropicHandlers 无条件落盘 debug 文件泄露 system prompt（加 QINGJIAN_DEBUG_PROMPT 开关）",
-        "AIChatWindow updater 内嵌 setState 副作用（StrictMode 双调用）",
-        "ChapterGenerationModal 流式进度面板/停止按钮死代码（父级 overlay 承担取消）",
-        "safeJsonParse 单引号替换误伤字符串内单引号",
-        "低严重度清理: 死代码约 900 行（ThinkingEngine/shellHandlers/taskDetection SKILL 体系/死导出）、未使用 import 约 300 符号、文档版本/工具数/主题数一致化、vitest 恢复 41 个 IPC 用例、@antv/g6 死依赖移除"
-      ]
-    },
-    {
-      "version": "13.5.3",
-      "date": "2026-06-24",
-      "features": [
-        "小说改写: 精密定位改写机制 — startText/endText锚点定位+4级模糊匹配→仅改写场景段落→替换回原文",
-        "小说改写: Stage 3场景标记可跳过/恢复改写 (disabledMarkerKeys)",
-        "小说改写: Stage 2重新总结按钮 — 清空分析后重新AI分析",
-        "小说改写: Stage 5章节列表可点击查看单章+合并预览切换",
-        "小说改写: 查看对比—显示改写模式(精密定位/全章)+已改写场景列表+段落级diff",
-        "小说改写: 段落格式修复—plainToHtml+computeParagraphDiff统一处理　　+\\n双分隔符",
-        "小说改写: countCJKChars统一 — 消除3种字数统计重复实现(前端/后端/内联循环)",
-        "小说改写: RewriteWorkspacePage拆分 — 提取RewriteCompareModal+rewriteSegmentUtils(-362行)"
-      ],
-      "fixes": [
-        "RewritePage阶段进度圆环Step 3修复 — 使用全局STEP_KEY_TO_STAGE/STAGE_ORDER",
-        "Stage 4切换章节editorReadOnly重置",
-        "Stage 2失败章节计数从全部未分析改为实际失败数",
-        "章节标题双重前缀修复 — 去除第N章重复",
-        "Stage 5导出统计条绿色左移",
-        "对比视图阈值不对称修复 — 统一0.35",
-        "endText模糊匹配增强 — 4级匹配(精确→空白归一化→前缀8/6/4→字符级最长公共子串)",
-        "场景识别Tab滚动条缺失修复 — flex容器添加minHeight:0"
-      ]
-    },
-    {
-      "version": "13.5.2",
-      "date": "2026-06-23",
-      "features": [
-        "小说改写: 全功能灰色字体→黑色——66处#9b8e84/#6b5e54替换为#2d2520/#3a3530",
-        "小说改写: 左栏章名去重——只显示原标题(含换行),不加第N章前缀,字数黑色",
-        "小说改写: Stage 2/3章列表显示需改写标签+章节字数",
-        "小说改写: Stage 4只显示需改写章节(自动折叠)+改写失败/字数不达标标签",
-        "小说改写: Stage 4重试按钮修复——attemptedRewriteIds追踪,仅针对已尝试但失败的章节",
-        "小说改写: 合并输出全部章节(含原文)→保持剧情连续性+去除重复标题+已改写标记",
-        "小说改写: Stage 5右栏重设计——导出统计(字数+章数对比条/项目名/打开文件夹)",
-        "小说改写: 导出字数计算修复——逐章计算改写用新值/未改写用原值",
-        "小说改写: Stage 3识别分类字体增大(10→13px)+IPC打开文件夹"
-      ]
-    },
-    {
-      "version": "13.5.1",
-      "date": "2026-06-23",
-      "features": [
-        "小说改写: 右键弹窗改写——选中段落右键→AIPolishDialog(模板+自定义要求→AI生成→编辑→插入)",
-        "小说改写: 段落格式优化——段首自动2em缩进+段间空行,CSS+保存双向保证",
-        "小说改写: 字数达标重定义——calcIsPassing()替换WORD_COUNT_THRESHOLD,≥原文且≥原文+目标×50%",
-        "小说改写: Stage2+4暂停/继续——进度条(流动渐变)+暂停按钮,继续后仅处理未完成的章节",
-        "小说改写: Stage4进度条总章节数=需改写章节数(≠全部章节)",
-        "小说改写: Stage2重试按钮始终可见——无失败时禁用显示无需重新总结",
-        "小说改写: Stage4新增重新改写失败章节按钮——始终可见,红色,计数N=未改写章节",
-        "小说改写: 批量操作跳过已完成章节——handleAnalyzeAll/handleRewriteAll自动过滤已分析/已改写",
-        "小说改写: 顶部栏字体增大——5阶段中间标题从12px→15px #6b5e54→#2d2520"
-      ]
-    },
-    {
-      "version": "13.5.0",
-      "date": "2026-06-22",
-      "features": [
-        "小说改写: 场景分段改写机制——仅提取startText/endText标记段落发给AI→改写后插入回原文(非场景文字原样保留)",
-        "小说改写: 提示词模板完整集成——系统破甲(systemPrompt)/场景识别规则(sceneRules)/通用指导(universalGuidance)/场景特定规则(sceneGuidance)全链路注入",
-        "小说改写: sceneGuidance键映射修复——buildSceneGuidanceMap支持id和name双向查找,修复sxsy导入模板场景规则不生效Bug",
-        "小说改写: 字数目标按模板规则分配——核心性交互场景不限字数额情发挥,暧昧场景1000-2000字,轻度场景扩展50-100%",
-        "小说改写: 移除流式输出——全部改写调用使用非流式chatAI,章节完成后一次性输出",
-        "小说改写: RewriteEditor轻量编辑器——中间区域TipTap编辑器(无工具栏),右键改写选中段落/续写,自动保存,只读/编辑切换",
-        "小说改写: 呼吸灯状态指示——Stage 2总结+Stage 4改写章列表彩色dot(绿闪=进行中/绿=完成/红=失败/黄=无场景/橙=字数不达标/灰=未处理)",
-        "小说改写: 布局+字体全面优化——左240→280右200→250,章节正文17px,全文fontSize+2-4px fontWeight提升,中间白底",
-        "小说改写: Stage 3默认仅显示需改写章节——保留原文章节一键折叠/展开,标题改为需改写N章",
-        "小说改写: Stage 4三栏字数(原文/改写加料/总字数)+CompareModal左右面板字数显示",
-        "小说改写: Stage 2角色信息两列网格(maxHeight 560)+失败章节重新总结按钮+Stage 3继续按钮",
-        "小说改写: 向导步骤5模板详情滚动修复(RewriteCreateWizard)+模板列表搜索过滤(RewritePromptModal)+sxsy导入\\n unescape",
-        "小说改写: RewritePage查看设置弹窗+右侧面板布局对齐+Stage 3自动标记为已识别"
-      ]
-    },
-    {
-      "version": "13.2.0",
-      "date": "2026-06-21",
-      "features": [
-        "System Prompt 瘦身: 写作规范手册12节约6,200字符→7个外部模板文件(引用索引约400字符),固定开销-37%",
-        "渐进披露实际切换: V4UnifiedRuntime首轮全量27工具→后续12核心工具(含tool_search按需发现)",
-        "渐进披露动态加载: tool_search返回matchedTools→Runtime._discoveredToolNames→后续轮次动态加入schema",
-        "上下文进度条精准化: 改用estimatedContextTokens(基于messagesForApi真实大小估算),替代累计计费值",
-        "上下文进度条初始化修复: IndexedDB加载后恢复cumulativeTokens+消息估算上下文占用",
-        "上下文进度条分解数值修复: ContextUsageBar的tokenBreakdown用tokens字段替代chars,消除54%低估",
-        "工具删除4个: lsp_diagnose(纯开发工具)+update_config+list_audit(用户可手动操作),工具34→27",
-        "角色扮演测试: 测试脚本新增S_R1(角色+纯聊天)/S_R2(角色+工具操作),验证角色外壳不影响核心能力",
-        "渐进披露测试: 测试脚本新增S_PD场景,验证非核心工具(search_images)的tool_search→发现→调用链路",
-        "测试脚本增强: setup/teardown回调+hasNoTools断言+上下文用量实时显示(_estimatedContextTokens)",
-        "代码清理: electronBridge.lspService移除,ToolDetailPanel标签更新(+补全缺失标签),ContractExecutor新增tool_search契约",
-        "类型完善: ToolResult/ToolExecContext/RuntimeTypes/V4AgentRunResult新增matchedTools/estimatedContextTokens字段",
-        "脚本清理: export-tool-schemas.mjs/run-agent.ts/test-ai-conversation.mjs移除已删除工具引用"
-      ]
-    },
-    {
-      "version": "13.1.0",
-      "date": "2026-06-21",
-      "features": [
-        "提示词库: 卡片+弹窗编辑模式(80%屏幕),卡片只展示摘要,点击弹窗编辑,删除加ConfirmModal确认",
-        "AI写作助手: 角色模板卡片删除加ConfirmModal确认弹窗",
-        "场景工坊: 段编辑弹窗加大(700→1100w,65→90vh),模板删除改用ConfirmModal",
-        "风格工坊: 编辑模板弹窗加大(960→1200w,72→92vh),Prompt编辑/维度详情/维度配置弹窗统一加大",
-        "风格工坊: 模板/档案删除改用ConfirmModal,useStyleWorkshop hook新增deleteConfirm状态",
-        "操作记录功能接入: ToolExecutor中每次工具调用自动写入OpHistoryEntry,持久化到localStorage",
-        "导航栏: 剧情改写→小说改写,移至小说续写下方,知识库移至草稿本上方",
-        "项目入口三页全面改造: ContinuationPage/RewritePage/ImitationPage使用ProjectHubLayout主从布局",
-        "共享布局组件: ProjectHubLayout(左280px项目列表+右玻璃拟态详情卡),内建ConfirmModal删除",
-        "项目详情卡: 三个页面右栏统一玻璃拟态卡片(项目名+统计块+操作按钮),与首页风格一致",
-        "项目类型简化: 首页创建仅普通小说,仿写/续写在各自界面创建项目",
-        "项目文件夹分离: imitation_projects/和continuation_project_dirs/独立目录,Electron→IPC→Store全链路",
-        "代码清理: 移除window.confirm()(全部替换为ConfirmModal),清理未使用导入,TypeScript零错误"
-      ]
-    },
-    {
-      "version": "13.0.0",
-      "date": "2026-06-20",
-      "features": [
-        "多角色系统: 角色模板(RoleTemplate)+角色卡片(CharacterCard)借鉴SillyTavern酒馆架构",
-        "角色模板弹窗: 左栏模板列表+右栏详情,可拖拽缩放(宽高9/10屏幕),右上角关闭+底部关闭/保存按钮",
-        "角色卡片编辑器: 2列网格,身份自定义输入,头像上传/点击放大,背景设定/开场白/示例对话",
-        "AI对话角色模板选择器: 底部工具栏,输入前可切换,发送后锁定(橙色disabled)",
-        "多头像系统: 按角色模板显示对应头像,预加载映射,点击头像查看大图",
-        "角色提示词注入: BridgeContextBuilder首条注入完整角色设定(语气外壳),后续精简一行防失忆",
-        "不替换AI写作助手核心身份: 角色扮演是语气外壳,工具调用能力完整保留",
-        "自定义身份修复: 选择自定义→输入框出现→自由填写",
-        "弹窗字体全面增大: 10-13px→12-15px,改善可读性",
-        "补充设定区域flex撑满: 世界观+场景设定填空至底部按钮上方",
-        "删除模板确认弹窗: ConfirmModal危险样式,防止误删",
-        "v5数据迁移: 旧customRoles自动转为经典模式角色模板",
-        "小说脉络功能删除: 17文件+路由+侧边栏+类型+死代码清理+barrel导出修复",
-        "代码清理: 17个未使用import移除,身份冲突守卫,模板字符串修复"
-      ]
-    },
-    {
-      "version": "12.17.0",
-      "date": "2026-06-14",
-      "features": [
-        "Nudge系统完全移除: ToolActionPrompter.ts删除(66行),梯度Nudge→自愈诊断恢复系统",
-        "自愈恢复系统: 不催促(快做!),改为诊断(分析了什么/为什么失败/换什么方法)",
-        "Runtime安全网三层: 完成检测+零工具拦截+长文本检查,全部验证_hasWriteCall",
-        "假完成拦截: 模型说全部完成但工具=0→拒绝+推入自愈恢复",
-        "读操作计数器: ≥3次连续读取无写入→注入系统提醒,≥5次→强制写入提醒",
-        "任务边界隔离: 新用户消息到达时注入[任务边界],防止跨任务失败污染",
-        "跨轮记忆优化: System Prompt要求操作确认中提及关键信息,后续轮无需重读文件",
-        "ToolExecutor修复: tool_result在nudge之前推送;AnthropicAdapter合并连续tool消息",
-        "API超时: 90s→180s,适配大型上下文",
-        "taskDetection精度修复: hasTaskKeywords移除单字词避免聊天误判",
-        "上下文: contextWindow支持1M tokens(deepseek-v4-flash)",
-        "对话测试脚本: test-ai-conversation.mjs,19场景,真实Bridge→Runtime→Adapter,mock window.electron",
-        "测试覆盖: 读取分析/跨轮记忆/多任务/编辑/删除重建/探索创建/内容转化/联网搜索/知识库"
-      ]
-    },
-    {
-      "version": "12.10.0",
-      "date": "2026-06-13",
-      "features": [
-        "工具精简: 移除think工具(34工具),AI自身推理能力替代",
-        "Nudge系统重构: 3阶段梯度升级(温和→强制→注入),7次才放弃(原3次)",
-        "Nudge消息智能化: 根据用户意图推荐正确工具(create_project/delete_file/rename_file)",
-        "路径错误自动诊断: 检测projects/前缀等模式,单次失败即注入修正建议,连续2次强制目录诊断",
-        "连续路径错误独立计数: 不受部分成功归零影响",
-        "Prompt决策树扩展: 5分支→7分支(新增分支1B讨论查看/分支5信息检索/分支6文件整理)",
-        "操作失败处理重写: 从被动询问→连续自主恢复循环(失败→分析→学习→重试,不停下)",
-        "分支4探索限制: 最多读3个关键文件,读完即写,空文件直接创建",
-        "Prompt工具覆盖率: 25%→100%(新增扩展工具速查,覆盖32个工具),tool_search机制首次引入",
-        "项目名动态注入: BridgeContextBuilder注入项目显示名+目录名,AI理解用户称呼",
-        "后续消息工具集优化: 7→10常用工具,闲聊消息0工具",
-        "_userRequestedFileOp两层检测: 精确正则+TASK_KEYWORDS兜底,消除6个盲区",
-        "对话历史保留工具调用: 最近5轮完整tool_calls+tool_results保留,早前轮次压缩",
-        "Minimal Prompt强化: 40→80+tokens,包含路径格式+tool_search+自主恢复指引",
-        "Prompt内部矛盾修复: 4处(A-0vsA/多任务/双路径/FULL_REPLACE),快速判断关键词对齐",
-        "风格模板工作流完整重写: 5子流程(获取原文→分析→生成模板→PromptTXT→查看编辑)",
-        "格式模板路径修正: 15+17实际计数,区分用户模板与格式参考模板,find_files发现",
-        "批量替换指引: 文件操作指南+batch_replace效率提示",
-        "创建项目直接指令: 明确create_project参数(name/type/novelCategory),首条直接可用",
-        "摘要功能全面修复: Zustand直接修改→setter/手动编辑同步store/清空保存/空值loading修复/内容截断",
-        "plot.md/worldbuilding.md初始占位文字改为空白",
-        "章节/角色/笔记/知识库: 增加删除/重命名/修改等生命周期指引",
-        "联网搜索结果保存: browser_search→create_file存为草稿或知识库",
-        "tool_search作为核心机制引入Prompt,15个格式模板路径全部列出"
-      ]
-    },
-    {
-      "version": "12.9.0",
-      "date": "2026-06-13",
-      "features": [
-        "规则模板系统: 8组可自定义的prompt规则模板,替换24个硬编码段落",
-        "Prompt直接编辑: 模板卡片新增Prompt编辑器,所见即所得编辑完整prompt",
-        "风格补充说明: 最高优先级自由文本注入prompt末尾",
-        "提示词优化: 修复create_file/read_file描述,优化分支决策,增强MINIMAL_SYSTEM_PROMPT",
-        "情色过滤修复: EROTIC_ONLY_HEADERS从4个扩展到16个,非情色场景不再泄漏情色内容",
-        "complexData YAML双向注入: 同时注入features和dimAnalyses",
-        "叙事态度下拉框: ATTITUDE_PRESETS从死代码恢复为可用UI",
-        "模板创建初始化修复: categorizedVocab不再为undefined",
-        "AI分析保存tone提取: handleSaveAsTemplate自动从narrativeTone提取基调",
-        "规则模板绑定: 模板编辑器可绑定ruleTemplateId,Prompt编辑器下拉切换"
-      ]
-    },
-    {
-      "version": "12.8.0",
-      "date": "2026-06-13",
-      "features": [
-        "全类型维度分层: 17种小说类型各有DIM_PRIORITY(T0-T3)分层体系",
-        "类型特别注意: 7种热门类型(情色/修仙/都市/恋爱/玄幻/科幻/奇幻)有专属分析指导",
-        "动态篇幅分配: 根据novelType自动匹配各维度字数范围",
-        "紧凑纯文本输出: 分析prompt要求无Markdown格式符号",
-        "注入类型感知: 情色专属内容(感官锚/直白锚/绕过指导)仅情色类型触发",
-        "极端内容绕过: 分隔符/拼音/英文/同音字四种方法",
-        "vocabularyStyle↔rhetoricStyle边界重写(选词造词vs用词效果)",
-        "humiliationTemplate合并shameVoyeurLoop(外部递进+内部循环)",
-        "bodyMindBetrayal扩展为背德内容+堕落路径+堕落后心理三维分析",
-        "costumeStyle提升至T1(衣着作为核心情色装置)",
-        "dialogueStyle/bodyLanguageStyle降至T2(公式化输出)",
-        "onomatopoeiaSystem标签改为情色声音系统，类别改为情色专属",
-        "narrativeTone补回15种非情色类型",
-        "死代码getTieredDimInstructions删除",
-        "26维→27维数字修正"
-      ]
-    },
-    {
-      "version": "12.7.2",
-      "date": "2026-06-12",
-      "features": [
-        "风格模板v4: 情色维度精简至16个(T1=8/T2=4/T3=4)",
-        "风格模板v4: 新增costumeStyle(T2)衣着/装扮独立维度",
-        "风格模板v4: sensoryStyle情色类型优先分析气味和触感",
-        "风格模板v4: VOCABULARY改为AI预分类对象格式(5类)，注入端正则退为回退",
-        "风格模板v4: 移除sentenceStyle/rhythmStyle/corruptionArc从情色维度",
-        "风格模板v4: degradationRitual扩展为场景/空间情色机制",
-        "风格模板v4: 新增描写力度/感官温度锚校准指导",
-        "风格模板v4: 叫床/淫叫声三层功能框架无条件注入",
-        "风格模板v4: 羞辱递进改为心理弧线模板(Phase1-6)",
-        "风格模板v4: 对话技法增强(拟声嵌入+高潮告解)",
-        "风格模板v4: prompt移除所有硬编码示例词",
-        "风格模板v4: 分析prompt新增铺垫/前戏阶段指导",
-        "风格模板v4: novelType键名拆分(LONG/SHORT)，修复T1-T4优先级静默失效",
-        "风格模板v4: parseStyleAnalysisReply修复VOCABULARY行首匹配+slice顺序",
-        "风格模板v4: CategorizedVocab类型体系，全链路类型安全",
-        "风格模板v4: Scene-Aware过滤改为共享常量"
-      ]
-    },
-    {
-      "version": "12.6.0",
-      "date": "2026-06-12",
-      "features": [
-        "温度优化: 阶段感知温度(创作轮=用户设定/执行轮≤0.5),默认温度0.3→1.0",
-        "温度优化: 工具执行温度上限可配置(toolTemperature),设置页新增滑块",
-        "风格模板v3: 情色小说优先级系统(T1-T4),6核心+4支撑+5辅助+1跳过",
-        "风格模板v3: 维度合并(compoundWordPattern→vocabularyStyle/sensoryPackFormula→sensoryStyle/rhythm+mood→rhythmMoodStyle)",
-        "风格模板v3: 词汇注入改版——词条清单→核心词+造词公式双段+举一反三",
-        "风格模板v3: 情色语言强化块(❤标记/辱骂词/复合词自动检测注入)",
-        "风格分析: parseStyleAnalysisReply解析器重写(支持per-dimension VOCABULARY/RULES/兼容单#双##)",
-        "风格分析: examples双向打通(解析提取→注入为few-shot样本)",
-        "风格分析: DIMENSION_META.prompt注入分析prompt(提升分析质量)",
-        "风格分析: buildFewShotExcerpts集成到汇总流程",
-        "风格注入: 场景感知(buildSceneAwareStylePrompt/classifySceneType)",
-        "风格注入: 硬编码规则精简(28→6条),维度分析结果浮现",
-        "风格注入: 叙述者站姿检测(tone→赏玩/冷眼/共情)+羞辱递进链提取",
-        "测试脚本: analyze-and-imitate.ts+compare-imitation.ts(分析+仿写+对比全链路)"
-      ]
-    },
-    {
-      "version": "12.5.0",
-      "date": "2026-06-11",
-      "features": [
-        "连续失败保护: Runtime层_consecutiveFailures计数器,3轮提醒/5轮强制终止",
-        "系统提示词: 操作失败处理指导(路径/匹配/参数等所有工具错误通用),最多2次重试",
-        "润色弹窗: 原文/结果区等宽(flex:8/10→flex:1),流式默认开启,遮罩改为角标",
-        "章节创作: 进入时自动创建TXT文件,细纲章节ID改为chapter{N}格式",
-        "细纲删除: 同步清理chapters/{id}.txt+版本历史目录",
-        "章节生成: streamMode默认值改为true(ChapterGenSettings)"
-      ]
-    },
-    {
-      "version": "12.4.0",
-      "date": "2026-06-10",
-      "features": [
-        "P0修复: sendLock竞态/协议锁释放/pendingCorrection覆盖手动发送修复",
-        "P0修复: 对话管理Bridge销毁统一(新建/清空/删除均释放协议锁)",
-        "P1修复: Token双重计数移除Runtime层addTokens/UI层统一计费",
-        "角色系统: customRoles+defaultRole端到端注入BridgeContextBuilder",
-        "角色系统: 身份行剥离(角色prompt成为唯一身份)/预设角色增强",
-        "P2修复: conversationToolNames删除对话清除+planInstruction死代码清理",
-        "工作流优化: fileVersion双重递增修复(删除bumpFileVersion冗余调用)",
-        "工作流优化: 8页面AI变更刷新(Imitation×3+Continuation×4+Rewrite)",
-        "工作流优化: KB搜索configId修复(空字符串→有效configId)",
-        "工作流优化: setExtendedTools死代码移除(被_fullPromptSent替代)",
-        "代码清理: 6处哨兵值死else分支移除(OutlinePage/ScratchpadPage/2个Popup)"
-      ]
-    },
-    {
-      "version": "12.3.0",
-      "date": "2026-06-10",
-      "features": [
-        "行为决策树: 4分支统一Prompt替换对话/创作双Prompt，模型自主判断意图",
-        "Runtime v4: 读循环检测+文本输出拦截+文件操作意图强化Nudge(上限2→3)",
-        "Plan模式移除: 类型/注册/Bridge/UI全链路清理，availableInPlanMode死代码删除",
-        "路径全面修正: ../../ → ../ (6文件)，目录结构文档化含字段结构",
-        "编辑操作模式: 追加/覆盖/替换的edit_file具体old_string操作指南",
-        "模板智能读取: 大纲6YAML Tab+角色15字段+细纲字段内置Prompt，不再强制读模板",
-        "KB修复: 元数据同步(create_file自动注册)+上传estimate路径检查移除+文件名中文支持",
-        "KB增强: LM Studio预设+文件列表删除按钮+项目内notes/僵尸目录删除",
-        "路径别名修复: @/utils/security→相对路径(4文件)，vitest/tsx均可解析",
-        "混合响应修复: Runtime text+tool_calls同响应时文本emit到UI",
-        "项目内notes/目录移除: PROJECT_DIRS清理，create_project不再创建",
-        "LM Studio预设: PROVIDER_PRESETS新增lmstudio条目(http://localhost:1234/v1)"
-      ]
-    },
-    {
-      "version": "12.2.0",
-      "date": "2026-06-09",
-      "features": [
-        "知识库文件列表: 每行新增删除按钮(垃圾桶图标)+确认弹窗",
-        "KB文件命名: 上传/新建文件使用原始中文名(非随机ID)，重名自动加_1后缀",
-        "KB: kb:rename同步重命名物理文件"
-      ]
-    },
-    {
-      "version": "12.1.0",
-      "date": "2026-06-09",
-      "features": [
-        "AI系统提示词补充: 章节摘要生成+细纲提取+反向细纲+对话分析流程",
-        "系统提示词内容来源明确: 分支A/A2/A3区分对话内容/文件两种输入源",
-        "Node.js v25兼容: electron-builder配置更新"
-      ]
-    },
-    {
-      "version": "12.0.0",
-      "date": "2026-06-08",
-      "features": [
-        "润色/续写/改写弹窗: 选中片段+模板选择器+自定义要求，不使用模板时不附加默认指令",
-        "AI审稿弹窗重构: 章节预览+模板选择器（含不使用）+自定义要求",
-        "AI生成角色弹窗: 新增不使用模板选项",
-        "AI生成章节弹窗: 选择器始终显示+不使用模板选项，模板可无",
-        "弹窗缩放: Modal组件新增resizable，所有主要弹窗支持右下角拖拽放大缩小",
-        "AI写作助手窗口: 8方向缩放锚点修正，每个角锚定其对角",
-        "右键发送AI: 去掉前缀后缀，纯净选中文字",
-        "粘贴阈值: 200→3000字才自动保存为TXT",
-        "输入框可调: rows=3, resize=vertical, min/max height",
-        "deleteFile: ENOENT静默处理，文件不存在不报错",
-        "编辑器保存按钮: 已有自动保存+手动保存+失焦保存"
-      ]
-    },
-    {
-      "version": "11.8.2",
-      "date": "2026-06-08",
-      "features": [
-        "全局目录统一: notes/knowledge_base/style_templates/scene_templates/agent-sessions/uploads/.ai_backups 移到根目录",
-        "GLOBAL_DIRS 清空: 所有全局资源改用 ../../ 前缀访问，../ 导航修正",
-        "启动健壮性: ensureRuntimeDirectories 显式创建所有运行时目录，syncAiharnessResources 从 extraResources 同步模板/规则/脚本",
-        "模板扩展: 14→16个，新增 knowledge-base-file.md 和 note-draft.md",
-        "AI工具描述全面更新: create_file/edit_file/batch_replace/list_directory/read_file/search_content/find_files/delete_file/rename_file 路径统一",
-        "死设置清理: maxHistory/toolRetentionRounds/rulesRefreshInterval 三个无效配置及其UI移除",
-        "草稿本路径统一: ScratchpadPage 与 AI 工具共用 userData/notes/",
-        "备份集中化: getBackupRoot 统一到 userData/.ai_backups/，不再散落各处",
-        "脚本路径修正: shellHandlers 从 parentDir 解析脚本，scripts/ 加入 extraResources",
-        "find_files 搜索范围扩展至 userData 根目录，覆盖所有全局资源",
-        "create_file 安全边界修正: ../ 路径以 userData 为边界",
-        "ContextAssembler.domainsForPath 兼容 ../../ 前缀",
-        "HTTP 配置路径修正: 从 parentDir 读取 aiharness.json",
-        "打包配置: electron-builder.yml extraResources 新增 scripts/"
-      ]
-    },
-    {
-      "version": "11.8.1",
-      "date": "2026-06-08",
-      "features": [
-        "CI测试全绿: 0 failed, 386 passed, 15 skipped(过期Mock标为skip)",
-        "死代码清理: 删TemplateGenerationAndCache测试(测已删工具), 删4个无引用提示词类型(灵感/世界观/大纲/细纲)",
-        "fileToolHandlers测试修复: notes全局路径对齐v11.8.0",
-        "toolSets/toolDefs/toolInvokePrompt测试更新匹配当前32工具",
-        "AI角色生成修复: 形象图描述→形象图标签对齐, 加YAML说明+纯文本约束",
-        "Key加密移除: saveConfigs/loadConfigs明文存储, decryptKey全部替换, 眼睛按钮可用",
-        "软件说明更新: 工具数/仿写类型/双协议/Prompt缓存等描述同步v11.8.0",
-        "记忆文件更新: architecture/file-reference/anthropic-mode重写为v11.8.0"
-      ]
-    },
-    {
-      "version": "11.8.0",
-      "date": "2026-06-08",
-      "features": [
-        "双协议全局路由: 新建chatAI.ts共享模块, 修复20+文件35+处aiService.chat→chatAI, 仿写/续写/风格/章节生成全功能Anthropic可用",
-        "章节生成双协议: chatAIStream+chatAIWithUsage路由, Anthropic流式/非流式均支持",
-        "Prompt缓存: Anthropic加cache_control标记, OpenAI透传cached_tokens, 固定开销仅剩~540tokens/轮",
-        "首条全量注入: 核心规则首条2,758tokens→后续仅40tokens精简提醒, 工具首条35个→后续核心7个(含tool_search按需发现)",
-        "索引移除: 全局文件索引不再注入, 模型用list_directory/find_files/search_content动态探索",
-        "AI生成提示词重构: 四层结构(风格→剧情→场景→参考), 层级清晰, 参考材料标注'仅供参考'",
-        "AI生成加温度条: 与设置页双向同步, 直接修改electron-store, IPC即时生效",
-        "死代码清理: 删除MemoryIndex/contentExtractor/QualityCheckEngine(~300行), isTaskMessage函数及测试",
-        "语音功能移除: 删除VoiceButton/SpeakButton/TTS设置面板",
-        "学习系统移除: 删除LearningEngine/FeedbackSection/LearningSection/write_learning/learn_rule(~1,200行)",
-        "Bridge去重: 抽取toolExecutorFactory共享工厂, 两个Bridge各删~40行重复代码",
-        "ContextAssembler精简: Provider机制移除, 仅保留domainsForPath+空壳assemble",
-        "API密钥明文存储: 移除safeStorage加密, saveConfigs/loadConfigs直接读写明文, 眼睛按钮正常可用",
-        "AuditTrail持久化加错误日志, ContractExecutor未知工具加warn, peakPromptTokens修复",
-        "AnthropicAdapter: tool_result加is_error标记, thinking类型断言消除, 导入统一",
-        "SystemPrompt: 删除占位符/selectDomainModules死代码, 第10节精简, buildSystemPrompt无参化",
-        "工具调整: 35→32(删learn_rule/write_learning), harness 5→3, 加tool_search",
-        "Agent设置精简: 自我优化+学习两个标签移除, 仅保留可靠性+MCP",
-        "上下文压缩阈值恢复70%(不改动), 缓存命中和花费显示修正"
-      ]
-    },
-    {
-      "version": "11.7.0",
-      "date": "2026-06-08",
-      "features": [
-        "提示词重构: 删除铁律/写优先/禁止列表, 改为对话人格+工具使用指南",
-        "工具系统: 删除create_style_template/create_scene_template, 新增analyze_text_style(调用仿写分析引擎)",
-        "缓存修复: 恢复v9.8.9三层缓存设计, 第1条消息全发核心规则+索引+33工具并缓存",
-        "isTaskMessage停用: 改为tool_choice:auto, 模型自己判断是否调工具",
-        "文件路径: create_file支持../../style_templates全局路径",
-        "工具超时: 60s→120s适配analyze_text_style内部AI调用",
-        "死代码清理: PhaseManager/ALL_PROVIDERS/peakPromptTokens/lastPromptTokens",
-        "测试: FunctionalSmoke更新为33工具, 新增模拟测试"
-      ]
-    },
-    {
-      "version": "11.6.0",
-      "date": "2026-06-07",
-      "features": [
-        "铁律重构: 先读后写→写优先, 新建直接写/修改先读后改/读格式模板不计入读取次数",
-        "nudge优化v2: 含用户原始请求的智能推送 + 上限2次 + >200字直接接受 + 死锁消除",
-        "消息分类统一: isPureGreeting/isKnowledgeOnly/hasTaskKeywords 三函数统一到taskDetection.ts",
-        "Bridge重构: 提取BridgeContextBuilder(上下文组装)+CacheInvalidator(缓存失效)消除~400行重复代码",
-        "Anthropic thinking修复: SSE解析7步管线完整贯通(thinking_delta+signature_delta+多轮回传)",
-        "maxIterations 60→30: nudge上限+写优先已消除死锁, 30轮足够任何任务",
-        "上下文进度条修复: 累计值→当前消息输入+输出, 真实反映窗口压力",
-        "花费管线贯通: Anthropic SSE→Adapter→Runtime→UI, cost字段不再硬编码为0",
-        "模板路径统一: 系统提示词中全部模板路径添加../../前缀, 确保正确解析",
-        "权限修正: rename_file→DANGEROUS_ASK, create_file描述更新, SecurityFence Layer 1-2-3-4重编号",
-        "对话分析: 发现60轮死锁根因(铁律#1教模型只读), 缓存验证(DeepSeek自动缓存~7K/轮)",
-        "死代码清理: Provider注册/activeSkill/setActiveSkill/buildSystemPromptWithSkills别名/PhaseManager废弃/ALL_PROVIDERS空壳",
-        "CLI测试: 新建cli-test.mjs(7场景), 删除旧仿真脚本(full-sim/27文件+tests/integration/6文件)",
-        "CLI修复: search_content路径解析/list_directory projects前缀/read_file目录错误提示/create_file大小限制"
-      ]
-    },
-    {
-      "version": "11.5.0",
-      "date": "2026-06-07",
-      "features": [
-        "工具合并 42→34: 删除冗余note/kb工具8个(list_notes/read_note/write_note/edit_note/append_note/delete_note/kb_list/kb_create_file),统一使用create_file/edit_file/read_file",
-        "create_file/edit_file路径统一: 支持notes/knowledge_base/style_templates/scene_templates/uploads等全局目录",
-        "DeepSeek V4 thinking模式: OpenAI+Anthropic双协议启用深度推理,设置页可配置enableThinking/reasoningEffort",
-        "API智能参数: temperature 0.8→0.3(tool模式), max_tokens 4096→16384(Anthropic), reasoning_content回传修复",
-        "模板系统v2: 14个文件格式模板(.aiharness/templates/), 系统提示词~3500→~2758tokens, 26维风格模板+40+字段场景模板",
-        "目录可见性修复: MemoryIndex开放.aiharness/, list_directory全局扫描增加.aiharness/templates",
-        "完成/继续正则精简: 删除先/然后/以上是/以上就是等过匹配字符",
-        "nudge优化: 知识问答(_isChatQuestion)跳过探索推送, 只读死锁检测从第3轮提前到第1轮",
-        "text分析功能修复: invoke_skill残留清除, 附件路径../../前缀, 分支A等用户选择保护",
-        "笔记edit_note添加后删除(工具合并), 草稿笔记章节提示词更新",
-        "batch_replace后端bug修复: appRoot未定义ReferenceError→resolvePath('file_path')",
-        "confirmed:true补全: edit_file/batch_replace executor + backend batch_replace加入DANGEROUS_TOOL_NAMES",
-        "死代码清理: invoke_skill/search_files/restore_backup + CLI agent死note/KB handler删除",
-        "风格模板26维完整性: 系统提示词+tool schema+executor强制校验11通用维度",
-        "kb_append_file参数修复: projectId→configId + CLI args.name→args.file_id",
-        "buildHistoryMessages: 注入toolCallSteps摘要,继续时模型不重复探索"
-      ]
-    }
-  ]
+ "currentVersion": "14.5.0",
+ "currentDate": "2026-08-02",
+ "history": [
+  {
+   "version": "14.5.0",
+   "date": "2026-08-02",
+   "features": [
+    "AI 写作助手全面审计修复（25 项：四路并行审计 + 26 项代码级验证 + 实证测试）",
+    "任务清单门控修复（严重）: GLOBAL_DONE_RE 删除裸尾部锚点 + PARTIAL_DONE_RE 排除部分声明——第3项完成/任务2/3完成 不再谎报全局完成（T20-T22 回归）",
+    "Anthropic 协议安全收窄: 渐进披露 capabilities 接线（双协议 iteration 2 起 31→15 核心）+ toolsUsed 保留历史已用工具 + 子代理 isolatedStore 恒全量",
+    "thinking 推理内容双协议回传: anthropicService thinkingBlocks 透传 + runtime 历史写 reasoning_content + aiHandlers camel 兜底——多轮工具调用模型可见推理链（消除 thinking 签名 400 隐患）",
+    "停止生成语义修复: aborted 标记 4 层透传（OpenAI aborted:true / Anthropic stopReason=aborted）——停止不再显示 API 超时误导文案",
+    "HTTP/浏览器 4 工具响应体保留: 契约 detail 4000 截断（原剥离导致模型永远看不到抓取内容）",
+    "审批链修复: 超时 180s→60s（消除审批晚于工具超时、通过后孤儿执行竞态）+ WAITING_APPROVAL 状态接线 + list_directory(broad:true)/update_prompt 真实审批（READ_ASK 落实）+ ToolRegistry approvalGate 缺省参数修复",
+    "子代理修复: 超时 per-call abort（不再孤儿运行）+ 迟到用量补记 + subagent_ask ≤3 并发分片 + 操作记录隔离（skipOpHistory）+ 会话池角色校验/TTL 10min + verify_task JSON 配对提取/关键词降级",
+    "空响应角色交替: 兜底消息动态选择 role（修复 Anthropic user→user 相邻 400）",
+    "tool_search 动态发现每轮生效（原只在 iteration 2 生效一次）; nudge 前缀去重（原精确匹配因内嵌数字失效）",
+    "跨 run 续跑清单门控恢复: resumeTaskProgress 快照透传——续跑场景 [当前任务] 注入与完成检测恢复正确语义（T23）",
+    "IME 防护: 发送快捷键 isComposing 检查（中文输入法确认候选不再误发半截消息）",
+    "自动滚动修复: scrollRef 死引用删除，滚动逻辑移入 VirtualMessageList（新回复/切换会话自动滚底）",
+    "聊天存储: saveConversations 800ms 防抖合并（原每消息 5 次全量 IO）+ IDB 失败提示 + IndexedDB 加载合并（不覆盖加载期间新建的对话）",
+    "幻觉检测接线: detectHallucination 写入消息（banner+纠错重试按钮复活，原为死代码）; WAITING_APPROVAL 状态变活",
+    "token 条修复: 切换/删除会话后旧 run 不再污染新会话显示（activeConvIdRef 守卫）",
+    "OpenAI IPC 超时 90s→180s 对齐 runtime（长输出不再被提前掐断）",
+    "死代码清理: parseThinkingPlan/parseInsertionSuggestion/useConversationState/response:complete 删除（全仓无引用）",
+    "字数遵从: 系统提示词完成度自检新增字数规则（用户明确要求长度时必须达标，写后自查补充）+ S_LEN 场景验证 + fileNotEmpty minChars 参数化（S_MT2 任务5 默认宽松）",
+    "陈旧注释清理: 子代理轮数 6→10 / 工具数 27→31 / 核心12→15 等注释与实际同步",
+    "测试: 558 → 596（+38: 部分声明矩阵/续跑恢复/渐进披露 capability/空响应交替/nudge去重/aborted识别/审批超时/HTTP契约/会话池/verify降级/存储防抖合并 等）; 对话场景 31 → 32（+S_LEN 字数遵从）"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.4.0",
+   "date": "2026-08-01",
+   "features": [
+    "find_files 条件审批: ToolDefinition 新增 approvalGate（参数级审批）——scope=project 默认免审批（批量任务不再弹确认框打断），scope=computer 仍走用户确认；配套修复两个安全漏洞：toolExecutorFactory 无审批路径时直接拒绝（原注释'不传则拒绝'但代码放行=权限绕过）、IPC find_files 的 dir_path 强制 safeResolve containment（原样入列可越界搜索）",
+    "子代理获得 find_files: ANALYZE_TOOL_NAMES 加入 find_files（verify/edit 继承）——子代理可直接按文件名定位；安全边界三层闭环：条件审批 + executor 无审批路径拒绝 + IPC containment",
+    "死代码清理: 删除 stats:getPrices/savePrices、lsp:diagnose（整文件）、agent 系列 8 handler（session-save/load/list/delete/permission-record/permission-patterns/get-sessions-path/optimize，含 agent-sessions 孤儿数据）、browser:screenshot、debugLogService 11 个无调用者辅助函数；保留 debug:append-log（诊断日志唯一落盘通道）",
+    "会话统计增强: 审计事件接线——V4AgentConfig + auditTrail/model，runtime 每轮 recordApiCall（含 cost/model），toolExecutor 三处 permission:decision；readSessionStats 抽 parseAuditJsonl 纯函数 + 新增聚合 cost/toolErrors/permissionDenied/lastUsed；修复 deleteSession 因 sessionId 截断 16 字符而删除静默失败；TokenStatsTab 展示会话花费/工具失败/权限拒绝/最后使用时间",
+    "AuditTrail.persist 竞态修复: 快照在 await 前同步捕获——此前 await import 挂起期间 events 被下一次 startSession 重置，连续消息会话的 api:call/tool:result 全部丢失（所有会话文件只剩 session:start）",
+    "KB embedding token 记账: getEmbedding 返回 usage.prompt_tokens；索引按文件合并记 1 条、kb:search/notes:search 每次调用记 1 条 source='embedding'（cost 记 0，价格来源 TODO）；TokenStatsTab 来源筛选新增'知识库嵌入'",
+    "RUN_TIMEOUT 动态化: 5 分钟硬墙 → computeRunTimeoutMs = min(15min, max(5min, maxIterations×60s))——批量任务（30 轮）从 5min 提到 15min 封顶，中断仍由 [续跑] 机制恢复",
+    "压缩 70% 最近保护: strip_detail 不再全量截断——按 user 轮次边界保护最近 2 轮的 tool detail（大文件内容膨胀→压缩→失真循环缓解；不足 2 轮时全保护，无 user 消息保持旧行为）",
+    "子代理会话池扩容: MAX_SESSIONS 4→8（长讨论追多个文件时减少 LRU 淘汰）",
+    "Token 估算精度校准: 实测 DeepSeek 分词密度（scripts/measure-token-density.mjs，中文小说 1.19 字符/token）→ CJK 系数 1.8→1.2、Latin 4→4.5——原 1.8 低估 1.5 倍导致压缩触发晚于真实越界（API 400/静默截断风险）",
+    "修复: kb.search 第 6 参 excludeFileIds 透传缺失（v14.3 注入去重特性静默失效）；preload agent:{} 空命名空间残留",
+    "测试: 544 → 558 用例（approvalGate 条件审批/executor 拒绝/压缩最近轮保护/parseAuditJsonl 聚合/buildEmbeddingUsageEntry/RUN_TIMEOUT 公式/recordApiCall 签名）；对话脚本 token 估算对比表 + 快照注入对齐 user 消息修复"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.3.0",
+   "date": "2026-08-01",
+   "features": [
+    "子代理信息跨 run 复用: V4AgentRunResult.subagentSummaries 快照（工具/文件/摘要+详情）→ ToolExecutor 收集 → Bridge 透传 → 消息持久化（IndexedDB）→ 下轮注入 [子代理快照] system 消息——主 agent 直接引用上次分析结论，不必重新委托；子代理 detail 上限放宽（4000→8000/2000→4000/4000→8000），analyze 输出上限 1500→2500 字（新增原文摘录能力）",
+    "子代理会话追问 subagent_ask（第 31 工具）: 内存会话池（4 会话 × 20K 字符，LRU 淘汰，快照过滤 system/孤儿 tool 防护）——复用该文件上次子代理上下文追问细节，无需重新读取大文件；无会话时退化为全新分析",
+    "验收失败强制督促闸门: verify_task summary 三态化（通过/未通过/中性）→ runtime 识别'验收未通过'→ 完成声明被拦截 + 注入 [验收督促]（有界 2 次后放行，问句不拦截）→ 修复 → 复验通过才算完成——防'验收未通过却被完成声明放行'",
+    "子代理失败诊断回传: 失败时拼入内部错误轨迹（最近 2 个错误步骤）供主 agent 换方法重试；cleanOldReadResults 纳入 analyze_file（防御层）",
+    "截断续写修复: 截断文本回写为 assistant 消息（续写可见已写内容，防分叉/重复）+ 截断时跳过完成检测强制继续（防残缺内容被当完成）；OpenAI 协议 max_tokens 兜底 16384（与 Anthropic 对齐）",
+    "子代理'假成功'修复: V4AgentRunResult.truncated 中断标记（迭代耗尽/超时/API失败/abort 无论有无任务清单都返回）→ runSubagent 判定失败 + [子代理未完成] 提示；maxIterations 6→10 轮；截断不保存会话快照",
+    "verify_task 归入 ≤3 分片并行（防多文件验收 API 限流）",
+    "Token 统计增强: 图片生成补 source:'image'（此前混入 main）；按日趋势折线图（手绘 SVG 零依赖，系列切换：次数/输入/输出/缓存命中/花费 + hover 数值）；新增按模型视图（byModel 此前白算）；预算条口径修正为全局当月真实花费（getMonthCost）；按日/按配置/按来源/明细补缓存命中列；明细补 model/source 列",
+    "操作记录迁移: 导航栏入口移除 → 设置 → Agent → 操作记录 子标签（内容组件化 OperationHistorySection，原路由保留兼容）",
+    "知识库修复: kb:search 勾选优先于项目归属过滤（勾选其他项目文件可检索）；kb_search 工具自由检索全部知识库文件（不受勾选/按钮状态限制）；按钮注入 + 工具检索去重（excludeFileIds，kb:search 返回 fileId）",
+    "长讨论记忆改善: buildHistoryMessages 20 轮硬截断 → 早期轮次折叠成摘要（写作偏好/早期决策不再完全丢失）；读 nudge 阈值放宽（3→5 / 5→8）；重复读提醒文案区分'历史完整/已被压缩'",
+    "前端可视化: 任务清单进度卡片（X/Y + 逐项勾选 + 中断标记）、子代理简报卡片（分析/修改/验收/追问摘要+详情）、ToolDetailPanel 补子代理工具图标/标签 + 取消 60 字截断",
+    "测试: 520 → 544 用例（verify 三态/subagent_ask/快照收集/会话池/验收闸门 T21-T25/快照注入 6 用例/孤儿 tool 回归）；对话场景 28 → 31（S_SUB_MEM 快照复用 / S_ASK 会话追问 / S_VERIFY_FIX 验收闭环）"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.2.0",
+   "date": "2026-08-01",
+   "features": [
+    "跨 run 续跑: V4AgentRunResult.taskProgress 任务清单进度快照（中断标记：用户中止/超时/API失败/迭代耗尽；正常完成与提问不标记）→ Bridge 透传 → AIChatWindow 存消息（IndexedDB 持久化）→ 下一条消息注入 [续跑] 上次中断于 X/Y 提示——解决 30 轮/5 分钟硬上限中断后任务状态丢失",
+    "批量并行分析: SERIAL_TOOLS 拆分为 PARALLEL_READ_TOOLS（analyze_file 只读，分片 ≤3 并发防 API 限流，isolatedStore 保证并发安全）/ SERIAL_WRITE_TOOLS（edit_file_task 写，保持串行）——多文件分析从串行叠加变为分批并行",
+    "验收子代理: 新增 verify 角色 + verify_task 工具（第 30 工具，只读验收，对照标准逐项判定产出 {passed, items}）；任务清单完成且写过文件时注入一次 [验收提示]（不强制）——产物质量从'模型声称'升级为'独立视角核对'",
+    "子代理上下文窗口跟随模型配置: 硬编码 64K → 配置 contextWindow（可达 1M，兜底 128K 与主 agent 一致）——大文件（>7 万字符）不再因 70% 压缩阈值失真",
+    "Anthropic 统计口径修复: cacheHit 只统计真实命中（cache_read），cache_creation 按正常输入价计费（此前按命中价约 1/10 → 成本低估、缓存统计虚高）",
+    "tokens 按来源统计: logTokenUsage 加 source 字段（main 主 agent / subagent 子代理 / pipeline 独立流水线 / image），设置页新增来源筛选 + 按来源分布展示",
+    "并行委托并发 import 竞态修复: 子代理工具/适配器用 promise 缓存共享模块引用（vitest mock 下并发动态 import 会返回原始模块）",
+    "UI 显示'情色'→'涩涩': 类型 label/筛选按钮/维度名/帮助文本 20 文件（数据 value、提示词、软件指南保持不动）",
+    "测试: 498 → 520 用例（跨 run 续跑 6 + 并行/并发上限 + verify_task 5 + 验收提示 2 + verify 角色）；对话场景 25 → 28（S_RESUME 续跑 / S_PAR 批量并行 / S_VERIFY 验收）"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.1.1",
+   "date": "2026-08-01",
+   "features": [
+    "子 agent 上下文隔离架构: analyze_file/edit_file_task 委托独立上下文窗口的子代理（SubagentService + SubagentPrompt + createSubagentAdapter，29 工具），主 agent 只接收结构化摘要——上传大文件/长文件读写不再撑爆主上下文窗口",
+    "tokens 主/子分开统计: V4AgentRunResult.subAgentUsage 贯穿 ToolExecutor→Runtime→Bridge→UI 消息页脚（紫色'子代理 入/出/合计'），会话累计保持主口径，全局 usage.jsonl 自动覆盖子代理调用",
+    "isolatedStore: 子代理 run 完全隔离共享 AgentStore（父 UI 状态与熔断器不受污染）；SERIAL_TOOLS 串行执行防双子代理并发交错",
+    "per-tool 超时查表: 子代理工具 300s / analyze_text_style 180s（默认 120s 不变）",
+    "子代理提示词内置青剑工具约定（batch_replace 全局替换 / __FULL_REPLACE__ 全量覆写 / old_string 匹配不唯一处理）",
+    "测试: SubagentService 5 + subagentTools 7 + V4RuntimeSubagent 4 用例；对话场景 S_SUB1（大文件分析委托，子代理真实读取 13950 字返回摘要）/ S_SUB2（长文件 150 处全局替换委托）"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.1.0",
+   "date": "2026-08-01",
+   "features": [
+    "任务清单运行时状态: taskExtraction 四重门控提取编号任务（1.2.3./①②③，宁漏勿错）→ 每轮注入[当前任务]进度 → 完成检测对照清单（未清空绝不接受'完成'声明）——修复'6 任务完成 4 个就停'与'读完文件就停'",
+    "完成判定重写: 删除'写过即停'break、继续性文本检测（接下来/继续→督促而非结束）、GLOBAL_DONE_RE 严格全局完成正则（部分声明'已完成N项'不误判）、进度声明解析（已完成3/6/第2项完成/任务X/Y完成）",
+    "分支 1B 修复: 分析型请求（非文件操作）读文件后输出短文本不再被自愈阶梯误 nudge",
+    "S6 修复: 提示词明确'删了重写→delete_file+create_file'，S6 断言放宽为等价完成方式 + 内容断言",
+    "测试: taskExtraction 13 + V4TaskList 12 集成测试；对话场景 S_MT2（5 任务压力，实测 5/5 全部完成）"
+   ],
+   "fixes": []
+  },
+  {
+   "version": "14.0.2",
+   "date": "2026-08-01",
+   "features": [],
+   "fixes": [
+    "系统提示词统一: 删除 .aiharness/prompts/CORE_SYSTEM_PROMPT.md（v13.2 瘦身前旧版，15 字段/内嵌手册与代码分叉），移除 getSystemPrompt IPC 链，代码内 CORE_SYSTEM_PROMPT 为唯一来源——修复开发环境用旧版、打包环境用新版的行为不一致",
+    "SSRF: 修复 IPv6 私网绕过（IPv4-mapped ::ffff:127.0.0.1/未指定 ::/ULA fc00::/链路本地 fe80:: 全部拦截）",
+    "SSRF: saveImageUrl 响应体改为流式读取+全程超时（防恶意服务器挂死 IPC、防整包缓冲内存膨胀）",
+    "Anthropic: 中止时不再提交截断文本（增量解析后 abort 带部分内容的回归修复）",
+    "Anthropic: SSE 尾部冲刷修复（未以空行结尾的末事件不再丢失）+ 流式解码 flush",
+    "M2: create_file 全局路径支持修复（GLOBAL_DIR_NAMES 首段匹配与安全基准一致）",
+    "M2: resolveArgNoRealpath 补绝对路径拒绝与 ../ 逃逸校验（与 safeResolve 一致）；删除冗余 resolveNotePath",
+    "H9: 情色弹窗 3 处 checkbox 追加补前导逗号（与 setKinkField 分隔符一致，防条目粘连）",
+    "M3 残留: config-not-found 错误通道删除 + error 文案与 categorizeError 统一",
+    "H3: 压缩摘要无 assistant 文本时省略 AI 行（不再把用户内容标成 AI 回复）",
+    "H10: 自定义正则拆章支持 ^ 行首锚定（gm 标志）",
+    "H11/H12: 视图层 ref 同步补漏（hook 导出 setProjectBoth、JSX 内联 setProject 同步 projectRef）",
+    "M4: PackagingSafety 黑名单解析列绑定修正（风险列错位致 highRisk 断言恒空——修正后暴露并补齐真实缺口）",
+    "M4: 测试补强（IPv6 SSRF 用例、SSE 未终止尾部、零长正则、迁移单步、压缩 fallback 断言等）"
+   ]
+  },
+  {
+   "version": "14.0.1",
+   "date": "2026-08-01",
+   "features": [],
+   "fixes": [
+    "H1: 5轮外 read_file 结果压缩生效（tool_call_id 回溯工具名，旧文件全文不再占满上下文）",
+    "H2: persist 迁移链修复（累积式，v4 用户一次性获得 v5/v7/v8 迁移）",
+    "H3: 上下文压缩不再产生孤儿 tool 消息（按 user 分段整段压缩）",
+    "H4: 移除不可达的 list_backups/restore_backup 死代码（v14 本意删除的残留）",
+    "H5: API key 明文存储文案如实化，MASKED_KEY 占位符不再覆写真实密钥",
+    "H6: Anthropic 流式改为增量 SSE 解析（实时预览恢复，顺带修复 CRLF 分隔符整段丢失）",
+    "H7: Anthropic 请求错误不再被吞（error 透传 + onError 触发 + chunk 监听器泄漏修复）",
+    "H8: files:saveImageUrl 加 SSRF 防护（私网拦截/15s超时/redirect 逐跳/大小与 MIME 校验）",
+    "H9: 情色场景弹窗 4 个下拉选择中文值失效修复（\\w→[^,]+，不再追加重复值）",
+    "H10: 改写向导自定义正则拆章错位修复（matchAll 按行拆分，免疫捕获组）",
+    "H11: 风格工坊批量分析落盘旧闭包修复（ref 同步最新项目，刷新不再丢数据）",
+    "H12: 续写工作区批量分析互相覆盖修复（ref 读写最新章节）",
+    "M1: filePaths 路径集中管理落地（3 个 service + OutlinePage 改用统一路径函数，TAB_FILE_MAP 对齐实际文件名）",
+    "M2: GLOBAL_DIRS 全局路径解析生效（notes/style_templates 等无需 ../ 前缀）",
+    "M3: 删除冗余 ai:anthropic-done/ai:anthropic-error 事件通道（数据经 invoke 返回值下发）",
+    "M4: 测试质量修复（SevenLayerCache 改测真实实现；删除恒真断言/已删逻辑残留测试）"
+   ]
+  },
+  {
+   "version": "14.0.0",
+   "date": "2026-08-01",
+   "features": [
+    "改写/续写弹窗: 插入本章原文参考（默认勾选）— 参考原文紧贴处理对象，任务设定+标准优先级(用户要求>模板>默认)前置，防保守小改",
+    "角色卡片: 自定义信息条块（自由增删，前框特点/后框信息）；AI 生成的角色未知字段（修为体系等）自动吸收为条块",
+    "角色卡片: 移除关系图功能与关系标签（类型/服务/UI/校验器全链路同步）",
+    "章节编辑器右键菜单: 移除润色（与改写重复），默认润色模板并入改写为「轻度润色模板」",
+    "AI 生成角色弹窗: 新增知识库文件勾选参考（优先级 细纲>角色>大纲>知识库）",
+    "设置页: 新增「知识库」标签 — AI 写作助手/章节生成类分场景配置 topK 与全量注入上限（persist v8 迁移）",
+    "知识库全局化: AI 助手/生成类场景无需项目内即可选择全部知识库文件",
+    "AI 写作助手: 消息内文件图标 — 左键打开文件、右键打开文件夹（生成/修改的文件）",
+    "项目卡片: 支持修改项目名（project.json 存显示名，目录与路径引用不受影响）",
+    "schemaValidation 与角色卡字段同步（14 字段）— 修复 AI 保存角色误报缺少 relationshipTags 并陷入重试循环",
+    "Agent 架构: 双协议 Bridge 合并（chatBridgeFactory 基类，-95% 重复）；拖拽/缩放统一为 useDraggableResizable（6 处接入）"
+   ],
+   "fixes": [
+    "角色删除失败修复 — 以文件名为 id 唯一来源 + .yaml/.json/.txt 扩展名兜底",
+    "章节生成/批量生成弹窗知识库滚动失效 — flex 容器 minHeight:0（4 处）",
+    "改写/续写弹窗: 续写明确紧跟原文之后；改写强调执行幅度不被参考带偏",
+    "RewriteWorkspace 批量分析/改写旧闭包重复处理已分析章节",
+    "Scratchpad 切换笔记竞态 — 旧内容写入新笔记（flush+定时器校验）",
+    "StyleWorkshop 存为模板失效（setTimeout 旧闭包）+ tone/attitude 提取正则双重转义",
+    "ChapterListPanel 交换顺序只持久化两章（原地修改共享对象）",
+    "BatchGenerationModal autoSummary 摘要从未注入（闭包过期状态）",
+    "EditorToolbar 段落唯一样式清空失效（反向三元）",
+    "Agent 运行时: 超时/中止孤儿 tool 消息、压缩切点切断 tool 链、stripDetail 对 read_file 全文无效、只读提醒重复注入、写工具集合三处不一致",
+    "Anthropic 协议 cost 恒为 0（IPC 返回补 cost 字段）",
+    "anthropicHandlers 无条件落盘 debug 文件泄露 system prompt（加 QINGJIAN_DEBUG_PROMPT 开关）",
+    "AIChatWindow updater 内嵌 setState 副作用（StrictMode 双调用）",
+    "ChapterGenerationModal 流式进度面板/停止按钮死代码（父级 overlay 承担取消）",
+    "safeJsonParse 单引号替换误伤字符串内单引号",
+    "低严重度清理: 死代码约 900 行（ThinkingEngine/shellHandlers/taskDetection SKILL 体系/死导出）、未使用 import 约 300 符号、文档版本/工具数/主题数一致化、vitest 恢复 41 个 IPC 用例、@antv/g6 死依赖移除"
+   ]
+  },
+  {
+   "version": "13.5.3",
+   "date": "2026-06-24",
+   "features": [
+    "小说改写: 精密定位改写机制 — startText/endText锚点定位+4级模糊匹配→仅改写场景段落→替换回原文",
+    "小说改写: Stage 3场景标记可跳过/恢复改写 (disabledMarkerKeys)",
+    "小说改写: Stage 2重新总结按钮 — 清空分析后重新AI分析",
+    "小说改写: Stage 5章节列表可点击查看单章+合并预览切换",
+    "小说改写: 查看对比—显示改写模式(精密定位/全章)+已改写场景列表+段落级diff",
+    "小说改写: 段落格式修复—plainToHtml+computeParagraphDiff统一处理　　+\\n双分隔符",
+    "小说改写: countCJKChars统一 — 消除3种字数统计重复实现(前端/后端/内联循环)",
+    "小说改写: RewriteWorkspacePage拆分 — 提取RewriteCompareModal+rewriteSegmentUtils(-362行)"
+   ],
+   "fixes": [
+    "RewritePage阶段进度圆环Step 3修复 — 使用全局STEP_KEY_TO_STAGE/STAGE_ORDER",
+    "Stage 4切换章节editorReadOnly重置",
+    "Stage 2失败章节计数从全部未分析改为实际失败数",
+    "章节标题双重前缀修复 — 去除第N章重复",
+    "Stage 5导出统计条绿色左移",
+    "对比视图阈值不对称修复 — 统一0.35",
+    "endText模糊匹配增强 — 4级匹配(精确→空白归一化→前缀8/6/4→字符级最长公共子串)",
+    "场景识别Tab滚动条缺失修复 — flex容器添加minHeight:0"
+   ]
+  },
+  {
+   "version": "13.5.2",
+   "date": "2026-06-23",
+   "features": [
+    "小说改写: 全功能灰色字体→黑色——66处#9b8e84/#6b5e54替换为#2d2520/#3a3530",
+    "小说改写: 左栏章名去重——只显示原标题(含换行),不加第N章前缀,字数黑色",
+    "小说改写: Stage 2/3章列表显示需改写标签+章节字数",
+    "小说改写: Stage 4只显示需改写章节(自动折叠)+改写失败/字数不达标标签",
+    "小说改写: Stage 4重试按钮修复——attemptedRewriteIds追踪,仅针对已尝试但失败的章节",
+    "小说改写: 合并输出全部章节(含原文)→保持剧情连续性+去除重复标题+已改写标记",
+    "小说改写: Stage 5右栏重设计——导出统计(字数+章数对比条/项目名/打开文件夹)",
+    "小说改写: 导出字数计算修复——逐章计算改写用新值/未改写用原值",
+    "小说改写: Stage 3识别分类字体增大(10→13px)+IPC打开文件夹"
+   ]
+  },
+  {
+   "version": "13.5.1",
+   "date": "2026-06-23",
+   "features": [
+    "小说改写: 右键弹窗改写——选中段落右键→AIPolishDialog(模板+自定义要求→AI生成→编辑→插入)",
+    "小说改写: 段落格式优化——段首自动2em缩进+段间空行,CSS+保存双向保证",
+    "小说改写: 字数达标重定义——calcIsPassing()替换WORD_COUNT_THRESHOLD,≥原文且≥原文+目标×50%",
+    "小说改写: Stage2+4暂停/继续——进度条(流动渐变)+暂停按钮,继续后仅处理未完成的章节",
+    "小说改写: Stage4进度条总章节数=需改写章节数(≠全部章节)",
+    "小说改写: Stage2重试按钮始终可见——无失败时禁用显示无需重新总结",
+    "小说改写: Stage4新增重新改写失败章节按钮——始终可见,红色,计数N=未改写章节",
+    "小说改写: 批量操作跳过已完成章节——handleAnalyzeAll/handleRewriteAll自动过滤已分析/已改写",
+    "小说改写: 顶部栏字体增大——5阶段中间标题从12px→15px #6b5e54→#2d2520"
+   ]
+  },
+  {
+   "version": "13.5.0",
+   "date": "2026-06-22",
+   "features": [
+    "小说改写: 场景分段改写机制——仅提取startText/endText标记段落发给AI→改写后插入回原文(非场景文字原样保留)",
+    "小说改写: 提示词模板完整集成——系统破甲(systemPrompt)/场景识别规则(sceneRules)/通用指导(universalGuidance)/场景特定规则(sceneGuidance)全链路注入",
+    "小说改写: sceneGuidance键映射修复——buildSceneGuidanceMap支持id和name双向查找,修复sxsy导入模板场景规则不生效Bug",
+    "小说改写: 字数目标按模板规则分配——核心性交互场景不限字数额情发挥,暧昧场景1000-2000字,轻度场景扩展50-100%",
+    "小说改写: 移除流式输出——全部改写调用使用非流式chatAI,章节完成后一次性输出",
+    "小说改写: RewriteEditor轻量编辑器——中间区域TipTap编辑器(无工具栏),右键改写选中段落/续写,自动保存,只读/编辑切换",
+    "小说改写: 呼吸灯状态指示——Stage 2总结+Stage 4改写章列表彩色dot(绿闪=进行中/绿=完成/红=失败/黄=无场景/橙=字数不达标/灰=未处理)",
+    "小说改写: 布局+字体全面优化——左240→280右200→250,章节正文17px,全文fontSize+2-4px fontWeight提升,中间白底",
+    "小说改写: Stage 3默认仅显示需改写章节——保留原文章节一键折叠/展开,标题改为需改写N章",
+    "小说改写: Stage 4三栏字数(原文/改写加料/总字数)+CompareModal左右面板字数显示",
+    "小说改写: Stage 2角色信息两列网格(maxHeight 560)+失败章节重新总结按钮+Stage 3继续按钮",
+    "小说改写: 向导步骤5模板详情滚动修复(RewriteCreateWizard)+模板列表搜索过滤(RewritePromptModal)+sxsy导入\\n unescape",
+    "小说改写: RewritePage查看设置弹窗+右侧面板布局对齐+Stage 3自动标记为已识别"
+   ]
+  },
+  {
+   "version": "13.2.0",
+   "date": "2026-06-21",
+   "features": [
+    "System Prompt 瘦身: 写作规范手册12节约6,200字符→7个外部模板文件(引用索引约400字符),固定开销-37%",
+    "渐进披露实际切换: V4UnifiedRuntime首轮全量27工具→后续12核心工具(含tool_search按需发现)",
+    "渐进披露动态加载: tool_search返回matchedTools→Runtime._discoveredToolNames→后续轮次动态加入schema",
+    "上下文进度条精准化: 改用estimatedContextTokens(基于messagesForApi真实大小估算),替代累计计费值",
+    "上下文进度条初始化修复: IndexedDB加载后恢复cumulativeTokens+消息估算上下文占用",
+    "上下文进度条分解数值修复: ContextUsageBar的tokenBreakdown用tokens字段替代chars,消除54%低估",
+    "工具删除4个: lsp_diagnose(纯开发工具)+update_config+list_audit(用户可手动操作),工具34→27",
+    "角色扮演测试: 测试脚本新增S_R1(角色+纯聊天)/S_R2(角色+工具操作),验证角色外壳不影响核心能力",
+    "渐进披露测试: 测试脚本新增S_PD场景,验证非核心工具(search_images)的tool_search→发现→调用链路",
+    "测试脚本增强: setup/teardown回调+hasNoTools断言+上下文用量实时显示(_estimatedContextTokens)",
+    "代码清理: electronBridge.lspService移除,ToolDetailPanel标签更新(+补全缺失标签),ContractExecutor新增tool_search契约",
+    "类型完善: ToolResult/ToolExecContext/RuntimeTypes/V4AgentRunResult新增matchedTools/estimatedContextTokens字段",
+    "脚本清理: export-tool-schemas.mjs/run-agent.ts/test-ai-conversation.mjs移除已删除工具引用"
+   ]
+  },
+  {
+   "version": "13.1.0",
+   "date": "2026-06-21",
+   "features": [
+    "提示词库: 卡片+弹窗编辑模式(80%屏幕),卡片只展示摘要,点击弹窗编辑,删除加ConfirmModal确认",
+    "AI写作助手: 角色模板卡片删除加ConfirmModal确认弹窗",
+    "场景工坊: 段编辑弹窗加大(700→1100w,65→90vh),模板删除改用ConfirmModal",
+    "风格工坊: 编辑模板弹窗加大(960→1200w,72→92vh),Prompt编辑/维度详情/维度配置弹窗统一加大",
+    "风格工坊: 模板/档案删除改用ConfirmModal,useStyleWorkshop hook新增deleteConfirm状态",
+    "操作记录功能接入: ToolExecutor中每次工具调用自动写入OpHistoryEntry,持久化到localStorage",
+    "导航栏: 剧情改写→小说改写,移至小说续写下方,知识库移至草稿本上方",
+    "项目入口三页全面改造: ContinuationPage/RewritePage/ImitationPage使用ProjectHubLayout主从布局",
+    "共享布局组件: ProjectHubLayout(左280px项目列表+右玻璃拟态详情卡),内建ConfirmModal删除",
+    "项目详情卡: 三个页面右栏统一玻璃拟态卡片(项目名+统计块+操作按钮),与首页风格一致",
+    "项目类型简化: 首页创建仅普通小说,仿写/续写在各自界面创建项目",
+    "项目文件夹分离: imitation_projects/和continuation_project_dirs/独立目录,Electron→IPC→Store全链路",
+    "代码清理: 移除window.confirm()(全部替换为ConfirmModal),清理未使用导入,TypeScript零错误"
+   ]
+  },
+  {
+   "version": "13.0.0",
+   "date": "2026-06-20",
+   "features": [
+    "多角色系统: 角色模板(RoleTemplate)+角色卡片(CharacterCard)借鉴SillyTavern酒馆架构",
+    "角色模板弹窗: 左栏模板列表+右栏详情,可拖拽缩放(宽高9/10屏幕),右上角关闭+底部关闭/保存按钮",
+    "角色卡片编辑器: 2列网格,身份自定义输入,头像上传/点击放大,背景设定/开场白/示例对话",
+    "AI对话角色模板选择器: 底部工具栏,输入前可切换,发送后锁定(橙色disabled)",
+    "多头像系统: 按角色模板显示对应头像,预加载映射,点击头像查看大图",
+    "角色提示词注入: BridgeContextBuilder首条注入完整角色设定(语气外壳),后续精简一行防失忆",
+    "不替换AI写作助手核心身份: 角色扮演是语气外壳,工具调用能力完整保留",
+    "自定义身份修复: 选择自定义→输入框出现→自由填写",
+    "弹窗字体全面增大: 10-13px→12-15px,改善可读性",
+    "补充设定区域flex撑满: 世界观+场景设定填空至底部按钮上方",
+    "删除模板确认弹窗: ConfirmModal危险样式,防止误删",
+    "v5数据迁移: 旧customRoles自动转为经典模式角色模板",
+    "小说脉络功能删除: 17文件+路由+侧边栏+类型+死代码清理+barrel导出修复",
+    "代码清理: 17个未使用import移除,身份冲突守卫,模板字符串修复"
+   ]
+  },
+  {
+   "version": "12.17.0",
+   "date": "2026-06-14",
+   "features": [
+    "Nudge系统完全移除: ToolActionPrompter.ts删除(66行),梯度Nudge→自愈诊断恢复系统",
+    "自愈恢复系统: 不催促(快做!),改为诊断(分析了什么/为什么失败/换什么方法)",
+    "Runtime安全网三层: 完成检测+零工具拦截+长文本检查,全部验证_hasWriteCall",
+    "假完成拦截: 模型说全部完成但工具=0→拒绝+推入自愈恢复",
+    "读操作计数器: ≥3次连续读取无写入→注入系统提醒,≥5次→强制写入提醒",
+    "任务边界隔离: 新用户消息到达时注入[任务边界],防止跨任务失败污染",
+    "跨轮记忆优化: System Prompt要求操作确认中提及关键信息,后续轮无需重读文件",
+    "ToolExecutor修复: tool_result在nudge之前推送;AnthropicAdapter合并连续tool消息",
+    "API超时: 90s→180s,适配大型上下文",
+    "taskDetection精度修复: hasTaskKeywords移除单字词避免聊天误判",
+    "上下文: contextWindow支持1M tokens(deepseek-v4-flash)",
+    "对话测试脚本: test-ai-conversation.mjs,19场景,真实Bridge→Runtime→Adapter,mock window.electron",
+    "测试覆盖: 读取分析/跨轮记忆/多任务/编辑/删除重建/探索创建/内容转化/联网搜索/知识库"
+   ]
+  },
+  {
+   "version": "12.10.0",
+   "date": "2026-06-13",
+   "features": [
+    "工具精简: 移除think工具(34工具),AI自身推理能力替代",
+    "Nudge系统重构: 3阶段梯度升级(温和→强制→注入),7次才放弃(原3次)",
+    "Nudge消息智能化: 根据用户意图推荐正确工具(create_project/delete_file/rename_file)",
+    "路径错误自动诊断: 检测projects/前缀等模式,单次失败即注入修正建议,连续2次强制目录诊断",
+    "连续路径错误独立计数: 不受部分成功归零影响",
+    "Prompt决策树扩展: 5分支→7分支(新增分支1B讨论查看/分支5信息检索/分支6文件整理)",
+    "操作失败处理重写: 从被动询问→连续自主恢复循环(失败→分析→学习→重试,不停下)",
+    "分支4探索限制: 最多读3个关键文件,读完即写,空文件直接创建",
+    "Prompt工具覆盖率: 25%→100%(新增扩展工具速查,覆盖32个工具),tool_search机制首次引入",
+    "项目名动态注入: BridgeContextBuilder注入项目显示名+目录名,AI理解用户称呼",
+    "后续消息工具集优化: 7→10常用工具,闲聊消息0工具",
+    "_userRequestedFileOp两层检测: 精确正则+TASK_KEYWORDS兜底,消除6个盲区",
+    "对话历史保留工具调用: 最近5轮完整tool_calls+tool_results保留,早前轮次压缩",
+    "Minimal Prompt强化: 40→80+tokens,包含路径格式+tool_search+自主恢复指引",
+    "Prompt内部矛盾修复: 4处(A-0vsA/多任务/双路径/FULL_REPLACE),快速判断关键词对齐",
+    "风格模板工作流完整重写: 5子流程(获取原文→分析→生成模板→PromptTXT→查看编辑)",
+    "格式模板路径修正: 15+17实际计数,区分用户模板与格式参考模板,find_files发现",
+    "批量替换指引: 文件操作指南+batch_replace效率提示",
+    "创建项目直接指令: 明确create_project参数(name/type/novelCategory),首条直接可用",
+    "摘要功能全面修复: Zustand直接修改→setter/手动编辑同步store/清空保存/空值loading修复/内容截断",
+    "plot.md/worldbuilding.md初始占位文字改为空白",
+    "章节/角色/笔记/知识库: 增加删除/重命名/修改等生命周期指引",
+    "联网搜索结果保存: browser_search→create_file存为草稿或知识库",
+    "tool_search作为核心机制引入Prompt,15个格式模板路径全部列出"
+   ]
+  },
+  {
+   "version": "12.9.0",
+   "date": "2026-06-13",
+   "features": [
+    "规则模板系统: 8组可自定义的prompt规则模板,替换24个硬编码段落",
+    "Prompt直接编辑: 模板卡片新增Prompt编辑器,所见即所得编辑完整prompt",
+    "风格补充说明: 最高优先级自由文本注入prompt末尾",
+    "提示词优化: 修复create_file/read_file描述,优化分支决策,增强MINIMAL_SYSTEM_PROMPT",
+    "情色过滤修复: EROTIC_ONLY_HEADERS从4个扩展到16个,非情色场景不再泄漏情色内容",
+    "complexData YAML双向注入: 同时注入features和dimAnalyses",
+    "叙事态度下拉框: ATTITUDE_PRESETS从死代码恢复为可用UI",
+    "模板创建初始化修复: categorizedVocab不再为undefined",
+    "AI分析保存tone提取: handleSaveAsTemplate自动从narrativeTone提取基调",
+    "规则模板绑定: 模板编辑器可绑定ruleTemplateId,Prompt编辑器下拉切换"
+   ]
+  },
+  {
+   "version": "12.8.0",
+   "date": "2026-06-13",
+   "features": [
+    "全类型维度分层: 17种小说类型各有DIM_PRIORITY(T0-T3)分层体系",
+    "类型特别注意: 7种热门类型(情色/修仙/都市/恋爱/玄幻/科幻/奇幻)有专属分析指导",
+    "动态篇幅分配: 根据novelType自动匹配各维度字数范围",
+    "紧凑纯文本输出: 分析prompt要求无Markdown格式符号",
+    "注入类型感知: 情色专属内容(感官锚/直白锚/绕过指导)仅情色类型触发",
+    "极端内容绕过: 分隔符/拼音/英文/同音字四种方法",
+    "vocabularyStyle↔rhetoricStyle边界重写(选词造词vs用词效果)",
+    "humiliationTemplate合并shameVoyeurLoop(外部递进+内部循环)",
+    "bodyMindBetrayal扩展为背德内容+堕落路径+堕落后心理三维分析",
+    "costumeStyle提升至T1(衣着作为核心情色装置)",
+    "dialogueStyle/bodyLanguageStyle降至T2(公式化输出)",
+    "onomatopoeiaSystem标签改为情色声音系统，类别改为情色专属",
+    "narrativeTone补回15种非情色类型",
+    "死代码getTieredDimInstructions删除",
+    "26维→27维数字修正"
+   ]
+  },
+  {
+   "version": "12.7.2",
+   "date": "2026-06-12",
+   "features": [
+    "风格模板v4: 情色维度精简至16个(T1=8/T2=4/T3=4)",
+    "风格模板v4: 新增costumeStyle(T2)衣着/装扮独立维度",
+    "风格模板v4: sensoryStyle情色类型优先分析气味和触感",
+    "风格模板v4: VOCABULARY改为AI预分类对象格式(5类)，注入端正则退为回退",
+    "风格模板v4: 移除sentenceStyle/rhythmStyle/corruptionArc从情色维度",
+    "风格模板v4: degradationRitual扩展为场景/空间情色机制",
+    "风格模板v4: 新增描写力度/感官温度锚校准指导",
+    "风格模板v4: 叫床/淫叫声三层功能框架无条件注入",
+    "风格模板v4: 羞辱递进改为心理弧线模板(Phase1-6)",
+    "风格模板v4: 对话技法增强(拟声嵌入+高潮告解)",
+    "风格模板v4: prompt移除所有硬编码示例词",
+    "风格模板v4: 分析prompt新增铺垫/前戏阶段指导",
+    "风格模板v4: novelType键名拆分(LONG/SHORT)，修复T1-T4优先级静默失效",
+    "风格模板v4: parseStyleAnalysisReply修复VOCABULARY行首匹配+slice顺序",
+    "风格模板v4: CategorizedVocab类型体系，全链路类型安全",
+    "风格模板v4: Scene-Aware过滤改为共享常量"
+   ]
+  },
+  {
+   "version": "12.6.0",
+   "date": "2026-06-12",
+   "features": [
+    "温度优化: 阶段感知温度(创作轮=用户设定/执行轮≤0.5),默认温度0.3→1.0",
+    "温度优化: 工具执行温度上限可配置(toolTemperature),设置页新增滑块",
+    "风格模板v3: 情色小说优先级系统(T1-T4),6核心+4支撑+5辅助+1跳过",
+    "风格模板v3: 维度合并(compoundWordPattern→vocabularyStyle/sensoryPackFormula→sensoryStyle/rhythm+mood→rhythmMoodStyle)",
+    "风格模板v3: 词汇注入改版——词条清单→核心词+造词公式双段+举一反三",
+    "风格模板v3: 情色语言强化块(❤标记/辱骂词/复合词自动检测注入)",
+    "风格分析: parseStyleAnalysisReply解析器重写(支持per-dimension VOCABULARY/RULES/兼容单#双##)",
+    "风格分析: examples双向打通(解析提取→注入为few-shot样本)",
+    "风格分析: DIMENSION_META.prompt注入分析prompt(提升分析质量)",
+    "风格分析: buildFewShotExcerpts集成到汇总流程",
+    "风格注入: 场景感知(buildSceneAwareStylePrompt/classifySceneType)",
+    "风格注入: 硬编码规则精简(28→6条),维度分析结果浮现",
+    "风格注入: 叙述者站姿检测(tone→赏玩/冷眼/共情)+羞辱递进链提取",
+    "测试脚本: analyze-and-imitate.ts+compare-imitation.ts(分析+仿写+对比全链路)"
+   ]
+  },
+  {
+   "version": "12.5.0",
+   "date": "2026-06-11",
+   "features": [
+    "连续失败保护: Runtime层_consecutiveFailures计数器,3轮提醒/5轮强制终止",
+    "系统提示词: 操作失败处理指导(路径/匹配/参数等所有工具错误通用),最多2次重试",
+    "润色弹窗: 原文/结果区等宽(flex:8/10→flex:1),流式默认开启,遮罩改为角标",
+    "章节创作: 进入时自动创建TXT文件,细纲章节ID改为chapter{N}格式",
+    "细纲删除: 同步清理chapters/{id}.txt+版本历史目录",
+    "章节生成: streamMode默认值改为true(ChapterGenSettings)"
+   ]
+  },
+  {
+   "version": "12.4.0",
+   "date": "2026-06-10",
+   "features": [
+    "P0修复: sendLock竞态/协议锁释放/pendingCorrection覆盖手动发送修复",
+    "P0修复: 对话管理Bridge销毁统一(新建/清空/删除均释放协议锁)",
+    "P1修复: Token双重计数移除Runtime层addTokens/UI层统一计费",
+    "角色系统: customRoles+defaultRole端到端注入BridgeContextBuilder",
+    "角色系统: 身份行剥离(角色prompt成为唯一身份)/预设角色增强",
+    "P2修复: conversationToolNames删除对话清除+planInstruction死代码清理",
+    "工作流优化: fileVersion双重递增修复(删除bumpFileVersion冗余调用)",
+    "工作流优化: 8页面AI变更刷新(Imitation×3+Continuation×4+Rewrite)",
+    "工作流优化: KB搜索configId修复(空字符串→有效configId)",
+    "工作流优化: setExtendedTools死代码移除(被_fullPromptSent替代)",
+    "代码清理: 6处哨兵值死else分支移除(OutlinePage/ScratchpadPage/2个Popup)"
+   ]
+  },
+  {
+   "version": "12.3.0",
+   "date": "2026-06-10",
+   "features": [
+    "行为决策树: 4分支统一Prompt替换对话/创作双Prompt，模型自主判断意图",
+    "Runtime v4: 读循环检测+文本输出拦截+文件操作意图强化Nudge(上限2→3)",
+    "Plan模式移除: 类型/注册/Bridge/UI全链路清理，availableInPlanMode死代码删除",
+    "路径全面修正: ../../ → ../ (6文件)，目录结构文档化含字段结构",
+    "编辑操作模式: 追加/覆盖/替换的edit_file具体old_string操作指南",
+    "模板智能读取: 大纲6YAML Tab+角色15字段+细纲字段内置Prompt，不再强制读模板",
+    "KB修复: 元数据同步(create_file自动注册)+上传estimate路径检查移除+文件名中文支持",
+    "KB增强: LM Studio预设+文件列表删除按钮+项目内notes/僵尸目录删除",
+    "路径别名修复: @/utils/security→相对路径(4文件)，vitest/tsx均可解析",
+    "混合响应修复: Runtime text+tool_calls同响应时文本emit到UI",
+    "项目内notes/目录移除: PROJECT_DIRS清理，create_project不再创建",
+    "LM Studio预设: PROVIDER_PRESETS新增lmstudio条目(http://localhost:1234/v1)"
+   ]
+  },
+  {
+   "version": "12.2.0",
+   "date": "2026-06-09",
+   "features": [
+    "知识库文件列表: 每行新增删除按钮(垃圾桶图标)+确认弹窗",
+    "KB文件命名: 上传/新建文件使用原始中文名(非随机ID)，重名自动加_1后缀",
+    "KB: kb:rename同步重命名物理文件"
+   ]
+  },
+  {
+   "version": "12.1.0",
+   "date": "2026-06-09",
+   "features": [
+    "AI系统提示词补充: 章节摘要生成+细纲提取+反向细纲+对话分析流程",
+    "系统提示词内容来源明确: 分支A/A2/A3区分对话内容/文件两种输入源",
+    "Node.js v25兼容: electron-builder配置更新"
+   ]
+  },
+  {
+   "version": "12.0.0",
+   "date": "2026-06-08",
+   "features": [
+    "润色/续写/改写弹窗: 选中片段+模板选择器+自定义要求，不使用模板时不附加默认指令",
+    "AI审稿弹窗重构: 章节预览+模板选择器（含不使用）+自定义要求",
+    "AI生成角色弹窗: 新增不使用模板选项",
+    "AI生成章节弹窗: 选择器始终显示+不使用模板选项，模板可无",
+    "弹窗缩放: Modal组件新增resizable，所有主要弹窗支持右下角拖拽放大缩小",
+    "AI写作助手窗口: 8方向缩放锚点修正，每个角锚定其对角",
+    "右键发送AI: 去掉前缀后缀，纯净选中文字",
+    "粘贴阈值: 200→3000字才自动保存为TXT",
+    "输入框可调: rows=3, resize=vertical, min/max height",
+    "deleteFile: ENOENT静默处理，文件不存在不报错",
+    "编辑器保存按钮: 已有自动保存+手动保存+失焦保存"
+   ]
+  },
+  {
+   "version": "11.8.2",
+   "date": "2026-06-08",
+   "features": [
+    "全局目录统一: notes/knowledge_base/style_templates/scene_templates/agent-sessions/uploads/.ai_backups 移到根目录",
+    "GLOBAL_DIRS 清空: 所有全局资源改用 ../../ 前缀访问，../ 导航修正",
+    "启动健壮性: ensureRuntimeDirectories 显式创建所有运行时目录，syncAiharnessResources 从 extraResources 同步模板/规则/脚本",
+    "模板扩展: 14→16个，新增 knowledge-base-file.md 和 note-draft.md",
+    "AI工具描述全面更新: create_file/edit_file/batch_replace/list_directory/read_file/search_content/find_files/delete_file/rename_file 路径统一",
+    "死设置清理: maxHistory/toolRetentionRounds/rulesRefreshInterval 三个无效配置及其UI移除",
+    "草稿本路径统一: ScratchpadPage 与 AI 工具共用 userData/notes/",
+    "备份集中化: getBackupRoot 统一到 userData/.ai_backups/，不再散落各处",
+    "脚本路径修正: shellHandlers 从 parentDir 解析脚本，scripts/ 加入 extraResources",
+    "find_files 搜索范围扩展至 userData 根目录，覆盖所有全局资源",
+    "create_file 安全边界修正: ../ 路径以 userData 为边界",
+    "ContextAssembler.domainsForPath 兼容 ../../ 前缀",
+    "HTTP 配置路径修正: 从 parentDir 读取 aiharness.json",
+    "打包配置: electron-builder.yml extraResources 新增 scripts/"
+   ]
+  },
+  {
+   "version": "11.8.1",
+   "date": "2026-06-08",
+   "features": [
+    "CI测试全绿: 0 failed, 386 passed, 15 skipped(过期Mock标为skip)",
+    "死代码清理: 删TemplateGenerationAndCache测试(测已删工具), 删4个无引用提示词类型(灵感/世界观/大纲/细纲)",
+    "fileToolHandlers测试修复: notes全局路径对齐v11.8.0",
+    "toolSets/toolDefs/toolInvokePrompt测试更新匹配当前32工具",
+    "AI角色生成修复: 形象图描述→形象图标签对齐, 加YAML说明+纯文本约束",
+    "Key加密移除: saveConfigs/loadConfigs明文存储, decryptKey全部替换, 眼睛按钮可用",
+    "软件说明更新: 工具数/仿写类型/双协议/Prompt缓存等描述同步v11.8.0",
+    "记忆文件更新: architecture/file-reference/anthropic-mode重写为v11.8.0"
+   ]
+  },
+  {
+   "version": "11.8.0",
+   "date": "2026-06-08",
+   "features": [
+    "双协议全局路由: 新建chatAI.ts共享模块, 修复20+文件35+处aiService.chat→chatAI, 仿写/续写/风格/章节生成全功能Anthropic可用",
+    "章节生成双协议: chatAIStream+chatAIWithUsage路由, Anthropic流式/非流式均支持",
+    "Prompt缓存: Anthropic加cache_control标记, OpenAI透传cached_tokens, 固定开销仅剩~540tokens/轮",
+    "首条全量注入: 核心规则首条2,758tokens→后续仅40tokens精简提醒, 工具首条35个→后续核心7个(含tool_search按需发现)",
+    "索引移除: 全局文件索引不再注入, 模型用list_directory/find_files/search_content动态探索",
+    "AI生成提示词重构: 四层结构(风格→剧情→场景→参考), 层级清晰, 参考材料标注'仅供参考'",
+    "AI生成加温度条: 与设置页双向同步, 直接修改electron-store, IPC即时生效",
+    "死代码清理: 删除MemoryIndex/contentExtractor/QualityCheckEngine(~300行), isTaskMessage函数及测试",
+    "语音功能移除: 删除VoiceButton/SpeakButton/TTS设置面板",
+    "学习系统移除: 删除LearningEngine/FeedbackSection/LearningSection/write_learning/learn_rule(~1,200行)",
+    "Bridge去重: 抽取toolExecutorFactory共享工厂, 两个Bridge各删~40行重复代码",
+    "ContextAssembler精简: Provider机制移除, 仅保留domainsForPath+空壳assemble",
+    "API密钥明文存储: 移除safeStorage加密, saveConfigs/loadConfigs直接读写明文, 眼睛按钮正常可用",
+    "AuditTrail持久化加错误日志, ContractExecutor未知工具加warn, peakPromptTokens修复",
+    "AnthropicAdapter: tool_result加is_error标记, thinking类型断言消除, 导入统一",
+    "SystemPrompt: 删除占位符/selectDomainModules死代码, 第10节精简, buildSystemPrompt无参化",
+    "工具调整: 35→32(删learn_rule/write_learning), harness 5→3, 加tool_search",
+    "Agent设置精简: 自我优化+学习两个标签移除, 仅保留可靠性+MCP",
+    "上下文压缩阈值恢复70%(不改动), 缓存命中和花费显示修正"
+   ]
+  },
+  {
+   "version": "11.7.0",
+   "date": "2026-06-08",
+   "features": [
+    "提示词重构: 删除铁律/写优先/禁止列表, 改为对话人格+工具使用指南",
+    "工具系统: 删除create_style_template/create_scene_template, 新增analyze_text_style(调用仿写分析引擎)",
+    "缓存修复: 恢复v9.8.9三层缓存设计, 第1条消息全发核心规则+索引+33工具并缓存",
+    "isTaskMessage停用: 改为tool_choice:auto, 模型自己判断是否调工具",
+    "文件路径: create_file支持../../style_templates全局路径",
+    "工具超时: 60s→120s适配analyze_text_style内部AI调用",
+    "死代码清理: PhaseManager/ALL_PROVIDERS/peakPromptTokens/lastPromptTokens",
+    "测试: FunctionalSmoke更新为33工具, 新增模拟测试"
+   ]
+  },
+  {
+   "version": "11.6.0",
+   "date": "2026-06-07",
+   "features": [
+    "铁律重构: 先读后写→写优先, 新建直接写/修改先读后改/读格式模板不计入读取次数",
+    "nudge优化v2: 含用户原始请求的智能推送 + 上限2次 + >200字直接接受 + 死锁消除",
+    "消息分类统一: isPureGreeting/isKnowledgeOnly/hasTaskKeywords 三函数统一到taskDetection.ts",
+    "Bridge重构: 提取BridgeContextBuilder(上下文组装)+CacheInvalidator(缓存失效)消除~400行重复代码",
+    "Anthropic thinking修复: SSE解析7步管线完整贯通(thinking_delta+signature_delta+多轮回传)",
+    "maxIterations 60→30: nudge上限+写优先已消除死锁, 30轮足够任何任务",
+    "上下文进度条修复: 累计值→当前消息输入+输出, 真实反映窗口压力",
+    "花费管线贯通: Anthropic SSE→Adapter→Runtime→UI, cost字段不再硬编码为0",
+    "模板路径统一: 系统提示词中全部模板路径添加../../前缀, 确保正确解析",
+    "权限修正: rename_file→DANGEROUS_ASK, create_file描述更新, SecurityFence Layer 1-2-3-4重编号",
+    "对话分析: 发现60轮死锁根因(铁律#1教模型只读), 缓存验证(DeepSeek自动缓存~7K/轮)",
+    "死代码清理: Provider注册/activeSkill/setActiveSkill/buildSystemPromptWithSkills别名/PhaseManager废弃/ALL_PROVIDERS空壳",
+    "CLI测试: 新建cli-test.mjs(7场景), 删除旧仿真脚本(full-sim/27文件+tests/integration/6文件)",
+    "CLI修复: search_content路径解析/list_directory projects前缀/read_file目录错误提示/create_file大小限制"
+   ]
+  },
+  {
+   "version": "11.5.0",
+   "date": "2026-06-07",
+   "features": [
+    "工具合并 42→34: 删除冗余note/kb工具8个(list_notes/read_note/write_note/edit_note/append_note/delete_note/kb_list/kb_create_file),统一使用create_file/edit_file/read_file",
+    "create_file/edit_file路径统一: 支持notes/knowledge_base/style_templates/scene_templates/uploads等全局目录",
+    "DeepSeek V4 thinking模式: OpenAI+Anthropic双协议启用深度推理,设置页可配置enableThinking/reasoningEffort",
+    "API智能参数: temperature 0.8→0.3(tool模式), max_tokens 4096→16384(Anthropic), reasoning_content回传修复",
+    "模板系统v2: 14个文件格式模板(.aiharness/templates/), 系统提示词~3500→~2758tokens, 26维风格模板+40+字段场景模板",
+    "目录可见性修复: MemoryIndex开放.aiharness/, list_directory全局扫描增加.aiharness/templates",
+    "完成/继续正则精简: 删除先/然后/以上是/以上就是等过匹配字符",
+    "nudge优化: 知识问答(_isChatQuestion)跳过探索推送, 只读死锁检测从第3轮提前到第1轮",
+    "text分析功能修复: invoke_skill残留清除, 附件路径../../前缀, 分支A等用户选择保护",
+    "笔记edit_note添加后删除(工具合并), 草稿笔记章节提示词更新",
+    "batch_replace后端bug修复: appRoot未定义ReferenceError→resolvePath('file_path')",
+    "confirmed:true补全: edit_file/batch_replace executor + backend batch_replace加入DANGEROUS_TOOL_NAMES",
+    "死代码清理: invoke_skill/search_files/restore_backup + CLI agent死note/KB handler删除",
+    "风格模板26维完整性: 系统提示词+tool schema+executor强制校验11通用维度",
+    "kb_append_file参数修复: projectId→configId + CLI args.name→args.file_id",
+    "buildHistoryMessages: 注入toolCallSteps摘要,继续时模型不重复探索"
+   ]
+  }
+ ]
 }

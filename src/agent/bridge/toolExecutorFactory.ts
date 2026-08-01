@@ -13,14 +13,15 @@ export interface ToolExecutorFactoryOptions {
   securityFence: V4SecurityFence
   auditTrail: AuditTrail
   projectId: string | null
-  /** 用户审批超时 (ms)，默认 180_000。Only Anthropic 有超时，OpenAI 无限 */
+  /** 用户审批超时 (ms)，默认 60_000。v14.5.0: 180s→60s——须小于工具超时 120s，
+   * 否则"审批晚于工具超时、通过后孤儿执行"竞态（工具已判超时但审批通过仍会执行副作用） */
   approvalTimeoutMs?: number
   /** 需要用户确认时回调。不传则直接拒绝 */
   onApprovalRequired?: (tools: Array<{ name: string; args: Record<string, unknown> }>) => Promise<boolean>
 }
 
 export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecutorFn {
-  const { securityFence, auditTrail, approvalTimeoutMs = 180_000, onApprovalRequired } = opts
+  const { securityFence, auditTrail, approvalTimeoutMs = 60_000, onApprovalRequired } = opts
 
   return async (args, ctx) => {
     // Layer 1-4: Security fence
@@ -40,18 +41,31 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
       return { status: 'error', summary: '此操作需要用户确认，当前环境不支持审批' }
     }
     if (secCheck.needsApproval && onApprovalRequired) {
-      const timeoutPromise = new Promise<boolean>(r =>
-        setTimeout(() => r(false), approvalTimeoutMs),
-      )
-      const approved = await Promise.race([
-        onApprovalRequired([{ name: ctx.toolName, args }]),
-        timeoutPromise,
-      ])
-      // v14 批处理: 审计权限决策（allow/deny + 原因）
-      auditTrail.recordPermissionDecision(ctx.toolName, approved ? 'allow' : 'deny',
-        approved ? '用户批准' : '用户拒绝或审批超时')
-      if (!approved) {
-        return { status: 'error', summary: '用户拒绝了此操作' }
+      // v14.5.0: 审批等待期间状态条显示"待审批"（WAITING_APPROVAL 此前从未被设置，
+      // 审批期间 UI 一直显示"执行中"）；动态 import 避免模块环；子代理无 onApprovalRequired 不触碰共享 store
+      let agentStore: { setPhase: (phase: import('../state/types').AgentPhase) => void } | null = null
+      try {
+        const { useAgentStore } = await import('../store/AgentStore')
+        agentStore = useAgentStore.getState()
+        agentStore.setPhase('WAITING_APPROVAL')
+      } catch { /* 测试/无 store 环境不影响审批 */ }
+      try {
+        const timeoutPromise = new Promise<boolean>(r =>
+          setTimeout(() => r(false), approvalTimeoutMs),
+        )
+        const approved = await Promise.race([
+          onApprovalRequired([{ name: ctx.toolName, args }]),
+          timeoutPromise,
+        ])
+        // v14 批处理: 审计权限决策（allow/deny + 原因）
+        auditTrail.recordPermissionDecision(ctx.toolName, approved ? 'allow' : 'deny',
+          approved ? '用户批准' : '用户拒绝或审批超时')
+        if (!approved) {
+          return { status: 'error', summary: '用户拒绝了此操作' }
+        }
+      } finally {
+        // v14.5.0 审查修复: 中止/超时结束时不恢复 EXECUTE（run 结束 endRun 归位 IDLE）
+        if (agentStore && !ctx.signal.aborted) agentStore.setPhase('EXECUTE')
       }
     }
 

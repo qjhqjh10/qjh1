@@ -15,6 +15,25 @@ const MAX_DETAIL_CHARS: Record<string, number> = {
 }
 
 /**
+ * v14.5.0: 从文本提取首个配对括号包裹的 JSON 对象。
+ * 原贪婪正则 /\{[\s\S]*\}/ 会把 JSON 之后散文中的 {} 吞入导致 JSON.parse 失败。
+ * 注意：调用方（SubagentService 拼接）承诺 detail/summary 不含 {}，保持约束不变。
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
  * v14.2.1: 共享 store 模块（promise 缓存）— 并行委托时多个 executor 并发执行，
  * 若各自 `await import('@/store')`，vitest 的 mock 解析器在并发动态 import 下
  * 会返回原始模块（activeConfigId=null → 误报"未配置AI"）；promise 缓存让所有
@@ -210,17 +229,27 @@ export const subagentTools: ToolDefinition[] = [
         let passed: boolean | null = null
         let failedCount = 0
         if (result.success) {
-          try {
-            const jsonMatch = result.text.match(/\{[\s\S]*\}/)
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0])
+          // v14.5.0: 贪婪正则 /\{[\s\S]*\}/ 会吞入 JSON 尾部散文中的 {} → parse 失败静默降级。
+          // 改为配对括号提取（首个 { 到与之配对的 }），嵌套结构正确截取。
+          const jsonText = extractJsonObject(result.text)
+          if (jsonText) {
+            try {
+              const parsed = JSON.parse(jsonText)
               if (parsed && typeof parsed.passed === 'boolean') {
                 passed = parsed.passed
                 failedCount = (parsed.items || []).filter((i: { passed?: boolean }) => i.passed === false).length
                 detail = JSON.stringify({ passed: parsed.passed, items: (parsed.items || []).slice(0, 20) })
               }
+            } catch { /* 坏 JSON → 走关键词降级 */ }
+          }
+          // 解析失败降级：关键词判定保留（与运行时 summary 关键词扫描一致，"验收未通过"触发修复督促闭环）
+          if (passed === null) {
+            if (/验收未通过|未通过/.test(result.text)) {
+              passed = false
+            } else if (/验收通过|全部满足/.test(result.text)) {
+              passed = true
             }
-          } catch { /* 非 JSON → 原样文本 */ }
+          }
         }
 
         let summary: string

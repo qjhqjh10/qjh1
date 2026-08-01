@@ -62,7 +62,7 @@ export interface SubagentOptions {
   /** 完整任务描述（已含 file_path / question / instruction） */
   userMessage: string
   signal?: AbortSignal
-  maxIterations?: number   // 默认 6
+  maxIterations?: number   // 默认 10（v14.3.1: 6→10）
   contextWindow?: number   // 默认跟随模型配置（配置未设时 128_000，与主 agent 一致）
   temperature?: number
   toolTemperature?: number
@@ -74,6 +74,8 @@ export interface SubagentOptions {
 // v14 批处理: MAX_SESSIONS 4→8（长讨论追多个文件时减少 LRU 淘汰；内存 ≈8×20K 字符，有界可接受）
 const MAX_SESSIONS = 8
 const MAX_SESSION_CHARS = 20000
+/** v14.5.0: 会话 TTL（10 分钟）——过期会话视为无（文件可能已被修改，追问需重新分析） */
+const SESSION_TTL_MS = 10 * 60 * 1000
 
 interface SessionEntry {
   role: SubagentRole
@@ -84,9 +86,15 @@ interface SessionEntry {
 
 const subagentSessions = new Map<string, SessionEntry>()
 
-function getSubagentSession(key: string): SessionEntry | undefined {
+// v14.5.0: 读取时校验角色匹配 + TTL 过期（此前无校验——edit 会话可被 analyze 追问复用错误语境的旧历史）
+function getSubagentSession(key: string, role: SubagentRole): SessionEntry | undefined {
   const entry = subagentSessions.get(key)
-  if (entry) entry.lastUsed = Date.now()
+  if (!entry) return undefined
+  if (entry.role !== role || Date.now() - entry.lastUsed > SESSION_TTL_MS) {
+    subagentSessions.delete(key)  // 角色不符或过期 → 视为无会话（后续重建全新分析）
+    return undefined
+  }
+  entry.lastUsed = Date.now()
   return entry
 }
 
@@ -189,7 +197,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
 
   try {
     // v14.3: 会话追问 — 复用该文件上次子代理的上下文（无会话则全新）
-    const session = sessionKey ? getSubagentSession(sessionKey) : undefined
+    // v14.5.0: 传入 role 校验（角色不符/过期 → 视为无会话，重建全新分析）
+    const session = sessionKey ? getSubagentSession(sessionKey, role) : undefined
 
     // 4. 独立 runtime（isolatedStore：不触碰共享 AgentStore，隔离 UI 状态与熔断器）
     const runtime = new V4UnifiedRuntime({
@@ -224,7 +233,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
       securityFence: new V4SecurityFence(projectId),
       auditTrail,
       projectId,
-      // 不传 onApprovalRequired：子 agent 工具集无 DANGEROUS_ASK 工具，无审批路径
+      // 不传 onApprovalRequired：子 agent 工具集含 DANGEROUS_ASK 条件工具（list_directory broad / find_files computer），
+      // 无审批路径时 toolExecutorFactory 一律拒绝——符合子代理只能 scope=project 的安全边界
     }))
 
     auditTrail.startSession(`sub_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`)
