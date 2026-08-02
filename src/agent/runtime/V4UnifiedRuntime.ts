@@ -94,7 +94,8 @@ export function cleanOldReadResults(history: Message[]): Message[] {
     const toolName = m.tool_call_id ? toolNameById.get(m.tool_call_id) : undefined
     // v14.3: 纳入 analyze_file（子代理分析结果同样防旧轮占满上下文；verify_task 除外——
     // 其 detail 是紧凑 JSON，截 200 字破坏可读性）
-    if (toolName !== 'read_file' && toolName !== 'analyze_file') return m
+    // v14.8: +kb_analyze（子代理知识库分析结果同为长 detail，旧轮纳入压缩）
+    if (toolName !== 'read_file' && toolName !== 'analyze_file' && toolName !== 'kb_analyze') return m
 
     // 压缩: 保留概要信息+前200字，告知可重读
     let content = typeof m.content === 'string' ? m.content : ''
@@ -148,6 +149,7 @@ export class V4UnifiedRuntime {
   private _verifyFailedRounds = 0             // v14.3: 验收未通过轮数（每轮至多 +1；超过 MAX_VERIFY_FAIL_ROUNDS 放行）
   private _cleanExit = false                  // v14.6.1: 正常收尾标记（完成/提问/纯聊天 break 前置位）——防"迭代触顶"误标 interrupted
   private _dupReadHintInjected = false        // v14.6.1: 重复读取提醒每 run 只注入一次（原每工具轮重复注入）
+  private kbInjectedFileIds: string[] = []    // v14.8: 本轮 KB 预注入文件 id（execCtx → kb_search 排除 + run 结果跨 run 持久化）
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -354,6 +356,9 @@ export class V4UnifiedRuntime {
     const contextResult = this.contextAssembler
       ? await this.contextAssembler(input.userMessage, this.historyMessages, this.config.projectId)
       : { systemMessages: [] as Array<{ role: 'system'; content: string }>, totalTokens: 0, domains: [] as string[], breakdown: [] as Array<{ domain: string; tokens: number }> }
+
+    // v14.8: 本轮 KB 预注入文件 id（子 agent isolatedStore 无 contextAssembler → 空数组，天然无排除）
+    this.kbInjectedFileIds = contextResult.injectedKbFileIds || []
 
     // v13.x: 清除超过 5 轮的 read_file 结果 → 旧文件内容不再占用上下文
     const cleanedHistory = cleanOldReadResults(this.historyMessages)
@@ -858,6 +863,8 @@ export class V4UnifiedRuntime {
         iteration,
         // v14.5.0: 子代理（isolatedStore）内部工具调用跳过全局操作历史写入
         skipOpHistory: !!this.config.isolatedStore,
+        // v14.8: 本轮 KB 预注入文件 id（kb_search 工具排除集；子代理恒空）
+        injectedKbFileIds: this.kbInjectedFileIds,
         // v14.3: 子代理执行快照收集器（ToolExecutor 在委托成功后 push）
         subagentSummaries: this.subagentSummaries,
         store: {
@@ -1113,6 +1120,8 @@ export class V4UnifiedRuntime {
       ...(interrupted ? { truncated: true } : {}),
       // v14.6.1: 本轮推理链（UI 思考过程面板数据源）
       ...(collectedReasoning ? { reasoningContent: collectedReasoning } : {}),
+      // v14.8: 本轮 KB 预注入文件 id（跨 run 去重持久化；上限 20 防消息膨胀）
+      ...(this.kbInjectedFileIds.length > 0 ? { kbInjectedFileIds: this.kbInjectedFileIds.slice(0, 20) } : {}),
     }
   }
 }

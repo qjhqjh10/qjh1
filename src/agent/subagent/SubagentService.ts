@@ -36,8 +36,8 @@ export const EDIT_TOOL_NAMES = new Set([
 /** v14.2.1: verify 角色 — 只读验收（复用 analyze 工具集） */
 export const VERIFY_TOOL_NAMES = ANALYZE_TOOL_NAMES
 
-/** 主 agent 侧的子 agent 委托工具名（用于渐进披露/串行执行/契约过滤）— v14.3: +subagent_ask 追问 */
-export const SUBAGENT_TOOL_NAMES = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask'])
+/** 主 agent 侧的子 agent 委托工具名（用于渐进披露/串行执行/契约过滤）— v14.3: +subagent_ask 追问；v14.8: +kb_analyze */
+export const SUBAGENT_TOOL_NAMES = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask', 'kb_analyze'])
 
 const ROLE_PROMPTS: Record<SubagentRole, string> = {
   analyze: SUBAGENT_ANALYZE_PROMPT,

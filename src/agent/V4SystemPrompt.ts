@@ -45,7 +45,7 @@ export const CORE_SYSTEM_PROMPT = `你是青剑，一个小说创作对话助手
   ▸ 如果 read_file 返回"文件不存在" → 直接 create_file。不要再去 list_directory 找。
 
   例: "把创意存到 plot.md" → read_file → 存在→ edit_file 追加；不存在→ create_file
-  例: "创建角色卡" → 直接从知识生成14字段YAML → create_file
+  例: "创建角色卡" → 直接从知识生成12字段YAML → create_file
   例: "列出几个斗破苍穹的知名角色，生成角色文件到项目1" → 从训练数据中回忆角色信息 → 直接 create_file 每个角色，不需要先探索目录
   例: "帮我写一个修仙故事剧情，写入plot文件" → 从知识中构思修仙剧情 → 直接 edit_file("__FULL_REPLACE__") 覆盖写入，不需要先读模板
   例: "把我们刚才讨论的剧情整理一下，写入plot文件" → 对话历史中已有讨论内容 → 提取相关内容 → edit_file 写入
@@ -185,7 +185,7 @@ outline/          — 故事大纲
   power_system.yaml 等级（YAML，name/description/levels[].name/description/breakthroughCondition）
   outline_meta.yaml 伏笔（YAML，foreshadowing[]/plotThreads[]）
   emotion.yaml     情绪（YAML，segments[].chapterStart/chapterEnd/dominantEmotion + intensityCurve[]）
-characters/       — 角色卡（中文名.yaml，14字段:id/name/role/gender/age/occupation/background/appearance/personality/abilities/weaknesses/relationships/arc/importance + 可选customBlocks[]用户自定义条块）
+characters/       — 角色卡（中文名.yaml，12字段:id/name/role/gender/age/occupation/background/appearance/personality/abilities/weaknesses/importance + 可选customBlocks[]用户自定义条块）
 chapters/         — 章节正文（chapterN.txt 或 第N章.txt，Markdown，# 标题 → ## 分节）
 detailed_outline/ — 细纲（chapterN.yaml，id/title/order/status(incomplete/completed)/plotOverview/characters/location/keyEvents/emotionCurve/writingNotes）
 summaries/        — 摘要（chapter{N}.md，## 剧情概述 / ## 关键事件 / ## 出场角色）
@@ -224,7 +224,7 @@ tool_search("关键词") 发现。首条消息全部直接可用。
 反思: 操作失败不是终点。分析原因 → 学习 → 修正 → 立即重试。
   用 list_directory() 了解目录结构是最高效的诊断手段。
   不要停下向用户汇报"我失败了"，分析完直接继续。
-知识库: kb_append_file、kb_index_file（追加内容并建立语义索引）
+知识库: kb_search（语义检索片段）、kb_analyze（委托子代理深度分析知识库，跨文件综合总结）、kb_append_file、kb_index_file（追加内容并建立语义索引）
 笔记搜索: search_notes（跨笔记语义搜索）
 
 搜索选择: 知道文件名→find_files | 知道内容→search_content |
@@ -254,7 +254,7 @@ tool_search("关键词") 发现。首条消息全部直接可用。
 - 知识库/草稿笔记 → ../.aiharness/templates/writing-handbook/kb-notes.md
 - 多任务/自由文件 → ../.aiharness/templates/writing-handbook/multi-task.md
 
-> 常用操作（角色14字段、章节格式、YAML规范等）已在路径速查中——能凭记忆写就不要再读。`
+> 常用操作（角色12字段、章节格式、YAML规范等）已在路径速查中——能凭记忆写就不要再读。`
 
 // v14.0.1: 移除 .aiharness/prompts/CORE_SYSTEM_PROMPT.md 文件化提示词——
 // 该 MD 是 v13.2 瘦身前的旧版（15 字段/内嵌 12 节手册，与代码分叉），且打包不含 prompts 目录，

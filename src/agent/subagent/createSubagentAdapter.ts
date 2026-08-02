@@ -4,6 +4,8 @@
 
 import { useSettingsStore } from '@/store'
 import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
+import { ResponsesAdapter } from '../runtime/adapters/ResponsesAdapter'
+import { shouldUseResponses } from '../runtime/adapters/responsesRouter'
 import { AnthropicAdapter } from '../runtime/adapters/AnthropicAdapter'
 import type { ProtocolAdapter } from '../runtime/adapters/ProtocolAdapter'
 
@@ -36,6 +38,18 @@ export async function createSubagentAdapter(configId: string): Promise<ProtocolA
 
   if (!aiServicePromise) aiServicePromise = import('@/services/fileService')
   const { aiService } = await aiServicePromise
+
+  // v14.8: 主 agent 走 Responses API 时子代理同步走（原生联网搜索能力一致；source='subagent' 区分统计）
+  if (shouldUseResponses(config)) {
+    return new ResponsesAdapter({
+      responsesChat: async (msgs, cid, pid, tools, temperature, _source, requestId) => {
+        const result = await aiService.responsesChat(msgs, cid, pid, tools, temperature, 'subagent', requestId)
+        return result
+      },
+      abortStream: (requestId) => aiService.abortStream(requestId),
+    }, 'subagent')
+  }
+
   return new OpenAIAdapter({
     chatWithTools: async (msgs, cid, pid, tools, temperature, _source, requestId) => {
       // v14.2.1: 标记子代理调用来源（token 统计区分）

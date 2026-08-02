@@ -174,6 +174,8 @@ export function registerAnthropicHandlers(
           stream: true,
         }
         // v11.4: Enable extended thinking for DeepSeek V4 (Anthropic protocol, configurable)
+        // v14.8: budget_tokens 保持硬编码 8192（决策：high/max 两档均为"尽力推理"，8192 覆盖两档典型路径；
+        // effort↔budget 映射待 DeepSeek 官方文档明确后跟进——OpenAI 端由 reasoning_effort 控制，见 aiHandlers.buildThinkingParams）
         const isDeepSeekV4 = /deepseek.*v4/i.test(config.model) && (config as any).enableThinking !== false
         if (isDeepSeekV4) {
           body.thinking = { type: 'enabled', budget_tokens: 8192 }

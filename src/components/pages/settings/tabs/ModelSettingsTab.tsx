@@ -479,7 +479,7 @@ export function ModelSettingsTab() {
             <ModelCard
               icon="💪" title="Main 主力模型" desc="AI写作助手核心模型 — 对话执行、工具调用、章节创作。"
               modelValue={activeConfig.model} onModelChange={v => u({ model: v })}
-              placeholder="deepseek-chat / gpt-4o"
+              placeholder="deepseek-v4-flash / deepseek-v4-pro / gpt-4o"
               tempValue={activeConfig.temperature} onTempChange={v => u({ temperature: v })}
               toolTempValue={activeConfig.toolTemperature ?? 0.5} onToolTempChange={v => u({ toolTemperature: v })}
               maxTokValue={activeConfig.maxTokens} onMaxTokChange={v => u({ maxTokens: v })}
@@ -498,7 +498,28 @@ export function ModelSettingsTab() {
               modelList={mainModelList} showDropdown={activeDropdown === 'main'} setShowDropdown={(v) => setActiveDropdown(v ? 'main' : null)}
               thinkingEnabled={activeConfig.enableThinking !== false} onThinkingChange={v => u({ enableThinking: v })}
               reasoningEffort={activeConfig.reasoningEffort || 'max'} onReasoningEffort={v => u({ reasoningEffort: v as 'high' | 'max' })}
-            />
+            >
+              {/* v14.8: 原生联网搜索 — 围绕 DeepSeek 的模型能力配置 */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#2d2520' }}>
+                    <input type="checkbox" checked={!!activeConfig.nativeWebSearch} onChange={e => u({ nativeWebSearch: e.target.checked })} style={{ accentColor: '#7c3aed', width: 14, height: 14 }} />
+                    🔍 模型原生联网搜索
+                  </label>
+                  <span style={{ fontSize: 10, color: activeConfig.nativeWebSearch ? '#7c3aed' : '#9b8e84', lineHeight: 1.5 }}>
+                    {activeConfig.nativeWebSearch
+                      ? '已启用 — AI 写作助手对话中，模型可自主调用原生联网搜索（Responses API 服务端搜索）；软件内置联网搜索自动停用，保持单一联网通道'
+                      : '未启用 — AI 写作助手使用软件内置的 DuckDuckGo 联网搜索'}
+                  </span>
+                </div>
+                {(activeConfig.model || '').toLowerCase().includes('deepseek') && (
+                  <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', fontSize: 10, color: '#b45309', lineHeight: 1.6 }}>
+                    💡 DeepSeek 提示：旧模型名 <b>deepseek-chat / deepseek-reasoner</b> 已于 2026-07-24 退役，请改用 <b>deepseek-v4-flash</b> 或 <b>deepseek-v4-pro</b>。
+                    {activeConfig.nativeWebSearch && ' 原生联网目前仅 deepseek-v4-flash 支持（Responses API 服务端搜索）。'}
+                  </div>
+                )}
+              </div>
+            </ModelCard>
 
             {/* ── 🎨 Image ── */}
             <ModelCard

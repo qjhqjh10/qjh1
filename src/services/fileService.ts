@@ -3,7 +3,7 @@ import type { ModelConfig } from '@/types/settings'
 import type { StyleProject, SceneTemplate } from '@/types/story'
 import type { StyleTemplate } from '@/types/styleTemplate'
 import type { SessionStatsResult } from '@/types/electron'
-import type { ChatWithToolsResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
+import type { ChatWithToolsResult, ResponsesChatResult, ToolCallArgs, ToolCallResult } from '@/types/fileOps'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import { getFileCache, setFileCache, invalidateFileCache, invalidateDirCache } from '@/utils/fileReadCache'
 
@@ -138,6 +138,38 @@ export const aiService = {
   },
   executeFileTools: async (calls: ToolCallArgs[]): Promise<ToolCallResult[]> => {
     return e().ai.executeFileTools(calls) as Promise<ToolCallResult[]>
+  },
+  // v14.8: DeepSeek Responses API（原生联网搜索通道）— 由 ResponsesAdapter 路由调用。
+  // 与 chatWithTools 区别：toolCalls 为已归一化 {id,name,arguments}（主进程转换器输出）。
+  responsesChat: async (
+    messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
+    configId: string,
+    projectId: string | undefined,
+    tools?: unknown[],
+    temperature?: number,
+    source?: string,
+    requestId?: string,
+  ): Promise<ResponsesChatResult> => {
+    const raw = await e().ai.responsesChat(messages, configId, projectId, tools, temperature, source, requestId)
+    try {
+      const parsed = JSON.parse(raw)
+      const rawCalls = Array.isArray(parsed.tool_calls) ? parsed.tool_calls : []
+      const validCalls = rawCalls.filter((tc: unknown) => {
+        const t = tc as Record<string, unknown> | null
+        return t && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.arguments === 'string'
+      })
+      return {
+        text: typeof parsed.text === 'string' ? parsed.text : '',
+        toolCalls: validCalls.length > 0 ? validCalls as ResponsesChatResult['toolCalls'] : null,
+        finishReason: parsed.finish_reason || 'stop',
+        reasoning_content: typeof parsed.reasoning_content === 'string' ? parsed.reasoning_content : undefined,
+        // v14.5.0 语义同 chatWithTools：中止标记透传
+        aborted: parsed.aborted === true,
+        // v14.8: v4-pro 等尚未支持 responses 时主进程已降级 chat.completions（无感知）
+        fallbackUsed: parsed.fallbackUsed === true,
+        usage: parsed.usage,
+      }
+    } catch (err) { logError('解析 responsesChat 回复失败', err); return { text: raw, toolCalls: null, finishReason: 'stop' } }
   },
   chatStream: (
     messages: { role: string; content: string }[],

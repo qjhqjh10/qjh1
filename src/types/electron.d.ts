@@ -60,6 +60,8 @@ export interface AIAPI {
   listModels: (configId: string, scope?: string) => Promise<string[]>
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>
+  /** v14.8: DeepSeek Responses API（原生联网搜索通道）— 模型配置勾选原生联网时由 ResponsesAdapter 路由 */
+  responsesChat: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
   // ── Anthropic 协议 ──
   chatAnthropicStream: (params: {

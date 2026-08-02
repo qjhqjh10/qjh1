@@ -87,6 +87,9 @@ const api = {
       ipcRenderer.invoke('ai:listModels', configId, scope),
     chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string): Promise<string> =>
       ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools, temperature, source, requestId),
+    // v14.8: DeepSeek Responses API（原生联网搜索通道）— 模型配置勾选原生联网时由 ResponsesAdapter 路由
+    responsesChat: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string): Promise<string> =>
+      ipcRenderer.invoke('ai:responses-chat', messages, configId, projectId, tools, temperature, source, requestId),
     executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
       ipcRenderer.invoke('ai:execute-file-tool', calls),
     // ── Anthropic 协议（流式 content blocks，独立通道） ──

@@ -90,6 +90,9 @@ export interface V4AgentRunResult {
   /** v14.6.1: 本次 run 的推理链（DeepSeek thinking / Anthropic thinkingBlocks 累计）——
    * 供 UI 持久化到 assistant 消息显示"思考过程"折叠面板（原面板读取恒 undefined 的死 UI） */
   reasoningContent?: string
+  /** v14.8: 本轮预注入的知识库文件 id（跨 run 去重——随 assistant 消息持久化，
+   * 下轮经 SendOptions.excludeKbFileIds 排除，避免同一文件跨 run 反复注入） */
+  kbInjectedFileIds?: string[]
 }
 
 // ── v14.3: 子代理执行结果快照（跨 run 复用） ──
@@ -138,6 +141,8 @@ export interface ContextAssemblerFn {
     systemMessages: Array<{ role: 'system'; content: string }>
     /** v13.x: KB/Web 搜索结果 — 注入消息体而非 system 块 */
     searchContext?: string
+    /** v14.8: 本轮预注入的知识库文件 id（runtime 存实例 → execCtx → kb_search 排除 + run 结果跨 run 持久化） */
+    injectedKbFileIds?: string[]
     totalTokens: number
     domains: string[]
     breakdown?: Array<{ domain: string; tokens: number }>

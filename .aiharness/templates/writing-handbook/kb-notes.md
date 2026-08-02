@@ -5,6 +5,7 @@
 - 用户给了内容→直接 create_file("../knowledge_base/files/中文名.md", content)。格式: # 标题 → > 来源/日期/标签 → ## 正文。
 - 追加到已有文件→先 list_directory 或 read_file 确认文件存在→kb_append_file(file_id, content)→kb_index_file(file_id) 建立索引。
 - **搜索知识库**: kb_search(query="关键词")，语义搜索已索引内容。后续消息中需先 tool_search("知识库") 发现此工具。
+- **深度分析知识库（v14.8）**: kb_analyze(query="主题")，委托子代理自主多次搜索 + 读取命中文件全文，输出跨文件的结构化分析总结（按主题归纳、标注来源文件、提取关键设定）。适合设定一致性核对、按主题整理知识库、跨文件综合。后续消息中需先 tool_search("知识库") 发现此工具。
 - **删除知识库文件**: delete_file("../knowledge_base/files/文件名.md") 或 read_file 确认 file_id 后用相应工具。
 - 如需完整格式参考: ../.aiharness/templates/knowledge-base-file.md
 

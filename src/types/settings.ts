@@ -19,6 +19,7 @@ export interface ModelConfig {
   enableThinking?: boolean          // v11.4: 启用 DeepSeek V4 深度推理 (thinking mode)
   reasoningEffort?: 'high' | 'max'  // v11.4: 推理强度 (默认 max，简单对话可降为 high)
   toolTemperature?: number          // v12.5.1: 工具执行轮温度上限 (默认 0.5，仅深度推理关闭时生效)
+  nativeWebSearch?: boolean         // v14.8: 模型支持原生联网搜索（DeepSeek v4-flash 经 Responses API 服务端搜索）。勾选后 AI 写作助手自动停用软件内置联网搜索，保持单一联网通道
   mainProvider?: string
   mainApiUrl?: string
   mainApiKey?: string
@@ -71,6 +72,7 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   enableThinking: true,             // v11.4: 默认启用深度推理
   reasoningEffort: 'max' as const,  // v11.4: 默认最大推理强度
   toolTemperature: 0.5,            // v12.5.1: 工具执行轮温度上限
+  nativeWebSearch: false,          // v14.8: 默认不使用模型原生联网
   inputPricePerM: 2.50,
   outputPricePerM: 10.00,
   cacheHitPricePerM: 1.25,

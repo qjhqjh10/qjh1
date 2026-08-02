@@ -131,11 +131,12 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 31个工具 (v14.3: +subagent_ask 子代理追问)', () => {
+  it('工具注册: 32个工具 (v14.8: +kb_analyze 知识库深度分析)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBe(31)
+    expect(names.length).toBe(32)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
+    expect(names).toContain('kb_analyze')
     expect(names).toContain('read_file')
     expect(names).toContain('edit_file')
     expect(names).toContain('create_file')

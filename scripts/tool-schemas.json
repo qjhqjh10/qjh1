@@ -308,6 +308,33 @@
   {
     "type": "function",
     "function": {
+      "name": "kb_analyze",
+      "description": "委托子分析代理（独立上下文窗口）深度分析知识库：子代理自主多次语义搜索（可按不同检索词变换）、对命中的高相关文件 read_file 读取全文，综合后输出结构化分析总结（按主题归纳、标注来源文件、提取关键设定要点），不占用你的上下文。适合需要跨文件综合、设定一致性核对、按主题整理知识库内容的场景。轻量检索请直接用 kb_search。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "分析主题或问题（如\"世界观中的修炼体系\"\"女主的成长脉络\"）"
+          },
+          "focus": {
+            "type": "string",
+            "description": "关注的侧面（可选，如\"时间线\"\"设定矛盾\"\"与主角的关系\"）"
+          },
+          "topK": {
+            "type": "number",
+            "description": "首轮检索片段数，默认5，最大20"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "kb_append_file",
       "description": "追加内容到知识库文件。新建用 create_file(\"../knowledge_base/files/\"), 追加后需 kb_index_file 建索引。",
       "parameters": {

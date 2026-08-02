@@ -40,6 +40,19 @@ export interface ChatWithToolsResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number }
 }
 
+/** v14.8: DeepSeek Responses API 结果（与 ChatWithToolsResult 的区别：toolCalls 已归一化为 {id,name,arguments}） */
+export interface ResponsesChatResult {
+  text: string
+  toolCalls: Array<{ id: string; name: string; arguments: string }> | null
+  finishReason: string
+  reasoning_content?: string
+  /** v14.5.0 语义同 chatWithTools：中止标记 */
+  aborted?: boolean
+  /** v14.8: v4-pro 等尚未支持 responses 时主进程已自动降级 chat/completions（无感） */
+  fallbackUsed?: boolean
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number; cost: number }
+}
+
 // ── Tool Definitions (OpenAI Function Calling Schema) ──
 
 export const FILE_TOOLS = [

@@ -17,11 +17,12 @@ import { subagentTools } from './subagentTools'
 import type { ToolDefinition } from '../types'
 
 // v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 15 核心。
-// v14.1.1: +analyze_file/edit_file_task → 29；v14.2.0: +verify_task → 30；v14.3.0: +subagent_ask → 31
+// v14.1.1: +analyze_file/edit_file_task → 29；v14.2.0: +verify_task → 30；v14.3.0: +subagent_ask → 31；
+// v14.8.0: +kb_analyze → 32（v14.8 审查修复：注释同步）
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools
-  ...kbTools,        // 3 tools
+  ...kbTools,        // 4 tools: kb_search / kb_analyze / kb_append_file / kb_index_file
   ...noteTools,      // 1 tool
   ...imageTools,     // 2 tools
   ...templateTools,  // 1 tool
@@ -31,7 +32,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...httpTools,      // 2 tools
   ...browserTools,   // 2 tools
   ...toolSearchTools, // 1 tool: tool_search
-  ...subagentTools,  // v15: 2 tools: analyze_file / edit_file_task
+  ...subagentTools,  // v14.8: 4 tools: analyze_file / edit_file_task / verify_task / subagent_ask
 ]
 
 export {

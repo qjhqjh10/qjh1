@@ -2,6 +2,8 @@
 // v13.x: 主体已收敛至 BaseChatBridge（chatBridgeFactory.ts），本文件仅保留协议差异。
 
 import { OpenAIAdapter } from './runtime/adapters/OpenAIAdapter'
+import { ResponsesAdapter } from './runtime/adapters/ResponsesAdapter'
+import { shouldUseResponses } from './runtime/adapters/responsesRouter'
 import { BaseChatBridge } from './chatBridgeFactory'
 import type { ProtocolAdapter } from './runtime/adapters/ProtocolAdapter'
 
@@ -12,6 +14,16 @@ export type { BridgeOptions, SendOptions, BridgeSendResult } from './ChatBridgeI
 export class V4AgentChatBridge extends BaseChatBridge {
   protected async createAdapter(): Promise<ProtocolAdapter> {
     const { aiService } = await import('@/services/fileService')
+    // v14.8: 模型配置勾选「原生联网搜索」+ DeepSeek V4 → Responses API 通道（web_search 原生工具）
+    const { useSettingsStore } = await import('@/store')
+    const cfg = useSettingsStore.getState().configs.find(c => c.id === this.configId)
+    if (shouldUseResponses(cfg)) {
+      return new ResponsesAdapter({
+        responsesChat: (msgs, cid, pid, tools, temperature, source, requestId) =>
+          aiService.responsesChat(msgs, cid, pid, tools, temperature, source, requestId),
+        abortStream: (requestId) => aiService.abortStream(requestId),
+      })
+    }
     return new OpenAIAdapter({
       chatWithTools: async (msgs, cid, pid, tools, temperature, _source, requestId) => {
         const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature, undefined, requestId)

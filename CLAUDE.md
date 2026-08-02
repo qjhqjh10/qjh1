@@ -1,12 +1,20 @@
-# AI写作软件—青剑 v14.7.0
+# AI写作软件—青剑 v14.8.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
 ## 技术栈
 
-Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic双协议, thinking mode) / Framer Motion / Vitest / electron-builder
+Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.5.0)
+## 当前架构 (v14.8.0)
+
+### 全部遗留优化项收官 (v14.8.0)
+- **DeepSeek 原生联网搜索（完整 ResponsesAdapter）**: ModelConfig.nativeWebSearch 勾选 → agent 工具循环经 `ai:responses-chat`（主进程流式聚合 + UNSUPPORTED 自动降级 chat.completions）走服务端 web_search 原生工具；模型自主调用（agentic）；软件内置 DuckDuckGo 搜索自动停用（单一联网通道）。路由单一决策源 `responsesRouter.shouldUseResponses`；消息转换纯函数 `electron/ipc/responsesConverter.ts`（items 回传 call_id 语义、孤儿 tool 裁剪、web_search 注入）。实测约束：thinking 下 tool_choice:{type:'function'} 400 → 只用 auto；previous_response_id 不支持 → 全量 items 回传
+- **Agentic RAG — kb_analyze（第 32 工具）**: 委托只读子代理深度分析知识库（多次 kb_search + read_file 全文 → 结构化总结 ≤8000 字）；子代理检索不受 5 条/500 字预注入限制；会话 key `::kb-analyze` 复用（subagent_ask 可追问）
+- **KB 跨 run 重复注入修复**: 模块单例 injectedKbFileIds 删除 → per-run 实例字段（execCtx → ToolExecutionContext.kbInjectedFileIds → kb_search 排除集）；本轮注入 id 随 assistant 消息持久化（kbInjectedFileIds）→ 下轮 SendOptions.excludeKbFileIds 排除
+- **双协议 pipeline thinking 对称**: ai:chat/ai:chat-stream 接入共享 buildThinkingParams（原 OpenAI pipeline 无 thinking、Anthropic 有）
+- **export-tool-schemas.ts 重写**: 从真实注册表 ALL_TOOLS 导入（subagentTools 惰性化解除 Node 挂起）；--check 名称+内容深比较；check-consistency C1 调用 --check
+- 644 passed + 15 skipped（659）；对话场景 32
 
 ### AI 写作助手全面审计修复 (v14.5.0)
 - 清单门控修复（GLOBAL_DONE_RE 裸锚点删除 + PARTIAL_DONE_RE 排除部分声明）；Anthropic 安全收窄（capabilities 接线 + toolsUsed 保留 + 子代理恒全量）
@@ -62,7 +70,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - v14.2.0: +verify_task（验收子代理）
 - v14.3.0: +subagent_ask（子代理会话追问，复用会话上下文）
 - create_file/edit_file 支持所有目录（项目/notes/KB/模板/上传）
-- 渐进披露: 首轮全量31工具 → 后续15核心 (含 tool_search 动态发现)
+- 渐进披露: 首轮全量32工具 → 后续15核心 (含 tool_search 动态发现；v14.8: +kb_analyze)
 
 ### 任务清单运行时状态 (v14.1.0)
 - taskExtraction 四重门控提取编号任务 → 每轮注入 [当前任务] 进度 → 完成检测对照清单
@@ -111,11 +119,11 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 项目结构 & 数据格式 | `.aiharness/rules/project-structure.md` |
 | 金规则 | `.aiharness/rules/golden-rules.md` |
 | Harness 配置 | `.aiharness/aiharness.json` |
-| Agent 工具列表 | `src/agent/skills/tools/index.ts` (31 工具) |
+| Agent 工具列表 | `src/agent/skills/tools/index.ts` (32 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v14.4.0) |
+| 版本历史 | `src/data/version_history.json` (当前 v14.8.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-conversation.mjs` |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
@@ -125,7 +133,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (620 passed + 15 skipped，共 635) |
+| `npx vitest run` | 全量单元测试 (644 passed + 15 skipped，共 659) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (238 passed + 14 skipped，共 252) |
 
 ## 32 场景对话测试

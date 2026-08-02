@@ -4,6 +4,7 @@ import { logTokenUsage } from './statsHandlers'
 import { getOpenAI, getConfigStore, localISOString, calculateCost, mergeConfigKeys } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import { netFetch } from './netFetch'
+import { convertMessages, convertTools, type ConverterMessage, type ResponseItem } from './responsesConverter'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
 
@@ -49,6 +50,23 @@ function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
   return 'user'
 }
 
+/**
+ * v14.8: 共享 thinking 参数构造（DeepSeek V4 深度推理）— 双协议对称修复：
+ * pipeline（ai:chat / ai:chat-stream）此前不启 thinking，Anthropic 端启用 → 不对称；
+ * 现统一抽取，三处（含 ai:chat-with-tools）共用同一判定。
+ * useThinking 为 true 时调用方应抑制 temperature（DeepSeek thinking 与 temperature 互斥）。
+ */
+function buildThinkingParams(config: { model: string; enableThinking?: boolean; reasoningEffort?: string }) {
+  const isDeepSeek = /deepseek/i.test(config.model)
+  const useThinking = isDeepSeek && /v4/i.test(config.model) && config.enableThinking !== false
+  return {
+    useThinking,
+    patch: useThinking
+      ? { extra_body: { thinking: { type: 'enabled' } }, reasoning_effort: config.reasoningEffort || 'max' }
+      : {},
+  }
+}
+
 export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, projectsPath?: string) {
   ipcMain.handle('ai:chat', async (_event, messages: { role: string; content: string }[], configId: string, projectId?: string) => {
     const store = await getConfigStore()
@@ -77,12 +95,15 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     ]
 
     try {
+      // v14.8: thinking 对称 — DeepSeek V4 开启深度推理（与 chat-with-tools / Anthropic 端一致）
+      const { useThinking, patch } = buildThinkingParams(config)
       const completion = await client.chat.completions.create({
         model: config.model,
         messages: apiMessages as any,
-        temperature: config.temperature,
+        ...(useThinking ? {} : { temperature: config.temperature }),
         max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
-      })
+        ...patch,
+      } as any)
 
       // Log token usage (always, even without projectId)
       const usage = completion.usage
@@ -160,10 +181,18 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     })
 
     try {
+      // v14.8: thinking 对称 — DeepSeek V4 开启深度推理（与 chat-with-tools / Anthropic 端一致）
+      // 注：对象 cast as any 后 SDK 重载无法解析（stream:true 分支），故结果显式标注流式 chunk 结构
+      const { useThinking, patch } = buildThinkingParams(config)
       const stream = await client.chat.completions.create({
-        model: config.model, messages: apiMessages as any, temperature: config.temperature,
+        model: config.model, messages: apiMessages as any,
+        ...(useThinking ? {} : { temperature: config.temperature }),
         max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384, stream: true,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
-      }, { signal: abortController.signal })
+        ...patch,
+      } as any, { signal: abortController.signal }) as unknown as AsyncIterable<{
+        choices: Array<{ delta?: { content?: string | null } | null }>
+        usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_tokens_details?: { cached_tokens?: number } } | null
+      }>
 
       let fullContent = ''
       let usageInfo: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number } | null = null
@@ -397,9 +426,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       let hardTimeout: ReturnType<typeof setTimeout> | null = null
 
       try {
-        // v11.4: Enable DeepSeek V4 thinking mode (configurable in settings)
-        const isDeepSeek = /deepseek/i.test(config.model)
-        const useThinking = isDeepSeek && /v4/i.test(config.model) && (config as any).enableThinking !== false
+        // v14.8: DeepSeek V4 thinking 参数统一走共享构造（chat-with-tools 与 pipeline 对称）
+        const { useThinking, patch } = buildThinkingParams(config)
 
         // v12.5.1: 阶段感知温度 — runtime 根据阶段传入，无传入时回退到 config.temperature
         // 创作轮: temperature = config.temperature (默认 1.0)
@@ -410,14 +438,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           model: config.model,
           messages: apiMessages,
           max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
-        }
-        if (!useThinking) {
-          params.temperature = effectiveTemperature
-        }
-
-        if (useThinking) {
-          params.extra_body = { thinking: { type: 'enabled' } }
-          ;(params as any).reasoning_effort = (config as any).reasoningEffort || 'max'
+          ...(useThinking ? {} : { temperature: effectiveTemperature }),
+          ...patch,
         }
 
         if (tools && tools.length > 0) {
@@ -493,7 +515,212 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       } finally {
         if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
         ipcMain.removeListener('ai:abort-tool-chat', onAbort)
-        toolChatAbortHandlers.delete(wcId)
+        // v14.8 审查修复(P2): 带守卫删除——与 responses-chat 共用 map，无条件 delete 会误删并发兄弟请求条目
+        if (toolChatAbortHandlers.get(wcId) === onAbort) toolChatAbortHandlers.delete(wcId)
+      }
+    })
+
+  // ── v14.8: DeepSeek Responses API（原生联网搜索通道） ──
+  // 路由条件见 responsesRouter.shouldUseResponses（模型配置勾选「原生联网搜索」+ DeepSeek V4）。
+  // 实测约束（2026-08-02 真实 API 冒烟）：
+  //   - web_search 工具服务端执行；thinking 模式下 tool_choice:{type:'function'} 被拒(400) → 只用 auto
+  //   - 多轮回传需全量 items；function_call_output.call_id 必须 = function_call item 的 call_id
+  //   - previous_response_id 不被支持；v4-pro 未上线 responses → UNSUPPORTED 族错误自动降级 chat.completions
+  ipcMain.handle('ai:responses-chat',
+    async (event, messages: unknown[], configId: string, projectId?: string,
+      tools?: unknown[], temperature?: number, source?: string, requestId?: string) => {
+      const store = await getConfigStore()
+      const configs = store.get('configs', []) as StoredConfig[]
+      const config = configs.find(c => c.id === configId)
+      if (!config) throw new Error('Model config not found')
+
+      const apiKey = config.apiKey
+      const OpenAI = await getOpenAI()
+      const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })
+
+      // per-request abort（同 ai:chat-with-tools — 精确中止并行子代理兄弟请求）
+      const abortController = new AbortController()
+      const wcId = event.sender.id
+      const rid = typeof requestId === 'string' && requestId ? requestId : `req_${Date.now().toString(36)}`
+      const onAbort = (ev: Electron.IpcMainEvent, target?: string) => {
+        if (ev.sender.id !== wcId) return
+        if (target !== undefined && target !== rid) return
+        abortController.abort()
+      }
+      toolChatAbortHandlers.set(wcId, onAbort)
+      ipcMain.on('ai:abort-tool-chat', onAbort)
+      event.sender.once('destroyed' as any, () => {
+        ipcMain.removeListener('ai:abort-tool-chat', onAbort)
+        if (toolChatAbortHandlers.get(wcId) === onAbort) toolChatAbortHandlers.delete(wcId)
+      })
+
+      // v14.8 审查修复: useThinking 复用共享构造（P2——原内联复制 buildThinkingParams 判定，语义变更会漂移）
+      const { useThinking } = buildThinkingParams(config)
+      const logUsage = (usage: Record<string, number> | undefined, src: string) => {
+        if (!usage) return
+        logTokenUsage({
+          timestamp: localISOString(),
+          projectId: projectId || '__global__',
+          configId: config.id,
+          configName: config.name,
+          model: config.model,
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: usage.completion_tokens || 0,
+          cacheHitTokens: (usage as Record<string, unknown>).cached_tokens ? Number((usage as Record<string, unknown>).cached_tokens) : 0,
+          cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0,
+            (usage as Record<string, unknown>).cached_tokens ? Number((usage as Record<string, unknown>).cached_tokens) : 0, config),
+          source: src || 'main',
+        }).catch((err) => { console.warn('[aiHandlers] logTokenUsage failed (ai:responses-chat):', err) })
+      }
+
+      const IPC_API_TIMEOUT = 180_000
+      let hardTimeout: ReturnType<typeof setTimeout> | null = null
+
+      try {
+        // ── 转换：canonical 消息 → items；tools → responses 形态（+web_search） ──
+        const items = convertMessages(messages as ConverterMessage[])
+        const convertedTools = convertTools(tools || [], !!config.nativeWebSearch)
+
+        const params: Record<string, unknown> = {
+          model: config.model,
+          input: items,
+          stream: true,
+        }
+        if (convertedTools.length > 0) params.tools = convertedTools
+        if (useThinking) {
+          // responses 无 'max' 档（实测 effort 取值 high/low/medium/minimal）
+          params.reasoning = { effort: (config as any).reasoningEffort === 'max' ? 'high' : ((config as any).reasoningEffort || 'high') }
+        } else if (temperature !== undefined) {
+          params.temperature = temperature
+        }
+
+        let stream: AsyncIterable<{ type: string; delta?: string; item?: ResponseItem; response?: { usage?: Record<string, unknown> } }>
+        try {
+          hardTimeout = setTimeout(() => { abortController.abort() }, IPC_API_TIMEOUT)
+          stream = await client.responses.create(params as any, { signal: abortController.signal }) as unknown as AsyncIterable<{ type: string; delta?: string; item?: ResponseItem; response?: { usage?: Record<string, unknown> } }>
+        } catch (err) {
+          // v4-pro 尚未上线 responses → UNSUPPORTED 族自动降级 chat.completions（tools 过滤 web_search）
+          const msg = err instanceof Error ? err.message : ''
+          const lower = msg.toLowerCase()
+          if (lower.includes('unsupported') || lower.includes('not support') || lower.includes('not found') || lower.includes('404') || lower.includes('does not exist')) {
+            const apiMessages = (messages as Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>).map((m, i) => {
+              const mm: Record<string, unknown> = { role: m.role, content: m.content }
+              if (m.tool_calls) mm.tool_calls = m.tool_calls
+              if (m.tool_call_id) mm.tool_call_id = m.tool_call_id
+              // v14.8 审查修复(P1): 透传历史 reasoning_content——DeepSeek 多轮工具调用要求保留推理链
+              // （对齐 ai:chat-with-tools 的 v11.4 行为；原缺失使降级路径多轮调用可能 400）
+              const rc = (m as Record<string, unknown>).reasoning_content
+                ?? (m as Record<string, unknown>).reasoningContent
+              if (rc) mm.reasoning_content = rc
+              if (i === 0 && m.role === 'system') mm.cache_control = { type: 'ephemeral' }
+              return mm
+            })
+            const { useThinking: fbThinking, patch } = buildThinkingParams(config)
+            const fbParams: Record<string, unknown> = {
+              model: config.model,
+              messages: apiMessages,
+              max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384,
+              ...(fbThinking ? {} : { temperature: temperature ?? config.temperature }),
+              ...patch,
+            }
+            if (tools && tools.length > 0) {
+              // 降级路径剥除 web_search 工具（chat/completions 不接受该类型）
+              const fbTools = (tools as Array<Record<string, unknown>>).filter(t => (t as Record<string, unknown>)?.type !== 'web_search')
+              fbParams.tools = fbTools
+              if (!fbThinking) fbParams.tool_choice = 'auto'
+            }
+            const fb = await client.chat.completions.create(fbParams as any, { signal: abortController.signal })
+            const fbUsage = fb.usage as Record<string, number> | undefined
+            logUsage({
+              prompt_tokens: fbUsage?.prompt_tokens || 0,
+              completion_tokens: fbUsage?.completion_tokens || 0,
+              total_tokens: fbUsage?.total_tokens || 0,
+              cached_tokens: (fbUsage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
+            }, source || 'main')
+            const choice = fb.choices[0]
+            const fbCalls = (choice?.message?.tool_calls || []).map((tc: any) => ({
+              id: tc.id, name: tc.function?.name || '', arguments: tc.function?.arguments || '',
+            }))
+            return JSON.stringify({
+              text: typeof choice?.message?.content === 'string' ? choice.message.content : '',
+              tool_calls: fbCalls.length > 0 ? fbCalls : null,
+              finish_reason: choice?.finish_reason || 'stop',
+              reasoning_content: undefined,
+              usage: fbUsage ? {
+                prompt_tokens: fbUsage.prompt_tokens || 0,
+                completion_tokens: fbUsage.completion_tokens || 0,
+                total_tokens: fbUsage.total_tokens || 0,
+                cached_tokens: (fbUsage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
+                cost: calculateCost(fbUsage.prompt_tokens || 0, fbUsage.completion_tokens || 0,
+                  (fbUsage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
+              } : undefined,
+              fallbackUsed: true,
+            })
+          }
+          throw err
+        }
+
+        // ── 流式聚合 ──
+        let text = ''
+        let reasoning = ''
+        let truncated = false
+        const toolCalls: Array<{ id: string; name: string; arguments: string }> = []
+        let usage: Record<string, unknown> | null = null
+        try {
+          for await (const ev of stream) {
+            if (ev.type === 'response.output_text.delta' && ev.delta) text += ev.delta
+            else if (ev.type === 'response.reasoning_text.delta' && ev.delta) reasoning += ev.delta
+            else if (ev.type === 'response.output_item.done' && ev.item?.type === 'function_call') {
+              toolCalls.push({
+                id: ev.item.call_id || '',
+                name: ev.item.name || '',
+                arguments: ev.item.arguments || '',
+              })
+            } else if (ev.type === 'response.completed' && ev.response?.usage) {
+              usage = ev.response.usage
+            } else if (ev.type === 'response.incomplete') {
+              // v14.8 审查修复(P2): 输出被截断时置位——runtime 按 finish_reason 'length' 识别截断并续写
+              truncated = true
+            }
+          }
+        } finally {
+          if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
+        }
+
+        const u = usage as Record<string, number> | undefined
+        const cachedTokens = (usage?.input_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0
+        logUsage(u ? {
+          prompt_tokens: u.input_tokens || 0,
+          completion_tokens: u.output_tokens || 0,
+          total_tokens: u.total_tokens || 0,
+          cached_tokens: cachedTokens,
+        } : undefined, source || 'main')
+
+        return JSON.stringify({
+          text,
+          tool_calls: toolCalls.length > 0 ? toolCalls : null,
+          // v14.8 审查修复(P2): response.incomplete → 'length'（runtime 截断检测依赖此值）
+          finish_reason: truncated ? 'length' : 'stop',
+          reasoning_content: reasoning || undefined,
+          usage: u ? {
+            prompt_tokens: u.input_tokens || 0,
+            completion_tokens: u.output_tokens || 0,
+            total_tokens: u.total_tokens || 0,
+            cached_tokens: cachedTokens,
+            cost: calculateCost(u.input_tokens || 0, u.output_tokens || 0, cachedTokens, config),
+          } : undefined,
+        })
+      } catch (err) {
+        if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
+        if (err instanceof Error && err.name === 'AbortError') {
+          return JSON.stringify({ text: '', tool_calls: null, finish_reason: 'stop', aborted: true })
+        }
+        throw new Error(categorizeError(err))
+      } finally {
+        if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
+        ipcMain.removeListener('ai:abort-tool-chat', onAbort)
+        // v14.8 审查修复(P2): 带守卫删除——map 与 chat-with-tools 共用，无条件 delete 会误删并发兄弟请求条目
+        if (toolChatAbortHandlers.get(wcId) === onAbort) toolChatAbortHandlers.delete(wcId)
       }
     })
 

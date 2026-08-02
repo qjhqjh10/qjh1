@@ -135,6 +135,8 @@ export abstract class BaseChatBridge {
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
         selectedKbFileIds: options.selectedKbFileIds,
+        // v14.8: 跨 run KB 去重 — 排除历史 run 已注入过的文件
+        excludeKbFileIds: options.excludeKbFileIds,
         enableThinkingPlan: this.getEnableThinkingPlan(),
       })
 
@@ -215,6 +217,8 @@ export abstract class BaseChatBridge {
         taskProgress: result.taskProgress,
         // v14.3: 子代理执行快照透传（UI 持久化 + 跨 run 注入）
         subagentSummaries: result.subagentSummaries,
+        // v14.8: 本轮 KB 预注入文件 id（UI 持久化，下轮排除避免跨 run 重复注入）
+        kbInjectedFileIds: result.kbInjectedFileIds,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

@@ -295,8 +295,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         chapterPrompt, wordTarget, replaceMode,
         prevTextInjection,
       })
-      const kbSearchQuery = [currentChapter?.description?.slice(0, 200), ...selectedCharacterIds].filter(Boolean).join(' ')
-      prompt = await injectKBContents(prompt, selectedKbFileIds, kbSearchQuery, activeProjectId || undefined, genConfigId)
+      // v14.8: 直接注入所选知识库文件（单文件/总量上限取自知识库设置 — 章节生成场景）
+      prompt = await injectKBContents(prompt, selectedKbFileIds)
 
       const messages = [{ role: 'user' as const, content: prompt }]
 

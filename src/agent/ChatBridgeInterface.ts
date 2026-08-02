@@ -21,6 +21,9 @@ export interface SendOptions {
   kbEnabled?: boolean
   webSearchEnabled?: boolean
   selectedKbFileIds?: string[]
+  /** v14.8: 跨 run KB 去重 — 历史 run 已注入过的知识库文件 id（来自上一条 assistant 消息 kbInjectedFileIds），
+   * 传给 BridgeContextBuilder 排除，避免同一文件跨 run 反复注入 */
+  excludeKbFileIds?: string[]
   /** v14.5.0: 跨 run 续跑 — 上次中断的任务清单进度快照（UI 从消息 taskProgress 透传） */
   resumeTaskProgress?: V4AgentRunResult['taskProgress']
   /** v14.6.1: 工具开关 — false 时本轮禁用工具调用（纯文本对话） */
@@ -54,6 +57,8 @@ export interface BridgeSendResult {
   taskProgress?: V4AgentRunResult['taskProgress']
   /** v14.3: 子代理执行快照（UI 持久化 + 跨 run 注入复用） */
   subagentSummaries?: V4AgentRunResult['subagentSummaries']
+  /** v14.8: 本轮 KB 预注入文件 id（UI 持久化到 assistant 消息，下轮经 excludeKbFileIds 排除） */
+  kbInjectedFileIds?: string[]
 }
 
 /** 两个 Bridge 实现都满足的接口 */
@@ -72,6 +77,8 @@ export interface IChatBridge {
       kbEnabled?: boolean
       webSearchEnabled?: boolean
       selectedKbFileIds?: string[]
+      /** v14.8: 跨 run KB 去重 — 历史已注入文件 id（buildContext 排除） */
+      excludeKbFileIds?: string[]
       resumeTaskProgress?: V4AgentRunResult['taskProgress']
       /** v14.6.1: 工具开关 — false 时本轮禁用工具调用 */
       toolsEnabled?: boolean

@@ -1,7 +1,7 @@
 import { convertTemplateToProfile, buildSceneAwareStylePrompt, classifySceneType } from '@/utils/styleInjector'
 import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
-import { injectKnowledge, injectKnowledgeFallback } from '@/services/knowledgePipeline'
+import { injectKnowledgeFallback } from '@/services/knowledgePipeline'
 import type { SceneTemplate, EroticSceneConfig, NovelSceneConfig } from '@/types/story'
 import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import type { DetailedChapter } from '@/types/chapter'
@@ -144,42 +144,25 @@ export function normalizeParagraphs(text: string): string {
 }
 
 /**
- * 向 prompt 注入知识库内容。使用 KnowledgePipeline 语义搜索，
- * 降级到全量转储。注入位置在"创作要求"之前。
+ * 向 prompt 注入知识库内容（v14.8: 直接注入所选文件全文，按字符截断）。
+ * 不再做语义检索——用户勾选文件即希望以文件为单位完整参考（与批量生成/AI生成角色行为一致）。
+ * 单文件上限 / 总上限取自知识库设置的「章节生成」场景。注入位置在"创作要求"之前。
  */
 export async function injectKBContents(
   prompt: string,
   selectedKbFileIds: Set<string>,
-  searchQuery?: string,
-  projectId?: string,
-  configId?: string,
-  maxChunks = 5,
 ): Promise<string> {
   if (selectedKbFileIds.size === 0) return prompt
 
-  // 检索条数取自知识库设置的「章节生成」场景
   const { useSettingsStore } = await import('@/store')
-  const genTopK = Math.min(20, Math.max(1,
-    useSettingsStore.getState().aiSettings.kbSettings?.generation?.searchTopK || maxChunks))
-
-  // 优先语义搜索
-  if (searchQuery && projectId && configId) {
-    const result = await injectKnowledge(
-      prompt, searchQuery, projectId, configId,
-      [...selectedKbFileIds], genTopK, 'before-writing',
-    )
-    if (result.chunksInjected > 0) return result.prompt
-  }
-
-  // 降级全量注入（参数取自知识库设置的「章节生成」场景）
   const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
   const gen = kbSettings?.generation || { fallbackTotalMaxChars: 10000, fallbackPerFileMaxChars: 5000 }
-  const fallback = await injectKnowledgeFallback(
+  const injected = await injectKnowledgeFallback(
     prompt, [...selectedKbFileIds],
     gen.fallbackTotalMaxChars || 10000,
     gen.fallbackPerFileMaxChars || 5000,
   )
-  return fallback.prompt
+  return injected.prompt
 }
 
 export interface BuildPromptOptions {

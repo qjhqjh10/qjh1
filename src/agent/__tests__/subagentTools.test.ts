@@ -8,7 +8,7 @@ const runSubagentMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/agent/subagent/SubagentService', () => ({
   runSubagent: (...args: unknown[]) => runSubagentMock(...args),
-  SUBAGENT_TOOL_NAMES: new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask']),
+  SUBAGENT_TOOL_NAMES: new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask', 'kb_analyze']),
 }))
 
 vi.mock('@/store', () => ({

@@ -52,6 +52,8 @@ export interface ToolExecutionContext {
   callId: string
   toolName: string
   signal: AbortSignal
+  /** v14.8: 本轮已预注入上下文的知识库文件 id（kb_search 排除集；与 skills/types.ts 副本保持同步） */
+  kbInjectedFileIds?: string[]
 }
 
 // ── API ──

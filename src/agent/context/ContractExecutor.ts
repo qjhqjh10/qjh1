@@ -24,6 +24,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   kb_index_file:  ['status', 'summary', 'detail'],
   // v14.6.1: kb_search 契约缺失——完整原始结果无截断直灌上下文（20 段≈1 万字符）+ 每调必 warn
   kb_search:      ['status', 'summary', 'detail'],
+  // v14.8: kb_analyze — 子代理分析总结（detail 由执行器按 8000 字符截断）
+  kb_analyze:     ['status', 'summary', 'detail'],
   // ── v15: 子 agent 委托工具：detail 保留（执行器按 subagentTools MAX_DETAIL_CHARS 截断）──
   analyze_file:   ['status', 'summary', 'detail'],
   edit_file_task: ['status', 'summary', 'detail'],

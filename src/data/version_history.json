@@ -1,7 +1,28 @@
 {
-  "currentVersion": "14.7.0",
+  "currentVersion": "14.8.0",
   "currentDate": "2026-08-02",
   "history": [
+    {
+      "version": "14.8.0",
+      "date": "2026-08-02",
+      "features": [
+        "DeepSeek 原生联网搜索（完整 ResponsesAdapter）: 模型配置新增「原生联网搜索」勾选（nativeWebSearch）——勾选后 agent 工具循环经 Responses API 走服务端 web_search 原生工具（模型自主调用，agentic 语义）；软件内置 DuckDuckGo 搜索自动停用（单一联网通道）；主进程 ai:responses-chat handler（流式聚合 + 降级 chat.completions + requestId 精确中止）+ 纯函数转换器 responsesConverter（消息→items、工具转换、孤儿 tool 裁剪）+ ResponsesAdapter 路由（V4AgentChatBridge / createSubagentAdapter 共用 responsesRouter 单一决策源）；真实 API 冒烟验证：web_search/tool_choice/多轮 items 回传（call_id 语义）/流式事件/usage 缓存全部通过",
+        "Agentic RAG 落地: 新工具 kb_analyze（第 32 工具）——委托只读子代理深度分析知识库（多次 kb_search + read_file 全文 → 按主题归纳/标注来源/提取关键设定 ≤8000 字）；子代理检索不受 5 条/500 字预注入限制；会话池 sessionKey 复用（subagent_ask 可追问）；契约/并行分片/per-call abort/300s 超时/旧轮压缩全接入",
+        "KB 跨 run 重复注入修复: 模块级单例 injectedKbFileIds 删除 → per-run 实例归属（消除并发 run/子代理串扰）；本轮注入 id 随 run 结果→assistant 消息持久化（kbInjectedFileIds slice(-20)）→下轮 SendOptions.excludeKbFileIds 排除——同一知识库文件不再跨 run 反复注入",
+        "双协议 pipeline thinking 对称: ai:chat / ai:chat-stream 接入共享 buildThinkingParams（DeepSeek V4 enableThinking 时 extra_body.thinking + reasoning_effort + 温度抑制）——此前 OpenAI pipeline 无深度推理而 Anthropic 有，同一操作双协议行为不一致",
+        "export-tool-schemas 脚本重写: 静态 36 工具表（含已删除工具）→ scripts/export-tool-schemas.ts 从真实注册表 ALL_TOOLS 导入生成（31→32）；subagentTools 惰性化重构（顶层 import SubagentService→@/store 链在 Node 环境挂起的根因解除）；--check 升级为名称集合+内容深比较；check-consistency C1 改调用 --check 判定",
+        "AI 写作助手界面知识库文件选择三态显示修复: 全部([])/不使用(['__none__'])/具体文件 三态区分——选「全部」按钮变紫色显示 (全部)，「不使用」变白色无计数（原 length>0 判断导致显示反了）；'不使用' 状态下勾选文件不再残留 '__none__' 使检索恒空",
+        "角色卡片精简: 删除「角色关系网」「角色成长弧线」字段（表单/AI生成提示词/系统提示词/软件指南 4 处同步，底层数据兼容保留）；自定义信息条块改上下两框布局（名称框在上细长、内容框在下宽）",
+        "章节生成直接注入文件: 不再语义检索——勾选文件后直接读全文注入（单文件上限/总量上限走知识库设置，默认 5000/10000 字符）；与批量生成/AI 生成角色行为统一",
+        "设置页围绕 DeepSeek 优化: 模型名占位提示 v4-flash/v4-pro；DeepSeek 旧模型名退役提示（deepseek-chat/reasoner 2026-07-24）；searchResultCount 默认对齐 5；知识库设置「章节生成」场景卡移除检索条数项"
+      ],
+      "fixes": [
+        "kb_search 排除集改经 ToolExecutionContext 传递（per-run），子代理检索不再被主代理残留注入集误排除",
+        "知识库按钮 ToolExecutionContext/skills 双副本同步 kbInjectedFileIds 字段",
+        "四路审查修复（2026-08-02）: P0 字段名不匹配（BridgeContextBuilder 返回 injectedFileIds vs runtime 读 injectedKbFileIds——KB 跨 run 去重全链路静默失效，TS 可选字段+变量返回不检查+单测盲区；统一为 injectedKbFileIds + 补 runtime 集成测试 3 例）/ P1 降级路径丢失历史 reasoning_content（对齐 chat-with-tools 多轮工具调用要求）/ P2 六项：response.incomplete→finish_reason 'length'（截断续写恢复）、abort map 带守卫删除（双 handler 共用防误删）、useThinking 复用 buildThinkingParams、collectFunctionCalls 注释说明、kb-analyze 会话 key 加 kb:: 前缀防碰撞、index.ts 注释同步",
+        "测试: 644 passed + 15 skipped（659，+24 新用例：responsesConverter 8 / ResponsesAdapter 5 / BridgeContextBuilder 6 / KB 注入全链路集成 3 / 工具数 32 断言）；tsc 0 错误"
+      ]
+    },
     {
       "version": "14.7.0",
       "date": "2026-08-02",

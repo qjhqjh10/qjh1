@@ -48,7 +48,8 @@ echo "✅ Harness 配置就绪"
 # 5. Generate tool schemas
 echo ""
 echo "── 生成工具 Schema ──"
-node scripts/export-tool-schemas.mjs 2>/dev/null || echo "⚠️  工具 schema 导出可选"
+# v14.8: 脚本已重写为 .ts（从真实注册表导入），node 直跑改为 npx tsx
+npx tsx scripts/export-tool-schemas.ts >/dev/null 2>&1 || echo "⚠️  工具 schema 导出可选"
 echo "✅ 工具 schema 就绪"
 
 # 6. Consistency check

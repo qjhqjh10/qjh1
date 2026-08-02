@@ -41,7 +41,7 @@ export const WRITE_TOOLS = new Set([
  * v14.3.1: +verify_task（只读验收子代理）— 此前归普通只读无限并行，多文件验收同时起多个
  *   子代理有 API 限流风险；归入分片 ≤3 并行。
  */
-export const PARALLEL_READ_TOOLS = new Set(['analyze_file', 'verify_task', 'subagent_ask'])  // v14.5.0: +subagent_ask（防无限并发）
+export const PARALLEL_READ_TOOLS = new Set(['analyze_file', 'verify_task', 'subagent_ask', 'kb_analyze'])  // v14.5.0: +subagent_ask（防无限并发）；v14.8: +kb_analyze（只读子代理，分片并行）
 export const SERIAL_WRITE_TOOLS = new Set(['edit_file_task'])
 
 /** v15: 子 agent 委托完成文件操作视为"已写"（_hasWriteCall 计入，避免自愈误判 nudge） */
@@ -51,7 +51,7 @@ export const SUBAGENT_WRITE_TOOLS = new Set(['edit_file_task'])
  * v14.5.0: 子代理委托工具名镜像（per-call abort 用）。
  * 不 import subagentTools——避免 subagentTools → SubagentService → V4UnifiedRuntime → ToolExecutor 循环依赖。
  */
-const SUBAGENT_TOOL_NAMES_LOCAL = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask'])
+const SUBAGENT_TOOL_NAMES_LOCAL = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask', 'kb_analyze'])  // v14.8: +kb_analyze
 
 /** v14.5.0: AbortSignal.any 兜底（旧运行时无 any 时手动组合两个信号） */
 function composeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -89,6 +89,7 @@ const PER_TOOL_TIMEOUT_MS: Record<string, number> = {
   edit_file_task: 300_000,
   verify_task: 300_000,       // v14.5.0: 与其他子代理工具对齐（多文件×多标准验收可能超 120s）
   subagent_ask: 300_000,      // v14.3: 会话追问（可能复用长历史）
+  kb_analyze: 300_000,        // v14.8: 知识库深度分析（多次检索 + 全文阅读，需更长预算）
   analyze_text_style: 180_000, // AI 分析较长内容时 120s 偏紧
 }
 
@@ -107,6 +108,8 @@ export interface ToolExecContext {
   iteration: number
   /** v14.5.0: 子代理（isolatedStore）内部工具调用跳过全局操作历史写入（防污染） */
   skipOpHistory?: boolean
+  /** v14.8: 本轮 KB 预注入文件 id（透传进 ToolExecutionContext → kb_search 排除集） */
+  injectedKbFileIds?: string[]
   /** v14.3: 子代理执行快照收集器（主 runtime 持有数组，run 结束随结果返回） */
   subagentSummaries: SubagentSummary[]
   /** v9.5.5: Store for tool progress tracking */
@@ -178,6 +181,8 @@ export async function executeSingleTool(
     callId: tc.id,
     toolName: tc.name,
     signal: execSignal,
+    // v14.8: 本轮 KB 预注入文件 id（kb_search 排除集）
+    kbInjectedFileIds: ctx.injectedKbFileIds,
   })
   const timeoutPromise = new Promise<ToolResult>(r =>
     setTimeout(() => {

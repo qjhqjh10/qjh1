@@ -4,7 +4,23 @@
 // 上下文隔离：子 agent 的 messagesForApi 不进入主 agent 上下文，只返回结构化 detail + subAgentUsage。
 
 import type { ToolDefinition, ToolResult } from '../types'
-import { runSubagent, SUBAGENT_TOOL_NAMES } from '../../subagent/SubagentService'
+
+// v14.8: 惰性化重构 — 不再顶层 import SubagentService（其链会经 V4UnifiedRuntime 拉到 @/store 的
+// zustand persist，Node 环境（scripts/export-tool-schemas.ts 等）下无 localStorage 导致挂起。
+// executor 内 await import + promise 缓存（与下方 getSettingsStore 同款，兼容 vitest 并发 mock）。
+
+let subagentServicePromise: Promise<typeof import('../../subagent/SubagentService')> | null = null
+function getSubagentService(): Promise<typeof import('../../subagent/SubagentService')> {
+  if (!subagentServicePromise) subagentServicePromise = import('../../subagent/SubagentService')
+  return subagentServicePromise
+}
+
+/**
+ * v14.8: 本地镜像（原 re-export 自 SubagentService — 重构后不再触发其模块求值）。
+ * 与 SubagentService.ts 的 SUBAGENT_TOOL_NAMES 保持一致；另有 ToolExecutor.ts 的
+ * SUBAGENT_TOOL_NAMES_LOCAL 同源，三处变更需同步。
+ */
+export const SUBAGENT_TOOL_NAMES = new Set(['analyze_file', 'edit_file_task', 'verify_task', 'subagent_ask', 'kb_analyze'])  // v14.8: +kb_analyze
 
 /** detail 回灌主上下文的截断上限（防撑爆）— v14.3: 随子代理输出上限放宽（2500/1200 字）提升 */
 const MAX_DETAIL_CHARS: Record<string, number> = {
@@ -96,6 +112,7 @@ export const subagentTools: ToolDefinition[] = [
           question ? `分析问题: ${question}` : '分析问题: 请输出文件的整体结构、核心内容与亮点。',
         )
         // v14.3: 委托成功后保存会话（供 subagent_ask 追问复用，避免重复读取大文件）
+        const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'analyze',
           projectId: ctx.projectId,
@@ -148,6 +165,7 @@ export const subagentTools: ToolDefinition[] = [
 
         const taskMessage = buildTaskMessage('edit_file_task', filePath, `修改指令: ${instruction}`)
         // v14.3: 委托成功后保存会话（供 subagent_ask 追问复用）
+        const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'edit',
           projectId: ctx.projectId,
@@ -213,6 +231,7 @@ export const subagentTools: ToolDefinition[] = [
           ...criteria.map((c, i) => `${i + 1}. ${c}`),
         ]
         // v14.3: 会话 key 以首个文件为准（多文件验收以清单为准，追问按首文件复用）
+        const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'verify',
           projectId: ctx.projectId,
@@ -312,6 +331,7 @@ export const subagentTools: ToolDefinition[] = [
           '（上下文基于该文件的之前分析，文件可能已修改——若内容与问题不符，请重新读取相关部分）',
           '请结合已有上下文回答追问，输出结构化分析摘要。',
         ].join('\n')
+        const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'analyze',
           projectId: ctx.projectId,
@@ -333,5 +353,3 @@ export const subagentTools: ToolDefinition[] = [
     },
   },
 ]
-
-export { SUBAGENT_TOOL_NAMES }

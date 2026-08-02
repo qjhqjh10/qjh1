@@ -191,6 +191,11 @@ export default function AIChatWindow() {
   const [kbLoadError, setKbLoadError] = useState(false)  // M3: distinguish error from empty
   const currentSelections = aiSettings.kbFileSelections || {}
   const selectedFileIds: string[] = currentSelections[activePage] || []
+  // v14.8: 选中态三态语义 — [] = 全部；['__none__'] = 不使用；其余 = 勾选的具体文件。
+  // 外层"文件"按钮的选中样式必须区分这三态（此前 [] 与 ['__none__'] 均按 length 判断导致显示反了）
+  const isKbNone = selectedFileIds.length === 1 && selectedFileIds[0] === '__none__'
+  const isKbAll = selectedFileIds.length === 0
+  const hasKbFileSelection = selectedFileIds.length > 0 && !isKbNone
 
   const loadKBFileList = async () => {
     try {
@@ -206,7 +211,8 @@ export default function AIChatWindow() {
   // Action mode now works without a project (global notes, templates, KB)
 
   const toggleKBFile = (fileId: string) => {
-    const cur = currentSelections[activePage] || []
+    // v14.8: '不使用' 状态下勾选文件 → 从空集开始（此前残留 '__none__' 会传入 kb:search 使检索恒为空）
+    const cur = (currentSelections[activePage] || []).filter(id => id !== '__none__')
     const next = cur.includes(fileId) ? cur.filter(id => id !== fileId) : [...cur, fileId]
     useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: next } })
   }
@@ -572,8 +578,8 @@ export default function AIChatWindow() {
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 14 字段卡片 + AI 一键生成\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/改写/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/续写（右键菜单，可插入本章原文参考）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
-        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 14 字段完整角色卡片（可自定义条块）\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/续写（可插入本章原文参考）\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
+        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 12 字段卡片 + 自定义条块 + AI 一键生成\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/改写/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/续写（右键菜单，可插入本章原文参考）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
+        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 12 字段完整角色卡片（可自定义条块）\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/续写（可插入本章原文参考）\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
         { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), displayOnly: true },
@@ -624,6 +630,9 @@ export default function AIChatWindow() {
         : undefined
       const result = await bridgeRef.current.sendMessage(fullContent, {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
+        // v14.8: 跨 run KB 去重 — 上一条 assistant 消息持久化的已注入文件 id 传给 buildContext 排除，
+        // 避免同一知识库文件跨 run 反复注入（内容已在历史中，模型可按需 kb_search/read_file 深入）
+        excludeKbFileIds: lastAssistantMsg?.kbInjectedFileIds,
         resumeTaskProgress: lastProgressMsg?.taskProgress,
         // v14.6.1: 工具开关接通（此前只驱动按钮样式，从未传给 bridge——死开关）
         toolsEnabled: toolInvokeEnabled,
@@ -703,6 +712,8 @@ export default function AIChatWindow() {
             subagentSummaries: (runResult as any).subagentSummaries?.slice(-5),
             // v14.6.1: 推理链持久化（"思考过程"折叠面板数据源——原从未写入，面板恒不显示）
             reasoningContent: (runResult as any).reasoningContent,
+            // v14.8: 本轮 KB 预注入文件 id 随消息持久化（下轮 sendMessage 读回做跨 run 排除）
+            kbInjectedFileIds: (runResult as any).kbInjectedFileIds?.slice(-20),
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -880,23 +891,23 @@ export default function AIChatWindow() {
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { loadKBFileList(); setShowKBFileList(!showKBFileList) }} title="选择知识库文件" style={{
                   display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8,
-                  border: selectedFileIds.length > 0 ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
-                  background: selectedFileIds.length > 0 ? 'rgba(124,58,237,0.04)' : '#fff',
-                  color: selectedFileIds.length > 0 ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: selectedFileIds.length > 0 ? 600 : 400,
+                  border: hasKbFileSelection ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
+                  background: hasKbFileSelection ? 'rgba(124,58,237,0.04)' : '#fff',
+                  color: hasKbFileSelection ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: hasKbFileSelection ? 600 : 400,
                   cursor: 'pointer', fontFamily: 'inherit',
                 }}>
                   <ListBulletIcon style={{ width: 11, height: 11 }} />
-                  文件 {selectedFileIds.length > 0 ? `(${selectedFileIds.length})` : ''}
+                  文件 {isKbAll ? '(全部)' : hasKbFileSelection ? `(${selectedFileIds.length})` : ''}
                 </button>
                 {showKBFileList && (
                   <div className="custom-scrollbar" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 4, minWidth: 220, maxHeight: 260, overflowY: 'auto', background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', padding: 4 }}>
                     <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                      <button onClick={selectAllKBFiles} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: selectedFileIds.length === 0 ? 600 : 400, color: selectedFileIds.length === 0 ? '#7c3aed' : '#6b5e54' }}>全部</button>
-                      <button onClick={() => useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: ['__none__'] } })} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: selectedFileIds.length === 1 && selectedFileIds[0] === '__none__' ? 600 : 400, color: selectedFileIds.length === 1 && selectedFileIds[0] === '__none__' ? '#7c3aed' : '#6b5e54' }}>不使用</button>
+                      <button onClick={selectAllKBFiles} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: isKbAll ? 600 : 400, color: isKbAll ? '#7c3aed' : '#6b5e54' }}>全部</button>
+                      <button onClick={() => useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: ['__none__'] } })} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: isKbNone ? 600 : 400, color: isKbNone ? '#7c3aed' : '#6b5e54' }}>不使用</button>
                     </div>
                     {kbFiles.length > 0 ? kbFiles.map(f => (
                       <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
-                        <input type="checkbox" checked={selectedFileIds.includes(f.id) || selectedFileIds.length === 0} onChange={() => toggleKBFile(f.id)} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
+                        <input type="checkbox" checked={isKbAll || selectedFileIds.includes(f.id)} onChange={() => toggleKBFile(f.id)} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.originalName}</span>
                       </label>
                     )) : <div style={{ fontSize: 11, color: '#9b8e84', textAlign: 'center', padding: 8 }}>暂无知识库文件</div>}
@@ -923,7 +934,9 @@ export default function AIChatWindow() {
                 await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
-            <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
+            <span title={activeConfig?.nativeWebSearch ? '该模型已启用原生联网搜索（Responses API 服务端搜索），软件内置联网搜索自动停用' : '软件内置联网搜索（DuckDuckGo）'}>
+              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch || webSearchEnabled} onClick={() => { if (!activeConfig?.nativeWebSearch) setWebSearchEnabled(!webSearchEnabled) }} />
+            </span>
             {/* v14.6.1: 工具开关接通双协议——原 Anthropic 协议下按钮被禁用（行为恒开），
                 且开关状态从未传给 bridge（死开关）；现在 sendMessage 透传 toolsEnabled 真正门控 */}
             <ToggleButton

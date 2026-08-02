@@ -72,8 +72,8 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
         </div>
       </div>
 
-      {/* Text fields */}
-      {(['background', 'appearance', 'personality', 'abilities', 'weaknesses', 'relationships', 'arc'] as const).map(k => (
+      {/* Text fields — v14.8: 移除「角色关系网」「角色成长弧线」（旧数据仍兼容，读入不显示） */}
+      {(['background', 'appearance', 'personality', 'abilities', 'weaknesses'] as const).map(k => (
         <div key={k}>
           <label style={labelStyle}>{FIELD_TO_LABEL[k]}</label>
           <textarea
@@ -90,35 +90,38 @@ export default function CharacterForm({ char, onChange, onSave, onClose, project
       <div style={{ borderTop: '1px dashed #e5e0da', paddingTop: 12, marginTop: 4 }}>
         <label style={{ ...labelStyle, marginBottom: 8 }}>
           自定义信息条块
-          <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 11, marginLeft: 4 }}>（自由增删 — 前框填特点，后框填具体信息）</span>
+          <span style={{ fontWeight: 400, color: '#9b8e84', fontSize: 11, marginLeft: 4 }}>（自由增删 — 上框填信息名称，下框填具体信息）</span>
         </label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {blocks.map((b, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-              <input
-                type="text"
-                value={b.label}
-                onChange={e => setBlock(i, { label: e.target.value })}
-                placeholder="特点（如：口头禅）"
-                className="focus-ring"
-                style={{ ...inputStyle, width: 140, flexShrink: 0 }}
-              />
+            // v14.8: 改为上下两框 — 名称框在上（细长），内容框在下（宽）
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 10, borderRadius: 10, border: '1px solid #f0ece8', background: '#faf9f8' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={b.label}
+                  onChange={e => setBlock(i, { label: e.target.value })}
+                  placeholder="信息名称（如：口头禅）"
+                  className="focus-ring"
+                  style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                />
+                <button
+                  onClick={() => removeBlock(i)}
+                  title="删除此条块"
+                  style={{
+                    flexShrink: 0, width: 26, height: 26, borderRadius: 7,
+                    border: '1px solid #fecaca', background: '#fff7f7', color: '#dc2626',
+                    fontSize: 13, cursor: 'pointer', lineHeight: 1,
+                  }}
+                >✕</button>
+              </div>
               <textarea
                 value={b.content}
                 onChange={e => setBlock(i, { content: e.target.value })}
                 placeholder="具体信息..."
                 className="focus-ring"
-                style={{ ...inputStyle, flex: 1, minHeight: 40, resize: 'vertical' }}
+                style={{ ...inputStyle, width: '100%', minHeight: 64, resize: 'vertical', boxSizing: 'border-box' }}
               />
-              <button
-                onClick={() => removeBlock(i)}
-                title="删除此条块"
-                style={{
-                  flexShrink: 0, alignSelf: 'center', width: 30, height: 30, borderRadius: 8,
-                  border: '1px solid #fecaca', background: '#fff7f7', color: '#dc2626',
-                  fontSize: 15, cursor: 'pointer', lineHeight: 1,
-                }}
-              >✕</button>
             </div>
           ))}
           {blocks.length === 0 && (

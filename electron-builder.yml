@@ -9,6 +9,10 @@ files:
 win:
   target:
     - portable
+  # v14.7.0: 跳过 exe 编辑/签名——winCodeSign 7z 在普通权限下解压 macOS 软链接失败
+  # （历史事故），导致构建中断、产物缺文件；个人项目无签名证书，exe 用默认图标/无版本信息
+  # （memory 记录"属性里不显示版本号，功能完全不受影响"即此状态）
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

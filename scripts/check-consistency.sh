@@ -23,23 +23,14 @@ echo " Project Consistency Check"
 echo "══════════════════════════════════════════"
 echo ""
 
-# ═══ C1: Tool count consistency ═══
-echo "── C1: Tool Count ──"
-# v14.5.1: 37 → 31（工具精简 42→34→27→31；tool-schemas.json 由真实注册表重新生成）
-EXPECTED=31
-
-# Check CLI JSON
-JSON_PATH="$ROOT/scripts/tool-schemas.json"
-if [ -f "$JSON_PATH" ]; then
-  CLI_COUNT=$(node -e "console.log(require(process.argv[1]).length)" "$JSON_PATH" 2>/dev/null || echo 0)
+# ═══ C1: Tool schema consistency ═══
+echo "── C1: Tool Schemas ──"
+# v14.8: 从"只数条目数"升级为"名称集合 + 内容深比较"（scripts/export-tool-schemas.ts --check 只读判定）
+if (cd "$ROOT" && timeout 120 npx tsx scripts/export-tool-schemas.ts --check >/dev/null 2>&1); then
+  CLI_COUNT=$(node -e "console.log(require(process.argv[1]).length)" "$ROOT/scripts/tool-schemas.json" 2>/dev/null || echo 0)
+  pass "tool-schemas.json=$CLI_COUNT tools — 名称与内容与注册表一致"
 else
-  CLI_COUNT=0
-fi
-
-if [ "$CLI_COUNT" -eq "$EXPECTED" ] 2>/dev/null; then
-  pass "CLI JSON=$CLI_COUNT tools — matches expected $EXPECTED"
-else
-  fail "CLI JSON=$CLI_COUNT tools — expected $EXPECTED. Run: node scripts/export-tool-schemas.mjs"
+  fail "tool-schemas.json 与注册表不一致。Run: npx tsx scripts/export-tool-schemas.ts"
 fi
 echo ""
 
@@ -85,6 +76,8 @@ while IFS= read -r ref; do
   [[ "$ref" == *npx* ]] && continue
   # Skip 'memory/MEMORY.md' as it's in user home, not repo
   [[ "$ref" == memory/* ]] && continue
+  # v14.8: 跳过 ~/.claude/ 用户目录引用（同属 repo 外记忆文件，如 ~/.claude/projects/*/memory/MEMORY.md）
+  [[ "$ref" == *"~/.claude/"* ]] && continue
   # Try as relative path from repo root
   if [ -e "$ROOT/$ref" ]; then
     pass "  $ref"

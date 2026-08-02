@@ -36,19 +36,25 @@ function NumberField({ value, min, max, onChange }: {
   )
 }
 
-/** 场景卡片：标题 + 说明 + 三项设置 */
-function SceneCard({ title, accent, description, value, onChange }: {
+/** 场景卡片：标题 + 说明 + 设置项（v14.8: 章节生成场景改为直接注入文件，不再显示语义检索条数） */
+function SceneCard({ title, accent, description, value, onChange, mode }: {
   title: string
   accent: string
   description: string
   value: KBSceneSettings
   onChange: (patch: Partial<KBSceneSettings>) => void
+  mode: 'agent' | 'generation'
 }) {
-  const rows: [keyof KBSceneSettings, string, string][] = [
-    ['searchTopK', '语义检索片段数（topK）', '每次检索从知识库中取出的片段数量，越大参考越充分、消耗 token 越多'],
-    ['fallbackPerFileMaxChars', '全量注入：每文件最多字符', '语义检索不可用时降级全量注入，单个文件最多注入的字符数'],
-    ['fallbackTotalMaxChars', '全量注入：总字符上限', '降级全量注入时所有文件合计注入的字符上限'],
-  ]
+  const rows: [keyof KBSceneSettings, string, string][] = mode === 'agent'
+    ? [
+        ['searchTopK', '语义检索片段数（topK）', '每次检索从知识库中取出的片段数量，越大参考越充分、消耗 token 越多'],
+        ['fallbackPerFileMaxChars', '注入：每文件最多字符', '语义检索结果不可用时的兜底注入，单个文件最多注入的字符数'],
+        ['fallbackTotalMaxChars', '注入：总字符上限', '兜底注入时所有文件合计注入的字符上限'],
+      ]
+    : [
+        ['fallbackPerFileMaxChars', '每文件最多注入字符', '直接注入所选文件时，单个文件最多注入的字符数'],
+        ['fallbackTotalMaxChars', '总注入字符上限', '所有勾选文件合计注入的字符上限（超出部分截断）'],
+      ]
   return (
     <div style={{
       background: '#fff', borderRadius: 16, padding: '18px 20px',
@@ -96,7 +102,7 @@ export function KnowledgeBaseSettingsTab() {
       <div>
         <h3 style={{ fontSize: 14, fontWeight: 600, color: '#2d2520', marginBottom: 4 }}>知识库设置</h3>
         <p style={{ fontSize: 12, color: '#9b8e84', lineHeight: 1.6, margin: 0 }}>
-          知识库注入按场景分开配置。当前支持知识库注入的位置：AI 写作助手（每轮语义检索）、章节生成、批量生成、AI 生成角色（检索 + 降级全量注入）。
+          知识库注入按场景分开配置。当前支持知识库注入的位置：AI 写作助手（每轮语义检索）、章节生成 / 批量生成 / AI 生成角色（直接注入所选文件全文，按字符截断）。
         </p>
       </div>
 
@@ -106,14 +112,16 @@ export function KnowledgeBaseSettingsTab() {
         description="每次对话时按当前问题在你勾选的知识库文件中做语义检索，把相关片段注入提示词。"
         value={kb.agent}
         onChange={patch => setScene('agent', patch)}
+        mode="agent"
       />
 
       <SceneCard
         title="章节生成 · 批量生成 · AI 生成角色"
         accent="#16a34a"
-        description="章节创作弹窗、批量生成、AI 生成角色弹窗中勾选知识库文件后的注入参数。"
+        description="章节创作弹窗、批量生成、AI 生成角色弹窗中勾选知识库文件后，直接注入所选文件全文（按字符截断），上限由以下两项控制。"
         value={kb.generation}
         onChange={patch => setScene('generation', patch)}
+        mode="generation"
       />
 
       <div style={{ fontSize: 11, color: '#9b8e84', lineHeight: 1.6 }}>

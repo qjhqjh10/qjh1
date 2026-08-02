@@ -6,6 +6,9 @@
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
 
+/** v14.8: kb_analyze detail 回灌主上下文截断上限（对齐 analyze_file 8000） */
+const MAX_DETAIL_CHARS_KB_ANALYZE = 8000
+
 export const kbTools: ToolDefinition[] = [
   {
     schema: {
@@ -30,12 +33,11 @@ export const kbTools: ToolDefinition[] = [
         // v14.3.1: 工具检索**不受用户勾选限定**——模型自主检索时覆盖全部知识库文件：
         // 用户可能在对话中直接指定某文件（未勾选/未开知识库按钮），工具必须能搜到。
         // projectId 传 '' → 全库检索（不受项目归属过滤；知识库为全局目录，projects[] 仅归属标记）
-        // v14.3: 排除已注入上下文的知识库文件（按钮注入 + 工具检索去重，避免同一片段重复进入上下文）
-        let excludeFileIds: string[] | undefined
-        try {
-          const { injectedKbFileIds } = await import('@/agent/context/BridgeContextBuilder')
-          if (injectedKbFileIds.size > 0) excludeFileIds = [...injectedKbFileIds]
-        } catch { /* 不可用 → 不去重 */ }
+        // v14.8: 排除已注入上下文的知识库文件（per-run 经 ToolExecutionContext 传递——
+        // 原模块级单例被并发 run/子 agent 共享串扰；子 agent ctx 恒空，检索全库）
+        const excludeFileIds = ctx.kbInjectedFileIds && ctx.kbInjectedFileIds.length > 0
+          ? ctx.kbInjectedFileIds
+          : undefined
         const results = await kbService.search(
           String(args.query || '').slice(0, 4000),
           '',  // 全库检索
@@ -57,6 +59,72 @@ export const kbTools: ToolDefinition[] = [
         }
       } catch (e) {
         return { status: 'error', summary: `知识库搜索失败: ${e instanceof Error ? e.message : '未知错误'}` }
+      }
+    },
+  },
+
+  {
+    // v14.8: Agentic RAG — 委托只读子代理深度分析知识库（多次 kb_search + read_file 全文 → 结构化总结）。
+    // 与 analyze_file 同款委托链（subagentTools）；子代理上下文无 KB 预注入、ctx.kbInjectedFileIds 恒空，
+    // 其内部 kb_search 全库检索不受 5 条/500 字预注入限制，可反复搜索直到找到有用信息。
+    schema: {
+      name: 'kb_analyze',
+      description:
+        '委托子分析代理（独立上下文窗口）深度分析知识库：子代理自主多次语义搜索（可按不同检索词变换）、' +
+        '对命中的高相关文件 read_file 读取全文，综合后输出结构化分析总结（按主题归纳、标注来源文件、提取关键设定要点），' +
+        '不占用你的上下文。适合需要跨文件综合、设定一致性核对、按主题整理知识库内容的场景。' +
+        '轻量检索请直接用 kb_search。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '分析主题或问题（如"世界观中的修炼体系""女主的成长脉络"）' },
+          focus: { type: 'string', description: '关注的侧面（可选，如"时间线""设定矛盾""与主角的关系"）' },
+          topK: { type: 'number', description: '首轮检索片段数，默认5，最大20' },
+        },
+        required: ['query'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'kb',
+    executor: async (args: Record<string, unknown>, ctx): Promise<ToolResult> => {
+      const query = String(args.query || '').trim()
+      if (!query) return { status: 'error', summary: 'query 为空' }
+
+      try {
+        // v14.8: 惰性加载（同 subagentTools — 顶层 import 会经 V4UnifiedRuntime 拉到 @/store 链）
+        const { runSubagent } = await import('../../subagent/SubagentService')
+        const focus = String(args.focus || '').trim()
+        const topK = Math.min(20, Math.max(1, Number(args.topK) || 5))
+        const taskMessage = [
+          `知识库分析任务: ${query}`,
+          focus ? `关注侧面: ${focus}` : '',
+          `检索建议: 先按主题做一次 kb_search（topK ${topK}），再变换 1-2 个相关检索词补充搜索；` +
+            '对命中片段中高相关度的文件用 read_file 读取全文深入。',
+          '输出要求（≤8000字符）: 按主题归纳要点、标注每个结论的来源文件名、提取关键设定/数据/时间线、' +
+            '指出文件间的冲突或空白。若知识库无相关内容，如实说明。',
+        ].filter(Boolean).join('\n')
+        // 会话 key 固定为 kb-analyze — subagent_ask 可按此追问（须传相同文件路径，此处为知识库分析场景）
+        // v14.8 审查修复(P2): key 加 kb:: 前缀——与 analyze_file 的 ${projectId}::${filePath} 同构，
+        // 若项目存在名为 kb-analyze 的文件会会话池碰撞串到错误上下文
+        const result = await runSubagent({
+          role: 'analyze',
+          projectId: ctx.projectId,
+          configId: ctx.configId,
+          userMessage: taskMessage,
+          signal: ctx.signal,
+          sessionKey: `${ctx.projectId ?? 'global'}::kb::kb-analyze`,
+        })
+
+        return {
+          status: result.success ? 'success' : 'error',
+          summary: result.success
+            ? `知识库分析完成: ${query}（子代理 ${result.usage?.calls ?? 1} 次调用）`
+            : `知识库分析失败: ${query}`,
+          detail: result.text.slice(0, MAX_DETAIL_CHARS_KB_ANALYZE),
+          subAgentUsage: result.usage,
+        }
+      } catch (e) {
+        return { status: 'error', summary: `知识库分析异常: ${e instanceof Error ? e.message : '未知'}` }
       }
     },
   },

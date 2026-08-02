@@ -22,12 +22,14 @@ export const CORE_TOOL_NAMES = new Set([
 // v15: +analyze_file/edit_file_task（子 agent 委托，第 2 轮起保持可用）
 // v14.2.1: +verify_task（验收子代理，清单完成提示后即可用，无需 tool_search）
 // v14.3: +subagent_ask（子代理会话追问，多轮对话中高频，避免 tool_search 往返）
+// v14.8: +kb_analyze（知识库深度分析，常驻避免 tool_search 往返）
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   'find_files',
   'batch_replace',
   'rename_file',
   'kb_search',
+  'kb_analyze',
   'analyze_file',
   'edit_file_task',
   'verify_task',

@@ -46,6 +46,8 @@ export interface Message {
     detail: string
     iteration?: number
   }>
+  /** v14.8: 本轮 KB 预注入的知识库文件 id（随消息持久化；下轮经 SendOptions.excludeKbFileIds 排除，避免跨 run 重复注入） */
+  kbInjectedFileIds?: string[]
 }
 
 export interface Conversation {
