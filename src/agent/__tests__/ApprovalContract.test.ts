@@ -1,6 +1,7 @@
-// ── Approval & Contract Tests (v14.5.0) ──
+// ── Approval & Contract Tests (v14.5.0, 全自由模式 v14.6.0 修订) ──
 // C1: HTTP/浏览器工具契约保留 detail（截断 4000）——模型能看到抓取内容
-// C2: READ_ASK 审批落实——list_directory(broad:true) 条件审批 / update_prompt 审批 / toggle_prompt 免审批
+// C2: 全自由模式——list_directory/find_files/delete_file/rename_file 一律免审批；
+//     update_prompt 仍 PROJECT_ASK / toggle_prompt AUTO
 // C4: 审批超时（60s）→ 拒绝且工具未执行；WAITING_APPROVAL 阶段接线
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -58,11 +59,14 @@ describe('C1 ContractExecutor: HTTP/浏览器工具 detail 保留', () => {
   })
 })
 
-describe('C2 审批门: READ_ASK 落实 (v14.5.0)', () => {
-  it('list_directory(broad:true) 需审批，普通浏览免审批', () => {
-    expect(toolRegistry.needsApproval('list_directory', { broad: true })).toBe(true)
+describe('C2 审批门 (v14.5.1 全自由模式)', () => {
+  it('list_directory 一律免审批（含 broad），find_files/delete/rename 免审批', () => {
+    expect(toolRegistry.needsApproval('list_directory', { broad: true })).toBe(false)
     expect(toolRegistry.needsApproval('list_directory', { dir_path: 'characters/' })).toBe(false)
     expect(toolRegistry.needsApproval('list_directory')).toBe(false)
+    expect(toolRegistry.needsApproval('find_files', { pattern: '*.yaml', scope: 'computer' })).toBe(false)
+    expect(toolRegistry.needsApproval('delete_file', { file_path: 'chapters/ch3.txt' })).toBe(false)
+    expect(toolRegistry.needsApproval('rename_file', { file_path: 'a.md', new_path: 'b.md' })).toBe(false)
   })
 
   it('update_prompt 需审批（PROJECT_ASK），toggle_prompt 免审批（AUTO）', () => {
@@ -70,16 +74,16 @@ describe('C2 审批门: READ_ASK 落实 (v14.5.0)', () => {
     expect(toolRegistry.needsApproval('toggle_prompt')).toBe(false)
   })
 
-  it('无审批路径（子代理）时 list_directory(broad:true) 直接拒绝', async () => {
+  it('无审批路径（子代理）时 update_prompt 直接拒绝', async () => {
     const executor = createToolExecutor({
       securityFence: new V4SecurityFence('test-project'),
       auditTrail: new AuditTrail(),
       projectId: 'test-project',
       // 不传 onApprovalRequired → 模拟子代理环境
     })
-    const result = await executor({ dir_path: 'C:/Users', broad: true }, {
+    const result = await executor({ title: 't', content: 'c' }, {
       projectId: 'test-project', configId: 'test-config',
-      callId: 'c1', toolName: 'list_directory', signal: new AbortController().signal,
+      callId: 'c1', toolName: 'update_prompt', signal: new AbortController().signal,
     })
     expect(result.status).toBe('error')
     expect(result.summary).toContain('不支持审批')
@@ -98,9 +102,9 @@ describe('C4 审批超时竞态 + WAITING_APPROVAL (v14.5.0)', () => {
       approvalTimeoutMs: 60_000,
       onApprovalRequired: () => new Promise<boolean>(() => {}),  // 永不结算 → 靠超时拒绝
     })
-    const execPromise = executor({ file_path: 'test-project/outline/x.md' }, {
+    const execPromise = executor({ title: 't', content: 'c' }, {
       projectId: 'test-project', configId: 'test-config',
-      callId: 'c1', toolName: 'delete_file', signal: new AbortController().signal,
+      callId: 'c1', toolName: 'update_prompt', signal: new AbortController().signal,
     })
     // 59s 未决
     await vi.advanceTimersByTimeAsync(59_000)
@@ -130,9 +134,9 @@ describe('C4 审批超时竞态 + WAITING_APPROVAL (v14.5.0)', () => {
       approvalTimeoutMs: 60_000,
       onApprovalRequired: () => new Promise<boolean>(() => {}),  // 挂起 → 期间 phase 应为 WAITING_APPROVAL
     })
-    const execPromise = executor({ file_path: 'test-project/outline/x.md' }, {
+    const execPromise = executor({ title: 't', content: 'c' }, {
       projectId: 'test-project', configId: 'test-config',
-      callId: 'c1', toolName: 'delete_file', signal: new AbortController().signal,
+      callId: 'c1', toolName: 'update_prompt', signal: new AbortController().signal,
     })
     // flush 微任务队列（动态 import + 审批进入挂起需要若干轮微任务）
     for (let i = 0; i < 20; i++) await Promise.resolve()

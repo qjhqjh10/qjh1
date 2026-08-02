@@ -280,8 +280,8 @@ export const subagentTools: ToolDefinition[] = [
     schema: {
       name: 'subagent_ask',
       description:
-        '追问子分析代理（v14.3）：复用该文件上次委托子代理的会话上下文（analyze_file/edit_file_task/verify_task 均会建立会话），' +
-        '无需重新读取文件即可补充细节、追问结论。若该文件尚无会话，则与 analyze_file 相同执行全新分析。' +
+        '追问子分析代理：复用该文件上次 analyze_file 委托建立的会话上下文（edit_file_task/verify_task 建立的会话不可追问，会退化为全新分析），' +
+        '无需重新读取文件即可补充细节、追问结论。若该文件尚无 analyze_file 会话，则与 analyze_file 相同执行全新分析。' +
         '适用于大文件（超过2万字符）分析后的细节追问。注意：会话上下文基于之前的文件版本，文件可能已修改。',
       parameters: {
         type: 'object',

@@ -456,14 +456,9 @@ async function executeSingleFileTool(callId, toolName, args) {
     case 'generate_image': return err('图片生成在测试环境中不可用')
 
     // ── Template tools ──
-    case 'create_style_template':
-    case 'create_scene_template': {
-      const fp = safeResolve(args.file_path || '', TEST_PROJECT)
-      if (!fp) return err(`路径无效`)
-      mkdirSync(dirname(fp), { recursive: true })
-      writeFileSync(fp, String(args.content || ''), 'utf-8')
-      return ok('模板已创建')
-    }
+    // v14.5.1: create_style_template/create_scene_template 已从 31 工具清单移除——
+    // mock 不再保留（原保留会造成"已删除工具在测试中假成功，真实环境报错"的假象）
+    // analyze_text_style 走 ai.chat 路径（mock 返回空 → 无场景覆盖）
 
     // ── Prompt tools ──
     case 'list_prompts': return ok('', '[]')
@@ -881,6 +876,16 @@ const SCENARIOS = [
       { type: 'hasAnyTool', names: ['edit_file', 'batch_replace'], minCount: 1, desc: '应修改文件（edit_file 或 batch_replace）' },
       { type: 'hasText', minChars: 20, desc: '应确认修改完成' },
     ],
+    // v14.5.1: setup 确保目标文件存在——S5 原本依赖 32 场景运行顺序（早前场景创建江月白.yaml），
+    // 单独跑 S5 时文件不存在，模型合理选择 create_file 新建，断言误报"未编辑"
+    setup: () => {
+      const dir = resolve(PROJECTS_DIR, TEST_PROJECT, 'characters')
+      mkdirSync(dir, { recursive: true })
+      const fp = resolve(dir, '江月白.yaml')
+      if (!existsSync(fp)) {
+        writeFileSync(fp, 'name: 江月白\npersonality: 毒舌大师姐，嘴硬心软\nhiddenStory: 暂缺\n', 'utf-8')
+      }
+    },
   },
   {
     id: 'S6',

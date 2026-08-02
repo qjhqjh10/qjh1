@@ -1,12 +1,10 @@
 // ── V4 Security Fence ──
 //
-// Four-layer security:
-//   Layer 1: Hard blocks — system dirs, network paths, env variables (NEVER allowed)
+// v14.5.1 全自由模式（个人使用）：路径不再要求审批——
+//   Layer 1: Hard blocks — system dirs, UNC, env variables (NEVER allowed)
 //   Layer 2: Format Validation — JSON/YAML schema validation for create_file/edit_file
-//   Layer 3: External path approval — paths outside app root require user confirmation
-//   Layer 4: Dangerous tool gate — DANGEROUS_ASK / PROJECT_ASK tools require confirmation
-//
-// Key insight: don't hard-block .. or absolute paths — escalate to approval instead.
+//   Layer 3: (已移除) 外部路径审批 —— agent 可在任意非系统目录读写，事前审批 → 事后审计（操作历史）
+//   Layer 4: Tool gate — 剩余 DANGEROUS_ASK / PROJECT_ASK 工具（update_prompt/delete_project）仍需确认
 
 import { toolRegistry } from './skills/ToolRegistry'
 import { tryParseJsonOrYaml } from '../utils/yamlUtils'
@@ -33,12 +31,9 @@ export class V4SecurityFence {
     const jsonResult = this.checkJsonValidation(toolName, args)
     if (!jsonResult.allowed) return jsonResult
 
-    // ── Layer 3: External path → approval ──
-    const extCheck = this.checkExternalPath(toolName, args)
-    if (extCheck.needsApproval) return extCheck
+    // ── Layer 3: (v14.5.1 移除) 外部路径不再需要审批 — 全自由模式，仅 Layer 1 硬拦截保留 ──
 
-    // ── Layer 4: Dangerous tool → approval ──
-    // 传 args 支持条件审批（如 find_files：仅 scope=computer 需确认）
+    // ── Layer 4: Tool gate → approval ──
     if (toolRegistry.needsApproval(toolName, args)) {
       const perm = toolRegistry.getPermissionLevel(toolName)
       const label = perm === 'PROJECT_ASK' ? '项目操作' : '危险操作'
@@ -133,45 +128,7 @@ export class V4SecurityFence {
     }
   }
 
-  // ── Layer 3: External path approval ──
-
-  private checkExternalPath(toolName: string, args: Record<string, unknown>): SecurityCheckResult {
-    const fp = this.extractPath(args)
-    if (!fp) return { allowed: true, needsApproval: false }
-
-    // App-internal relative paths (no ../ prefix, not absolute) → no approval needed
-    if (!fp.includes('..') && !/^[A-Z]:[\\/]/i.test(fp) && !fp.startsWith('/')) {
-      return { allowed: true, needsApproval: false }
-    }
-
-    // ../ prefix → count depth; shallow traversal stays in-app, deep traversal needs approval
-    if (fp.startsWith('../') || fp.startsWith('..\\')) {
-      let cleaned = fp.replace(/\\/g, '/')
-      let depth = 0
-      while (cleaned.startsWith('../')) { cleaned = cleaned.slice(3); depth++ }
-      // Shallow traversal (≤2 levels) stays within app root → no approval
-      // Deep traversal (≥3 levels) may escape → need approval
-      if (depth <= 2) {
-        return { allowed: true, needsApproval: false }
-      }
-      return {
-        allowed: true,
-        needsApproval: true,
-        reason: `路径 "${fp}" 深度遍历，可能指向软件目录外部。确认要访问此路径吗？`,
-      }
-    }
-
-    // Absolute paths → external to app → require approval
-    if (/^[A-Z]:[\\/]/i.test(fp) || fp.startsWith('/')) {
-      return {
-        allowed: true,
-        needsApproval: true,
-        reason: `路径 "${fp}" 指向软件目录外部。确认要访问此路径吗？`,
-      }
-    }
-
-    return { allowed: true, needsApproval: false }
-  }
+  // ── Layer 3: (v14.5.1 移除) 外部路径审批 — 全自由模式下路径仅受 Layer 1 硬拦截约束 ──
 
   // ── Helpers ──
 

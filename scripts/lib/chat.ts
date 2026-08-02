@@ -6,13 +6,14 @@
  *   const reply = await chat([{ role: 'user', content: '...' }], { maxTokens: 8192, model: 'deepseek-v4-flash' })
  *
  * 环境变量:
- *   AI_API_KEY    - API key (默认内置)
+ *   AI_API_KEY    - API key (必填，缺失时 chat() 抛错)
  *   AI_PROTOCOL   - anthropic(默认) | openai
  *   AI_TEMPERATURE - temperature (默认 1.0)
  *   AI_BASE_URL   - 自定义 API 地址
  */
 
-const API_KEY = process.env.AI_API_KEY || 'sk-c9c30831df7243209435c60e811c879d'
+// v14.5.1: 移除硬编码的旧 API key（已失效且属敏感信息）——一律从环境变量读取
+const API_KEY = process.env.AI_API_KEY || ''
 const DEFAULT_MODEL = process.env.AI_MODEL || 'deepseek-v4-flash'
 const PROTOCOL = (process.env.AI_PROTOCOL || 'anthropic').toLowerCase()
 const TEMPERATURE = parseFloat(process.env.AI_TEMPERATURE || '1.0')
@@ -26,6 +27,9 @@ export async function chat(
   messages: { role: string; content: string }[],
   opts: ChatOptions = {},
 ): Promise<string> {
+  if (!API_KEY) {
+    throw new Error('缺少 AI_API_KEY 环境变量——请先 export AI_API_KEY=sk-xxx 再运行脚本')
+  }
   const maxTokens = opts.maxTokens ?? 4096
   const model = opts.model || DEFAULT_MODEL
 

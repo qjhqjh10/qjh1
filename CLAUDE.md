@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.5.0
+# AI写作软件—青剑 v14.6.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -12,7 +12,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 清单门控修复（GLOBAL_DONE_RE 裸锚点删除 + PARTIAL_DONE_RE 排除部分声明）；Anthropic 安全收窄（capabilities 接线 + toolsUsed 保留 + 子代理恒全量）
 - thinking 双协议回传；停止生成 aborted 语义；HTTP 工具 detail 保留（4000 截断）；审批 60s 超时 + WAITING_APPROVAL + broad 条件审批
 - 子代理 6 项（超时 abort/并发分片/操作记录隔离/会话池 TTL/verify 降级）；空响应角色交替；IME 防护；自动滚动；存储防抖合并；幻觉检测接线；token 条守卫；字数遵从（S_LEN）
-- 596 passed + 15 skipped（611）；对话场景 32
+- 615 passed + 15 skipped（630）；对话场景 32
 
 ### 安全与权限 (v14.4.0)
 - find_files 条件审批（approvalGate：scope=project 免审批 / computer 仍审批）+ 子代理 find_files
@@ -20,6 +20,13 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 会话统计: 审计事件接线（api:call+cost/model、permission:decision）→ 聚合 cost/toolErrors/permissionDenied/lastUsed；deleteSession 完整 id
 - RUN_TIMEOUT 动态化（maxIterations×60s，15min 封顶）；压缩 70% 保护最近 2 轮；子代理会话池 4→8
 - Token 估算实测校准（CJK 1.2 / Latin 4.5）；KB embedding 记账（source='embedding'）
+
+### 全自由模式 (2026-08-02, 个人使用安全姿态调整)
+- **路径全自由**: safeResolve/resolveArgNoRealpath 统一归一化（path.resolve 处理中段 ../ 与混合分隔符），绝对路径放行；唯一硬边界 = 系统目录黑名单（C:\Windows/System32/Program Files、/dev /etc /usr /bin /sys /proc）+ UNC/网络路径 + 环境变量展开（V4SecurityFence Layer 1 与 IPC 层双侧拦截）
+- **审批收窄**: list_directory(broad)/find_files(computer)/delete_file/rename_file 全部 AUTO（自动备份 .ai_backups + 操作历史留痕，事前审批 → 事后审计）；仅剩 update_prompt/delete_project 需确认
+- **V4SecurityFence Layer 3 移除**: 外部路径不再要求审批（原 ../ 深度≥3 / 绝对路径确认逻辑删除）
+- **B 类缺陷修复**: search_content 全局目录（../notes 等）不再静默空（safeWalk 改为仅挡系统目录）；batch_replace 全局替换语义（split/join）+ 空 old_string 拒绝 + 写前备份 + .json 校验；subagent_ask 描述如实（仅 analyze_file 会话可复用追问）；find_files 两 scope 的 dir_path 统一 safeResolve
+- 相关: `electron/ipc/fileToolHandlers.ts` `src/agent/V4SecurityFence.ts` `src/agent/skills/tools/fileTools.ts`
 
 ### 项目目录分离
 - `projects/` — 普通写作项目
@@ -110,7 +117,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
 | 版本历史 | `src/data/version_history.json` (当前 v14.4.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
-| 验证脚本 | `.aiharness/scripts/` (3 个) |
+| 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-conversation.mjs` |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
 
 ## 验证命令
@@ -118,8 +125,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (596 passed + 15 skipped，共 611) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (238 用例) |
+| `npx vitest run` | 全量单元测试 (615 passed + 15 skipped，共 630) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (238 passed + 14 skipped，共 252) |
 
 ## 32 场景对话测试
 

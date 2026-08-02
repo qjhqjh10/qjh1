@@ -372,18 +372,21 @@ describe('Agent 功能全景验证', () => {
     expect(fence.check('read_file', { file_path: 'C:/Windows/test.txt' }).allowed).toBe(false)
   })
 
-  it('功能04: SecurityFence — 外部路径需确认', () => {
+  it('功能04: SecurityFence — 外部路径免确认（v14.5.1 全自由模式，仅系统目录硬拦）', () => {
     const fence = new V4SecurityFence('test')
     const r = fence.check('read_file', { file_path: '../../../etc/passwd' })
     expect(r.allowed).toBe(true)
-    expect(r.needsApproval).toBe(true)
+    expect(r.needsApproval).toBe(false)
+    // 系统目录仍硬拦
+    expect(fence.check('read_file', { file_path: 'C:/Windows/x.txt' }).allowed).toBe(false)
   })
 
-  it('功能05: SecurityFence — 危险工具需确认', () => {
+  it('功能05: SecurityFence — 删除/重命名免确认（自动备份兜底）；update_prompt 仍确认', () => {
     const fence = new V4SecurityFence('test')
     const r = fence.check('delete_file', { file_path: 'test.txt' })
     expect(r.allowed).toBe(true)
-    expect(r.needsApproval).toBe(true)
+    expect(r.needsApproval).toBe(false)
+    expect(fence.check('update_prompt', { title: 't', content: 'c' }).needsApproval).toBe(true)
   })
 
   it('功能06: SecurityFence — 安全工具直接放行', () => {
@@ -399,15 +402,13 @@ describe('Agent 功能全景验证', () => {
     expect(fence.check('create_file', { file_path: 'test.json', content: '{"ok":true}' }).allowed).toBe(true)
   })
 
-  it('功能07b: SecurityFence — find_files 条件审批（scope=project 免审批 / computer 需确认）', () => {
+  it('功能07b: SecurityFence — find_files 两 scope 均免审批（v14.5.1 全自由模式）', () => {
     const fence = new V4SecurityFence('test')
-    // 默认 project 范围 → 免审批（批量任务不再弹确认框）
     expect(fence.check('find_files', { pattern: '*.yaml' }).needsApproval).toBe(false)
     expect(fence.check('find_files', { pattern: '*.yaml', scope: 'project' }).needsApproval).toBe(false)
-    // computer 范围 → 仍走审批
     const comp = fence.check('find_files', { pattern: '*.md', scope: 'computer' })
     expect(comp.allowed).toBe(true)
-    expect(comp.needsApproval).toBe(true)
+    expect(comp.needsApproval).toBe(false)
   })
 
   it('功能07c: RUN_TIMEOUT 按 maxIterations 动态估算（每轮 60s，下限 5min 上限 15min）', () => {

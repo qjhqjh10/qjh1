@@ -72,22 +72,29 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 4. 安全围栏 ──
-  it('安全围栏: 正常✅ 系统❌ 外部🔔 JSON✅', () => {
+  it('安全围栏: 正常✅ 系统❌ 全自由外部✅ JSON✅', () => {
     const fence = new V4SecurityFence('1')
     expect(fence.check('read_file', { file_path: 'outline/plot.md' }).allowed).toBe(true)
     expect(fence.check('read_file', { file_path: 'C:/Windows/test.txt' }).allowed).toBe(false)
+    expect(fence.check('read_file', { file_path: '/etc/passwd' }).allowed).toBe(false)
+    // v14.5.1 全自由模式：外部绝对路径不再要求审批
     const ext = fence.check('read_file', { file_path: 'C:/Users/file.txt' })
     expect(ext.allowed).toBe(true)
-    expect(ext.needsApproval).toBe(true)
-    expect(fence.check('delete_file', { file_path: 'chapters/ch3.txt' }).needsApproval).toBe(true)
+    expect(ext.needsApproval).toBe(false)
+    // 删除/重命名免审批（自动备份兜底）
+    expect(fence.check('delete_file', { file_path: 'chapters/ch3.txt' }).needsApproval).toBe(false)
+    expect(fence.check('rename_file', { file_path: 'a.md', new_path: 'b.md' }).needsApproval).toBe(false)
+    // 格式校验仍在（Layer 2）
     expect(fence.check('create_file', { file_path: 'characters/test.json', content: '{invalid}' }).allowed).toBe(false)
     expect(fence.check('create_file', { file_path: 'characters/test.json', content: '{"name":"test"}' }).allowed).toBe(true)
+    // 剩余审批工具（update_prompt PROJECT_ASK）
+    expect(fence.check('update_prompt', { title: 't', content: 'c' }).needsApproval).toBe(true)
   })
 
-  it('安全围栏: 条件审批 — find_files scope=project 免审批 / scope=computer 需确认', () => {
+  it('安全围栏: find_files 两 scope 均免审批（全自由模式）', () => {
     const fence = new V4SecurityFence('1')
     expect(fence.check('find_files', { pattern: '*.yaml' }).needsApproval).toBe(false)
-    expect(fence.check('find_files', { pattern: '*.yaml', scope: 'computer' }).needsApproval).toBe(true)
+    expect(fence.check('find_files', { pattern: '*.yaml', scope: 'computer' }).needsApproval).toBe(false)
   })
 
   it('审计: recordApiCall 两种签名向后兼容（无 extra / 带 cost+model）', () => {
@@ -109,25 +116,18 @@ describe('功能冒烟测试 (项目"1")', () => {
       securityFence: new V4SecurityFence('1'),
       auditTrail: new AuditTrail(),
       projectId: '1',
-      // 不传 onApprovalRequired —— 模拟子 agent 环境（find_files scope=computer 等场景）
+      // 不传 onApprovalRequired —— 模拟子 agent 环境
     })
     const mkCtx = (toolName: string, callId: string): ToolExecutionContext => ({
       projectId: '1', configId: 'test', callId, toolName, signal: new AbortController().signal,
     })
-    // 无审批路径 + 需要审批 → 拒绝（修复前会直接放行执行）
+    // 无审批路径 + 需要审批（update_prompt 仍为 PROJECT_ASK）→ 拒绝（修复前会直接放行执行）
     const denied = await executor(
-      { file_path: 'chapters/ch3.txt' },
-      mkCtx('delete_file', 't1'),
+      { title: 't', content: 'c' },
+      mkCtx('update_prompt', 't1'),
     )
     expect(denied.status).toBe('error')
     expect(denied.summary).toContain('需要用户确认')
-    // find_files scope=computer 同样拒绝（子 agent 只能软件内搜索）
-    const deniedFind = await executor(
-      { pattern: '*.md', scope: 'computer' },
-      mkCtx('find_files', 't2'),
-    )
-    expect(deniedFind.status).toBe('error')
-    expect(deniedFind.summary).toContain('需要用户确认')
   })
 
   // ── 5. 工具注册 ──

@@ -80,21 +80,26 @@ describe('V4 Security Fence', () => {
     expect(fence.check('read_file', { file_path: '/etc/passwd' }).allowed).toBe(false)
   })
 
-  it('external paths require approval', () => {
-    // Deep traversal → needs approval (fence warns before IPC resolution)
+  it('external paths need no approval (v14.5.1 全自由模式)', () => {
+    // Deep traversal → allowed, no approval
     const r1 = fence.check('read_file', { file_path: '../../../etc/passwd' })
     expect(r1.allowed).toBe(true)
-    expect(r1.needsApproval).toBe(true)
-    // Absolute non-system path → needs approval
+    expect(r1.needsApproval).toBe(false)
+    // Absolute non-system path → allowed, no approval
     const r2 = fence.check('read_file', { file_path: 'C:/Users/test/data.txt' })
     expect(r2.allowed).toBe(true)
-    expect(r2.needsApproval).toBe(true)
+    expect(r2.needsApproval).toBe(false)
   })
 
-  it('requires approval for dangerous tools', () => {
+  it('requires approval only for remaining gated tools', () => {
+    // delete_file 已 AUTO（自动备份兜底）
     const result = fence.check('delete_file', { file_path: 'chapters/ch3.txt' })
     expect(result.allowed).toBe(true)
-    expect(result.needsApproval).toBe(true)
+    expect(result.needsApproval).toBe(false)
+    // update_prompt 仍为 PROJECT_ASK
+    const promptResult = fence.check('update_prompt', { title: 't', content: 'c' })
+    expect(promptResult.allowed).toBe(true)
+    expect(promptResult.needsApproval).toBe(true)
   })
 
   it('validates JSON format for .json files', () => {

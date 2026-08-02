@@ -25,7 +25,8 @@ echo ""
 
 # ═══ C1: Tool count consistency ═══
 echo "── C1: Tool Count ──"
-EXPECTED=37
+# v14.5.1: 37 → 31（工具精简 42→34→27→31；tool-schemas.json 由真实注册表重新生成）
+EXPECTED=31
 
 # Check CLI JSON
 JSON_PATH="$ROOT/scripts/tool-schemas.json"

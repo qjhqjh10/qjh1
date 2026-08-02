@@ -3,18 +3,24 @@
     "type": "function",
     "function": {
       "name": "list_directory",
-      "description": "列出项目目录中的文件和子目录。",
+      "description": "列出目录内容（单层，不递归）。路径参考 System Prompt 路径速查。",
       "parameters": {
         "type": "object",
         "properties": {
           "dir_path": {
             "type": "string",
-            "description": "相对于项目根目录的路径"
+            "description": "目录路径。不填则列出项目+全局资源目录。"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Glob 过滤，如 \"*.yaml\""
+          },
+          "broad": {
+            "type": "boolean",
+            "description": "同时扫描电脑常用目录（桌面/文档/下载）"
           }
         },
-        "required": [
-          "dir_path"
-        ]
+        "required": []
       }
     }
   },
@@ -22,13 +28,21 @@
     "type": "function",
     "function": {
       "name": "read_file",
-      "description": "读取项目文件的完整文本内容。",
+      "description": "读取文件内容。路径参考 System Prompt 路径速查。支持 offset/limit 部分读取。",
       "parameters": {
         "type": "object",
         "properties": {
           "file_path": {
             "type": "string",
             "description": "相对路径"
+          },
+          "offset": {
+            "type": "number",
+            "description": "起始字符位置（默认0）"
+          },
+          "limit": {
+            "type": "number",
+            "description": "最大字符数（默认全文，上限50万）"
           }
         },
         "required": [
@@ -40,45 +54,54 @@
   {
     "type": "function",
     "function": {
-      "name": "find_files",
-      "description": "按 Glob 模式递归搜索文件名，支持项目内和电脑全局搜索。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "pattern": {
-            "type": "string",
-            "description": "Glob 模式，如 \"*.yaml\", \"chapter*.txt\""
-          },
-          "dir_path": {
-            "type": "string",
-            "description": "搜索起始目录"
-          }
-        },
-        "required": [
-          "pattern"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "search_content",
-      "description": "在项目文件中搜索指定文本。",
+      "description": "按文本内容搜索文件（子串/正则）。路径参考 System Prompt 路径速查。",
       "parameters": {
         "type": "object",
         "properties": {
           "pattern": {
             "type": "string",
-            "description": "要搜索的文本"
+            "description": "搜索文本（默认子串，regex=true 时为正则）"
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "是否正则（默认 false）"
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "description": "区分大小写（默认 false）"
           },
           "file_pattern": {
             "type": "string",
-            "description": "限定文件类型，如 \"*.json\""
+            "description": "Glob 过滤文件，如 \"*.yaml\""
           },
           "dir_path": {
             "type": "string",
-            "description": "起始目录"
+            "description": "搜索起始目录，默认项目根"
+          },
+          "context_around": {
+            "type": "number",
+            "description": "匹配行前后各N行上下文"
+          },
+          "context_before": {
+            "type": "number",
+            "description": "匹配行前N行"
+          },
+          "context_after": {
+            "type": "number",
+            "description": "匹配行后N行"
+          },
+          "max_results": {
+            "type": "number",
+            "description": "最大结果数（默认500）"
+          },
+          "max_columns": {
+            "type": "number",
+            "description": "每行最大字符（默认200）"
+          },
+          "multiline": {
+            "type": "boolean",
+            "description": "跨行搜索（默认 false）"
           }
         },
         "required": [
@@ -91,7 +114,7 @@
     "type": "function",
     "function": {
       "name": "edit_file",
-      "description": "精确字符串替换编辑文件。先 read_file 确认内容再编辑。",
+      "description": "精确字符串替换。old_string 逐字匹配，设为 __FULL_REPLACE__ 覆盖全文。操作指南见 System Prompt。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -101,15 +124,15 @@
           },
           "old_string": {
             "type": "string",
-            "description": "要被替换的原文"
+            "description": "被替换原文（或 __FULL_REPLACE__ 全量覆盖）"
           },
           "new_string": {
             "type": "string",
-            "description": "替换后的新文本"
+            "description": "替换后文本"
           },
           "replace_all": {
             "type": "boolean",
-            "description": "是否替换所有匹配处"
+            "description": "替换所有匹配处"
           }
         },
         "required": [
@@ -124,7 +147,7 @@
     "type": "function",
     "function": {
       "name": "batch_replace",
-      "description": "批量替换文件中的多个文本对（3处以上修改时优先使用）。",
+      "description": "同文件多段批量替换，每段替换所有匹配处（全局替换语义），按顺序应用。任一失败则停止。操作指南见 System Prompt。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -134,7 +157,24 @@
           },
           "replacements": {
             "type": "array",
-            "description": "[{old:\"原文\", new:\"新文\"}, ...]"
+            "description": "替换列表 [{old_string, new_string}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "old_string": {
+                  "type": "string",
+                  "description": "被替换原文"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "替换后文本"
+                }
+              },
+              "required": [
+                "old_string",
+                "new_string"
+              ]
+            }
           }
         },
         "required": [
@@ -148,7 +188,7 @@
     "type": "function",
     "function": {
       "name": "create_file",
-      "description": "创建新文件并写入内容。需要用户确认。",
+      "description": "创建新文件。自动创建父目录。路径和格式参考 System Prompt 路径速查+写作规范手册。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -172,7 +212,7 @@
     "type": "function",
     "function": {
       "name": "delete_file",
-      "description": "删除文件。需要用户确认。",
+      "description": "删除文件（自动备份到 .ai_backups/，可随时恢复）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -191,7 +231,7 @@
     "type": "function",
     "function": {
       "name": "rename_file",
-      "description": "重命名或移动文件。需要用户确认。",
+      "description": "重命名或移动文件。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -214,35 +254,53 @@
   {
     "type": "function",
     "function": {
-      "name": "kb_list",
-      "description": "列出知识库中的文件。",
+      "name": "find_files",
+      "description": "按文件名 Glob 模式递归搜索。路径参考 System Prompt 路径速查。",
       "parameters": {
         "type": "object",
-        "properties": {},
-        "required": []
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob 模式（必填），如 \"*.yaml\" \"chapter*\""
+          },
+          "scope": {
+            "type": "string",
+            "description": "\"project\"(默认，软件目录) 或 \"computer\"(桌面/文档/下载等常用目录)"
+          },
+          "dir_path": {
+            "type": "string",
+            "description": "额外搜索目录"
+          },
+          "max_depth": {
+            "type": "number",
+            "description": "递归深度（默认5，最大10）"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
       }
     }
   },
   {
     "type": "function",
     "function": {
-      "name": "kb_create_file",
-      "description": "在知识库中创建新文件。",
+      "name": "kb_search",
+      "description": "语义搜索知识库。输入查询关键词，返回最相关的 N 个文本片段（每段约500字符）及来源文件名。匹配到相关内容后，如需完整上下文，用 read_file 读取对应文件。",
       "parameters": {
         "type": "object",
         "properties": {
-          "file_name": {
+          "query": {
             "type": "string",
-            "description": "文件名"
+            "description": "搜索关键词或问题"
           },
-          "content": {
-            "type": "string",
-            "description": "文件内容"
+          "topK": {
+            "type": "number",
+            "description": "返回片段数，默认5，最大20"
           }
         },
         "required": [
-          "file_name",
-          "content"
+          "query"
         ]
       }
     }
@@ -251,21 +309,21 @@
     "type": "function",
     "function": {
       "name": "kb_append_file",
-      "description": "追加内容到知识库文件。",
+      "description": "追加内容到知识库文件。新建用 create_file(\"../knowledge_base/files/\"), 追加后需 kb_index_file 建索引。",
       "parameters": {
         "type": "object",
         "properties": {
-          "file_name": {
+          "file_id": {
             "type": "string",
-            "description": "文件名"
+            "description": "目标文件 ID"
           },
           "content": {
             "type": "string",
-            "description": "追加内容"
+            "description": "要追加的内容"
           }
         },
         "required": [
-          "file_name",
+          "file_id",
           "content"
         ]
       }
@@ -275,115 +333,17 @@
     "type": "function",
     "function": {
       "name": "kb_index_file",
-      "description": "为知识库文件建立语义搜索索引。",
+      "description": "对知识库文件建立语义搜索索引。kb_append_file 后必须调用。",
       "parameters": {
         "type": "object",
         "properties": {
-          "file_name": {
+          "file_id": {
             "type": "string",
-            "description": "文件名"
+            "description": "目标文件 ID"
           }
         },
         "required": [
-          "file_name"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "list_notes",
-      "description": "列出所有草稿笔记。",
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "read_note",
-      "description": "读取草稿笔记内容。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_name": {
-            "type": "string",
-            "description": "笔记文件名"
-          }
-        },
-        "required": [
-          "note_name"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "write_note",
-      "description": "创建或覆盖草稿笔记。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_name": {
-            "type": "string",
-            "description": "笔记文件名"
-          },
-          "content": {
-            "type": "string",
-            "description": "笔记内容"
-          }
-        },
-        "required": [
-          "note_name",
-          "content"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "append_note",
-      "description": "追加内容到草稿笔记。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_name": {
-            "type": "string",
-            "description": "笔记文件名"
-          },
-          "content": {
-            "type": "string",
-            "description": "追加内容"
-          }
-        },
-        "required": [
-          "note_name",
-          "content"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "delete_note",
-      "description": "删除草稿笔记。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_name": {
-            "type": "string",
-            "description": "笔记文件名"
-          }
-        },
-        "required": [
-          "note_name"
+          "file_id"
         ]
       }
     }
@@ -392,13 +352,17 @@
     "type": "function",
     "function": {
       "name": "search_notes",
-      "description": "在笔记文件中搜索指定文本。",
+      "description": "在草稿中语义搜索相关内容。支持中文自然语言查询，返回最相关的笔记片段。",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "搜索关键词"
+            "description": "搜索查询（支持中文）"
+          },
+          "topK": {
+            "type": "number",
+            "description": "返回结果数量（默认3）"
           }
         },
         "required": [
@@ -411,17 +375,25 @@
     "type": "function",
     "function": {
       "name": "search_images",
-      "description": "搜索网络图片（Unsplash）。",
+      "description": "在 Pexels 图库搜索免费高清图片并保存到 images/ 目录。支持中文搜索。需设置 PEXELS_API_KEY 环境变量（免费注册: https://www.pexels.com/api/）。",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "搜索关键词"
+            "description": "搜索关键词（支持中文，如\"古装美女\"\"山水风景\"）"
           },
           "count": {
             "type": "number",
-            "description": "返回数量"
+            "description": "返回数量（默认3，最多10）"
+          },
+          "orientation": {
+            "type": "string",
+            "description": "图片方向: landscape(横版) / portrait(竖版) / square(方形)"
+          },
+          "size": {
+            "type": "string",
+            "description": "尺寸: large(大) / medium(中) / small(小)"
           }
         },
         "required": [
@@ -434,22 +406,21 @@
     "type": "function",
     "function": {
       "name": "generate_image",
-      "description": "使用AI生成图片。",
+      "description": "使用 AI 模型生成图片并保存到项目 images/ 目录。",
       "parameters": {
         "type": "object",
         "properties": {
           "prompt": {
             "type": "string",
-            "description": "图片描述"
+            "description": "图片描述（英文效果更好）"
           },
           "size": {
             "type": "string",
-            "description": "图片尺寸",
-            "enum": [
-              "1024x1024",
-              "1792x1024",
-              "1024x1792"
-            ]
+            "description": "尺寸: 1024x1024 | 1792x1024 | 1024x1792"
+          },
+          "style": {
+            "type": "string",
+            "description": "风格: vivid | natural"
           }
         },
         "required": [
@@ -461,49 +432,30 @@
   {
     "type": "function",
     "function": {
-      "name": "create_style_template",
-      "description": "创建风格模板。基于27维文风分析。",
+      "name": "analyze_text_style",
+      "description": "调用风格工坊的分析引擎分析文本写作风格。传入原文内容和维度列表，返回结构化维度分析。内部使用 buildStyleAnalyzePrompt + parseStyleAnalysisReply，与风格工坊/仿写使用完全相同的分析引擎。",
       "parameters": {
         "type": "object",
         "properties": {
-          "name": {
+          "content": {
             "type": "string",
-            "description": "模板名称"
+            "description": "原文内容"
           },
           "dimensions": {
-            "type": "object",
-            "description": "27维文风分析结果"
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "要分析的维度key列表，如 [\"narrativeTone\",\"sentenceStyle\",\"vocabularyStyle\"]"
+          },
+          "novelType": {
+            "type": "string",
+            "description": "小说类型(可选)"
           }
         },
         "required": [
-          "name"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "create_scene_template",
-      "description": "创建场景模板。配置章节的场景参数。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "模板名称"
-          },
-          "scene_type": {
-            "type": "string",
-            "description": "场景类型"
-          },
-          "config": {
-            "type": "object",
-            "description": "场景配置"
-          }
-        },
-        "required": [
-          "name"
+          "content",
+          "dimensions"
         ]
       }
     }
@@ -512,7 +464,7 @@
     "type": "function",
     "function": {
       "name": "create_project",
-      "description": "创建新的写作项目。需要用户确认。",
+      "description": "创建小说项目（含目录骨架+初始化文件）。创建后文件已存在——填充用 edit_file(__FULL_REPLACE__)，不要 create_file。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -520,7 +472,11 @@
             "type": "string",
             "description": "项目名称"
           },
-          "novel_category": {
+          "type": {
+            "type": "string",
+            "description": "writing(写作) | imitation(仿写) | continuation(续写)"
+          },
+          "novelCategory": {
             "type": "string",
             "description": "小说类型"
           }
@@ -535,13 +491,13 @@
     "type": "function",
     "function": {
       "name": "delete_project",
-      "description": "删除项目。需要用户确认。",
+      "description": "删除整个项目及所有内容。不可恢复，需要用户确认。",
       "parameters": {
         "type": "object",
         "properties": {
           "project_name": {
             "type": "string",
-            "description": "项目名称"
+            "description": "要删除的项目名称"
           }
         },
         "required": [
@@ -554,7 +510,7 @@
     "type": "function",
     "function": {
       "name": "list_prompts",
-      "description": "列出提示词库中的提示词。",
+      "description": "列出提示词库中所有提示词模板。",
       "parameters": {
         "type": "object",
         "properties": {},
@@ -566,21 +522,22 @@
     "type": "function",
     "function": {
       "name": "toggle_prompt",
-      "description": "启用或禁用提示词。",
+      "description": "启用或关闭某个提示词模板。同类型只能启用一个。",
       "parameters": {
         "type": "object",
         "properties": {
-          "prompt_name": {
+          "prompt_id": {
             "type": "string",
-            "description": "提示词名称"
+            "description": "提示词模板 ID"
           },
           "enabled": {
             "type": "boolean",
-            "description": "启用/禁用"
+            "description": "true=启用, false=关闭"
           }
         },
         "required": [
-          "prompt_name"
+          "prompt_id",
+          "enabled"
         ]
       }
     }
@@ -589,21 +546,29 @@
     "type": "function",
     "function": {
       "name": "update_prompt",
-      "description": "修改提示词内容。",
+      "description": "修改提示词模板的标题或内容。",
       "parameters": {
         "type": "object",
         "properties": {
-          "prompt_name": {
+          "prompt_id": {
             "type": "string",
-            "description": "提示词名称"
+            "description": "提示词模板 ID"
           },
-          "new_content": {
+          "title": {
             "type": "string",
-            "description": "新提示词内容"
+            "description": "新标题（可选）"
+          },
+          "content": {
+            "type": "string",
+            "description": "新内容（可选）"
+          },
+          "type": {
+            "type": "string",
+            "description": "新类型（可选）"
           }
         },
         "required": [
-          "prompt_name"
+          "prompt_id"
         ]
       }
     }
@@ -612,7 +577,7 @@
     "type": "function",
     "function": {
       "name": "list_rules",
-      "description": "列出 .aiharness/ 中的已学习规则。",
+      "description": "列出 .aiharness/rules/ 中所有已学习的规则和经验教训。了解当前有哪些自动规则在生效。",
       "parameters": {
         "type": "object",
         "properties": {},
@@ -623,47 +588,14 @@
   {
     "type": "function",
     "function": {
-      "name": "learn_rule",
-      "description": "从经验中学习并持久化规则，防止以后再犯同样错误。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "trigger": {
-            "type": "string",
-            "description": "触发条件"
-          },
-          "problem": {
-            "type": "string",
-            "description": "问题描述"
-          },
-          "solution": {
-            "type": "string",
-            "description": "解决方案"
-          },
-          "category": {
-            "type": "string",
-            "description": "错误分类"
-          }
-        },
-        "required": [
-          "trigger",
-          "problem",
-          "solution"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "http_get",
-      "description": "发起 HTTP GET 请求获取网页或 API 数据。",
+      "description": "发起 HTTP GET 请求获取网页或 API 数据。返回文本/html/json 响应体。可用于查阅在线文档、参考资料、API 数据。禁止访问内网地址。",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "完整的 URL"
+            "description": "完整的 URL（https://...）"
           }
         },
         "required": [
@@ -676,23 +608,25 @@
     "type": "function",
     "function": {
       "name": "http_fetch",
-      "description": "发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。",
+      "description": "发起 HTTP 请求（支持 GET/POST），可自定义请求头、请求体。用于调用外部 API、提交数据。禁止访问内网地址。自动执行（无需用户确认）。",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "完整的 URL"
           },
           "method": {
             "type": "string",
-            "description": "GET 或 POST"
+            "description": "HTTP 方法: GET 或 POST，默认 GET"
           },
           "headers": {
             "type": "string",
-            "description": "JSON 格式请求头"
+            "description": "JSON 格式的请求头，如 {\"Content-Type\":\"application/json\"}"
           },
           "body": {
-            "type": "string"
+            "type": "string",
+            "description": "请求体内容（POST 时使用）"
           }
         },
         "required": [
@@ -705,13 +639,13 @@
     "type": "function",
     "function": {
       "name": "browser_open",
-      "description": "打开网页 URL，提取并返回纯文本内容。",
+      "description": "打开网页 URL，提取并返回纯文本内容。用于查阅在线参考资料、研究资料。仅支持 HTTP/HTTPS。",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "网页 URL"
+            "description": "网页 URL（https://...）"
           }
         },
         "required": [
@@ -724,7 +658,7 @@
     "type": "function",
     "function": {
       "name": "browser_search",
-      "description": "使用搜索引擎搜索关键词，返回结果摘要。",
+      "description": "使用搜索引擎搜索关键词，返回搜索结果摘要。用于快速查找资料。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -742,20 +676,41 @@
   {
     "type": "function",
     "function": {
-      "name": "shell_exec",
-      "description": "执行系统命令（仅允许 node/python/git/npm/npx）。需要双确认。",
+      "name": "tool_search",
+      "description": "查询可用的扩展工具。输入关键词（如\"图片\"、\"浏览器\"、\"风格分析\"、\"知识库\"），返回匹配的工具名、描述和参数签名。不需要每轮列出全部工具，按需查询即可。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词。例如: \"图片\"、\"搜索\"、\"风格分析\"、\"浏览器\"、\"知识库\""
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "analyze_file",
+      "description": "委托子分析代理（独立上下文窗口）读取文件并输出结构化分析摘要。适用于大文件（超过2万字符）或需要深入分析的文件内容——子代理读取全文但只把摘要返回给你，不占用你的上下文。小文件请直接 read_file，不要使用本工具。",
       "parameters": {
         "type": "object",
         "properties": {
-          "command": {
-            "type": "string"
+          "file_path": {
+            "type": "string",
+            "description": "要分析的文件路径（相对路径）"
           },
-          "cwd": {
-            "type": "string"
+          "question": {
+            "type": "string",
+            "description": "分析问题（可选，不传则输出通用结构摘要）"
           }
         },
         "required": [
-          "command"
+          "file_path"
         ]
       }
     }
@@ -763,17 +718,77 @@
   {
     "type": "function",
     "function": {
-      "name": "shell_run_script",
-      "description": "执行 .aiharness/scripts/ 下的预置脚本。",
+      "name": "edit_file_task",
+      "description": "委托子编辑代理（独立上下文窗口）对长文件执行精确修改。子代理定位目标区域、执行修改并返回修改前后摘要，不占用你的上下文。适用于大文件（超过2万字符）或需要多处修改的长文件。小文件请直接 edit_file/batch_replace。子代理只改指令要求的部分，不删除/重命名文件。",
       "parameters": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
+          "file_path": {
+            "type": "string",
+            "description": "要修改的文件路径（相对路径）"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "修改指令（要改什么、改成什么，尽量具体）"
           }
         },
         "required": [
-          "name"
+          "file_path",
+          "instruction"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "verify_task",
+      "description": "委托验收子代理（独立上下文窗口）对照验收标准逐项检查产物文件，返回结构化判定。验收子代理只读文件、不修改，逐条核实\"标准是否满足\"，产出 {passed, items:[{criterion, passed, reason}]}。适合在任务清单完成后自我验收产物质量（文件存在、关键内容、格式），验收失败可据 items 修复。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "要验收的文件路径清单（相对路径），逐文件读取核对"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "验收标准清单，每条一个明确可验证的要求（如\"角色卡必须含姓名、性格字段\"）"
+          }
+        },
+        "required": [
+          "file_paths",
+          "criteria"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "subagent_ask",
+      "description": "追问子分析代理：复用该文件上次 analyze_file 委托建立的会话上下文（edit_file_task/verify_task 建立的会话不可追问，会退化为全新分析），无需重新读取文件即可补充细节、追问结论。若该文件尚无 analyze_file 会话，则与 analyze_file 相同执行全新分析。适用于大文件（超过2万字符）分析后的细节追问。注意：会话上下文基于之前的文件版本，文件可能已修改。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "要追问的文件路径（相对路径，须与之前委托时一致）"
+          },
+          "question": {
+            "type": "string",
+            "description": "追问问题（具体细节、原文片段、结论补充等）"
+          }
+        },
+        "required": [
+          "file_path",
+          "question"
         ]
       }
     }

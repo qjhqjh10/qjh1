@@ -460,21 +460,28 @@ export class V4UnifiedRuntime {
 
       for (let retry = 0; retry <= 1; retry++) {
         if (this.config.abortSignal.aborted) break
+        // v14.5.1: 每次调用独立 AbortController——超时或用户中止时真正取消底层流。
+        // 原实现 timeoutPromise 只 reject，在途流无人取消 → 超时后重试产生双请求双计费。
+        // 现在超时 → controller.abort() → 适配器 abortStream() → 流以 aborted 结束 → 中断可续跑，无重试。
+        const callController = new AbortController()
+        const onAbort = () => callController.abort()
+        this.config.abortSignal.addEventListener('abort', onAbort, { once: true })
+        const timeoutId = setTimeout(() => callController.abort(), API_TIMEOUT)
         try {
-          const apiPromise = this.adapter.callModel({
+          response = await this.adapter.callModel({
             messages: this.messagesForApi,
             tools: this.tools,
             configId: this.config.configId,
             projectId: this.config.projectId || undefined,
-            signal: this.config.abortSignal,
+            signal: callController.signal,
             temperature: effectiveTemperature,
           })
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`API 超时 (${API_TIMEOUT / 1000}秒)`)), API_TIMEOUT),
-          )
-          response = await Promise.race([apiPromise, timeoutPromise])
+          clearTimeout(timeoutId)
+          this.config.abortSignal.removeEventListener('abort', onAbort)
           break
         } catch (apiErr) {
+          clearTimeout(timeoutId)
+          this.config.abortSignal.removeEventListener('abort', onAbort)
           lastApiErr = apiErr instanceof Error ? apiErr : new Error('API 调用失败')
           const isTransient = /超时|timeout|network|ECONNREFUSED|ETIMEDOUT|429|503|502/.test(lastApiErr.message)
           if (retry < 1 && isTransient) {
@@ -619,7 +626,9 @@ export class V4UnifiedRuntime {
         }
 
         // ── ② 无任务清单: 原有 donePhrase 完成检测（保留）──
-        if (completionDeclared && (_hasWriteCall || !this._userRequestedFileOp)) {
+        // v14.5.1: 声明"完成"但同时有继续性文本（"已完成第1章，接下来写第2章"）→ 非收尾，
+        // 落入下方③继续性检测（v14.1.0 只修了清单模式，无清单路径原会提前 break 丢失剩余工作）
+        if (completionDeclared && !CONTINUATION_RE.test(collectedText) && (_hasWriteCall || !this._userRequestedFileOp)) {
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })

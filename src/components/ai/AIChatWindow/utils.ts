@@ -112,3 +112,180 @@ export function maybeInjectSubagentSummaries(
   return [...history, { role: 'system', content }]
 }
 
+// ═══ v14.5.1: 从 AIChatWindow/index.tsx 抽取为纯函数（可单测）═══
+// 修复两个审计发现:
+//   ① 工具轮检测改用 toolCallSteps——会话消息从不持久化 tool_calls（onComplete 只存
+//      toolsUsed/toolCallSteps），原检测恒空 → "保留最近5轮工具调用完整记录、让 AI 从错误中
+//      学习"是死代码、所有历史直通。toolCallSteps 已落盘，用它构造跨 run 工具记忆：
+//      最近 5 个工具轮完整保留，更早的工具轮压缩为 [上轮已完成 N 个操作] 摘要。
+//   ② compressedSummary（手动 LLM 压缩摘要）此前在过滤中被剔除 → 压缩=截断、早期决策对
+//      模型清零；现作为 system 消息置于历史最前，模型可见摘要（与 [早期对话已折叠] 互补）。
+/** 消息是否为"工具轮"（assistant 带 tool_calls 或已落盘的 toolCallSteps） */
+function isToolTurn(m: Message): boolean {
+  return !!((m as any).tool_calls?.length > 0 || (m as any).toolCallSteps?.length > 0)
+}
+
+export function buildHistoryMessages(msgs: Message[]) {
+  // v12.6.0: 保留最近5轮有工具调用的完整记录，让AI从错误中学习
+  // 更早的轮次使用压缩摘要格式，纯闲聊轮次不计入工具保留配额
+  const PRESERVE_TOOL_TURNS = 5  // 保留最近5个"有工具调用"的user turn
+
+  // v14.5.1: 手动 LLM 压缩摘要不再过滤——作为 system 消息注入历史（见函数头注释 ②）
+  const compressedSummaries = msgs.filter(m => (m as any).compressedSummary)
+
+  // Step 1: Filter out welcome, compression summaries, display-only
+  let filtered = msgs.filter(m =>
+    !String(m.id).startsWith('welcome')
+    && !(m as any).compressedSummary
+    && !(m as any).displayOnly
+  )
+
+  // Step 2: Identify user turns that had tool calls
+  // v14.5.1: 检测改用 toolCallSteps（生产数据流只持久化 toolCallSteps，无 tool_calls）
+  const toolTurnUserIndices: number[] = []
+  for (let i = 0; i < filtered.length; i++) {
+    if (filtered[i].role !== 'user') continue
+    // Look ahead: does the next assistant message have tool calls?
+    for (let j = i + 1; j < filtered.length; j++) {
+      const fj = filtered[j]
+      if (!fj) continue
+      if (fj.role === 'assistant') {
+        if (isToolTurn(fj)) {
+          toolTurnUserIndices.push(i)
+        }
+        break
+      }
+      if (fj.role === 'user') break
+    }
+  }
+
+  // Cap total user messages — v14.3.1: 超过 20 轮时早期轮次不再整体丢弃
+  // （长讨论中早期的写作偏好/决策/约定会完全丢失），改为折叠成一条摘要 system 消息
+  // （保留最近 8 条早期用户消息的前 60 字，至少留下讨论脉络）
+  const allUserIndices: number[] = []
+  filtered.forEach((m, i) => { if (m.role === 'user') allUserIndices.push(i) })
+  let earlySummary = ''
+  if (allUserIndices.length > 20) {
+    const cutoff = allUserIndices[allUserIndices.length - 20]
+    const earlyMsgs = filtered.slice(0, cutoff)
+    const earlyUserTexts = earlyMsgs
+      .filter(m => m.role === 'user')
+      .map(m => (m.content || '').replace(/\s+/g, ' ').slice(0, 60))
+    if (earlyUserTexts.length > 0) {
+      earlySummary = `[早期对话已折叠] 此前 ${earlyUserTexts.length} 轮的用户请求要点:\n${earlyUserTexts.slice(-8).map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+    }
+    filtered = filtered.slice(cutoff)
+    // Recalculate
+    toolTurnUserIndices.length = 0
+    allUserIndices.length = 0
+    for (let i = 0; i < filtered.length; i++) {
+      if (filtered[i].role === 'user') {
+        allUserIndices.push(i)
+        for (let j = i + 1; j < filtered.length; j++) {
+          const fj = filtered[j]
+          if (!fj) continue
+          if (fj.role === 'assistant') {
+            if (isToolTurn(fj)) toolTurnUserIndices.push(i)
+            break
+          }
+          if (fj.role === 'user') break
+        }
+      }
+    }
+  }
+
+  // Preserve: last N user turns that HAD tool calls (not just any N user turns)
+  const preserveStartIdx = toolTurnUserIndices.length > PRESERVE_TOOL_TURNS
+    ? toolTurnUserIndices[toolTurnUserIndices.length - PRESERVE_TOOL_TURNS]
+    : 0
+
+  const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string; thinkingBlocks?: Array<{ thinking: string; signature: string }>; reasoning_content?: string }> = []
+  // v14.3.1: 早期轮次折叠摘要（system 消息，置于历史最前）
+  if (earlySummary) {
+    result.push({ role: 'system', content: earlySummary })
+  }
+  // v14.5.1: 手动 LLM 压缩摘要（system 消息，紧随早期折叠摘要之后——模型可见压缩点前的决策）
+  for (const cm of compressedSummaries) {
+    result.push({ role: 'system', content: `[对话压缩摘要] ${typeof cm.content === 'string' ? cm.content : ''}` })
+  }
+
+  for (const m of filtered) {
+    const msgIdx = filtered.indexOf(m)
+
+    // ── Preserve mode: 最近5轮 → 保留完整 tool_calls + tool results ──
+    if (msgIdx >= preserveStartIdx) {
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+        // Keep assistant message with tool_calls intact (legacy 数据；新数据流无 tool_calls)
+        // v14.5.0: 透传推理内容（thinkingBlocks/reasoningContent）——多轮工具调用时模型可见推理链
+        const reasoningContent = (m as any).reasoning_content ?? (m as any).reasoningContent
+        result.push({
+          role: 'assistant',
+          content: m.content || '',
+          tool_calls: m.tool_calls,
+          thinkingBlocks: (m as any).thinkingBlocks,
+          reasoning_content: reasoningContent,
+        })
+        // Find and append corresponding tool result messages from original msgs
+        const tcIds = new Set(m.tool_calls.map(tc => tc.id))
+        for (const origMsg of msgs) {
+          if (origMsg.role === 'tool' && origMsg.tool_call_id && tcIds.has(origMsg.tool_call_id)) {
+            result.push({
+              role: 'tool',
+              tool_call_id: origMsg.tool_call_id,
+              content: origMsg.content || '{}',
+            })
+          }
+        }
+        continue
+      }
+      if (m.role === 'assistant') {
+        // v14.5.1: 最近工具轮（toolCallSteps 型）→ 在原文前补工具操作摘要，模型"继续"时可见探索记录
+        const steps = (m as any).toolCallSteps as Array<{ tool: string; status: string; summary: string }> | undefined
+        const stepsPrefix = steps && steps.length > 0
+          ? `[上轮工具: ${steps.map(s => `${s.status === 'success' ? '✓' : '✗'} ${s.tool}`).join(' · ')}]\n`
+          : ''
+        // Assistant message without tool_calls — pass through
+        // v14.5.0: 文本轮同样透传推理内容（thinking 模式的纯文本轮）
+        const reasoningContent = (m as any).reasoning_content ?? (m as any).reasoningContent
+        result.push({
+          role: 'assistant',
+          content: stepsPrefix + (m.content || ''),
+          thinkingBlocks: (m as any).thinkingBlocks,
+          reasoning_content: reasoningContent,
+        })
+        continue
+      }
+      if (m.role === 'user') {
+        result.push({ role: 'user', content: m.content || '' })
+        continue
+      }
+      // Skip standalone tool messages (they're attached to their parent assistant)
+      continue
+    }
+
+    // ── Compress mode: 更早的轮次 → 压缩摘要（v14.5.1: 现在真实可达——工具轮检测已修复）──
+    if (m.role === 'assistant') {
+      const steps = (m as any).toolCallSteps as Array<{ tool: string; status: string; summary: string }> | undefined
+      if (steps && steps.length > 0) {
+        const doneList = steps.map(s =>
+          `${s.status === 'success' ? '✓' : '✗'} ${s.tool}: ${s.summary}`,
+        ).join('\n')
+        const toolSummary = `[上轮已完成 ${steps.length} 个操作，无需重复——直接基于结果继续]\n${doneList}`
+        result.push({ role: 'assistant', content: toolSummary + '\n\n' + (m.content || '') })
+        continue
+      }
+      const tools = (m as any).toolsUsed as string[] | undefined
+      if (tools && tools.length > 0) {
+        const toolSummary = `[上轮已调用: ${tools.join('、')}，已完成——直接基于结果继续下一步]`
+        result.push({ role: 'assistant', content: toolSummary + '\n\n' + (m.content || '') })
+        continue
+      }
+    }
+    if (m.role === 'user' || m.role === 'assistant') {
+      result.push({ role: m.role, content: m.content || '' })
+    }
+  }
+
+  return result
+}
+

@@ -181,13 +181,16 @@ export class AnthropicAdapter implements ProtocolAdapter {
         nonSystemMsgs.push(m)
       }
     }
-    // v11.7.0: Mark the last system block with cache_control → caches ALL system blocks
-    // Anthropic caches everything from the beginning up to the ephemeral breakpoint
+    // v14.5.1: 断点设在倒数第二个 system 块——最后一块常是易变内容（[当前任务] 进度每轮变化）。
+    // 原实现（v11.7.0）在最后一块打断点 → 进度变化使"从开头到断点"的整段 system 前缀缓存
+    // 失效（Anthropic 缓存"开头至最后一个 ephemeral 断点"的前缀），长任务每轮全量重编码。
+    // 断点前移后：稳定前缀（核心规则/角色模板/项目信息）在断点之前 → 每轮命中；易变块不缓存（体量小）。
     if (systemBlocks.length > 0) {
-      const last = systemBlocks[systemBlocks.length - 1]
-      systemBlocks[systemBlocks.length - 1] = typeof last === 'string'
-        ? { type: 'text' as const, text: last, cache_control: { type: 'ephemeral' as const } }
-        : { ...last, cache_control: { type: 'ephemeral' as const } }
+      const idx = systemBlocks.length > 1 ? systemBlocks.length - 2 : 0
+      const target = systemBlocks[idx]
+      systemBlocks[idx] = typeof target === 'string'
+        ? { type: 'text' as const, text: target, cache_control: { type: 'ephemeral' as const } }
+        : { ...target, cache_control: { type: 'ephemeral' as const } }
     }
 
     // 2. Convert messages & tools to Anthropic format
@@ -201,14 +204,26 @@ export class AnthropicAdapter implements ProtocolAdapter {
     }
 
     // 3. Call Anthropic streaming API
-    const streamResult = await this.service.chatAnthropicStream({
-      system: systemBlocks,
-      messages: anthropicMessages,
-      configId: params.configId,
-      projectId: params.projectId,
-      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-      temperature: params.temperature,
-    })
+    // v14.5.1: 接线 signal → abortStream——runtime 超时/用户中止时真正取消底层流
+    // （原实现忽略 signal，超时后重试会产生双请求双计费）
+    const onAbort = () => { this.service.abortStream() }
+    if (params.signal) {
+      if (params.signal.aborted) onAbort()
+      else params.signal.addEventListener('abort', onAbort, { once: true })
+    }
+    let streamResult: AnthropicStreamResult
+    try {
+      streamResult = await this.service.chatAnthropicStream({
+        system: systemBlocks,
+        messages: anthropicMessages,
+        configId: params.configId,
+        projectId: params.projectId,
+        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+        temperature: params.temperature,
+      })
+    } finally {
+      params.signal?.removeEventListener('abort', onAbort)
+    }
 
     // H7: 请求失败（stopReason:'error'）→ 抛错让 runtime 的重试/错误路径接管，
     // 避免空文本被当作"模型拒绝调用工具"进入自愈循环

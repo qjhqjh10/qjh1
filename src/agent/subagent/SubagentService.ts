@@ -17,11 +17,9 @@ import type { V4AgentRunResult } from '../runtime/RuntimeTypes'
 import type { Message } from '../state/types'
 
 // ── 角色与工具集 ──
-// 安全边界（find_files 条件审批 + IPC containment 加固后加入）：
-//   1. find_files 条件审批：scope=computer 时 needsApproval=true → 子 agent 无审批路径 → executor 直接拒绝
-//   2. IPC 层强制 containment：scope=project 的 dir_path 走 safeResolve，逃逸即拒绝
-//   3. 子 agent 只能用 scope=project（默认）在软件目录内按文件名定位
-// 不含 analyze_file/edit_file_task 本身 → 无递归委托风险
+// v14.5.1 全自由模式：find_files 两 scope 均免审批（子 agent 可用 scope=computer 定位文件）；
+//   1. 系统目录由 IPC 层硬拦截（isBlockedSystemPath）
+//   2. 不含 analyze_file/edit_file_task 本身 → 无递归委托风险
 
 export type SubagentRole = 'analyze' | 'edit' | 'verify'
 

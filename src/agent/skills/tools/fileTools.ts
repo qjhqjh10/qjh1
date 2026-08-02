@@ -29,15 +29,13 @@ export const fileTools: ToolDefinition[] = [
         properties: {
           dir_path: { type: 'string', description: '目录路径。不填则列出项目+全局资源目录。' },
           pattern: { type: 'string', description: 'Glob 过滤，如 "*.yaml"' },
-          broad: { type: 'boolean', description: '搜索电脑目录（需审批）' },
+          broad: { type: 'boolean', description: '同时扫描电脑常用目录（桌面/文档/下载）' },
         },
         required: [],
       },
     },
-    // v14.5.0: READ_ASK 无消费方（needsApproval 只认 DANGEROUS_ASK/PROJECT_ASK）——
-    // broad:true 扫描用户电脑目录需真实审批；普通目录浏览免审批（approvalGate 条件审批）
-    permission: 'DANGEROUS_ASK',
-    approvalGate: (args) => args.broad === true,
+    // v14.5.1 全自由模式（个人使用）：目录浏览一律免审批；系统目录由 IPC 层硬拦截
+    permission: 'AUTO',
     category: 'file',
     executor: async (args, ctx) => ipcExecute('list_directory', args, ctx),
   },
@@ -121,7 +119,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'batch_replace',
-      description: '同文件多段批量替换，按顺序应用。任一失败则停止。操作指南见 System Prompt。',
+      description: '同文件多段批量替换，每段替换所有匹配处（全局替换语义），按顺序应用。任一失败则停止。操作指南见 System Prompt。',
       parameters: {
         type: 'object',
         properties: {
@@ -188,7 +186,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'delete_file',
-      description: '删除文件（自动备份到 .ai_backups/）。需用户确认。',
+      description: '删除文件（自动备份到 .ai_backups/，可随时恢复）。',
       parameters: {
         type: 'object',
         properties: {
@@ -197,7 +195,8 @@ export const fileTools: ToolDefinition[] = [
         required: ['file_path'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    // v14.5.1 全自由模式：删除免审批（自动备份 + 操作历史留痕，事后可查）
+    permission: 'AUTO',
     category: 'file',
     executor: async (args, ctx) => {
       try {
@@ -215,7 +214,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'rename_file',
-      description: '重命名或移动文件。需用户确认。',
+      description: '重命名或移动文件。',
       parameters: {
         type: 'object',
         properties: {
@@ -225,7 +224,8 @@ export const fileTools: ToolDefinition[] = [
         required: ['file_path', 'new_path'],
       },
     },
-    permission: 'DANGEROUS_ASK',
+    // v14.5.1 全自由模式：重命名免审批（操作历史留痕）
+    permission: 'AUTO',
     category: 'file',
     executor: async (args, ctx) => {
       try {
@@ -248,17 +248,15 @@ export const fileTools: ToolDefinition[] = [
         type: 'object',
         properties: {
           pattern: { type: 'string', description: 'Glob 模式（必填），如 "*.yaml" "chapter*"' },
-          scope: { type: 'string', description: '"project"(默认) 或 "computer"(需审批)' },
+          scope: { type: 'string', description: '"project"(默认，软件目录) 或 "computer"(桌面/文档/下载等常用目录)' },
           dir_path: { type: 'string', description: '额外搜索目录' },
           max_depth: { type: 'number', description: '递归深度（默认5，最大10）' },
         },
         required: ['pattern'],
       },
     },
-    // 条件审批：scope=project（默认）免审批直接执行；scope=computer 仍需用户确认。
-    // 安全前提：IPC 层强制 containment（dir_path 走 safeResolve，逃逸即拒绝）。
-    permission: 'DANGEROUS_ASK',
-    approvalGate: (args) => String(args.scope || 'project') !== 'project',
+    // v14.5.1 全自由模式：两 scope 一律免审批；系统目录由 IPC 层硬拦截
+    permission: 'AUTO',
     category: 'file',
     executor: async (args, ctx) => ipcExecute('find_files', args, ctx),
   },

@@ -6,6 +6,7 @@ import minimatch from 'minimatch'
 import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
 import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
+import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg } from './pathResolution'
 
 export interface ToolCallArgs {
   callId: string
@@ -31,12 +32,7 @@ const BACKUP_DIR = '.ai_backups'
 const MAX_BACKUPS_PER_FILE = 10
 const BACKUP_SEPARATOR = '___'
 
-// M2: 全局资源目录顶层段（safeResolve/resolveArgNoRealpath 按首段匹配解析到 appRoot）。
-// 与 list_directory 的 globalDirs（含 knowledge_base/files 等复合路径）互补——此处只取顶层段，
-// 使 read_file/create_file/edit_file 等能直接解析 `notes/x.md`、`style_templates/x.yaml` 等全局路径。
-const GLOBAL_DIR_NAMES = new Set([
-  'style_templates', 'scene_templates', 'knowledge_base', 'uploads', 'notes', '.aiharness',
-])
+// GLOBAL_DIR_NAMES / isBlockedSystemPath / resolveArg 已移至 pathResolution.ts（纯函数模块，可单测）
 
 function timestamp(): string {
   const d = new Date()
@@ -44,9 +40,12 @@ function timestamp(): string {
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
 }
 
-// ── Safe path resolution (Issue #1 #5 #19) ──
+// ── Safe path resolution (v14.5.1 全自由模式) ──
+// 核心逻辑在 pathResolution.ts（纯函数，可单测）：
+// 个人使用——agent 是用户意志的延伸，路径不再受 appRoot 围栏限制，
+// 唯一硬边界是系统目录黑名单与 UNC/网络路径（V4SecurityFence Layer 1 同款）。
 
-/** Resolve a tool argument to an absolute path, with ../ stripping and realpath verification */
+/** Resolve a tool argument to an absolute path, with realpath verification */
 async function safeResolve(
   key: string,
   args: Record<string, unknown>,
@@ -56,65 +55,7 @@ async function safeResolve(
   if (typeof raw !== 'string' || raw.length === 0) {
     return projectPath // For dir_path, default to project root
   }
-  // Normalize slashes and strip leading slash
-  let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
-  // Reject absolute Windows paths (C:\...) and Unix absolute paths
-  if (/^[A-Za-z]:[/\\]/.test(clean) || path.isAbsolute(clean)) return null
-  // Decode percent-encoded path traversal attempts (%2e%2e%2f = ../)
-  clean = clean.replace(/%2e%2e%2f/gi, '').replace(/%2e%2e/gi, '')
-
-  // ── Handle ../ prefix: each ../ navigates up one directory from projectPath ──
-  if (clean.startsWith('../')) {
-    let base = projectPath
-    while (clean.startsWith('../')) {
-      clean = clean.slice(3)
-      base = path.dirname(base)
-    }
-    const resolved = path.join(base, clean)
-    // Block system directories only
-    const lowered = resolved.toLowerCase()
-    if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
-    // Safety: must be within the app data root (parentDir), not below projectPath
-    const appRoot = path.dirname(projectPath)
-    const userDataRoot = path.dirname(appRoot)  // = parentDir (userData in prod, app root in dev)
-    if (!isSafePath(resolved, userDataRoot)) return null
-    // Verify with realpath if file exists
-    try {
-      const real = await fsp.realpath(resolved)
-      if (!isSafePath(real, userDataRoot)) return null
-      return real
-    } catch {
-      return resolved // File doesn't exist yet
-    }
-  }
-
-  // ── Determine base path (v11.4 + M2: 全局资源目录按首段解析到 appRoot) ──
-  const appRoot = path.dirname(projectPath)
-  const firstSegment = clean.split('/')[0].split('\\')[0]
-  const isGlobalPath = GLOBAL_DIR_NAMES.has(firstSegment)
-  // Global paths → resolve against appRoot; project paths → resolve against projectPath
-  const basePath = isGlobalPath ? appRoot : projectPath
-
-  // Strip ../ for safety and join with basePath
-  let prev = ''
-  while (prev !== clean) {
-    prev = clean
-    clean = clean.replace(/\.\.\//g, '')
-  }
-  clean = clean.replace(/\/\.\.$/, '').replace(/^\.\.$/, '')
-  const joined = path.join(basePath, clean)
-  // Safety: must be within basePath (appRoot for global, projectPath for project)
-  const realBasePath = (await fsp.realpath(basePath).catch(() => basePath))
-  if (!isSafePath(joined, realBasePath)) return null
-  // Resolve symlinks to get real path, then re-check (Issue #5)
-  try {
-    const real = await fsp.realpath(joined)
-    if (!isSafePath(real, realBasePath)) return null
-    return real
-  } catch {
-    // File doesn't exist yet (e.g., create_file) — return joined path as-is
-    return joined
-  }
+  return safeResolveArg(raw, projectPath)
 }
 
 /** Non-async path resolution without realpath (for create_file where target doesn't exist yet) */
@@ -125,39 +66,7 @@ function resolveArgNoRealpath(
 ): string | null {
   const raw = args[key]
   if (typeof raw !== 'string' || raw.length === 0) return null
-  let clean = raw.replace(/\\/g, '/').replace(/^\/+/, '')
-  // Reject absolute Windows paths (C:\...) — 与 safeResolve 一致
-  if (/^[A-Za-z]:[/\\]/.test(clean)) return null
-  // If path starts with ../ → each ../ navigates up one directory from projectPath
-  if (clean.startsWith('../')) {
-    let base = projectPath
-    while (clean.startsWith('../')) {
-      clean = clean.slice(3)
-      base = path.dirname(base)
-    }
-    const resolved = path.join(base, clean)
-    // Block system dirs only
-    const lowered = resolved.toLowerCase()
-    if (lowered.startsWith('c:/windows') || lowered.startsWith('/dev/') || lowered.startsWith('/etc/')) return null
-    // M2 审查: 与 safeResolve 一致，超出 userDataRoot 的逃逸拒绝（防 rename_file new_path 等逃出应用根）
-    const userDataRoot = path.dirname(path.dirname(projectPath))
-    if (!isSafePath(resolved, userDataRoot)) return null
-    return resolved
-  }
-  // M2: 全局资源目录按首段解析到 appRoot（与 safeResolve 一致，保证读/写工具语义统一）
-  const appRoot = path.dirname(projectPath)
-  const firstSegment = clean.split('/')[0].split('\\')[0]
-  const basePath = GLOBAL_DIR_NAMES.has(firstSegment) ? appRoot : projectPath
-  // For project-relative paths, strip any remaining ../ for safety
-  let prev = ''
-  while (prev !== clean) {
-    prev = clean
-    clean = clean.replace(/\.\.\//g, '')
-  }
-  clean = clean.replace(/\/\.\.$/, '').replace(/^\.\.$/, '')
-  const joined = path.join(basePath, clean)
-  if (!isSafePath(joined, basePath)) return null
-  return joined
+  return resolveArgCore(raw, projectPath)
 }
 
 // ── Backup helpers (Issue #7: file-level lock) ──
@@ -297,8 +206,8 @@ async function safeWalk(
     // Issue #5: Skip symbolic links
     if (e.isSymbolicLink()) continue
 
-    // Issue #5: Recursive isSafePath check
-    if (!isSafePath(full, projectPath)) continue
+    // v14.5.1 全自由: 仅挡系统目录（不再限 appRoot/projectPath 内）
+    if (isBlockedSystemPath(full)) continue
 
     const shouldStop = await visitor(full, e)
     if (shouldStop) return
@@ -330,7 +239,6 @@ export async function executeFileTool(
         const rawPath = String(args.dir_path || '')
         const pattern = args.pattern as string | undefined
         const broad = args.broad === true
-        const isGlobal = rawPath.startsWith('..') || rawPath.includes('/../')
 
         const appRoot = path.dirname(projectPath)
 
@@ -363,10 +271,13 @@ export async function executeFileTool(
           return result
         }
 
-        // ── Fast path: dir_path specified → scan that directory directly ──
-        if (rawPath && !isGlobal) {
-          // Resolve: project-relative path like "1/" or "1/outline"
-          const resolved = path.join(projectPath, rawPath)
+        // ── Fast path: dir_path specified → resolve & scan that directory directly ──
+        // v14.5.1: 统一走 resolvePath（归一化中段 ../、混合分隔符；绝对路径放行，仅挡系统目录）
+        if (rawPath) {
+          const resolved = resolvePath('dir_path')
+          if (!resolved) {
+            return { callId, toolName, status: 'error', summary: `目录路径被拒绝: ${rawPath}`, detail: '路径指向系统目录，已拦截。请改用其他目录。' }
+          }
           try {
             await fsp.access(resolved)
             const items = await scanDir(resolved, rawPath)
@@ -478,10 +389,10 @@ export async function executeFileTool(
       }
 
       case 'search_content': {
-        const rawPath = String(args.dir_path || '')
-        const dir = args.dir_path ? (resolvePath('dir_path') || projectPath) : projectPath
-        const isGlobal = rawPath.startsWith('..') || rawPath.includes('/../')
-        if (!isGlobal && !isSafePath(dir, projectPath)) return deny(callId, toolName, '路径不在项目目录内')
+        // v14.5.1: resolvePath 归一化后放行任意非系统目录（../notes、绝对路径均可用）；
+        // 系统目录被拦截时返回 null → 拒绝
+        const dir = args.dir_path ? (resolvePath('dir_path') || '') : projectPath
+        if (!dir) return deny(callId, toolName, '路径指向系统目录，已拦截')
         const pattern = args.pattern as string
         if (!pattern) return deny(callId, toolName, '缺少搜索内容')
 
@@ -615,13 +526,9 @@ export async function executeFileTool(
 
       case 'create_file': {
         const fp = resolvePath('file_path')
-        // M2: 全局目录（notes/style_templates 等首段命中）解析到 appRoot——安全基准须与之匹配，
-        // 否则 fp 已解析到 appRoot 却被 isSafePath(fp, projectPath) 拒绝，create_file 全局路径永远失败
+        // v14.5.1 全自由: 解析器已归一化并拦截系统目录；此处仅需 null 检查
         const rawPath = String(args.file_path || '')
-        const cleanFirst = rawPath.replace(/\\/g, '/').replace(/^\/+/, '').split('/')[0]
-        const isGlobalPath = rawPath.startsWith('../') || GLOBAL_DIR_NAMES.has(cleanFirst)
-        const safetyBase = isGlobalPath ? path.dirname(path.dirname(projectPath)) : projectPath
-        if (!fp || !isSafePath(fp, safetyBase)) return { callId, toolName, status: 'error', summary: '路径不在项目目录内', detail: pathHint(rawPath) }
+        if (!fp) return { callId, toolName, status: 'error', summary: '路径指向系统目录，已拦截', detail: pathHint(rawPath) }
         const content = args.content as string
         // Issue #12: Size limit for writes
         if (content.length > MAX_WRITE_CHARS) {
@@ -676,7 +583,7 @@ export async function executeFileTool(
         if (fp) {
           try { await fsp.stat(fp) } catch { fp = null }
         }
-        if (!fp) return deny(callId, toolName, '路径不在项目目录内')
+        if (!fp) return deny(callId, toolName, '路径解析失败或指向系统目录')
         const stat = await fsp.stat(fp).catch(() => null as fs.Stats | null)
         if (!stat) return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}`, detail: pathHint(String(args.file_path || '')) }
         if (stat.size > MAX_FILE_SIZE) {
@@ -868,7 +775,7 @@ export async function executeFileTool(
 
       case 'delete_file': {
         const fp = await safeResolve('file_path', args, projectPath)
-        if (!fp) return deny(callId, toolName, '路径不在项目目录内')
+        if (!fp) return deny(callId, toolName, '路径解析失败或指向系统目录')
         // Issue #16: Final backup (disabled)
         try { await backupFile(fp, projectPath) } catch { /* ignore */ }
         try { await fsp.unlink(fp) } catch {
@@ -885,9 +792,9 @@ export async function executeFileTool(
 
       case 'rename_file': {
         const fp = await safeResolve('file_path', args, projectPath)
-        if (!fp) return deny(callId, toolName, '原路径不在项目目录内')
+        if (!fp) return deny(callId, toolName, '原路径解析失败或指向系统目录')
         const np = resolvePath('new_path')
-        if (!np) return deny(callId, toolName, '新路径不在项目目录内')
+        if (!np) return deny(callId, toolName, '新路径解析失败或指向系统目录')
         try { await fsp.access(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
         }
@@ -1009,18 +916,16 @@ export async function executeFileTool(
             const p = path.join(home, d)
             try { await fsp.access(p); searchDirs.push({ root: p, label: `电脑:${d}` }) } catch {}
           }
-          if (args.dir_path) searchDirs.push({ root: String(args.dir_path), label: String(args.dir_path) })
         } else {
           searchDirs.push({ root: appRoot, label: '软件内' })
-          // find_files 免审批联动: dir_path 必须走 safeResolve 强制 containment——
-          // 修复前原样入列，绝对路径/深层 ../ 可越界搜索到软件目录外
-          if (args.dir_path) {
-            const dir = await safeResolve('dir_path', args, projectPath)
-            if (!dir) {
-              return { callId, toolName, status: 'error', summary: '搜索目录不在软件目录内，已拒绝' }
-            }
-            searchDirs.push({ root: dir, label: String(args.dir_path) })
+        }
+        // v14.5.1 全自由: dir_path 统一走 safeResolve（任意非系统目录均可作搜索根）
+        if (args.dir_path) {
+          const dir = await safeResolve('dir_path', args, projectPath)
+          if (!dir) {
+            return { callId, toolName, status: 'error', summary: '搜索目录指向系统目录，已拦截' }
           }
+          searchDirs.push({ root: dir, label: String(args.dir_path) })
         }
 
         async function walk(dir: string, depth: number): Promise<void> {
@@ -1049,7 +954,7 @@ export async function executeFileTool(
         return { callId, toolName, status: 'success', summary, detail }
       }
 
-      // ── batch_replace: 单文件批量精确替换 ──
+      // ── batch_replace: 单文件批量精确替换（v14.5.1: 全局替换语义 + 写前备份 + JSON 校验）──
       case 'batch_replace': {
         const replacements = args.replacements as Array<{ old_string: string; new_string: string }> | undefined
         if (!replacements || !Array.isArray(replacements) || replacements.length === 0) {
@@ -1075,18 +980,41 @@ export async function executeFileTool(
             applied++
             break // 全量替换后忽略后续替换
           }
-          if (!modified.includes(old_string)) {
+          // v14.5.1: 空 old_string 拒绝（防 insert 打乱文件）
+          if (old_string === '') {
+            return { callId, toolName, status: 'error', summary: `第 ${i + 1}/${replacements.length} 个替换失败: old_string 不能为空` }
+          }
+          // v14.5.1: 全局替换语义（split/join 替换所有匹配处，与工具约定"全局替换"一致）
+          const parts = modified.split(old_string)
+          if (parts.length === 1) {
             return {
               callId, toolName, status: 'error',
               summary: `第 ${i + 1}/${replacements.length} 个替换失败: 未找到匹配文本`,
               detail: `old_string 前80字: ${old_string.slice(0, 80)}\n文件前200字: ${modified.slice(0, 200)}`,
             }
           }
-          modified = modified.replace(old_string, new_string)
+          modified = parts.join(new_string)
           applied++
         }
+
+        // v14.5.1: 与 edit_file 一致——.json 文件写前校验结构
+        const relPathBatch = path.relative(projectPath, fp).replace(/\\/g, '/')
+        if (relPathBatch.endsWith('.json')) {
+          const validation = validateFileContent(relPathBatch, modified)
+          if (!validation.valid) {
+            const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')
+            return {
+              callId, toolName, status: 'error',
+              summary: `批量替换后的格式不正确 — 修改未保存，请修正后重试`,
+              detail: `文件: ${args.file_path}\n\n${errorDetail}\n\n请确保编辑后的文件仍符合系统提示词中的 schema 格式。`,
+            }
+          }
+        }
+
+        // v14.5.1: 写前自动备份（与 edit_file 同款，误替换可回退）
+        await backupFile(fp, projectPath)
         await fsp.writeFile(fp, modified, 'utf-8')
-        return { callId, toolName, status: 'success', summary: `已执行 ${applied}/${replacements.length} 个替换` }
+        return { callId, toolName, status: 'success', summary: `已执行 ${applied}/${replacements.length} 个替换（全局替换语义）` }
       }
 
       default:

@@ -48,13 +48,25 @@ export class OpenAIAdapter implements ProtocolAdapter {
     signal: AbortSignal
     temperature?: number
   }): Promise<NormalizedModelResponse> {
-    const result = await this.service.chatWithTools(
-      params.messages,
-      params.configId,
-      params.projectId,
-      params.tools.length > 0 ? params.tools : undefined,
-      params.temperature,
-    )
+    // v14.5.1: 接线 signal → abortStream——runtime 超时/用户中止时真正取消底层流
+    // （原实现忽略 signal，超时后重试会产生双请求双计费）
+    const onAbort = () => { this.service.abortStream() }
+    if (params.signal) {
+      if (params.signal.aborted) onAbort()
+      else params.signal.addEventListener('abort', onAbort, { once: true })
+    }
+    let result: Awaited<ReturnType<OpenAIAIService['chatWithTools']>>
+    try {
+      result = await this.service.chatWithTools(
+        params.messages,
+        params.configId,
+        params.projectId,
+        params.tools.length > 0 ? params.tools : undefined,
+        params.temperature,
+      )
+    } finally {
+      params.signal?.removeEventListener('abort', onAbort)
+    }
 
     return {
       text: result.text || '',

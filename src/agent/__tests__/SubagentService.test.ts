@@ -110,7 +110,7 @@ describe('runSubagent', () => {
     const toolsArg = chatWithToolsMock.mock.calls[0]?.[3] as Array<{ function?: { name?: string } }> | undefined
     expect(toolsArg).toBeDefined()
     const names = (toolsArg || []).map(t => t.function?.name).filter(Boolean)
-    // 只读工具集（find_files 已加入：条件审批 + IPC containment 保证子 agent 只能软件内定位）
+    // 只读工具集（find_files v14.5.1 全自由模式：两 scope 均免审批，系统目录由 IPC 层硬拦截）
     expect(names.sort()).toEqual([...ANALYZE_TOOL_NAMES].sort())
     expect(names).toContain('find_files')
     // 无递归委托工具
