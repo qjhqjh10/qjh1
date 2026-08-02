@@ -28,7 +28,8 @@ function extractFilePath(args: Record<string, unknown>): string {
 /** Tools that write — executed sequentially. */
 export const WRITE_TOOLS = new Set([
   'create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
-  'kb_append_file',
+  'kb_append_file','kb_index_file',  // v14.9(审计): +kb_index_file——同轮 create_file(新建KB文件)+索引 时
+  // 索引必须等文件落盘后执行（原归只读段 → 文件尚不存在 → "索引失败: File not found"白费一轮）
   'generate_image','http_get','http_fetch','browser_open','browser_search',
 ])
 
@@ -184,14 +185,24 @@ export async function executeSingleTool(
     // v14.8: 本轮 KB 预注入文件 id（kb_search 排除集）
     kbInjectedFileIds: ctx.injectedKbFileIds,
   })
-  const timeoutPromise = new Promise<ToolResult>(r =>
-    setTimeout(() => {
+  let timerHandle: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<ToolResult>(r => {
+    timerHandle = setTimeout(() => {
       perCallCtrl?.abort()  // 超时即中止子代理 runtime（runSubagent 已支持 signal 传播）
       timedOut = true
       r({ status: 'error', summary: `工具 ${tc.name} 执行超时` })
     }, TOOL_TIMEOUT)
-  )
-  result = await Promise.race([execPromise, timeoutPromise])
+  })
+  // v14.9(审计): ① 异常兜底——审批回调/缓存失效通知等 reject 不再击穿整个 run（原冒泡 →
+  // sendMessage catch → 本轮已执行结果与模型上下文全丢，模型无法自愈）；统一转 error 结果照常回传
+  // ② 超时计时器及时清理——原悬挂 120-300s 定时器在长会话中累积到点才触发
+  try {
+    result = await Promise.race([execPromise, timeoutPromise])
+  } catch (execErr) {
+    result = { status: 'error', summary: `工具 ${tc.name} 执行异常: ${execErr instanceof Error ? execErr.message : '未知错误'}` }
+  } finally {
+    if (timerHandle) clearTimeout(timerHandle)
+  }
   // v14.5.0: 超时落败时，迟到 resolve 的 subAgentUsage 照常补记（正常路径由下方统一上报，避免双计）。
   // 布尔标记判定（原字符串匹配"执行超时"可能被工具自身错误摘要误命中 → 双计）
   if (timedOut) {

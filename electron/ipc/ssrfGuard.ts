@@ -17,16 +17,20 @@ const BLOCKED_IP_PATTERNS = [
   /^https?:\/\/10\./,
   /^https?:\/\/172\.(1[6-9]|2\d|3[01])\./, // 172.16-31.x.x
   /^https?:\/\/0\.0\.0\.0/,
+  /^https?:\/\/169\.254\./,  // v14.9(D1): link-local（云元数据 169.254.169.254）
   /^https?:\/\/\[::1\]/,
 ]
 
-// RFC 1918 + loopback — IP-level regex patterns (for resolved addresses)
+// RFC 1918 + loopback + link-local + 云元数据段 — IP-level regex patterns (for resolved addresses)
+// v14.9(D1): 补 169.254.0.0/16——云元数据 169.254.169.254 可达（此前缺段；IPv6 私网 fd00:: 仅 fe80/fc00 覆盖，
+// fd00::/8 ULA 范围过大未拦，个人使用风险低，留待需要时）
 const PRIVATE_IP_RANGES = [
   /^127\./,
   /^10\./,
   /^192\.168\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
   /^0\.0\.0\.0$/,
+  /^169\.254\./,  // link-local 含云元数据 169.254.169.254
   /^::1$/,
   /^::$/,     // IPv6 未指定地址 (0.0.0.0 等价)
   /^fc00:/,   // IPv6 Unique Local Address

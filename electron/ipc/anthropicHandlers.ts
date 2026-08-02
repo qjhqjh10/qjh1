@@ -133,6 +133,8 @@ export function registerAnthropicHandlers(
       })
 
       let fullText = ''
+      // v14.9(B5): 中止时补记已消耗的 input tokens（声明在 try 外——catch 作用域不可见 try 内 let）
+      let abortedInputTokens = 0
       try {
         // 3. 构建 Anthropic 请求体
         // v11.7.0: 将 system 统一为 content block 格式，透传 cache_control
@@ -277,6 +279,7 @@ export function registerAnthropicHandlers(
                 outputTokens = usage.output_tokens || 0
                 cacheCreationTokens = usage.cache_creation_input_tokens || 0
                 cacheReadTokens = usage.cache_read_input_tokens || 0
+                abortedInputTokens = usage.input_tokens || 0  // v14.9(B5): 同步到 try 外变量
               }
               break
             }
@@ -385,8 +388,14 @@ export function registerAnthropicHandlers(
         }
         // 冲刷尾部残留事件（feedSSE 以 \n\n 切分——补终止空行让未以空行结尾的最终事件被解析，
         // 否则 message_stop 等末事件会滞留在 rest 被静默丢弃）
-        const tail = feedSSE(sseBuffer, '\n\n')
-        for (const evt of tail.events) handleEvent(evt)
+        // v14.9(审计): 已中止则跳过尾部冲刷与后续成功返回（见下方 abort 检查）
+        let abortedCleanly = false
+        if (!abortController.signal.aborted) {
+          const tail = feedSSE(sseBuffer, '\n\n')
+          for (const evt of tail.events) handleEvent(evt)
+        } else {
+          abortedCleanly = true
+        }
         decoder.decode() // flush 流式解码残留的多字节尾字符
 
         // v11.5.1: Extract thinking blocks from SSE content blocks for multi-turn support
@@ -445,6 +454,17 @@ export function registerAnthropicHandlers(
         ipcMain.removeListener('ai:abort-anthropic', onAbort)
         abortHandlers.delete(wcId)
 
+        // v14.9(审计): 中止竞态兜底——abort 落在"事件处理同步窗口"时主循环走干净 break（非 AbortError
+        // 路径），部分文本会被当完整响应提交（onDone → 写编辑器+存版本+自动摘要，与 AbortError 分支
+        // 的防护目标相同但此前漏掉）。此处在成功返回前统一拦截：中止即返回空。
+        if (abortController.signal.aborted || abortedCleanly) {
+          return JSON.stringify({
+            text: '',
+            toolUses: [],
+            stopReason: 'aborted',
+          })
+        }
+
         // M3: usage/cost 随 invoke 返回值下发（下方 JSON），冗余的 ai:anthropic-done 事件已删除
         return JSON.stringify({
           text: fullText,
@@ -466,6 +486,22 @@ export function registerAnthropicHandlers(
         abortHandlers.delete(wcId)
 
         if (err instanceof Error && err.name === 'AbortError') {
+          // v14.9(B5): 中止时补记已消耗的 input tokens（message_start 已含输入量；
+          // 原中止路径完全不记 → 月度成本低估。输出侧无数据，只记输入）
+          if (abortedInputTokens > 0) {
+            logTokenUsage({
+              timestamp: localISOString(),
+              projectId: params.projectId || '__global__',
+              configId: config.id,
+              configName: config.name,
+              model: config.model,
+              inputTokens: abortedInputTokens,
+              outputTokens: 0,
+              cacheHitTokens: 0,
+              cost: calculateCost(abortedInputTokens, 0, 0, config),
+              source: params.source || 'main',
+            }).catch(() => {})
+          }
           // 中止时 text 必须为空——H6 增量解析后 fullText 携带部分文本，
           // 若回传会被 onDone 当作完成内容提交（写编辑器+存版本+自动摘要），与 v14.0.0 行为不符
           return JSON.stringify({

@@ -25,3 +25,12 @@ export function isBlockedSystemPath(p: string): boolean {
 function pathNormalize(p: string): string {
   return String(p).replace(/\\/g, '/').toLowerCase().replace(/\/+/g, '/')
 }
+
+/**
+ * 全局资源目录顶层段（v14.9: 从 electron/ipc/pathResolution.ts 提升到共享模块——
+ * 解析基座选择逻辑 CacheInvalidator 也要用：首段命中 → 解析到 appRoot（如 notes/x.md），
+ * 否则 → projectPath。两处共用防漂移）
+ */
+export const GLOBAL_DIR_NAMES = new Set([
+  'style_templates', 'scene_templates', 'knowledge_base', 'uploads', 'notes', '.aiharness',
+])

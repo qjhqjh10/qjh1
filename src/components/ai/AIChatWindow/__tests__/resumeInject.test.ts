@@ -2,14 +2,20 @@
 // 跨 run 续跑注入: 检测上一条 assistant 消息的 taskProgress 中断未完成 → 追加 [续跑] 提示。
 // v14.3: + maybeInjectSubagentSummaries（子代理快照注入）。
 // v14.6.1: 注入 role 从 system 改为 user（Anthropic 顶层 system 远端问题）——断言同步更新。
+// v14.9: 增加"继续意图"门控——最后一条用户消息须含继续语义才注入（防旧清单劫持无关新请求）。
 // 纯函数，不依赖 React/store。
 
 import { describe, it, expect } from 'vitest'
-import { maybeInjectResume, maybeInjectSubagentSummaries } from '../utils'
+import { maybeInjectResume, maybeInjectSubagentSummaries, hasResumeIntent, buildThinkingPlanFromRun } from '../utils'
 import type { Message } from '@/components/ai/chatConstants'
 
 function assistantMsg(overrides: Partial<Message> = {}): Message {
   return { id: 'a1', role: 'assistant', content: '完成了一部分', timestamp: Date.now(), ...overrides }
+}
+
+/** v14.9: 会话末尾追加新用户消息（真实场景：新请求在最后） */
+function withUserMsg(msgs: Message[], content: string = '继续完成剩下的任务'): Message[] {
+  return [...msgs, { id: 'u1', role: 'user', content, timestamp: Date.now() }]
 }
 
 const RESUME_TP = {
@@ -22,10 +28,27 @@ const RESUME_TP = {
   interrupted: true,
 }
 
+describe('hasResumeIntent', () => {
+  it('继续语义命中', () => {
+    expect(hasResumeIntent('继续')).toBe(true)
+    expect(hasResumeIntent('接着把剩下的写完')).toBe(true)
+    expect(hasResumeIntent('把剩余任务做完')).toBe(true)
+    expect(hasResumeIntent('上次中断了，继续完成')).toBe(true)
+  })
+
+  it('无关问题不命中（防劫持核心）', () => {
+    expect(hasResumeIntent('帮我写一段短评')).toBe(false)
+    expect(hasResumeIntent('检查第3章的剧情')).toBe(false)
+    expect(hasResumeIntent('你好')).toBe(false)
+    expect(hasResumeIntent('')).toBe(false)
+    expect(hasResumeIntent(null)).toBe(false)
+  })
+})
+
 describe('maybeInjectResume', () => {
-  it('中断未完成 → 注入 [续跑] 消息，含进度与剩余任务', () => {
+  it('中断未完成 + 用户说继续 → 注入 [续跑] 消息，含进度与剩余任务', () => {
     const history = [{ role: 'user' as const, content: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章' }]
-    const messages = [assistantMsg({ taskProgress: RESUME_TP })]
+    const messages = withUserMsg([assistantMsg({ taskProgress: RESUME_TP })], '继续')
 
     const result = maybeInjectResume(history, messages)
 
@@ -38,11 +61,21 @@ describe('maybeInjectResume', () => {
     expect(result[1].content).toContain('不要重新开始')
   })
 
+  it('v14.9: 中断未完成但用户问无关问题 → 不注入（旧清单不劫持新请求）', () => {
+    const history = [{ role: 'user' as const, content: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章' }]
+    const messages = withUserMsg([assistantMsg({ taskProgress: RESUME_TP })], '帮我写一段短评')
+
+    const result = maybeInjectResume(history, messages)
+
+    expect(result).toBe(history)
+    expect(result).toHaveLength(1)
+  })
+
   it('正常完成（allDone=true）→ 不注入', () => {
     const history = [{ role: 'user' as const, content: '任务' }]
-    const messages = [assistantMsg({
+    const messages = withUserMsg([assistantMsg({
       taskProgress: { tasks: RESUME_TP.tasks.map(t => ({ ...t, done: true })), allDone: true, interrupted: false },
-    })]
+    })], '继续')
 
     const result = maybeInjectResume(history, messages)
     expect(result).toBe(history)
@@ -51,14 +84,14 @@ describe('maybeInjectResume', () => {
 
   it('interrupted=false（提问/正常收尾）→ 不注入', () => {
     const history = [{ role: 'user' as const, content: '任务' }]
-    const messages = [assistantMsg({ taskProgress: { ...RESUME_TP, interrupted: false } })]
+    const messages = withUserMsg([assistantMsg({ taskProgress: { ...RESUME_TP, interrupted: false } })], '继续')
 
     expect(maybeInjectResume(history, messages)).toBe(history)
   })
 
   it('无 taskProgress（旧消息/无清单）→ 不注入', () => {
     const history = [{ role: 'user' as const, content: '任务' }]
-    const messages = [assistantMsg({})]
+    const messages = withUserMsg([assistantMsg({})], '继续')
 
     expect(maybeInjectResume(history, messages)).toBe(history)
   })
@@ -70,7 +103,7 @@ describe('maybeInjectResume', () => {
 
   it('纯函数: 不改动入参 history/messages', () => {
     const history = [{ role: 'user' as const, content: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章' }]
-    const messages = [assistantMsg({ taskProgress: RESUME_TP })]
+    const messages = withUserMsg([assistantMsg({ taskProgress: RESUME_TP })], '继续')
     const historySnapshot = JSON.stringify(history)
     const messagesSnapshot = JSON.stringify(messages)
 
@@ -83,11 +116,56 @@ describe('maybeInjectResume', () => {
   it('全部任务已 done 但 allDone=false（边界）→ 按未完成处理注入', () => {
     // 防御性: 数据不一致时以 allDone 为准（宁错勿漏——宁可注入也不静默丢失剩余任务）
     const history = [{ role: 'user' as const, content: '任务' }]
-    const messages = [assistantMsg({
+    const messages = withUserMsg([assistantMsg({
       taskProgress: { tasks: RESUME_TP.tasks.map(t => ({ ...t, done: true })), allDone: false, interrupted: true },
-    })]
+    })], '继续')
 
     expect(maybeInjectResume(history, messages)).toHaveLength(2)
+  })
+})
+
+// ══════════════════════════════════════════════════════════════
+// buildThinkingPlanFromRun (v14.9): 「执行计划」卡片数据源（从实际执行记录回溯）
+// ══════════════════════════════════════════════════════════════
+
+describe('buildThinkingPlanFromRun', () => {
+  const RUN = {
+    toolCallSteps: [
+      { tool: 'read_file', status: 'success', summary: '已读取 1200 字符', arguments: '{"file_path":"剑道长生/outline/plot.md"}' },
+      { tool: 'create_file', status: 'success', summary: '创建成功', arguments: '{"file_path":"剑道长生/characters/李狗蛋.md"}' },
+    ],
+  }
+
+  it('有工具执行 → 生成计划（意图+步骤+文件去重）', () => {
+    const plan = buildThinkingPlanFromRun(RUN as any, '请创建角色卡并读取大纲')
+    expect(plan).toBeDefined()
+    expect(plan!.steps).toHaveLength(2)
+    expect(plan!.steps[0]).toMatchObject({ tool: 'read_file', action: '已读取 1200 字符' })
+    expect(plan!.files).toContain('剑道长生/outline/plot.md')
+    expect(plan!.files).toContain('剑道长生/characters/李狗蛋.md')
+    expect(plan!.intent).toBe('请创建角色卡并读取大纲')
+  })
+
+  it('无工具调用（纯聊天）→ 返回 undefined（不显示面板）', () => {
+    expect(buildThinkingPlanFromRun({ toolCallSteps: [] } as any, '你好')).toBeUndefined()
+    expect(buildThinkingPlanFromRun({} as any, '你好')).toBeUndefined()
+  })
+
+  it('arguments 解析失败/无路径 → 跳过该步骤的文件提取', () => {
+    const plan = buildThinkingPlanFromRun({
+      toolCallSteps: [{ tool: 'tool_search', status: 'success', summary: '发现', arguments: '不是JSON{' }],
+    } as any, 'x')
+    expect(plan!.files).toEqual([])
+    expect(plan!.steps).toHaveLength(1)
+  })
+
+  it('intent 截断 60 字符；文件上限 8 个', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({
+      tool: 'read_file', status: 'success', summary: 's', arguments: JSON.stringify({ file_path: `f${i}.txt` }),
+    }))
+    const plan = buildThinkingPlanFromRun({ toolCallSteps: many } as any, '长'.repeat(100))
+    expect(plan!.intent.length).toBe(60)
+    expect(plan!.files.length).toBe(8)
   })
 })
 

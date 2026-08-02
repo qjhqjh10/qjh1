@@ -201,6 +201,31 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 }
 
 /**
+ * v14.9(A7): 退出前冲刷挂起保存——尾随防抖期间关窗/刷新会丢最后 800ms 内的消息。
+ * pagehide/beforeunload 无法 await IndexedDB，此处 fire-and-forget 尽力落盘（文件镜像同步执行）。
+ */
+export function flushPendingSave(): void {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  if (pendingSave && !inFlight) {
+    const data = pendingSave
+    pendingSave = null
+    inFlight = doSave(data).then(ok => {
+      const ws = saveWaiters
+      saveWaiters = []
+      for (const w of ws) w(ok)
+    }).catch(e => {
+      console.warn('[ChatStorage] flush save failed:', e)
+      const ws = saveWaiters
+      saveWaiters = []
+      for (const w of ws) w({ idbOk: false })
+    }).finally(() => {
+      inFlight = null
+      if (pendingSave) saveConversations(pendingSave)
+    })
+  }
+}
+
+/**
  * v14.5.0: 合并加载结果与本地状态 — IndexedDB 异步加载完成时无条件覆盖会丢掉
  * 加载完成前用户已发送的消息；此函数保留本地新建/更新的对话。
  */

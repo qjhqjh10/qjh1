@@ -545,6 +545,61 @@ describe('Task List: 跨 run 续跑 (taskProgress 快照)', () => {
     expect(result2.taskProgress?.allDone).toBe(true)
     expect(cc2()).toBe(1)
   })
+
+  it('T24 v14.9 续跑闸门修复: resume 后模型口头声明全部完成但未写文件 → 不 cleanExit，持续督促', async () => {
+    // 原缺陷: "继续"消息无任务关键词 → _userRequestedFileOp=false → "说完成但没写"闸门被禁用
+    // → 仅声明进度即可 cleanExit，剩余任务静默丢弃
+    const tp = {
+      tasks: [
+        { id: 1, desc: '写完整大纲', done: true },
+        { id: 2, desc: '创建角色卡', done: false },
+        { id: 3, desc: '生成第一章', done: false },
+      ],
+      allDone: false,
+      interrupted: true,
+    }
+    const { svc: svc2, calls: calls2 } = makeMockAI([
+      { text: '已完成3项。' },  // 口头声明全部完成（progress 解析置位全部任务），零工具调用
+    ])
+    const runtime2 = makeRuntime(new OpenAIAdapter(svc2), { maxIterations: 3 })
+    const { executor: ex2 } = makeTrackedExecutor()
+    runtime2.setToolExecutor(ex2)
+    runtime2.setTools(toolRegistry.getCompactSchemas())
+    const result2 = await runtime2.run({
+      userMessage: '继续',
+      attachments: [],
+      resumeTaskProgress: tp,
+    })
+
+    // 闸门生效: 声明轮后没有 cleanExit（原缺陷下 calls=1 即退出），继续 nudge 直到迭代耗尽
+    expect(calls2.length).toBeGreaterThanOrEqual(2)
+    expect(result2.truncated).toBe(true)
+    // 督促消息明确要求写证据（"说完成但没写"闸门文案；v14.9(C3) 文案改为"没有实际写入任何文件"）
+    expect(calls2[1].some(m => typeof m.content === 'string' && m.content.includes('没有实际写入任何文件'))).toBe(true)
+  })
+
+  it('T25 v14.9 部分声明漏网修复: "前三项都完成了"（前N项形态）不触发全局完成', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '前三项都完成了。' },  // 原缺陷: PARTIAL_DONE_RE 只覆盖"第N"形态 → GLOBAL `都.*完成` 命中 → markAllDone
+      { text: '', toolCalls: [CREATE('2')] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章 4. 创建笔记',
+      attachments: [],
+    })
+
+    expect(callCount()).toBe(2)  // 部分声明轮未提前收尾（原缺陷下只有 1 次写入）
+    expect(result.taskProgress?.allDone).toBe(true)
+    expect(calls.length).toBeGreaterThanOrEqual(3)
+  })
 })
 
 // ══════════════════════════════════════════════════════════════

@@ -1,7 +1,23 @@
 {
-  "currentVersion": "14.8.0",
+  "currentVersion": "14.9.0",
   "currentDate": "2026-08-02",
   "history": [
+    {
+      "version": "14.9.0",
+      "date": "2026-08-02",
+      "features": [
+        "上下文窗口默认 1M: 模型配置 contextWindow 默认 128K→1M（settings/设置页/bridge 工厂/压缩器/runtime/子代理/UI 共 8 处同步）——长上下文下大文件/多文件分析不再受窗口挤压，压缩触发大幅延后",
+        "大文件流式搜索: search_content >2MB 文件不再跳过——readline 流式逐行搜索（内存恒定、任意大小可搜，返回匹配行+行号）；仅 multiline 跨行匹配需整块上下文才跳过并提示；read_file 结果进上下文截断 30K→50K（1M 窗口下减少大文件读取轮数）；list_directory 超 500 条补截断提示（网文项目 chapters/ 数百章不再误判文件清单）",
+        "执行计划/反馈横幅接线: 「执行计划」卡片从实际工具执行记录回溯生成（意图+步骤+文件，纯聊天不显示；原 parseThinkingPlan 删除后 4 个版本无写入点的死 UI）；反馈横幅接线 hook:blocked/hook:passed 事件（API 错误/自愈诊断/连续 8 轮强停/续跑完成，原事件声明但从不发射）",
+        "@文件引用接线: 输入框 @ 选中的知识库文件随消息真实发送（原纯装饰静默无效果）——并入 KB 预注入 + 消息内引用名单",
+        "模型切换 UI 可见化: 对话开始后下拉框禁用+提示（设计决策：configId 首次 init 锁定防止会话上下文与模型不匹配，原无声失效造成困惑）"
+      ],
+      "fixes": [
+        "五路并行审计 40+ 项修复: 续跑『说完成但没写』闸门失效（resume 强制文件语义，口头声明进度不再静默丢弃剩余任务）/ [续跑]+旧清单劫持无关新请求（hasResumeIntent 意图门控）/ _hasWriteCall 成功门控（删『尝试过即算写』）/ 完成正则补『前N项』形态+『任务完成情况』排除 / 自愈阶梯合理拒绝出口（≥8轮+带原因可收尾）/ SSE 中止竞态（部分文本不再被当完整提交）/ SDK 超时 120→180s（消 thinking 长生成双计费）/ Anthropic 主桥 abortStream 透传 requestId / edit_file HTML 实体解码坐标复核（杜绝静默错改）/ kb_analyze 会话按查询指纹隔离 / kb_index_file 归入写序列+描述修正+chunkCount 修复 / CacheInvalidator 全局目录裸路径解析对齐 / 工具执行链异常兜底+超时计时器清理 / 审批弹窗停止生成清理 / 文件写证据完成闸门（网络/生图不再算『已写』）/ find_files 遍历逐目录黑名单 / edit_file 返回替换处预览 / subagent_ask 文案如实+会话 key 角色隔离 / Responses 中段 system 降级 user / 中止补记 input tokens / SSRF 补 169.254 云元数据段 / 估算含 tool_calls / 子代理快照去重注入 / KB 跨 run 排除并集 / 联网开关实时同步+按钮态如实 / DONE/ERROR/ABORTED 状态标签复活 / 存储退出 flush / enableThinkingPlan 死参数+死导入清理",
+        "文件限制设计文档化: 18 项大小/数量/token 限制逐项过筛（网文大文件场景），核心原则——限制必须有自愈路径（流式/分块/截断提示/采样），禁止『跳过/拒绝』类限制（search_content 2MB 跳过教训）；全表入记忆 file-limits-design.md 防未来审计误判",
+        "测试: 655 passed + 15 skipped（670，+11 新用例：续跑闸门/前N项声明/意图门控/执行计划/大文件流式/multiline 跳过）；tsc 0 错误；check-consistency 30/30"
+      ]
+    },
     {
       "version": "14.8.0",
       "date": "2026-08-02",

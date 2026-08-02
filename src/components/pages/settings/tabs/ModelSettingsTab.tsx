@@ -237,7 +237,7 @@ function ModelCard({
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <label style={fieldLabel}>上下文 Context</label>
               <input type="number" min="1000" step="1000" value={ctxWinValue}
-                onChange={e => { const v = parseInt(e.target.value); onCtxWinChange(isNaN(v) ? 128000 : v) }}
+                onChange={e => { const v = parseInt(e.target.value); onCtxWinChange(isNaN(v) ? 1000000 : v) }}
                 className="focus-ring" style={{ ...inputBase, width: '100%' }} />
             </div>
           )}
@@ -483,7 +483,7 @@ export function ModelSettingsTab() {
               tempValue={activeConfig.temperature} onTempChange={v => u({ temperature: v })}
               toolTempValue={activeConfig.toolTemperature ?? 0.5} onToolTempChange={v => u({ toolTemperature: v })}
               maxTokValue={activeConfig.maxTokens} onMaxTokChange={v => u({ maxTokens: v })}
-              ctxWinValue={activeConfig.contextWindow ?? 128000} onCtxWinChange={v => u({ contextWindow: v })}
+              ctxWinValue={activeConfig.contextWindow ?? 1000000} onCtxWinChange={v => u({ contextWindow: v })}
               inPrice={activeConfig.inputPricePerM} onInPrice={v => u({ inputPricePerM: v })}
               outPrice={activeConfig.outputPricePerM} onOutPrice={v => u({ outputPricePerM: v })}
               cachePrice={activeConfig.cacheHitPricePerM} onCachePrice={v => u({ cacheHitPricePerM: v })}

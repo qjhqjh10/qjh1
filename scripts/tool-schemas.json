@@ -336,7 +336,7 @@
     "type": "function",
     "function": {
       "name": "kb_append_file",
-      "description": "追加内容到知识库文件。新建用 create_file(\"../knowledge_base/files/\"), 追加后需 kb_index_file 建索引。",
+      "description": "追加内容到知识库文件。新建用 create_file(\"../knowledge_base/files/\"), 追加后自动重建索引（无需再调 kb_index_file）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -360,7 +360,7 @@
     "type": "function",
     "function": {
       "name": "kb_index_file",
-      "description": "对知识库文件建立语义搜索索引。kb_append_file 后必须调用。",
+      "description": "对知识库文件建立语义搜索索引。新建文件（create_file 到 knowledge_base/files/）后索引；kb_append_file 追加后已自动重建索引，无需再调。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -412,7 +412,7 @@
           },
           "count": {
             "type": "number",
-            "description": "返回数量（默认3，最多10）"
+            "description": "返回数量（默认3，最多5）"
           },
           "orientation": {
             "type": "string",

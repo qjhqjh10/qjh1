@@ -18,7 +18,6 @@ export interface ContextBuilderOptions {
   /** v14.8: 跨 run 排除 — 历史 run 已注入过的知识库文件 id（来自上一条 assistant 消息的 kbInjectedFileIds），
    * 与本轮实例内已注入 id 并集后传给 kbService.search，避免同一文件跨 run 反复注入 */
   excludeKbFileIds?: string[]
-  enableThinkingPlan?: boolean
 }
 
 export interface ContextBuilderResult {

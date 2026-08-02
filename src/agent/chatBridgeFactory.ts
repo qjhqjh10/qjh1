@@ -1,5 +1,5 @@
 // ── Chat Bridge 公共基类（v13.x: 合并 V4AgentChatBridge/V4AnthropicChatBridge 的 95% 重复）──
-// 两协议 Bridge 仅差异：adapter 构造、流中止目标、runId 前缀、enableThinkingPlan。
+// 两协议 Bridge 仅差异：adapter 构造、流中止目标、runId 前缀。
 // 其余 init/updateProject/updateHistory/sendMessage/abort/destroy 逐行相同 → 收敛于此。
 
 import { V4UnifiedRuntime } from './runtime/V4UnifiedRuntime'
@@ -38,7 +38,7 @@ export abstract class BaseChatBridge {
   protected configId = ''
   protected projectId: string | null = null
   protected maxIterations = 30  // v11.5.1: 60→30，nudge上限+写优先已消除死锁，30足够
-  protected contextWindow = 128_000
+  protected contextWindow = 1_000_000  // v14.9: 默认 1M
   protected history: Message[] = []
   protected abortController = new AbortController()
   protected runId = ''
@@ -49,8 +49,6 @@ export abstract class BaseChatBridge {
   protected abstract abortStream(): void
   /** 协议差异：runId 前缀（区分协议会话） */
   protected abstract getRunId(): string
-  /** 协议差异：是否启用 thinking plan */
-  protected abstract getEnableThinkingPlan(): boolean
 
   constructor(projectId: string | null) {
     this.securityFence = new V4SecurityFence(projectId)
@@ -58,10 +56,13 @@ export abstract class BaseChatBridge {
   }
 
   init(options: BridgeOptions): void {
+    // v14.9(设计决策注释): configId 在此一次性锁定、终身不更新——同一对话内切换模型/协议
+    // 不生效是设计决策（防止会话上下文/推理行为与模型不匹配），UI 已禁用切换；
+    // 切换模型请新开对话（destroy 重建 bridge 后重新 init）。
     this.configId = options.configId
     this.projectId = options.projectId
     this.maxIterations = options.maxIterations ?? 30
-    this.contextWindow = Math.max(1, options.contextWindow ?? 128_000)
+    this.contextWindow = Math.max(1, options.contextWindow ?? 1_000_000)  // v14.9: 默认 1M
     this.history = options.historyMessages || []
     this.securityFence = new V4SecurityFence(this.projectId)
     this.initialized = true
@@ -137,7 +138,6 @@ export abstract class BaseChatBridge {
         selectedKbFileIds: options.selectedKbFileIds,
         // v14.8: 跨 run KB 去重 — 排除历史 run 已注入过的文件
         excludeKbFileIds: options.excludeKbFileIds,
-        enableThinkingPlan: this.getEnableThinkingPlan(),
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {
@@ -179,6 +179,15 @@ export abstract class BaseChatBridge {
         options.onResponse?.(data)
       }))
 
+      // v14.9(接线): 反馈横幅——runtime 的 hook:blocked（红 ✗）/hook:passed（绿 ✓）事件
+      // → AgentStore.hookFeedback（原事件声明存在但无订阅、无写入，横幅死 UI）
+      unsubscribes.push(emitter.on('hook:blocked', (data) => {
+        store.setHookFeedback({ hookName: data.hookName, passed: false, feedback: data.feedback, timestamp: data.timestamp })
+      }))
+      unsubscribes.push(emitter.on('hook:passed', (data) => {
+        store.setHookFeedback({ hookName: data.hookName, passed: data.passed !== false, feedback: data.feedback, timestamp: data.timestamp })
+      }))
+
       // ── 7. Run ──
       const result = await this.runtime.run({
         userMessage,
@@ -193,6 +202,9 @@ export abstract class BaseChatBridge {
       options.onComplete?.(result)
       store.setPeakPromptTokens(result.promptTokens)
       store.endRun()
+      // v14.9(A3): endRun 会把 phase 重置为 IDLE——补回最终 phase，让「完成/错误/已中止」
+      // 状态标签在运行结束后可见（原恒显示"就绪"，DONE/ERROR/ABORTED 标签从不出现）
+      store.setPhase(result.phase)
       // 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 
@@ -224,6 +236,7 @@ export abstract class BaseChatBridge {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
       store.setLastError(errMsg)
       store.endRun()
+      store.setPhase('ERROR')  // v14.9(A3): 同正常路径——错误结束也保留 ERROR 标签
       this.auditTrail.persist().catch(() => {})
       return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, phase: 'ERROR', toolsUsed: [], iterationCount: 0, toolCallSteps: [] }
     } finally {

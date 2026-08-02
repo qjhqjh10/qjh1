@@ -165,6 +165,8 @@ export const subagentTools: ToolDefinition[] = [
 
         const taskMessage = buildTaskMessage('edit_file_task', filePath, `修改指令: ${instruction}`)
         // v14.3: 委托成功后保存会话（供 subagent_ask 追问复用）
+        // v14.9(审计): 会话 key 加 role 前缀——原与 analyze_file 共用同一 key，edit 会覆盖 analyze
+        // 会话（Map 单键），之后 subagent_ask 因角色不符退化为全新分析 = analyze 会话被销毁
         const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'edit',
@@ -172,7 +174,7 @@ export const subagentTools: ToolDefinition[] = [
           configId,
           userMessage: taskMessage,
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::${filePath}`,
+          sessionKey: `${ctx.projectId ?? 'global'}::edit::${filePath}`,
         })
 
         return {
@@ -231,6 +233,7 @@ export const subagentTools: ToolDefinition[] = [
           ...criteria.map((c, i) => `${i + 1}. ${c}`),
         ]
         // v14.3: 会话 key 以首个文件为准（多文件验收以清单为准，追问按首文件复用）
+        // v14.9(审计): key 加 role 前缀（同 edit_file_task）——防覆盖同路径的 analyze 会话
         const { runSubagent } = await getSubagentService()
         const result = await runSubagent({
           role: 'verify',
@@ -238,7 +241,7 @@ export const subagentTools: ToolDefinition[] = [
           configId,
           userMessage: lines.join('\n'),
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::${filePaths[0] ?? ''}`,
+          sessionKey: `${ctx.projectId ?? 'global'}::verify::${filePaths[0] ?? ''}`,
         })
 
         // 尝试解析 JSON 验收报告 → 结构化 detail（主 agent 可直接读 passed/items）
@@ -325,11 +328,14 @@ export const subagentTools: ToolDefinition[] = [
         if (!configId) return { status: 'error', summary: '未配置AI' }
 
         const sessionKey = `${ctx.projectId ?? 'global'}::${filePath}`
+        // v14.9(E): 文案如实——会话是否复用取决于会话池状态（首次追问/过期/角色不符 = 全新分析），
+        // 原无条件声称"基于该文件的之前分析"，模型被告知不存在的上下文可能跳过读取；
+        // 统一中性表述：有则结合、无则先读，reusedSession 字段透传结果供上层知情
         const taskMessage = [
           `任务文件: ${filePath}`,
           `追问: ${question}`,
-          '（上下文基于该文件的之前分析，文件可能已修改——若内容与问题不符，请重新读取相关部分）',
-          '请结合已有上下文回答追问，输出结构化分析摘要。',
+          '（若存在该文件的既有分析上下文请结合使用；否则请先读取文件相关部分再回答——文件可能已修改）',
+          '输出结构化分析摘要。',
         ].join('\n')
         const { runSubagent } = await getSubagentService()
         const result = await runSubagent({

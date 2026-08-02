@@ -66,10 +66,45 @@ export function detectHallucination(text: string, toolsCalled: Set<string>): str
   return null
 }
 
+// v14.9(审计): 续跑意图判定——只有用户消息含继续语义时才注入 [续跑] 并恢复旧清单。
+// 原实现无差别触发：中断后问无关问题也会被 [续跑] + 旧清单门控劫持（nudge 拽回旧任务）。
+// 与 AIChatWindow/index.tsx 的 resumeTaskProgress 传参共用同一判定。
+export const RESUME_INTENT_RE = /继续|接着|续写|把剩下|剩下的|剩余|还没|未完成|未完|中断|上次|继续完成|接着做|下一步|还有.{0,8}(?:任务|项|章)/
+
+/** 判断用户消息是否表达"继续完成之前任务"的意图 */
+export function hasResumeIntent(userMessage: string | null | undefined): boolean {
+  return !!userMessage && RESUME_INTENT_RE.test(userMessage)
+}
+
+/**
+ * v14.9(接线): 「执行计划」卡片数据源——从 run 实际执行记录回溯生成。
+ * 历史：v14.0 删除 ThinkingEngine（原计划生成器）→ v14.5 删除 parseThinkingPlan →
+ * UI 面板无写入点成为死 UI。现以"实际执行的工具步骤"重建：意图=用户请求、步骤=工具轮记录、
+ * 文件=从工具参数提取的路径——诚实展示 agent 做了什么（纯聊天/无工具调用时返回 undefined 不显示）。
+ */
+export function buildThinkingPlanFromRun(
+  runResult: { toolCallSteps?: Array<{ tool: string; status: string; summary: string; arguments?: string }> },
+  userMessage: string,
+): { intent: string; files: string[]; steps: { tool: string; action: string }[] } | undefined {
+  const stepsArr = runResult.toolCallSteps || []
+  if (stepsArr.length === 0) return undefined
+  const steps = stepsArr.map(s => ({ tool: s.tool, action: (s.summary || '').slice(0, 60) }))
+  const files = new Set<string>()
+  for (const s of stepsArr) {
+    try {
+      const args = JSON.parse(s.arguments || '{}')
+      const p = args.file_path || args.path || args.dir_path || args.new_path
+      if (typeof p === 'string' && p) files.add(p)
+    } catch { /* 参数解析失败跳过 */ }
+  }
+  return { intent: (userMessage || '').slice(0, 60), files: [...files].slice(0, 8), steps }
+}
+
 /**
  * v14.2.0: 跨 run 续跑注入 — 检测对话最后一条 assistant 消息携带的"中断未完成"任务清单，
  * 生成 [续跑] 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
- * 条件: taskProgress 存在 && !allDone（未全部完成）&& interrupted（中断/超时/迭代耗尽/API失败）。
+ * 条件: taskProgress 存在 && !allDone（未全部完成）&& interrupted（中断/超时/迭代耗尽/API失败）
+ *       && 最后一条用户消息含继续意图（v14.9: 防旧清单劫持无关新请求）。
  * 正常完成（allDone=true）或无任务清单 → 原样返回 history，不注入。
  * 纯函数不改入参，便于单测。
  * v14.6.1: role 从 system 改为 user——Anthropic 协议把所有 system 提到顶层参数，
@@ -81,6 +116,9 @@ export function maybeInjectResume(
   history: Array<{ role: string; content: string }>,
   messages: Message[],
 ): Array<{ role: string; content: string }> {
+  // v14.9(审计): 新消息无继续意图 → 不注入（旧清单门控也不会被恢复）
+  const lastUser = [...messages].reverse().find(m => m.role === 'user')
+  if (!lastUser || !hasResumeIntent(String(lastUser.content))) return history
   const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
   const tp = lastAssistant?.taskProgress
   if (!tp || tp.allDone || !tp.interrupted) return history

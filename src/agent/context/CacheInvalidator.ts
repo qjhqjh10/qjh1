@@ -3,6 +3,8 @@
 // (MemoryIndex removed in v11.7.2 — index no longer injected)
 
 import { ContextAssembler } from './ContextAssembler'
+// v14.9: 全局资源目录顶层段（与主进程 pathResolution.resolveArg 的基座选择共用单一来源）
+import { GLOBAL_DIR_NAMES } from '@/utils/pathBlacklist'
 
 /** Callbacks for triggering UI updates after file changes */
 export interface CacheInvalidationCallbacks {
@@ -14,16 +16,24 @@ export interface CacheInvalidationCallbacks {
  * v14.6.1: 手工相对→绝对路径解析（渲染层无 node:path）。
  * AI 传相对路径（"项目名/outline/plot.md"），GUI 缓存与组件比较都用绝对路径——
  * 只失效相对 key 会让 GUI 命中陈旧缓存、fileEditNotify 比较恒失败。
+ * v14.9(审计): 基座选择与 resolveArg 对齐——首段是全局资源目录（notes/knowledge_base/…）
+ * 时解析到 basePath 的父级（appRoot）；原恒以 basePath（projectsBasePath）拼接，
+ * 裸形式"notes/x.md"错拼成 projects/notes/… → 绝对 key 失效落空 → GUI 缓存陈旧
  */
 function toAbsolute(fp: string, basePath?: string): string {
   if (!basePath || !fp) return fp
   if (/^[A-Za-z]:[\\/]/.test(fp) || fp.startsWith('/') || fp.startsWith('\\\\')) return fp
   const parts = fp.replace(/\\/g, '/').split('/')
   const baseParts = basePath.replace(/\\/g, '/').split('/')
+  const rootBase = baseParts.slice(0, -1)  // 全局资源目录 → appRoot（basePath 的父级）
   for (const seg of parts) {
     if (seg === '..') baseParts.pop()
     else if (seg === '.' || seg === '') continue
     else baseParts.push(seg)
+  }
+  const firstSegment = parts[0]?.toLowerCase()
+  if (firstSegment && [...GLOBAL_DIR_NAMES].some(n => n.toLowerCase() === firstSegment)) {
+    return [...rootBase, ...parts].join('/')
   }
   return baseParts.join('/')
 }

@@ -14,7 +14,7 @@ export const imageTools: ToolDefinition[] = [
         type: 'object',
         properties: {
           query: { type: 'string', description: '搜索关键词（支持中文，如"古装美女""山水风景"）' },
-          count: { type: 'number', description: '返回数量（默认3，最多10）' },
+          count: { type: 'number', description: '返回数量（默认3，最多5）' },  // v14.9(审计): 实际上限 5（主进程 Pexels 分页硬上限），schema 原写 10 → 模型传 8 只回 5
           orientation: { type: 'string', description: '图片方向: landscape(横版) / portrait(竖版) / square(方形)' },
           size: { type: 'string', description: '尺寸: large(大) / medium(中) / small(小)' },
         },

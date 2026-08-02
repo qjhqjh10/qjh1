@@ -26,11 +26,22 @@ export function estimateTokens(text: string): number {
   return Math.ceil(cjk / 1.2 + latin / 4.5)
 }
 
-/** Estimate total tokens across an array of messages (includes ~4 tokens per message for role overhead) */
-export function estimateMessages(messages: Array<{ content?: string }>): number {
+/**
+ * Estimate total tokens across an array of messages (includes ~4 tokens per message for role overhead)
+ * v14.9(B3): 补计 tool_calls 的 arguments——工具轮 assistant 消息 content 为空，
+ * 工具参数文本（可含大段 JSON）原完全不计 → 压缩触发晚于真实占用（低估方向危险）。
+ */
+export function estimateMessages(messages: Array<{ content?: string; tool_calls?: unknown[] }>): number {
   let total = 0
   for (const m of messages) {
     total += estimateTokens(m.content || '') + 4
+    // v14.9(B3): 补计 tool_calls 的 arguments（双形状兼容：{function:{arguments}} 与 {arguments}）
+    if (Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls as Array<{ function?: { arguments?: string }; arguments?: string }>) {
+        const args = typeof tc?.function?.arguments === 'string' ? tc.function.arguments : tc?.arguments
+        if (typeof args === 'string' && args) total += estimateTokens(args)
+      }
+    }
   }
   return total
 }

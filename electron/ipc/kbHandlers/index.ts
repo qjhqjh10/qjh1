@@ -157,7 +157,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Shared helper: index a file (used by kb:index, kb:write, kb:append)
-  async function indexFile(file: KnowledgeFile, configId: string): Promise<void> {
+  // v14.9: 返回片段数（kb:index 处理器透传给 kb_index_file 工具显示）
+  async function indexFile(file: KnowledgeFile, configId: string): Promise<number> {
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
     const config = configs.find(c => c.id === configId)
@@ -200,6 +201,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const f = meta.files.find(x => x.id === file.id)
     if (f) f.chunkCount = chunks.length
     await saveMetadata(meta)
+    return chunks.length
   }
 
   // Index a file (chunk + embed)
@@ -207,7 +209,9 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const file = meta.files.find(f => f.id === fileId)
     if (!file) throw new Error('File not found')
-    await indexFile(file, configId)
+    // v14.9(审计): 返回片段数——electron.d.ts 已声明 Promise<{chunkCount}> 但处理器未返回
+    // → kb_index_file 工具 summary 恒显示 "undefined 个片段"
+    return { chunkCount: await indexFile(file, configId) }
   })
 
   // Semantic search

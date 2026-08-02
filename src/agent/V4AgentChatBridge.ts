@@ -50,8 +50,4 @@ export class V4AgentChatBridge extends BaseChatBridge {
   protected getRunId(): string {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   }
-
-  protected getEnableThinkingPlan(): boolean {
-    return true
-  }
 }

@@ -3,7 +3,7 @@
 // Contains messagesToAnthropic() and toAnthropicTools() — previously in V4AnthropicRuntime.ts.
 // Internal message storage is OpenAI format; this adapter converts at the API boundary.
 
-import type { Message, ToolCallRequest } from '../../state/types'
+import type { Message } from '../../state/types'  // v14.9(清理): 移除未使用的 ToolCallRequest 导入
 import type { AnthropicToolDef, AnthropicStreamResult, AnthropicTextBlock, AnthropicContentBlock } from '@/types/anthropicTypes'
 import type { ProtocolAdapter, ProtocolCapabilities, NormalizedModelResponse } from './ProtocolAdapter'
 import type { AnthropicSystemBlock } from '@/services/anthropicService'

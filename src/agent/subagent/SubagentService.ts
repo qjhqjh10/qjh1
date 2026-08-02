@@ -61,7 +61,7 @@ export interface SubagentOptions {
   userMessage: string
   signal?: AbortSignal
   maxIterations?: number   // 默认 10（v14.3.1: 6→10）
-  contextWindow?: number   // 默认跟随模型配置（配置未设时 128_000，与主 agent 一致）
+  contextWindow?: number   // 默认跟随模型配置（配置未设时 1_000_000，与主 agent 一致；v14.9 默认 1M）
   temperature?: number
   toolTemperature?: number
   /** v14.3: 会话追问 key（`${projectId ?? 'global'}::${filePath}`）— 存在时优先复用该文件的上次子代理上下文；委托成功后保存会话 */
@@ -165,6 +165,8 @@ export interface SubagentResult {
   text: string
   toolCallSteps: V4AgentRunResult['toolCallSteps']
   usage: SubagentUsage
+  /** v14.9(E): 是否复用了已有会话上下文（subagent_ask 按此如实拼装任务消息） */
+  reusedSession: boolean
 }
 
 // ── 工厂 ──
@@ -182,7 +184,7 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   // v14.2.1: 上下文窗口跟随模型配置（与主 agent 一致，可达 1M）——
   // 修复前硬编码 64K：大文件（>7 万字符）在 70% 压缩阈值下内容被压缩失真，
   // 违背子代理"处理大文件"的使命。显式传入仍优先；配置未设时兜底与 DEFAULT_MODEL_CONFIG 一致。
-  const contextWindow = opts.contextWindow ?? (modelConfig as any)?.contextWindow ?? 128_000
+  const contextWindow = opts.contextWindow ?? (modelConfig as any)?.contextWindow ?? 1_000_000  // v14.9: 默认 1M
 
   // 1. 按角色筛选工具 schema（防御性过滤：即使工具集配置出错也不含 subagent 工具）
   const toolNames = ROLE_TOOLS[role]
@@ -207,10 +209,13 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   const auditTrail = new AuditTrail()
   let result: V4AgentRunResult
 
+  // v14.9(E): 会话复用标志（try 外声明——return 在 try 外）
+  let sessionUsed = false
   try {
     // v14.3: 会话追问 — 复用该文件上次子代理的上下文（无会话则全新）
     // v14.5.0: 传入 role 校验（角色不符/过期 → 视为无会话，重建全新分析）
     const session = sessionKey ? getSubagentSession(sessionKey, role) : undefined
+    sessionUsed = !!session
 
     // 4. 独立 runtime（isolatedStore：不触碰共享 AgentStore，隔离 UI 状态与熔断器）
     const runtime = new V4UnifiedRuntime({
@@ -259,11 +264,15 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
       saveSubagentSession(sessionKey, role, runtime.getMessagesForApi())
     }
   } catch (err) {
+    // 注(v14.9 B4): 传输层异常（run reject）时 usage 归零——此前迭代的真实 token/费用
+    // 统计确实丢失，但会话统计（readSessionStats）走 auditTrail 聚合不受影响；主 agent 侧
+    // subAgentUsage 显示为 0 仅为展示层精度损失。runtime 无部分结果返回机制，不做侵入改动。
     return {
       success: false,
       text: `子代理执行失败: ${err instanceof Error ? err.message : '未知错误'}`,
       toolCallSteps: [],
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, calls: 0 },
+      reusedSession: false,
     }
   } finally {
     signal?.removeEventListener('abort', onParentAbort)
@@ -292,6 +301,8 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     success,
     text,
     toolCallSteps: result.toolCallSteps,
+    // v14.9(E): 如实上报会话复用情况（首次追问/会话过期/角色不符 = 全新分析）
+    reusedSession: sessionUsed,
     usage: {
       promptTokens: result.promptTokens,
       completionTokens: result.completionTokens,

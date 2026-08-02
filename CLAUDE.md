@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.8.0
+# AI写作软件—青剑 v14.9.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,14 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.8.0)
+## 当前架构 (v14.9.0)
+
+### v14.9.0 五路审计修复 + 大文件专项 (2026-08-02)
+- 上下文窗口默认 1M（8 处同步）；大文件流式搜索（search_content >2MB readline 逐行，仅 multiline 跳过）；read_file 结果 50K；list_directory 500 条截断提示
+- 续跑语义收紧（hasResumeIntent 意图门控 + resume 强制文件语义 + taskDone 快照置位）；完成判定加固（_hasWriteCall 成功置位 + FILE_WRITE_TOOLS 文件写证据闸门 + PARTIAL 补"前N项" + 自愈出口）
+- 协议/IPC（SDK 超时 180s/SSE 中止竞态/abortStream requestId/include_usage/reasoning 降级透传/中止补记）；工具/子代理（edit_file 实体复核+替换预览/kb_analyze 查询指纹/kb_index_file 写序列/会话 key 角色隔离/executeSingleTool 兜底）
+- UI（@引用接线/模型切换禁用锁定/执行计划面板+反馈横幅接线/状态标签复活/审批清理/存储 flush）；SSRF 169.254；文件限制设计文档化（记忆 file-limits-design.md，禁止"跳过/拒绝"类限制）
+- 测试 655 passed + 15 skipped（670）；tsc 0；check-consistency 30/30
 
 ### 全部遗留优化项收官 (v14.8.0)
 - **DeepSeek 原生联网搜索（完整 ResponsesAdapter）**: ModelConfig.nativeWebSearch 勾选 → agent 工具循环经 `ai:responses-chat`（主进程流式聚合 + UNSUPPORTED 自动降级 chat.completions）走服务端 web_search 原生工具；模型自主调用（agentic）；软件内置 DuckDuckGo 搜索自动停用（单一联网通道）。路由单一决策源 `responsesRouter.shouldUseResponses`；消息转换纯函数 `electron/ipc/responsesConverter.ts`（items 回传 call_id 语义、孤儿 tool 裁剪、web_search 注入）。实测约束：thinking 下 tool_choice:{type:'function'} 400 → 只用 auto；previous_response_id 不支持 → 全量 items 回传
@@ -133,8 +140,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (644 passed + 15 skipped，共 659) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (238 passed + 14 skipped，共 252) |
+| `npx vitest run` | 全量单元测试 (655 passed + 15 skipped，共 670) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## 32 场景对话测试
 

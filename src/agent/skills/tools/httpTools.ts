@@ -29,8 +29,9 @@ export const httpTools: ToolDefinition[] = [
         const { bridge } = await import('@/services/electronBridge')
         const result = await bridge.http.get(url)
         return result || { status: 'error', summary: 'HTTP 工具不可用' }
-      } catch {
-        return { status: 'error', summary: 'HTTP 请求失败' }
+      } catch (e) {
+        // v14.9(审计): 带底层错误信息——原 catch 吞掉 e.message，IPC 层故障时模型拿不到自愈线索
+        return { status: 'error', summary: `HTTP 请求失败: ${e instanceof Error ? e.message : '未知错误'}` }
       }
     },
   },
@@ -76,8 +77,9 @@ export const httpTools: ToolDefinition[] = [
           body: args.body ? String(args.body) : undefined,
         })
         return result || { status: 'error', summary: 'HTTP 工具不可用' }
-      } catch {
-        return { status: 'error', summary: 'HTTP 请求失败' }
+      } catch (e) {
+        // v14.9(审计): 带底层错误信息（同 http_get）
+        return { status: 'error', summary: `HTTP 请求失败: ${e instanceof Error ? e.message : '未知错误'}` }
       }
     },
   },

@@ -53,10 +53,16 @@ export function convertMessages(messages: ConverterMessage[]): ResponseItem[] {
     }
   }
 
+  // v14.9(E): Responses 语义要求 system message 位于 input 开头——runtime 每轮注入的
+  // [当前任务]/[任务边界]/[验收提示] 等 system 消息位于中段，中段 system 降级为 user 防 400
+  let systemSeen = false
   for (const m of messages) {
     const content = typeof m.content === 'string' ? m.content : ''
     if (m.role === 'system') {
-      if (content) items.push(toTextItem('system', content))
+      if (content) {
+        items.push(toTextItem(systemSeen ? 'user' : 'system', content))
+        systemSeen = true
+      }
     } else if (m.role === 'user') {
       items.push(toTextItem('user', content))
     } else if (m.role === 'assistant') {

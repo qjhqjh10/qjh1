@@ -56,6 +56,8 @@ export interface AgentStoreState {
   setLastError: (error: string | null) => void
   setStreamingText: (text: string) => void
   setIsStreaming: (streaming: boolean) => void
+  // v14.9(接线): 反馈横幅（hook:blocked / hook:passed 事件）——原 hookFeedback 字段全仓无写入点（死 UI）
+  setHookFeedback: (fb: { hookName: string; passed: boolean; feedback: string; timestamp: number } | null) => void
 
   // Actions — Tokens
   addTokens: (amount: number) => void
@@ -204,6 +206,9 @@ export const useAgentStore = create<AgentStoreState>()(
       // V1-7: Only update if value actually changes (was called on every chunk)
       if (get().run.isStreaming !== streaming) set(s => { s.run.isStreaming = streaming })
     },
+
+    // v14.9(接线): 反馈横幅写入（chatBridgeFactory 订阅 hook:blocked/hook:passed 事件调用）
+    setHookFeedback: (fb) => set(s => { s.run.hookFeedback = fb }),
 
     // ── Token Actions ──
 

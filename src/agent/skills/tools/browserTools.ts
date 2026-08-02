@@ -56,8 +56,9 @@ export const browserTools: ToolDefinition[] = [
         const { bridge } = await import('@/services/electronBridge')
         const result = await bridge.browser.search(String(args.query))
         return result || { status: 'error', summary: '搜索工具不可用' }
-      } catch {
-        return { status: 'error', summary: '搜索失败' }
+      } catch (e) {
+        // v14.9(审计): 带底层错误信息（同 http 工具）
+        return { status: 'error', summary: `搜索失败: ${e instanceof Error ? e.message : '未知错误'}` }
       }
     },
   },

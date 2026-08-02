@@ -35,7 +35,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // v14.6.1: create_file 保留 detail（handler 特意返回前 500 字预览供模型验证写入——
   // 原剥离使 v11.5.1 的"写入验证"设计失效，JSON/YAML 落盘内容模型永远看不到）
   create_file:    ['status', 'summary', 'detail'],
-  edit_file:      ['status', 'summary'],
+  // v14.9(C2): edit_file 保留 detail（替换处预览，≤约200字符）——模型可核对写后内容
+  edit_file:      ['status', 'summary', 'detail'],
   batch_replace:  ['status', 'summary'],  // v9.5.3: write tool
   delete_file:    ['status', 'summary'],
   rename_file:    ['status', 'summary'],
@@ -43,6 +44,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Search tools ──
   find_files:     ['status', 'summary', 'detail'],  // v9.5.3: read/search
   search_notes:   ['status', 'summary', 'detail'],  // v9.5.3: read
+  // v14.9(审计): 补 analyze_text_style 契约条目——原缺失 → 每调必 console.warn + 维度 JSON 不受契约裁剪
+  analyze_text_style: ['status', 'summary', 'detail'],
   // ── HTTP tools: 保留 detail（响应体）— v14.5.0: 原剥离导致模型永远看不到抓取内容，
   // 工具形同虚设；截断上限在 filterForContext（4000 字符，压缩器 70% 阈值仍兜底）──
   http_get:       ['status', 'summary', 'detail'],
@@ -73,7 +76,9 @@ const HTTP_BROWSER_TOOLS = new Set(['http_get', 'http_fetch', 'browser_open', 'b
 // v14.6.1: read_file detail 截断上限——handler 硬上限 50 万字符，单条 tool 消息直灌上下文
 // 可达 30-40 万 token（128K 窗口直接爆掉；压缩器只做轮间兜底）。30K 覆盖常规章节全文，
 // 超出后 AI 用 offset/limit 续读
-const READ_FILE_DETAIL_MAX_CHARS = 30_000
+// v14.9: 30K→50K——上下文默认已提至 1M，50K（≈1.6 万中文）减少大文件/长章读取轮数
+// （子代理提示词引导每段 8-12K 读取，不受影响；压缩器 70% 阈值仍兜底）
+const READ_FILE_DETAIL_MAX_CHARS = 50_000
 
 export class ContractExecutor {
   static filterResult(result: ToolResult, contract: string[]): ContractResult {
@@ -82,7 +87,8 @@ export class ContractExecutor {
     const kept: Record<string, unknown> = {}
     const stripped: string[] = []
 
-    // v9.5.3: 当工具返回 error 时，保留 detail 字段（最多 1000 字符），
+    // v9.5.3: 当工具返回 error 时，保留 detail 字段（注释原称"最多 1000 字符"，
+    // 实际原样保留不裁剪——对模型自愈更有利（如 edit_file 未匹配带完整文件尾），保持现状）
     // 让模型能看到错误详情从而自我修复。覆盖 Contract 中的 strip 规则。
     const isError = resultObj['status'] === 'error'
     const errorFields = isError ? ['detail'] : []

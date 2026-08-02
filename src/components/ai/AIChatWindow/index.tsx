@@ -21,7 +21,7 @@ import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
 
-import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination } from "./utils";
+import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination, hasResumeIntent, buildThinkingPlanFromRun } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
@@ -154,14 +154,17 @@ export default function AIChatWindow() {
   const agentHookFeedback = useAgentStore(s => s.run.hookFeedback)
 
   // Search toggles
-  const prompts = useSettingsStore(s => s.prompts)
-  const updatePromptStore = useSettingsStore(s => s.updatePrompt)
-  const aiSettings = useSettingsStore(s => ({ ...DEFAULT_AI_SETTINGS, ...s.aiSettings }))
+  // v14.9(清理): 删除 prompts/updatePromptStore 死导入（全仓无引用）
+  // v14.9: 直接订阅 s.aiSettings（store 初始化已合并 DEFAULT_AI_SETTINGS）——原每次返回新对象
+  // 导致任何设置 store 变更（含无关字段）都触发聊天窗全组件重渲染
+  const aiSettings = useSettingsStore(s => s.aiSettings)
   const [kbEnabled, setKbEnabled] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
   const [toolInvokeEnabled, setToolInvokeEnabled] = useState(true)
   const [apiError, setApiError] = useState<string | null>(null)
   const lastApiCheck = useRef(0)
+  // v14.9(A1): 设置页改「默认联网搜索」后聊天窗开关实时同步（原初始值只读一次，需重启应用）
+  useEffect(() => { setWebSearchEnabled(aiSettings.webSearchDefault) }, [aiSettings.webSearchDefault])
 
   // Pre-flight API connectivity check (cached for 30 seconds)
   const checkApiConnection = async (): Promise<boolean> => {
@@ -297,12 +300,23 @@ export default function AIChatWindow() {
   useEffect(() => {
     import('@/services/chatStorageService').then(m => m.saveLastActiveId(activeConversationId)).catch(() => {})
   }, [activeConversationId])
+  // v14.9(A7): 关窗/刷新前冲刷挂起的对话保存（防抖 800ms 尾部窗口内的最后一条消息）
+  useEffect(() => {
+    const flush = () => {
+      import('@/services/chatStorageService').then(m => m.flushPendingSave()).catch(() => {})
+    }
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  }, [])
   // Token reset handled directly in switchConversation/handleNewConversation/handleClearConversation
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const conversationToolNames = useRef(new Set<string>())  // persists across messages within conversation
   const pendingCorrection = useRef<string | null>(null)  // hallucination auto-correction for next send
   const autoRetryRef = useRef(false)  // prevent infinite auto-retry loops
+  // v14.9(B1): 已注入过 [子代理快照] 的 assistant 消息 id——同一快照只注入一次
+  // （原每轮重复注入同一条快照直到新委托替换，浪费 token + 上下文膨胀）
+  const lastSnapshotInjectedIdRef = useRef<string | null>(null)
   const [attachment, setAttachment] = useState<{ type: 'file' | 'image'; name: string; content: string; previewUrl?: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [pendingApproval, setPendingApproval] = useState<DangerousTool[] | null>(null)
@@ -413,7 +427,15 @@ export default function AIChatWindow() {
   }
 
 
-  const abortToolLoop = () => { bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false) }
+  const abortToolLoop = () => {
+    bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false)
+    // v14.9(审计): 审批弹窗期间停止生成 → 拒绝在途审批并关闭弹窗（原仅靠 60s 超时兜底——
+    // 60s 内发新消息并再次触发审批会覆盖 approvalResolveRef，旧 run 的审批 promise 永挂起、
+    // 订阅清理永不执行 → 泄漏）
+    approvalResolveRef.current?.(false)
+    approvalResolveRef.current = null
+    setPendingApproval(null)
+  }
   const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
   const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
@@ -517,6 +539,10 @@ export default function AIChatWindow() {
     const connected = await checkApiConnection()
     if (!connected) { setLoading(false); sendLockRef.current = false; return }
 
+    // v14.9(A5): 强制同步配置到主进程——设置页保存有 600ms 防抖，期间发消息主进程仍读旧
+    // electron-store（enableThinking/temperature/model 判定会瞬态不一致：刚关深度推理仍走 thinking）
+    await settingsService.saveConfigs(useSettingsStore.getState().configs).catch(() => {})
+
     setFileEditNotify(null)
     let attachText = ''
     if (attachment) {
@@ -570,7 +596,14 @@ export default function AIChatWindow() {
     // 主进程以 projectsPath 为基准解析，`../../` 会多上一级到 appRoot 的父目录 →
     // AI 按提示 read_file 必然"文件不存在"。`../` 恰好一级。
     const pasteRef = pasteClipPath ? `[粘贴文本已保存: ../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}。要精准修改内容，使用 read_file("../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}") 读取后用 edit_file 替换。]\n\n` : ''
-    const fullContent = isRetry ? `${attachText || ''}${pasteRef}${pendingCorrection.current!}` : `${attachText || ''}${pasteRef}${input.trim()}`
+    // v14.9(接线): @文件引用——此前 selectedRefs 只在 UI 显示 chips、从不随消息发送（纯装饰静默无效果）；
+    // 现并入 fullContent（模型可见引用名单）→ 配合下方 selectedKbFileIds 预注入（模型可见内容）
+    const refsText = selectedRefs.length > 0
+      ? `[@引用文件: ${selectedRefs.map(r => r.name).join('、')}]\n`
+      : ''
+    const fullContent = isRetry
+      ? `${attachText || ''}${pasteRef}${refsText}${pendingCorrection.current!}`
+      : `${attachText || ''}${pasteRef}${refsText}${input.trim()}`
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
@@ -597,6 +630,7 @@ export default function AIChatWindow() {
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setAttachment(null)
+    setSelectedRefs([])  // v14.9(接线): 引用已随消息发送，清空 chips
     // setLoading(true) already called at entry — loading indicator is already active
 
     try {
@@ -605,18 +639,30 @@ export default function AIChatWindow() {
       const latestProjectId = useStore.getState().activeProjectId
       const latestKbEnabled = kbEnabled
       const latestWebSearch = webSearchEnabled
-      const latestFileIds = latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []) : []
+      // v14.9(接线): @引用文件 id 并入 KB 预注入——显式引用优先于 kbEnabled 开关（用户 @ 了就该让模型看到）
+      const latestFileIds = [...(latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []) : []), ...selectedRefs.map(r => r.id)]
 
       // ── Agent Runtime (工厂创建：OpenAI 旧方案 or Anthropic 新方案) ──
       // v14.2.0: 跨 run 续跑 — 构建历史后检测上一条 assistant 消息的 taskProgress
       // 中断未完成 → 追加 [续跑] system 提示（提示模型继续剩余任务而非重新开始）
       // v14.3: 子代理快照注入在前（[子代理快照]），[续跑] 在后（续跑指令更接近用户消息，操作性最强）
       const builtHistory = buildHistoryMessages(messages)
-      const snapHistory = maybeInjectSubagentSummaries(builtHistory, messages)
+      // v14.9(B1): 同一快照只注入一次——最后一次带快照的 assistant 消息 id 与上次注入相同则跳过
+      const lastSnapMsg = [...messages].reverse().find(m => m.role === 'assistant' && (m.subagentSummaries?.length ?? 0) > 0)
+      let snapHistory: typeof builtHistory
+      if (lastSnapMsg && lastSnapMsg.id === lastSnapshotInjectedIdRef.current) {
+        snapHistory = builtHistory
+      } else {
+        snapHistory = maybeInjectSubagentSummaries(builtHistory, messages)
+        if (snapHistory !== builtHistory) lastSnapshotInjectedIdRef.current = lastSnapMsg?.id || null
+      }
       const resumeHistory = maybeInjectResume(snapHistory, messages)
+      // v14.9(设计决策注释): bridge 复用分支不更新 configId——configId 在首次 init 时锁定，
+      // 同对话切换模型/协议不生效是设计决策（防止会话上下文与模型不匹配），切换模型请新开对话
+      // （switchConversation/handleNewConversation 会 destroy 重建 bridge）。
       if (!bridgeRef.current) {
         bridgeRef.current = await createChatBridge(latestProjectId)
-        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: resumeHistory, contextWindow: activeConfig?.contextWindow ?? 128000 })
+        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: resumeHistory, contextWindow: activeConfig?.contextWindow ?? 1000000 })
       } else {
         bridgeRef.current.updateProject(latestProjectId)
         bridgeRef.current.updateHistory(resumeHistory)
@@ -625,14 +671,24 @@ export default function AIChatWindow() {
       // v14.5.0: 跨 run 续跑 — 只取**最后一条** assistant 消息的中断快照（v14.5.0 审查修复：
       // 原向前扫描会复活已完成 run 之前的陈旧中断快照，导致模型重复执行已完成的剩余任务）
       const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')
-      const lastProgressMsg = (lastAssistantMsg?.taskProgress?.interrupted && !lastAssistantMsg?.taskProgress?.allDone)
+      // v14.9(审计): 续跑快照仅在用户消息含继续意图时恢复——原无差别恢复旧清单，
+      // 中断后问无关问题会被旧清单门控劫持（nudge 拽回旧任务）；判定与 maybeInjectResume 共用
+      const lastProgressMsg = (lastAssistantMsg?.taskProgress?.interrupted && !lastAssistantMsg?.taskProgress?.allDone
+        && hasResumeIntent(fullContent))
         ? lastAssistantMsg
         : undefined
       const result = await bridgeRef.current.sendMessage(fullContent, {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
         // v14.8: 跨 run KB 去重 — 上一条 assistant 消息持久化的已注入文件 id 传给 buildContext 排除，
         // 避免同一知识库文件跨 run 反复注入（内容已在历史中，模型可按需 kb_search/read_file 深入）
-        excludeKbFileIds: lastAssistantMsg?.kbInjectedFileIds,
+        // v14.9(B2): 排除集取最近 3 条 assistant 的并集——原只取最后一条，任何一轮无 KB 预注入
+        // （数组为空）后链即断，更早 run 注入过的文件可被重新注入
+        excludeKbFileIds: [...new Set(
+          [...messages].reverse()
+            .filter(m => m.role === 'assistant' && (m.kbInjectedFileIds?.length ?? 0) > 0)
+            .slice(0, 3)
+            .flatMap(m => m.kbInjectedFileIds || []),
+        )],
         resumeTaskProgress: lastProgressMsg?.taskProgress,
         // v14.6.1: 工具开关接通（此前只驱动按钮样式，从未传给 bridge——死开关）
         toolsEnabled: toolInvokeEnabled,
@@ -714,6 +770,9 @@ export default function AIChatWindow() {
             reasoningContent: (runResult as any).reasoningContent,
             // v14.8: 本轮 KB 预注入文件 id 随消息持久化（下轮 sendMessage 读回做跨 run 排除）
             kbInjectedFileIds: (runResult as any).kbInjectedFileIds?.slice(-20),
+            // v14.9(接线): 「执行计划」卡片数据源——从实际工具执行记录回溯生成
+            // （此前无写入点，面板是死 UI；纯聊天/无工具调用返回 undefined 不显示）
+            thinkingPlan: buildThinkingPlanFromRun(runResult as any, fullContent),
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -934,8 +993,12 @@ export default function AIChatWindow() {
                 await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
-            <span title={activeConfig?.nativeWebSearch ? '该模型已启用原生联网搜索（Responses API 服务端搜索），软件内置联网搜索自动停用' : '软件内置联网搜索（DuckDuckGo）'}>
-              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch || webSearchEnabled} onClick={() => { if (!activeConfig?.nativeWebSearch) setWebSearchEnabled(!webSearchEnabled) }} />
+            {/* v14.9(A2): 原生联网走 Responses 原生工具，依赖「调用工具」开启——工具关闭时按钮如实变灰
+                （原恒显示激活态，实际联网彻底不可用，开关与真实行为不一致） */}
+            <span title={activeConfig?.nativeWebSearch
+              ? (toolInvokeEnabled ? '该模型已启用原生联网搜索（Responses API 服务端搜索），软件内置联网搜索自动停用' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
+              : '软件内置联网搜索（DuckDuckGo）'}>
+              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch ? toolInvokeEnabled : webSearchEnabled} onClick={() => { if (!activeConfig?.nativeWebSearch) setWebSearchEnabled(!webSearchEnabled) }} />
             </span>
             {/* v14.6.1: 工具开关接通双协议——原 Anthropic 协议下按钮被禁用（行为恒开），
                 且开关状态从未传给 bridge（死开关）；现在 sendMessage 透传 toolsEnabled 真正门控 */}
@@ -950,26 +1013,37 @@ export default function AIChatWindow() {
             {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
             {/* Model switcher */}
-            <select
-              value={activeConfigId || ''}
-              onChange={e => {
-                const newId = e.target.value
-                if (newId) useSettingsStore.getState().setActiveConfig(newId)
-              }}
-              style={{
-                padding: '3px 6px', borderRadius: 6,
-                border: '1px solid rgba(0,0,0,0.1)', fontSize: 10,
-                color: '#4a3f38', background: '#fff', cursor: 'pointer',
-                fontFamily: 'inherit', maxWidth: 150,
-              }}
-              title="切换模型配置"
-            >
-              {configs.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name || c.model}
-                </option>
-              ))}
-            </select>
+            {/* v14.9(设计决策注释): 对话开始后禁止切换模型——设计如此，非缺陷：
+               ① bridge 的 configId 在首次 sendMessage 时经 init 锁定（chatBridgeFactory.ts），
+               同一对话中途切换不会生效，防止会话上下文/推理行为与模型不匹配导致状态不一致；
+               ② 切换模型请新开对话（新对话会 destroy 重建 bridge，configId 重新锁定）。
+               此处在 UI 上禁用下拉框，让"锁定"可见，避免"切换了但没生效"的困惑。 */}
+            {(() => {
+              const convLocked = activeConversation.messages.some(m => m.role === 'user' && !m.displayOnly)
+              return (
+                <select
+                  value={activeConfigId || ''}
+                  disabled={convLocked}
+                  onChange={e => {
+                    const newId = e.target.value
+                    if (newId) useSettingsStore.getState().setActiveConfig(newId)
+                  }}
+                  style={{
+                    padding: '3px 6px', borderRadius: 6,
+                    border: '1px solid rgba(0,0,0,0.1)', fontSize: 10,
+                    color: convLocked ? '#9b8e84' : '#4a3f38', background: convLocked ? '#f5f5f4' : '#fff', cursor: convLocked ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit', maxWidth: 150,
+                  }}
+                  title={convLocked ? '对话开始后不可切换模型（防止会话上下文与模型不匹配）' : '切换模型配置'}
+                >
+                  {configs.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name || c.model}
+                    </option>
+                  ))}
+                </select>
+              )
+            })()}
 
             {/* v13.0: 角色模板选择器 */}
             {(() => {
@@ -990,7 +1064,7 @@ export default function AIChatWindow() {
 
           <ContextUsageBar
             usedTokens={currentContextTokens}
-            contextWindow={activeConfig?.contextWindow ?? 128000}
+            contextWindow={activeConfig?.contextWindow ?? 1000000}
             breakdown={tokenBreakdown}
             onCompress={() => {
               // Compress oldest messages, keeping last 20

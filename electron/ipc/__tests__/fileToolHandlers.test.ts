@@ -161,6 +161,46 @@ describe('search_content', () => {
     const result = await executeFileTool(makeCall('search_content', { pattern: '(unclosed', regex: true }), projectPath)
     expect(result.status).toBe('success') // should succeed via fallback, not crash
   })
+
+  // v14.9: 构造 >2MB 文件（整读路径会跳过/超限）——beforeEach 每个测试重建目录，需各自创建
+  async function createBigFile(): Promise<string> {
+    const bigPath = path.join(projectPath, 'big_novel.txt')
+    const line = '这是一段很长的测试小说正文内容，用于验证大文件流式搜索功能是否正常工作。\n'
+    const fd = await fsp.open(bigPath, 'w')
+    try {
+      const chunk = line.repeat(200)  // ~1.6万字符/块
+      let written = 0
+      while (written < 2.2 * 1024 * 1024) {
+        await fd.write(chunk, null, 'utf-8')
+        written += chunk.length
+      }
+      await fd.write('关键字流式搜索目标XYZ\n', null, 'utf-8')
+    } finally {
+      await fd.close()
+    }
+    expect((await fsp.stat(bigPath)).size).toBeGreaterThan(2 * 1024 * 1024)
+    return bigPath
+  }
+
+  it('v14.9: >2MB 大文件走流式搜索（readline）仍能找到内容', async () => {
+    await createBigFile()
+    const result = await executeFileTool(makeCall('search_content', { pattern: '关键字流式搜索目标XYZ' }), projectPath)
+    expect(result.status).toBe('success')
+    expect(result.detail).toContain('关键字流式搜索目标XYZ')
+    expect(result.detail).toContain('big_novel.txt')
+    // summary 不应出现"已跳过"（流式路径不跳过）
+    expect(result.summary).not.toContain('已跳过')
+  })
+
+  it('v14.9: >2MB 大文件 multiline 搜索 → 跳过并计数（无整块上下文）', async () => {
+    await createBigFile()
+    const result = await executeFileTool(makeCall(
+      'search_content', { pattern: '第一行\n第二行', multiline: true },
+    ), projectPath)
+    expect(result.status).toBe('success')
+    // big_novel.txt 存在 → 至少 1 个超大文件被跳过
+    expect(result.summary).toContain('已跳过')
+  })
 })
 
 // ── File Mutation Tools ──

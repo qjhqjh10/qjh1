@@ -2,10 +2,12 @@ import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
+import { createInterface } from 'readline'  // v14.9: 大文件流式搜索（readline 逐行）
 import minimatch from 'minimatch'
 import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
 import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
+// v14.9(C1): find_files walk 逐目录黑名单（pathResolution 已 re-export 共享模块判定）
 import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg } from './pathResolution'
 import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
@@ -231,6 +233,36 @@ export async function executeFileTool(
   const resolvePath = (key: string): string | null =>
     resolveArgNoRealpath(key, args, projectPath)
 
+  /**
+   * v14.9: 大文件流式逐行搜索（readline，内存恒定）——全量 readFile 超大文件会
+   * 内存暴涨；"跳过"对用户不可用（知识库/导入 txt 常 >2MB，搜索是刚需）。流式无前瞻：
+   * 不输出 ctxBefore/ctxAfter 上下文（仅匹配行本身），multiline 跨行匹配不支持
+   * （由调用方在超大文件时跳过）。
+   */
+  async function searchLargeFileStream(
+    fullPath: string,
+    absRel: string,
+    matchFn: (line: string) => boolean,
+    maxColumns: number,
+    maxResults: number,
+  ): Promise<string[]> {
+    const matches: string[] = []
+    const rl = createInterface({ input: fs.createReadStream(fullPath), crlfDelay: Infinity })
+    let lineNum = 0
+    try {
+      for await (const line of rl) {
+        lineNum++
+        if (matches.length >= maxResults) break
+        if (matchFn(line)) {
+          matches.push(`>>> ${absRel}:${lineNum}: ${line.trim().slice(0, maxColumns)}`)
+        }
+      }
+    } finally {
+      rl.close()
+    }
+    return matches
+  }
+
   try {
     switch (toolName) {
 
@@ -282,10 +314,13 @@ export async function executeFileTool(
           try {
             await fsp.access(resolved)
             const items = await scanDir(resolved, rawPath)
+            // v14.9: 目录条目超上限时如实提示（原静默截断——模型会误以为"就这些文件"，
+            // 网文项目 chapters/ 数百章 + 备份可能超 500 条）
+            const truncatedNote = items.length >= MAX_SEARCH_RESULTS ? `（已达 ${MAX_SEARCH_RESULTS} 条上限，可用 pattern 参数过滤）` : ''
             const detail = items.length > 0
-              ? items.join('\n')
+              ? items.join('\n') + truncatedNote
               : `(目录 "${rawPath}" 为空。使用 list_directory 不填参数可查看全部文件)`
-            return { callId, toolName, status: 'success', summary: `${items.length} 个匹配`, detail }
+            return { callId, toolName, status: 'success', summary: `${items.length} 个匹配${truncatedNote}`, detail }
           } catch {
             return { callId, toolName, status: 'success', summary: '0 个匹配', detail: `目录 "${rawPath}" 不存在。使用 list_directory 不填参数可查看全部项目。` }
           }
@@ -450,6 +485,14 @@ export async function executeFileTool(
         interface FileResult { absRel: string; matches: string[] }
         const fileResults: FileResult[] = []
 
+        // v14.9(第4项设计): 整读上限 2MB——主流 agent 均限制单文件整读（Claude Code 整读
+        // >256KB 即硬失败）；全量 readFile 超大文件会内存暴涨/卡死。
+        // 但"跳过"对用户不可用（知识库/导入 txt 常 >2MB，搜索是刚需）→ >2MB 文件改走
+        // 流式逐行搜索（readline，内存恒定任意大小）；仅 multiline 跨行匹配需要整块
+        // 上下文才跳过计数。
+        const SEARCH_FILE_MAX_BYTES = 2 * 1024 * 1024
+        let skippedLargeCount = 0
+
         // Process files in batches of 20 for parallelism
         const BATCH_SIZE = 20
         for (let batchStart = 0; batchStart < matchedFiles.length && fileResults.reduce((s, r) => s + r.matches.length, 0) < maxResults; batchStart += BATCH_SIZE) {
@@ -458,6 +501,16 @@ export async function executeFileTool(
             const absRel = path.relative(projectPath, fullPath).replace(/\\/g, '/')
             if (!isTextFile(fullPath)) return { absRel, matches: [] as string[] }
             try {
+              const st = await fsp.stat(fullPath)
+              if (st.size > SEARCH_FILE_MAX_BYTES) {
+                // v14.9: 大文件不跳过——流式逐行搜索（内存恒定）；仅 multiline 无整块上下文跳过
+                if (multiline) {
+                  skippedLargeCount++
+                  return { absRel, matches: [] as string[] }
+                }
+                const matches = await searchLargeFileStream(fullPath, absRel, matchFn, maxColumns, maxResults)
+                return { absRel, matches }
+              }
               const buf = await fsp.readFile(fullPath)
               // Try UTF-8 first, fallback to latin1
               let content: string
@@ -465,17 +518,26 @@ export async function executeFileTool(
               const matches: string[] = []
 
               if (multiline) {
-                let searchIdx = 0
-                while (searchIdx < content.length) {
-                  const foundIdx = content.indexOf(pattern, searchIdx)
-                  if (foundIdx === -1) break
+                // v14.9(第4项): multiline 原用字面 indexOf——regex/case_sensitive 被静默忽略；
+                // 统一编译正则（含大小写标志），并防空匹配死循环
+                let re: RegExp
+                try {
+                  const flags = caseSensitive ? 'gm' : 'gmi'
+                  re = new RegExp(useRegex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+                } catch {
+                  re = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gmi')
+                }
+                let m: RegExpExecArray | null
+                while ((m = re.exec(content)) !== null) {
+                  const foundIdx = m.index
                   const lineNum = content.slice(0, foundIdx).split('\n').length
                   const matchText = content.slice(
                     Math.max(0, foundIdx - 20),
-                    Math.min(content.length, foundIdx + pattern.length + 20)
+                    Math.min(content.length, foundIdx + (m[0]?.length || pattern.length) + 20)
                   ).replace(/\n/g, '\\n').slice(0, maxColumns)
                   matches.push(`${absRel}:${lineNum}: ${matchText}`)
-                  searchIdx = foundIdx + 1
+                  if (m[0]?.length === 0) re.lastIndex++
+                  if (matches.length >= maxResults) break
                 }
               } else {
                 const lines = buf.toString('utf-8').split('\n')
@@ -520,6 +582,7 @@ export async function executeFileTool(
         }
         const detail = allResults.length > 0 ? allResults.join('\n') : '未找到匹配内容'
         const summary = `${totalMatches} 处匹配` + (matchStrategy !== '子串' ? ` (${matchStrategy})` : '')
+          + (skippedLargeCount > 0 ? `；${skippedLargeCount} 个超大文件（>2MB）multiline 搜索已跳过（可用 analyze_file 子代理分块读取）` : '')
         return { callId, toolName, status: 'success', summary, detail }
       }
 
@@ -683,7 +746,13 @@ export async function executeFileTool(
           const decodedOld = decodeEntities(oldStr)
           if (decodedContent.includes(decodedOld)) {
             const idx = decodedContent.indexOf(decodedOld)
-            oldStr = content.slice(idx, idx + decodedOld.length); matched = true
+            // v14.9(审计): 复核——idx 是解码坐标，原文含实体（&nbsp; 等 5→1 字符）时坐标错位：
+            // 错切片段要么不存在（原实现仍报"已替换 1 处"= 静默假成功），要么恰好落在别处
+            // （错误替换写盘 = 内容损坏）。只有"解码后仍等于目标"才接受该片段。
+            const candidate = content.slice(idx, idx + decodedOld.length)
+            if (decodeEntities(candidate) === decodedOld) {
+              oldStr = candidate; matched = true
+            }
           }
         }
 
@@ -773,10 +842,17 @@ export async function executeFileTool(
         await backupFile(fp, projectPath)
         await fsp.writeFile(fp, newContent, 'utf-8')
         const replaced = replaceAll ? occurrenceCount : 1
+        // v14.9(C2): 成功 detail 附替换处前后预览——原只有"文件: xxx"，模型无法核对写后内容
+        // （create_file 已有 500 字预览，edit_file 缺 → 全量替换后完全不验证）
+        const previewNeedle = newStr !== undefined && newStr !== '' ? newStr : oldStr
+        const matchIdx = previewNeedle ? newContent.indexOf(previewNeedle) : -1
+        const preview = matchIdx >= 0
+          ? newContent.slice(Math.max(0, matchIdx - 40), Math.min(newContent.length, matchIdx + previewNeedle.length + 40))
+          : newContent.slice(0, 120)
         return {
           callId, toolName, status: 'success',
           summary: `已替换 ${replaced} 处`,
-          detail: `文件: ${args.file_path}`,
+          detail: `文件: ${args.file_path}\n替换处预览: ${preview.replace(/\n/g, '\\n')}`,
         }
       }
 
@@ -937,6 +1013,9 @@ export async function executeFileTool(
 
         async function walk(dir: string, depth: number): Promise<void> {
           if (depth > maxDepth || results.length >= MAX_RESULTS) return
+          // v14.9(C1): 逐目录黑名单检查（与 safeWalk 对齐）——dir_path='C:\' 能通过 resolveArg
+          // （黑名单只挡首段，C:\ 根不匹配），原会下钻进 Windows/System32 等系统目录返回匹配
+          if (isBlockedSystemPath(dir)) return
           let entries: fs.Dirent[]
           try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch { return }
           for (const e of entries) {

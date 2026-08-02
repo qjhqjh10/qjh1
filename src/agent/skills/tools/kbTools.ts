@@ -106,13 +106,15 @@ export const kbTools: ToolDefinition[] = [
         // 会话 key 固定为 kb-analyze — subagent_ask 可按此追问（须传相同文件路径，此处为知识库分析场景）
         // v14.8 审查修复(P2): key 加 kb:: 前缀——与 analyze_file 的 ${projectId}::${filePath} 同构，
         // 若项目存在名为 kb-analyze 的文件会会话池碰撞串到错误上下文
+        // v14.9(审计): key 纳入查询指纹——原固定 key 使同项目不同主题的 kb_analyze 复用同一会话
+        // 历史（第二次带着第一次的任务与检索结果运行，分析互相污染）；同查询文本可复用追问
         const result = await runSubagent({
           role: 'analyze',
           projectId: ctx.projectId,
           configId: ctx.configId,
           userMessage: taskMessage,
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::kb::kb-analyze`,
+          sessionKey: `${ctx.projectId ?? 'global'}::kb::kb-analyze::${query.slice(0, 16).replace(/\s+/g, '_') || 'empty'}`,
         })
 
         return {
@@ -133,7 +135,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_append_file',
       description:
-        '追加内容到知识库文件。新建用 create_file("../knowledge_base/files/"), 追加后需 kb_index_file 建索引。',
+        '追加内容到知识库文件。新建用 create_file("../knowledge_base/files/"), 追加后自动重建索引（无需再调 kb_index_file）。',
       parameters: {
         type: 'object',
         properties: {
@@ -160,7 +162,7 @@ export const kbTools: ToolDefinition[] = [
     schema: {
       name: 'kb_index_file',
       description:
-        '对知识库文件建立语义搜索索引。kb_append_file 后必须调用。',
+        '对知识库文件建立语义搜索索引。新建文件（create_file 到 knowledge_base/files/）后索引；kb_append_file 追加后已自动重建索引，无需再调。',
       parameters: {
         type: 'object',
         properties: {

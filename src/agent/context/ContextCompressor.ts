@@ -28,7 +28,7 @@ export interface LLMCompressResult {
 export class ContextCompressor {
   private contextWindow: number
 
-  constructor(contextWindow: number = 128_000) {
+  constructor(contextWindow: number = 1_000_000) {  // v14.9: 默认 1M
     this.contextWindow = contextWindow
   }
 

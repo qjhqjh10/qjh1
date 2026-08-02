@@ -28,11 +28,14 @@ export const noteTools: ToolDefinition[] = [
         if (!win?.electron?.notes?.search) {
           return { status: 'error', summary: '笔记搜索不可用（非 Electron 环境或 notes API 未就绪）' }
         }
+        // v14.9(审计): topK 钳制 1-10——原裸传模型值，传 100 会对全部笔记逐 chunk 打 embedding
+        // （费用/耗时失控；主进程只做默认值兜底不封顶）
+        const topK = Math.min(Math.max(Math.floor(Number(args.topK) || 3), 1), 10)
         const results =
           (await win.electron.notes.search(
             args.query as string,
             ctx.configId,
-            (args.topK as number) || 3,
+            topK,
           )) || []
         if (!Array.isArray(results) || results.length === 0) {
           return { status: 'success', summary: '未找到相关笔记', detail: '[]' }

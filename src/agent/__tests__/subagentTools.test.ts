@@ -134,7 +134,8 @@ describe('edit_file_task', () => {
     expect(runSubagentMock).toHaveBeenCalledWith(expect.objectContaining({
       role: 'edit',
       userMessage: expect.stringContaining('李狗蛋'),
-      sessionKey: '剑道长生::剑道长生/chapters/ch1.txt',
+      // v14.9: key 加 role 前缀——防覆盖同路径 analyze 会话（原共用 key 互相销毁）
+      sessionKey: '剑道长生::edit::剑道长生/chapters/ch1.txt',
     }))
   })
 

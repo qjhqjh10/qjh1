@@ -17,6 +17,7 @@ import { subagentTools } from './subagentTools'
 import type { ToolDefinition } from '../types'
 
 // v13.2.0: 27 工具（移除 lsp_diagnose/update_config/list_audit）。首轮全量，后续 15 核心。
+// v14.9(清理): 注释同步——SUBSEQUENT_TOOL_NAMES 现为 16（v14.8 加入 kb_analyze 后注释未更新）。
 // v14.1.1: +analyze_file/edit_file_task → 29；v14.2.0: +verify_task → 30；v14.3.0: +subagent_ask → 31；
 // v14.8.0: +kb_analyze → 32（v14.8 审查修复：注释同步）
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size

@@ -78,10 +78,12 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     const OpenAI = await getOpenAI()
     // v14.6.1: fetch 走 Chromium 网络栈（系统代理 + 系统证书）——别人电脑在代理网络下可连通
+    // v14.9(审计): timeout 120s→180s——原早于 IPC 180s 硬超时触发：thinking+大上下文长生成 >120s 被
+    // SDK 掐断并内部静默重试（双计费），再叠加 runtime 瞬态重试最多计费 3 次
     const client = new OpenAI({
       apiKey,
       baseURL: config.apiUrl || undefined,
-      timeout: 120_000,
+      timeout: 180_000,
       maxRetries: 2,  // retry up to 2 times on network/5xx errors
       fetch: netFetch,
     })
@@ -156,7 +158,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const apiKey = config.apiKey
     const OpenAI = await getOpenAI()
     // v14.6.1: netFetch（系统代理/证书）
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1, fetch: netFetch })
+    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
 
     const apiMessages = [
       ...messages.map((m, i) => {
@@ -188,6 +190,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         model: config.model, messages: apiMessages as any,
         ...(useThinking ? {} : { temperature: config.temperature }),
         max_tokens: config.maxTokens > 0 ? config.maxTokens : 16384, stream: true,  // v14.3.1: OpenAI 协议兜底 16384（与 Anthropic 对齐，防章节输出截断；原 undefined 依赖供应商默认可能低至 4096）
+        // v14.9(审计): 显式请求 usage——OpenAI 语义下流式 usage 需 include_usage 才返回，
+        // 原依赖供应商默认 → 流水线费用可能漏记
+        stream_options: { include_usage: true },
         ...patch,
       } as any, { signal: abortController.signal }) as unknown as AsyncIterable<{
         choices: Array<{ delta?: { content?: string | null } | null }>
@@ -359,7 +364,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const apiKey = config.apiKey
       const OpenAI = await getOpenAI()
       // v14.6.1: netFetch（系统代理/证书）
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1, fetch: netFetch })
+    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
 
       // v14.6.1: per-request abort——每个请求独立注册监听器，按 requestId 匹配精确中止；
       // 不带 requestId 的中止（用户停止）命中该 webContents 全部在途请求
@@ -471,7 +476,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           const cachedInput = usage.prompt_cache_hit_tokens || usage.cache_read_input_tokens || 0
           const cacheMiss = usage.prompt_cache_miss_tokens || 0
           if (cachedInput > 0) {
-            console.log(`[Cache] ✅ ${cachedInput.toLocaleString()} cached input tokens (90% discount)`)
+            // v14.9(清理): 文案修正——缓存折扣由可配置的 cacheHitPricePerM 决定，非恒 90%
+            console.log(`[Cache] ✅ ${cachedInput.toLocaleString()} cached input tokens (按缓存价计费)`)
           }
           logTokenUsage({
             timestamp: localISOString(),
@@ -502,7 +508,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
             prompt_tokens: usage.prompt_tokens || 0,
             completion_tokens: usage.completion_tokens || 0,
             total_tokens: usage.total_tokens || 0,
-            cacheHitTokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
+            // v14.9(审计): 键名改回 snake_case cached_tokens——原 camelCase 与 OpenAIAdapter 读取
+            // (result.usage?.cached_tokens) 不匹配 → 主 agent 缓存命中显示恒 0（与 responses 通道键名对齐）
+            cached_tokens: (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0,
             cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
           } : undefined,
         })
@@ -645,7 +653,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
               text: typeof choice?.message?.content === 'string' ? choice.message.content : '',
               tool_calls: fbCalls.length > 0 ? fbCalls : null,
               finish_reason: choice?.finish_reason || 'stop',
-              reasoning_content: undefined,
+              // v14.9(审计): 降级路径透传 reasoning_content（原硬编码 undefined——v14.5.0 的
+              // P1 修复只做了输入侧透传，输出侧遗漏 → 多轮工具调用丢推理链，有 thinking 400 风险）
+              reasoning_content: (choice?.message as unknown as Record<string, unknown>)?.reasoning_content as string | undefined,
               usage: fbUsage ? {
                 prompt_tokens: fbUsage.prompt_tokens || 0,
                 completion_tokens: fbUsage.completion_tokens || 0,
