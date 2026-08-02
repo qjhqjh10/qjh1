@@ -22,13 +22,17 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   list_directory: ['status', 'summary', 'detail'],
   search_content: ['status', 'summary', 'detail'],
   kb_index_file:  ['status', 'summary', 'detail'],
-  // ── v15: 子 agent 委托工具：detail 保留（执行器已截断 4000/2000/4000）──
+  // v14.6.1: kb_search 契约缺失——完整原始结果无截断直灌上下文（20 段≈1 万字符）+ 每调必 warn
+  kb_search:      ['status', 'summary', 'detail'],
+  // ── v15: 子 agent 委托工具：detail 保留（执行器按 subagentTools MAX_DETAIL_CHARS 截断）──
   analyze_file:   ['status', 'summary', 'detail'],
   edit_file_task: ['status', 'summary', 'detail'],
   verify_task:    ['status', 'summary', 'detail'],  // v14.2.1: 验收报告 JSON
-  subagent_ask:   ['status', 'summary', 'detail'],  // v14.3: 追问结果（执行器已截断 8000）
+  subagent_ask:   ['status', 'summary', 'detail'],  // v14.3: 追问结果
   // ── Write tools: strip detail to stay lean ──
-  create_file:    ['status', 'summary'],
+  // v14.6.1: create_file 保留 detail（handler 特意返回前 500 字预览供模型验证写入——
+  // 原剥离使 v11.5.1 的"写入验证"设计失效，JSON/YAML 落盘内容模型永远看不到）
+  create_file:    ['status', 'summary', 'detail'],
   edit_file:      ['status', 'summary'],
   batch_replace:  ['status', 'summary'],  // v9.5.3: write tool
   delete_file:    ['status', 'summary'],
@@ -55,7 +59,7 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   create_project: ['status', 'summary'],
   delete_project: ['status', 'summary'],
   // ── Harness tools ──
-  think:          ['status', 'summary', 'detail'],  // v9.5.3: thought content
+  // v14.6.1: think 工具已删除（v12.6.0）——死契约条目移除
   list_rules:     ['status', 'summary', 'detail'],
   tool_search:    ['status', 'summary', 'detail'],
   // lsp_diagnose, update_config, list_audit removed in v13.2.0
@@ -64,6 +68,10 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
 /** v14.5.0: HTTP/浏览器 4 工具的 detail（响应体）截断上限——对齐子代理 detail 量级 */
 const HTTP_DETAIL_MAX_CHARS = 4000
 const HTTP_BROWSER_TOOLS = new Set(['http_get', 'http_fetch', 'browser_open', 'browser_search'])
+// v14.6.1: read_file detail 截断上限——handler 硬上限 50 万字符，单条 tool 消息直灌上下文
+// 可达 30-40 万 token（128K 窗口直接爆掉；压缩器只做轮间兜底）。30K 覆盖常规章节全文，
+// 超出后 AI 用 offset/limit 续读
+const READ_FILE_DETAIL_MAX_CHARS = 30_000
 
 export class ContractExecutor {
   static filterResult(result: ToolResult, contract: string[]): ContractResult {
@@ -116,10 +124,14 @@ export class ContractExecutor {
 
     const { filtered, stripped } = ContractExecutor.filterResult(result, contract)
     // v14.5.0: HTTP/浏览器工具响应体保留但截断（原剥离 → 模型拿不到内容）
+    // v14.6.1: read_file 同样截断（原 50 万字符无上限直灌）
     let finalFiltered = filtered
     if (HTTP_BROWSER_TOOLS.has(toolName)
         && typeof filtered.detail === 'string' && filtered.detail.length > HTTP_DETAIL_MAX_CHARS) {
       finalFiltered = { ...filtered, detail: filtered.detail.slice(0, HTTP_DETAIL_MAX_CHARS) + '\n…(已截断)' }
+    } else if (toolName === 'read_file'
+        && typeof filtered.detail === 'string' && filtered.detail.length > READ_FILE_DETAIL_MAX_CHARS) {
+      finalFiltered = { ...filtered, detail: filtered.detail.slice(0, READ_FILE_DETAIL_MAX_CHARS) + `\n…(内容过长已截断至 ${READ_FILE_DETAIL_MAX_CHARS} 字符，可用 offset/limit 参数继续读取剩余部分)` }
     }
     if (stripped.length > 0) {
       return {

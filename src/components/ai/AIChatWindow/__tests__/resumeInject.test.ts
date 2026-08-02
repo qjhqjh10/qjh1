@@ -1,6 +1,7 @@
 // ── maybeInjectResume 纯函数测试 (v14.2.0) ──
-// 跨 run 续跑注入: 检测上一条 assistant 消息的 taskProgress 中断未完成 → 追加 [续跑] system 提示。
+// 跨 run 续跑注入: 检测上一条 assistant 消息的 taskProgress 中断未完成 → 追加 [续跑] 提示。
 // v14.3: + maybeInjectSubagentSummaries（子代理快照注入）。
+// v14.6.1: 注入 role 从 system 改为 user（Anthropic 顶层 system 远端问题）——断言同步更新。
 // 纯函数，不依赖 React/store。
 
 import { describe, it, expect } from 'vitest'
@@ -29,7 +30,8 @@ describe('maybeInjectResume', () => {
     const result = maybeInjectResume(history, messages)
 
     expect(result).toHaveLength(2)
-    expect(result[1].role).toBe('system')
+    // v14.6.1: user role（Anthropic 顶层 system 远端修复）
+    expect(result[1].role).toBe('user')
     expect(result[1].content).toContain('[续跑]')
     expect(result[1].content).toContain('1/3')
     expect(result[1].content).toContain('剩余: 2)创建角色卡；3)生成第一章')
@@ -99,14 +101,15 @@ describe('maybeInjectSubagentSummaries', () => {
     { tool: 'verify_task', filePath: 'x.md', status: 'error' as const, summary: '子代理追问失败: x.md', detail: '文件不存在' },
   ]
 
-  it('最后一条 assistant 带快照 → 追加 1 条 [子代理快照] system 消息（含路径与摘要）', () => {
+  it('最后一条 assistant 带快照 → 追加 1 条 [子代理快照] user 消息（含路径与摘要）', () => {
     const history = [{ role: 'user' as const, content: '1. 分析文件' }]
     const messages = [assistantMsg({ subagentSummaries: SNAPSHOT })]
 
     const result = maybeInjectSubagentSummaries(history, messages)
 
     expect(result).toHaveLength(2)
-    expect(result[1].role).toBe('system')
+    // v14.6.1: user role（Anthropic 顶层 system 远端修复）
+    expect(result[1].role).toBe('user')
     expect(result[1].content).toContain('[子代理快照]')
     expect(result[1].content).toContain('[analyze_file] 剑道长生/chapters/ch1.txt')
     expect(result[1].content).toContain('子代理分析完成')

@@ -107,7 +107,7 @@ export const fileTools: ToolDefinition[] = [
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([
-          { callId: ctx.callId, toolName: 'edit_file', args, confirmed: true },
+          { callId: ctx.callId, toolName: 'edit_file', args },
         ])
         return results[0] || { status: 'error', summary: '无响应' }
       } catch (e) {
@@ -146,7 +146,7 @@ export const fileTools: ToolDefinition[] = [
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([
-          { callId: ctx.callId, toolName: 'batch_replace', args, confirmed: true },
+          { callId: ctx.callId, toolName: 'batch_replace', args },
         ])
         return results[0] || { status: 'error', summary: '无响应' }
       } catch (e) {
@@ -174,7 +174,7 @@ export const fileTools: ToolDefinition[] = [
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([
-          { callId: ctx.callId, toolName: 'create_file', args, confirmed: true },
+          { callId: ctx.callId, toolName: 'create_file', args },
         ])
         return results[0] || { status: 'error', summary: '无响应' }
       } catch (e) {
@@ -202,7 +202,7 @@ export const fileTools: ToolDefinition[] = [
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([
-          { callId: ctx.callId, toolName: 'delete_file', args, confirmed: true },
+          { callId: ctx.callId, toolName: 'delete_file', args },
         ])
         return results[0] || { status: 'error', summary: '无响应' }
       } catch (e) {
@@ -231,7 +231,7 @@ export const fileTools: ToolDefinition[] = [
       try {
         const { aiService } = await import('@/services/fileService')
         const results = await aiService.executeFileTools([
-          { callId: ctx.callId, toolName: 'rename_file', args, confirmed: true },
+          { callId: ctx.callId, toolName: 'rename_file', args },
         ])
         return results[0] || { status: 'error', summary: '无响应' }
       } catch (e) {

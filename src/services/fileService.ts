@@ -109,8 +109,10 @@ export const aiService = {
     temperature?: number,
     /** v14.2.1: 调用来源（子代理传 'subagent'，主 agent 不传）— 供 token 统计区分 */
     source?: string,
+    /** v14.6.1: 请求标识 — per-request abort（并行子代理场景精确中止） */
+    requestId?: string,
   ): Promise<ChatWithToolsResult> => {
-    const raw = await e().ai.chatWithTools(messages, configId, projectId, tools, temperature, source)
+    const raw = await e().ai.chatWithTools(messages, configId, projectId, tools, temperature, source, requestId)
     try {
       const parsed = JSON.parse(raw)
       // #15: Validate tool_calls structure
@@ -167,7 +169,8 @@ export const aiService = {
   generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> => {
     return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number; prompt: string }>
   },
-  abortStream: () => { e().ai.abortStream() },
+  // v14.6.1: requestId 可选——无 id = 中止该 webContents 全部在途请求（用户停止语义）
+  abortStream: (requestId?: string) => { e().ai.abortStream(requestId) },
 }
 
 export const httpService = {

@@ -102,13 +102,18 @@ export class ContextCompressor {
       try {
         const parsed = JSON.parse(m.content)
         const compressed: Record<string, unknown> = {}
-        if (parsed.status) compressed.status = parsed.status
-        if (parsed.summary) compressed.summary = parsed.summary
+        let anyKept = false
+        if (parsed.status) { compressed.status = parsed.status; anyKept = true }
+        if (parsed.summary) { compressed.summary = parsed.summary; anyKept = true }
         // v13.x: detail 截断为 200 字（read_file 全文正是 detail——此前完整保留等于没压缩）
         if (parsed.detail && typeof parsed.detail === 'string') {
           compressed.detail = parsed.detail.length > 200 ? parsed.detail.slice(0, 200) + '…' : parsed.detail
+          anyKept = true
         }
-        if (parsed.note) compressed.note = parsed.note
+        if (parsed.note) { compressed.note = parsed.note; anyKept = true }
+        // v14.6.1: 非契约 shape 的合法 JSON（legacy 历史/数组/嵌套）四个字段全缺 →
+        // 压缩成 "{}" 销毁内容；无法识别契约结构时保留原文
+        if (!anyKept) return m
         return { ...m, content: JSON.stringify(compressed) }
       } catch {
         return m  // Keep original if not valid JSON
@@ -204,6 +209,10 @@ export class ContextCompressor {
 
     const toCollapse = otherMsgs.slice(0, keepFrom)
     const toKeep = otherMsgs.slice(keepFrom)
+
+    // v14.6.1: 无可折叠消息（protectRecent 过大吞掉全部）→ 返回原文——
+    // 原实现注入"前0条消息摘要:"空垃圾消息且零压缩，恰在 90% 最需压缩时失效
+    if (toCollapse.length === 0) return messages
 
     // Build summary of collapsed content
     const userMsgs = toCollapse.filter(m => m.role === 'user').slice(-3)

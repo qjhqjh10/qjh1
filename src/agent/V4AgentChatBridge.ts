@@ -13,8 +13,8 @@ export class V4AgentChatBridge extends BaseChatBridge {
   protected async createAdapter(): Promise<ProtocolAdapter> {
     const { aiService } = await import('@/services/fileService')
     return new OpenAIAdapter({
-      chatWithTools: async (msgs, cid, pid, tools, temperature) => {
-        const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature)
+      chatWithTools: async (msgs, cid, pid, tools, temperature, _source, requestId) => {
+        const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature, undefined, requestId)
         return {
           text: result.text,
           toolCalls: result.toolCalls?.map(tc => ({
@@ -23,9 +23,11 @@ export class V4AgentChatBridge extends BaseChatBridge {
           finishReason: result.finishReason,
           usage: result.usage,
           reasoning_content: result.reasoning_content,
+          // v14.6.1: aborted 透传（此前包装层丢弃——用户停止被当空响应处理，注入垃圾消息）
+          aborted: result.aborted === true,
         }
       },
-      abortStream: () => aiService.abortStream(),
+      abortStream: (requestId) => aiService.abortStream(requestId),
     })
   }
 

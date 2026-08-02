@@ -205,7 +205,25 @@ app.on('activate', () => {
   }
 })
 
+// v14.6.1: 单实例锁——打包后双击 exe 两次会启动两个实例（双文件监视器、
+// 审计/统计并发写、UI 状态互相覆盖）。第二次启动直接退出并聚焦已有窗口。
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+})
+
 app.whenReady().then(async () => {
+  // 未获得单实例锁时退出（app.quit() 后 whenReady 仍可能触发，此处短路）
+  if (!gotSingleInstanceLock) return
+  // v14.6.1: Windows 任务栏分组/通知归属（不设置时 Electron 用 exe 文件名，
+  // 通知中心与任务栏可能显示异常）
+  if (process.platform === 'win32') app.setAppUserModelId('com.qingjian.ai-writing')
   Menu.setApplicationMenu(null)
   const projectsPath = getProjectsBasePath()
   const parentDir = dirname(projectsPath)
@@ -254,6 +272,27 @@ app.whenReady().then(async () => {
 
   // v14.0.1: app:getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   // （原 MD 文件是 v13.2 瘦身前旧版且打包不含 prompts，造成开发/打包行为不一致）
+
+  // v14.7.0: 版本检查移到主进程——渲染层 CSP connect-src 白名单不含 github.com，
+  // 原渲染层 fetch 在打包环境必然被 CSP 拦截（"检查更新"永远失败）；主进程 netFetch
+  // 走系统代理 + 无 CSP 限制，代理网络下也能连通
+  ipcMain.handle('app:check-update', async (): Promise<{ latestVersion: string; releaseUrl: string } | null> => {
+    try {
+      const { netFetch } = await import('./ipc/netFetch')
+      const res = await netFetch('https://api.github.com/repos/qjhqjh10/qjh1/releases/latest', {
+        headers: { 'User-Agent': 'AIWritingAssistant/1.0', Accept: 'application/vnd.github+json' },
+      })
+      if (!res.ok) return null
+      const data = await res.json() as { tag_name?: string; html_url?: string }
+      if (!data.tag_name) return null
+      return {
+        latestVersion: data.tag_name.replace(/^v/, ''),
+        releaseUrl: data.html_url || 'https://github.com/qjhqjh10/qjh1/releases',
+      }
+    } catch {
+      return null
+    }
+  })
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {

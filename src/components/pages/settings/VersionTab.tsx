@@ -28,12 +28,13 @@ export function VersionTab() {
   const handleCheckUpdate = async () => {
     setCheckResult('checking')
     try {
-      const res = await fetch('https://api.github.com/repos/qjhqjh10/qjh1/releases/latest')
-      if (!res.ok) throw new Error('API error')
-      const data = await res.json()
-      const remoteVer = data.tag_name?.replace(/^v/, '') || ''
+      // v14.7.0: 走主进程 IPC——原渲染层 fetch 被 CSP connect-src 白名单拦截（github.com 不在列），
+      // 打包环境"检查更新"永远失败；主进程 netFetch 走系统代理，代理网络也能连通
+      if (!window.electron?.app?.checkUpdate) throw new Error('Electron bridge unavailable')
+      const result = await window.electron.app.checkUpdate()
+      const remoteVer = result?.latestVersion || ''
       setLatestVersion(remoteVer)
-      setReleaseUrl(data.html_url || repoUrl)
+      setReleaseUrl(result?.releaseUrl || repoUrl)
       // 语义化版本比较：仅当远端版本高于当前版本才提示更新（避免远端版本较旧时误报）
       if (remoteVer && compareVersions(remoteVer, currentVersion) > 0) {
         setCheckResult('update')

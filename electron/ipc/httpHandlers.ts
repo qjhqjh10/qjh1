@@ -5,6 +5,7 @@
 
 import { IpcMain } from 'electron'
 import { isPrivateIP, resolvesToPrivateIP, sanitizeUrl } from './ssrfGuard'
+import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
 const MAX_RESPONSE_SIZE = 500 * 1024 // 500KB
 const REQUEST_TIMEOUT = 15_000 // 15s
@@ -22,7 +23,7 @@ async function httpFetch(
     // v14.5.1: 手动跟踪重定向——原实现 fetch 默认跟随，跳转后不复查 SSRF（公网 302 → 内网/元数据可被访问）。
     // 现在逐跳校验目标（sanitizeUrl + 私网 IP 检查），最多 3 跳。
     for (let hop = 0; hop <= 3; hop++) {
-      const res = await fetch(current, {
+      const res = await netFetch(current, {
         method: options.method || 'GET',
         headers: { 'User-Agent': 'AIWritingAssistant/1.0', ...options.headers },
         body: options.body || undefined,

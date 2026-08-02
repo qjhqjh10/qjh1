@@ -75,6 +75,13 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
 
     // Cache invalidation + UI notification
     if (result.status === 'success') {
+      // v14.6.1: 传 projectsBasePath——AI 相对路径解析为绝对路径双 key 失效
+      // （GUI 缓存/刷新比较都用绝对路径，原相对 key 失效漏掉 GUI 条目）
+      let basePath: string | undefined
+      try {
+        const { useStore } = await import('@/store')
+        basePath = useStore.getState().projectsBasePath || undefined
+      } catch { /* 测试/无 store 环境：无 basePath 时保持旧行为 */ }
       await invalidateAfterTool(ctx.toolName, args, {
         onFileChanged: async (filePath) => {
           const { useStore } = await import('@/store')
@@ -83,7 +90,7 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
             newContent: '__AI_EDITED__',
           })
         },
-      })
+      }, basePath)
     }
 
     return result

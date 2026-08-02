@@ -1,7 +1,28 @@
 {
-  "currentVersion": "14.6.0",
+  "currentVersion": "14.7.0",
   "currentDate": "2026-08-02",
   "history": [
+    {
+      "version": "14.7.0",
+      "date": "2026-08-02",
+      "features": [
+        "exe 分发环境全面检查与修复: 导出路径限制解除（保存对话框选桌面/任意目录不再报错，仅挡系统目录）+ 导出对话框默认路径显式指向项目目录（不依赖主进程 CWD，exe 放只读目录也能导出）+ 导出失败可见（ChapterExportModal 补错误提示）+ 单实例锁（双击两次只开一个实例）+ stats 回退路径改 userData（原 app.asar 只读必失败）+ app.setAppUserModelId（任务栏/通知归属）",
+        "网络栈统一 netFetch: 主进程全部 9 处网络调用改用 Electron net.fetch（Chromium 网络栈 = Windows 系统代理 + 系统证书）——分享给别人后，公司/校园网（代理）与 MITM 证书环境下 API 不再连接失败",
+        "版本检查走主进程 IPC: 原渲染层 fetch 被 CSP connect-src 白名单拦截（github.com 不在列），打包环境检查更新永远失败；现主进程 netFetch 检查 + 系统代理",
+        "系统目录黑名单任意盘符 + 共享纯函数模块: pathBlacklist.ts 单一来源（V4SecurityFence 与主进程 pathResolution 同款判定）——别人 Windows 装在 D:/E: 盘时 agent 无法读写其系统目录",
+        "per-request abort 通道: abort 按 requestId 精确中止（并行子代理超时不再误杀兄弟请求 + 自身不再双计费）；不带 id 仍中止全部（用户停止语义）",
+        "工具开关接通双协议: toolsEnabled 透传 runtime（关闭时 tools 传空，模型无法调工具）——原死开关只驱动按钮样式",
+        "思考过程面板接通: run 结果带 reasoningContent（DeepSeek thinking / Anthropic thinkingBlocks 累计）→ 消息持久化 → 🧠 折叠面板正常显示",
+        "续跑/快照注入改 user role: [续跑]/[子代理快照] 不再进 Anthropic 顶层 system（指令权重低 + 缓存断点失效）——user 注入由 adapter 连续 user 合并并入新消息轮",
+        "Anthropic 连续同角色消息合并: 截断工具轮/空响应兜底/会话裁剪产生的 [user,user] 不再触发严格端点 400",
+        "Agent 全面审计 27 项修复（四路并行审计）: 部分完成声明门控绕过修复（汉字数字/章篇量词）/ _hasWriteCall 按实际成功置位 / 迭代耗尽误标 interrupted 修复 / 重复读提醒去重 / 进度问句排除 / 任务边界与续跑冲突消除 / 上传粘贴路径 ../ 修正 / AI 修改后 GUI 刷新失效修复（缓存相对+绝对双 key）/ edit_file 空 old_string 拒绝 / search_images 方向尺寸透传 / kb_search 契约补全 / read_file detail 30K 截断 / create_file 写入预览复活 / DANGEROUS 死门闩移除 / YAML 写后校验对齐 / 细纲提示词补 status / 压缩器空摘要与 {} 守卫 / 卡死监视器修复 / aborted 透传 / 子代理 listener 泄漏与会话裁剪连续 user / 幻觉检测否定语境排除"
+      ],
+      "fixes": [
+        "kb_append_file 缓存失效（file_id 无法映射路径 → 失效整个 KB 目录缓存）",
+        "文件缓存 key 小写折叠（Windows 大小写不敏感，失效遗漏修复）",
+        "测试: 620 passed + 15 skipped（635）无回归；tsc 0 错误"
+      ]
+    },
     {
       "version": "14.6.0",
       "date": "2026-08-02",

@@ -42,6 +42,8 @@ export const anthropicService = {
     temperature?: number
     /** v14.2.1: 调用来源（main/subagent/pipeline）— 供 token 统计区分 */
     source?: string
+    /** v14.6.1: 请求标识 — per-request abort（并行子代理场景精确中止） */
+    requestId?: string
     onChunk?: (data: { chunk: string; accumulated: string }) => void
   }): Promise<AnthropicStreamResult> => {
     let unsubChunk: (() => void) | undefined
@@ -59,6 +61,7 @@ export const anthropicService = {
         tools: params.tools,
         temperature: params.temperature,
         source: params.source,
+        requestId: params.requestId,
       })
 
       const parsed = JSON.parse(raw)
@@ -170,10 +173,10 @@ export const anthropicService = {
     return { abort: () => anthropicService.abortAnthropicStream() }
   },
 
-  /** 中止正在进行的 Anthropic 流式请求 */
-  abortAnthropicStream: () => {
+  /** 中止正在进行的 Anthropic 流式请求（v14.6.1: requestId 可选——无 id = 中止全部） */
+  abortAnthropicStream: (requestId?: string) => {
     try {
-      e().ai.abortAnthropicStream()
+      e().ai.abortAnthropicStream(requestId)
     } catch { /* bridge unavailable */ }
   },
 

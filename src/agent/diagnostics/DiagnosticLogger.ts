@@ -119,6 +119,9 @@ export class DiagnosticLogger {
 
   recordApiCallEnd(tokens: number, hasToolCalls: boolean): void {
     const duration = Date.now() - this.apiCallStart
+    // v14.6.1: 结束即归零——原实现 apiCallStart 永不重置，首次 API 调用后
+    // checkStuck 的"API 进行中"判断恒真，2 分钟卡死监视器永久失效
+    this.apiCallStart = 0
     this.emit({
       type: 'api_call_end',
       phase: this.currentPhase,
@@ -130,6 +133,7 @@ export class DiagnosticLogger {
 
   recordApiCallError(error: string): void {
     const duration = Date.now() - this.apiCallStart
+    this.apiCallStart = 0  // v14.6.1: 同 recordApiCallEnd
     this.emit({
       type: 'api_call_error',
       phase: this.currentPhase,

@@ -50,8 +50,12 @@ describe('resolveArg — 绝对路径（全自由）', () => {
     expect(resolveArg('/dev/null', PROJECT)).toBeNull()
   })
 
-  it('相对路径向上逃逸不触发系统目录拦截（黑名单仅限 C: 系统盘；D:\\Windows 非系统目录，允许）', () => {
-    expect(resolveArg('../../../../../../Windows/x.txt', PROJECT)).toBe(path.normalize('D:/Windows/x.txt'))
+  it('相对路径向上逃逸到非系统目录仍放行（全自由）', () => {
+    expect(resolveArg('../../../../../../Users/x.txt', PROJECT)).toBe(path.normalize('D:/Users/x.txt'))
+  })
+
+  it('相对路径向上逃逸到系统目录拦截（v14.6.1: 任意盘符系统目录均拦截）', () => {
+    expect(resolveArg('../../../../../../Windows/x.txt', PROJECT)).toBeNull()
   })
 
   it('UNC 网络路径拦截', () => {
@@ -76,9 +80,35 @@ describe('safeResolveArg — realpath 复核', () => {
 })
 
 describe('isBlockedSystemPath', () => {
-  it('黑名单判定', () => {
+  it('C: 盘系统目录拦截（大小写/分隔符不敏感）', () => {
     expect(isBlockedSystemPath('c:\\windows\\x')).toBe(true)
+    expect(isBlockedSystemPath('C:/Windows/System32/x.dll')).toBe(true)
+    expect(isBlockedSystemPath('C:/Program Files/x/app.exe')).toBe(true)
+    expect(isBlockedSystemPath('C:/Program Files (x86)/x/app.exe')).toBe(true)
+  })
+
+  it('v14.6.1: 非 C 盘系统目录同样拦截（分享给他人时 Windows 可能装在 D:/E: 盘）', () => {
+    expect(isBlockedSystemPath('D:/Windows/x.txt')).toBe(true)
+    expect(isBlockedSystemPath('d:\\windows\\system32\\y.dll')).toBe(true)
+    expect(isBlockedSystemPath('E:/Program Files/x/app.exe')).toBe(true)
+    expect(isBlockedSystemPath('D:/Program Files (x86)/x/app.exe')).toBe(true)
+    expect(isBlockedSystemPath('D:/SysWOW64/ntdll.dll')).toBe(true)
+  })
+
+  it('非系统目录放行（数据盘/用户目录不受影响）', () => {
     expect(isBlockedSystemPath('D:/Projects/novel.txt')).toBe(false)
+    expect(isBlockedSystemPath('E:/Users/me/docs/小说.md')).toBe(false)
+    expect(isBlockedSystemPath('C:/Users/test/data.txt')).toBe(false)
+  })
+
+  it('POSIX 系统目录拦截', () => {
     expect(isBlockedSystemPath('/etc/')).toBe(true)
+    expect(isBlockedSystemPath('/usr/bin/x')).toBe(true)
+    expect(isBlockedSystemPath('/dev/null')).toBe(true)
+  })
+
+  it('Windows 非系统目录不误伤（windows 目录仅当为盘符首段）', () => {
+    expect(isBlockedSystemPath('D:/novels/windows-style/story.md')).toBe(false)
+    expect(isBlockedSystemPath('C:/Users/x/Documents/windows.txt')).toBe(false)
   })
 })

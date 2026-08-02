@@ -7,6 +7,7 @@ import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
 import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
 import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg } from './pathResolution'
+import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
 export interface ToolCallArgs {
   callId: string
@@ -596,6 +597,11 @@ export async function executeFileTool(
         let oldStr = args.old_string as string
         const newStr = args.new_string as string
         const replaceAll = !!args.replace_all
+        // v14.6.1: 空 old_string 拒绝（与 batch_replace 对齐）——
+        // includes('') 恒真 + replaceAll('', x) 会在每两个字符间插入，整个文件被破坏
+        if (oldStr === '') {
+          return { callId, toolName, status: 'error', summary: 'old_string 不能为空。如需覆盖整个文件请用 old_string="__FULL_REPLACE__"。' }
+        }
 
         // ── __FULL_REPLACE__ sentinel: skip matching, replace entire file ──
         if (oldStr === '__FULL_REPLACE__') {
@@ -748,10 +754,11 @@ export async function executeFileTool(
         }
         const newContent = replaceAll ? content.replaceAll(oldStr, newStr) : content.replace(oldStr, newStr)
 
-        // Validate structured JSON files after edit
+        // Validate structured JSON/YAML files after edit
         // User confirmation is handled by the batch approval gate in AIChatWindow before tools execute
+        // v14.6.1: 与 create_file 对齐——.yaml/.yml 同样校验（newContent 是全量替换后内容，可整体解析）
         const relPathEdit = path.relative(projectPath, fp).replace(/\\/g, '/')
-        if (relPathEdit.endsWith('.json')) {
+        if (relPathEdit.endsWith('.json') || relPathEdit.endsWith('.yaml') || relPathEdit.endsWith('.yml')) {
           const validation = validateFileContent(relPathEdit, newContent)
           if (!validation.valid) {
             const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')
@@ -863,7 +870,7 @@ export async function executeFileTool(
           let searchUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&locale=${locale}`
           if (orientation) searchUrl += `&orientation=${orientation}`
           if (size) searchUrl += `&size=${size}`
-          const res = await fetch(searchUrl, { headers: { Authorization: accessKey } })
+          const res = await netFetch(searchUrl, { headers: { Authorization: accessKey } })  // v14.6.1: 系统代理/证书
           if (res.status === 401 || res.status === 403) {
             return { callId, toolName, status: 'error',
               summary: `Pexels API 密钥无效(${res.status})。请检查 PEXELS_API_KEY 环境变量是否正确。` }
@@ -878,7 +885,7 @@ export async function executeFileTool(
             const imgUrl = p.src?.large || p.src?.original || ''
             if (!imgUrl) continue
             try {
-              const imgRes = await fetch(imgUrl)
+              const imgRes = await netFetch(imgUrl)  // v14.6.1: 系统代理/证书
               if (!imgRes.ok) continue
               const buf = Buffer.from(await imgRes.arrayBuffer())
               if (buf.length > MAX_FILE_SIZE) continue
@@ -997,9 +1004,10 @@ export async function executeFileTool(
           applied++
         }
 
-        // v14.5.1: 与 edit_file 一致——.json 文件写前校验结构
+        // v14.5.1: 与 edit_file 一致——结构化文件写前校验结构
+        // v14.6.1: .yaml/.yml 同 create_file/edit_file 对齐
         const relPathBatch = path.relative(projectPath, fp).replace(/\\/g, '/')
-        if (relPathBatch.endsWith('.json')) {
+        if (relPathBatch.endsWith('.json') || relPathBatch.endsWith('.yaml') || relPathBatch.endsWith('.yml')) {
           const validation = validateFileContent(relPathBatch, modified)
           if (!validation.valid) {
             const errorDetail = validation.errors.map(e => `${e.field}: ${e.message}${e.fix ? `\n  → 修复: ${e.fix}` : ''}`).join('\n')

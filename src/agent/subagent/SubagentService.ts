@@ -113,7 +113,18 @@ function trimSessionHistory(history: Message[]): Message[] {
   // 追问时 Anthropic API 会报 "tool_result must have a corresponding tool_use in the previous message" (400)
   let start = history.length - tailCount
   while (start < history.length && history[start].role === 'tool') start++
-  return start >= history.length ? [history[0]] : [history[0], ...history.slice(start)]
+  if (start >= history.length) return [history[0]]
+  const tail = history.slice(start)
+  // v14.6.1: 裁剪边界若落在 mid-history 的 user 消息上（如 nudge），会产生
+  // [user(任务描述), user(nudge)] 连续 user → 严格 Anthropic 端点 400；并入首条
+  if (tail[0].role === 'user') {
+    const first = history[0]
+    const firstText = typeof first.content === 'string' ? first.content : ''
+    const tailText = typeof tail[0].content === 'string' ? tail[0].content : ''
+    const merged = { ...first, content: `${firstText}\n\n${tailText}` }
+    return [merged, ...tail.slice(1)]
+  }
+  return [history[0], ...tail]
 }
 
 function saveSubagentSession(key: string, role: SubagentRole, messagesForApi: Message[]): void {
@@ -183,11 +194,14 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
   const adapter = await createSubagentAdapter(configId)
 
   // 3. abort 传播（注意：signal 可能已 aborted——addEventListener 不会触发已发生的事件）
+  // v14.6.1: 命名监听器引用 + once——原匿名函数 add/remove 引用不同，remove 恒为 no-op，
+  // 每次委托在父 signal 上累积死监听器
   const controller = new AbortController()
+  const onParentAbort = () => controller.abort()
   if (signal?.aborted) {
     controller.abort()
   } else {
-    signal?.addEventListener('abort', () => controller.abort())
+    signal?.addEventListener('abort', onParentAbort, { once: true })
   }
 
   const auditTrail = new AuditTrail()
@@ -252,7 +266,7 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, calls: 0 },
     }
   } finally {
-    signal?.removeEventListener('abort', () => controller.abort())
+    signal?.removeEventListener('abort', onParentAbort)
     controller.abort()  // 防止超时后残留（不影响 success 判定——用 runtime 的结果）
     auditTrail.persist().catch(() => {})
   }

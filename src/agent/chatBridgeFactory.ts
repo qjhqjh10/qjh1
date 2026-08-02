@@ -183,6 +183,8 @@ export abstract class BaseChatBridge {
         attachments: [],
         // v14.5.0: 跨 run 续跑 — 任务清单进度快照透传（中断未完成 → runtime 恢复门控语义）
         resumeTaskProgress: options.resumeTaskProgress,
+        // v14.6.1: 工具开关透传（false → 本轮 tools 传空）
+        toolsEnabled: options.toolsEnabled,
       })
 
       store.setIsStreaming(false)
@@ -236,6 +238,9 @@ export abstract class BaseChatBridge {
   }
 
   destroy(): void {
+    // v14.6.1: destroy 必须同时中止底层 controller——runtime.abort() 只置 emitter 标志，
+    // 主循环靠 config.abortSignal 检查退出；原实现销毁桥后 run 继续执行（含写工具照常落盘）
+    this.abortController.abort()
     this.runtime?.abort()
     this.auditTrail.persist().catch(() => {})
   }

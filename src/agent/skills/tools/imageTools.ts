@@ -34,6 +34,10 @@ export const imageTools: ToolDefinition[] = [
               query: args.query,
               count: args.count,
               projectId: ctx.projectId || undefined,
+              // v14.6.1: 透传 orientation/size——schema 声明了但此前被 executor 丢弃，
+              // AI 按描述传"竖版/横版"恒不生效
+              orientation: args.orientation,
+              size: args.size,
             },
           },
         ])
@@ -89,7 +93,7 @@ export const imageTools: ToolDefinition[] = [
             detail:
               '该 AI 模型（如 DeepSeek）仅支持文本生成，无法创建图片。\n' +
               '替代方案：\n' +
-              '1. 使用 search_images 工具从 Unsplash 搜索现有图片\n' +
+              '1. 使用 search_images 工具从 Pexels 搜索现有图片\n' +
               '2. 在设置中切换到支持图片生成的模型（如 OpenAI dall-e-3）\n' +
               '3. 手动上传图片到角色档案或章节中',
           }

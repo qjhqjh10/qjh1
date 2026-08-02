@@ -8,6 +8,9 @@
 
 import { toolRegistry } from './skills/ToolRegistry'
 import { tryParseJsonOrYaml } from '../utils/yamlUtils'
+// v14.6.1: 黑名单单一来源——与主进程 pathResolution 同款判定（任意盘符系统目录）。
+// 原实现仅拦 C: 盘（c:/windows、c:/system32），分享给他人时其 Windows 可能装在 D:/E: 盘
+import { isBlockedSystemPath } from '@/utils/pathBlacklist'
 
 export interface SecurityCheckResult {
   allowed: boolean
@@ -69,12 +72,8 @@ export class V4SecurityFence {
       }
     }
 
-    // System-critical directories → hard block
-    const lowered = fp.toLowerCase().replace(/\\/g, '/')
-    if (lowered.startsWith('c:/windows') || lowered.startsWith('c:/system32') ||
-        lowered.startsWith('/dev/') || lowered.startsWith('/etc/') ||
-        lowered.startsWith('/usr/') || lowered.startsWith('/bin/') ||
-        lowered.startsWith('/sys/') || lowered.startsWith('/proc/')) {
+    // System-critical directories → hard block（v14.6.1: 共享模块，任意盘符）
+    if (isBlockedSystemPath(fp)) {
       return {
         allowed: false, needsApproval: false,
         reason: `[安全] 路径 "${fp}" 指向系统目录，操作被拦截。`,

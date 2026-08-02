@@ -3,6 +3,7 @@ import { IpcMain, SafeStorage, app } from 'electron'
 import { logTokenUsage } from './statsHandlers'
 import { getOpenAI, getConfigStore, localISOString, calculateCost, mergeConfigKeys } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
+import { netFetch } from './netFetch'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
 
@@ -58,11 +59,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const apiKey = config.apiKey
 
     const OpenAI = await getOpenAI()
+    // v14.6.1: fetch 走 Chromium 网络栈（系统代理 + 系统证书）——别人电脑在代理网络下可连通
     const client = new OpenAI({
       apiKey,
       baseURL: config.apiUrl || undefined,
       timeout: 120_000,
       maxRetries: 2,  // retry up to 2 times on network/5xx errors
+      fetch: netFetch,
     })
 
     const apiMessages = [
@@ -131,7 +134,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     const apiKey = config.apiKey
     const OpenAI = await getOpenAI()
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
+    // v14.6.1: netFetch（系统代理/证书）
+    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1, fetch: netFetch })
 
     const apiMessages = [
       ...messages.map((m, i) => {
@@ -248,13 +252,13 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
     try {
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
+      const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000, fetch: netFetch })
       const response = await client.models.list()
       return response.data.map(m => m.id)
     } catch {
       try {
         const OpenAI = await getOpenAI()
-        const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000 })
+        const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000, fetch: netFetch })
         await client.chat.completions.create({
           model: config.model || 'deepseek-chat',
           messages: [{ role: 'user', content: 'ping' }],
@@ -315,6 +319,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       configId: string, projectId?: string, tools?: unknown[], temperature?: number,
       /** v14.2.1: 调用来源 — 子代理传 'subagent'，主 agent 不传（默认 main） */
       source?: string,
+      /** v14.6.1: 请求标识 — per-request abort（并行子代理精确中止，不再单槽误杀） */
+      requestId?: string,
     ) => {
       const store = await getConfigStore()
       const configs = store.get('configs', []) as StoredConfig[]
@@ -323,20 +329,24 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
       const apiKey = config.apiKey
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1 })
+      // v14.6.1: netFetch（系统代理/证书）
+    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 120_000, maxRetries: 1, fetch: netFetch })
 
-      // AbortController for tool-chat, uses dedicated channel to avoid conflict with stream
+      // v14.6.1: per-request abort——每个请求独立注册监听器，按 requestId 匹配精确中止；
+      // 不带 requestId 的中止（用户停止）命中该 webContents 全部在途请求
       const abortController = new AbortController()
       const wcId = event.sender.id
-      const onAbort = (ev: Electron.IpcMainEvent) => { if (ev.sender.id === wcId) abortController.abort() }
-      if (toolChatAbortHandlers.has(wcId)) {
-        ipcMain.removeListener('ai:abort-tool-chat', toolChatAbortHandlers.get(wcId)!)
+      const rid = typeof requestId === 'string' && requestId ? requestId : `req_${Date.now().toString(36)}`
+      const onAbort = (ev: Electron.IpcMainEvent, target?: string) => {
+        if (ev.sender.id !== wcId) return
+        if (target !== undefined && target !== rid) return
+        abortController.abort()
       }
       toolChatAbortHandlers.set(wcId, onAbort)
       ipcMain.on('ai:abort-tool-chat', onAbort)
       event.sender.once('destroyed' as any, () => {
         ipcMain.removeListener('ai:abort-tool-chat', onAbort)
-        toolChatAbortHandlers.delete(wcId)
+        if (toolChatAbortHandlers.get(wcId) === onAbort) toolChatAbortHandlers.delete(wcId)
       })
 
       const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: string } }> = messages.map((m, i) => {
@@ -519,6 +529,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         baseURL: config.imageApiUrl || config.apiUrl || undefined,
         timeout: 180_000,
         maxRetries: 2,
+        fetch: netFetch,  // v14.6.1: 系统代理/证书
       })
 
       const imageSize = size || '1024x1024'
@@ -565,7 +576,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
       let buf: Buffer
       if (imageUrl) {
-        const imgRes = await fetch(imageUrl)
+        const imgRes = await netFetch(imageUrl)  // v14.6.1: 系统代理/证书
         if (!imgRes.ok) throw new Error(`下载图片失败: HTTP ${imgRes.status}`)
         buf = Buffer.from(await imgRes.arrayBuffer())
       } else {
@@ -604,17 +615,15 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     })
 
   // ── Execute file tools on main process ──
-  // #9: Backend enforcement — dangerous tools must be confirmed by frontend
-  const DANGEROUS_TOOL_NAMES = new Set(['create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file', 'create_project', 'delete_project'])
+  // v14.6.1: 移除 DANGEROUS_TOOL_NAMES + confirmed 门闩——渲染层 executor 恒写 confirmed:true，
+  // 该检查从不触发（死防御），且会给未来"改回 DANGEROUS_ASK"留下静默绕过的假安全感。
+  // 实际防线：渲染层 V4SecurityFence（ToolRegistry needsApproval + 无审批路径拒绝）+ 主进程
+  // isBlockedSystemPath 系统目录黑名单（任意盘符）——单一权威在 fence，主进程兜底路径。
   ipcMain.handle('ai:execute-file-tool',
     async (_event, calls: ToolCallArgs[]) => {
       if (!projectsPath) throw new Error('Projects path not configured')
       const results = []
       for (const call of calls) {
-        if (DANGEROUS_TOOL_NAMES.has(call.toolName) && !(call as unknown as Record<string, unknown>).confirmed) {
-          results.push({ callId: call.callId, toolName: call.toolName, status: 'error' as const, summary: '操作未获用户确认' })
-          continue
-        }
         const result = await executeFileTool(call, projectsPath)
         results.push(result)
       }

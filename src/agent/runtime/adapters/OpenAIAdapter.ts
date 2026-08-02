@@ -15,6 +15,10 @@ export interface OpenAIAIService {
     tools?: unknown[],
     /** v12.5.1: 阶段感知温度 (创作轮=config.temperature, 执行轮=min(config.temperature, toolTemperature)) */
     temperature?: number,
+    /** v14.2.1: 调用来源（main/subagent/pipeline） */
+    source?: string,
+    /** v14.6.1: 请求标识 — 并行子代理场景下 abort 精确指向目标请求（原全局单槽会误杀兄弟请求） */
+    requestId?: string,
   ): Promise<{
     text: string
     toolCalls: ToolCallRequest[] | null
@@ -23,7 +27,7 @@ export interface OpenAIAIService {
     reasoning_content?: string
     aborted?: boolean
   }>
-  abortStream(): void
+  abortStream(requestId?: string): void
 }
 
 // ── Adapter Implementation ──
@@ -35,6 +39,8 @@ export class OpenAIAdapter implements ProtocolAdapter {
   }
 
   private service: OpenAIAIService
+  /** v14.6.1: 当前在途请求标识（abortStream 精确指向，不再误杀并行子代理兄弟请求） */
+  private currentRequestId = ''
 
   constructor(service: OpenAIAIService) {
     this.service = service
@@ -50,7 +56,10 @@ export class OpenAIAdapter implements ProtocolAdapter {
   }): Promise<NormalizedModelResponse> {
     // v14.5.1: 接线 signal → abortStream——runtime 超时/用户中止时真正取消底层流
     // （原实现忽略 signal，超时后重试会产生双请求双计费）
-    const onAbort = () => { this.service.abortStream() }
+    // v14.6.1: per-request abort——请求带唯一 id，中止精确指向自己（并行子代理不再误杀兄弟）
+    const requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    this.currentRequestId = requestId
+    const onAbort = () => { this.service.abortStream(requestId) }
     if (params.signal) {
       if (params.signal.aborted) onAbort()
       else params.signal.addEventListener('abort', onAbort, { once: true })
@@ -63,6 +72,8 @@ export class OpenAIAdapter implements ProtocolAdapter {
         params.projectId,
         params.tools.length > 0 ? params.tools : undefined,
         params.temperature,
+        undefined,
+        requestId,
       )
     } finally {
       params.signal?.removeEventListener('abort', onAbort)
@@ -90,6 +101,7 @@ export class OpenAIAdapter implements ProtocolAdapter {
   }
 
   abortStream(): void {
-    this.service.abortStream()
+    // v14.6.1: 精确中止当前请求；无在途请求时兜底中止全部（保持旧语义）
+    this.service.abortStream(this.currentRequestId || undefined)
   }
 }

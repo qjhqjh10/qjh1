@@ -6,21 +6,16 @@
 
 import * as path from 'path'
 import * as fsp from 'fs/promises'
+// v14.6.1: 黑名单单一来源——共享纯函数模块（渲染层 V4SecurityFence 同款判定）
+import { isBlockedSystemPath } from '../../src/utils/pathBlacklist'
 
 /** 全局资源目录顶层段（首段命中 → 解析到 appRoot，如 notes/x.md） */
 export const GLOBAL_DIR_NAMES = new Set([
   'style_templates', 'scene_templates', 'knowledge_base', 'uploads', 'notes', '.aiharness',
 ])
 
-/** 系统目录黑名单（与 V4SecurityFence Layer 1 对齐 + Program Files） */
-export function isBlockedSystemPath(p: string): boolean {
-  const lowered = path.normalize(p).toLowerCase().replace(/\\/g, '/')
-  return lowered.startsWith('c:/windows') || lowered.startsWith('c:/system32') ||
-    lowered.startsWith('c:/program files') || lowered.startsWith('/dev/') ||
-    lowered.startsWith('/etc/') || lowered.startsWith('/usr/') ||
-    lowered.startsWith('/bin/') || lowered.startsWith('/sys/') ||
-    lowered.startsWith('/proc/')
-}
+/** 系统目录黑名单（v14.6.1: 统一到 src/utils/pathBlacklist.ts 共享模块，任意盘符） */
+export { isBlockedSystemPath }
 
 /** 共享解析逻辑：返回绝对路径；系统目录/UNC 返回 null */
 export function resolveArg(raw: string, projectPath: string): string | null {

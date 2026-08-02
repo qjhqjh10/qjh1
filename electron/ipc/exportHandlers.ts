@@ -2,7 +2,22 @@ import { IpcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { showSaveDialog, showOpenDialog, isSafePath } from './utils'
+import { isBlockedSystemPath } from './pathResolution'
 import { logError } from './logger'
+
+// v14.6.1: 导出目标路径 = 用户在保存对话框中显式选择的位置（明确意图），
+// 不再限制在 projects/ 内（原限制导致选"桌面"即报"导出路径不在项目目录范围内"）。
+// 仅保留硬边界：系统目录黑名单 + 软件内部写保护目录（node_modules/.git/dist/release）。
+const WRITE_PROTECTED_DIRS = ['node_modules', '.git', 'dist', 'release']
+
+function assertSafeExportPath(outputPath: string, projectsBasePath: string): void {
+  if (isBlockedSystemPath(outputPath)) throw new Error('不允许导出到系统目录')
+  const appRoot = path.dirname(projectsBasePath)
+  const rel = path.relative(appRoot, outputPath).replace(/\\/g, '/')
+  if (rel !== '..' && !rel.startsWith('../') && WRITE_PROTECTED_DIRS.some(p => rel === p || rel.startsWith(p + '/'))) {
+    throw new Error('不允许导出到软件内部目录')
+  }
+}
 
 export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => BrowserWindow | null, projectsBasePath: string) {
   ipcMain.handle('export:chapters', async (_event, options: {
@@ -10,9 +25,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
     outputPath: string
     type: 'summary' | 'body'
   }) => {
-    if (!isSafePath(options.outputPath, projectsBasePath)) {
-      throw new Error('导出路径不在项目目录范围内')
-    }
+    assertSafeExportPath(options.outputPath, projectsBasePath)
     const output = options.chapters
       .map(ch => `=== ${ch.title || '未命名'} ===\n\n${ch.content || ''}\n\n`)
       .join('')
@@ -28,9 +41,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('export:singleChapter', async (_event, options: {
     title: string; content: string; outputPath: string
   }) => {
-    if (!isSafePath(options.outputPath, projectsBasePath)) {
-      throw new Error('导出路径不在项目目录范围内')
-    }
+    assertSafeExportPath(options.outputPath, projectsBasePath)
     const output = `${options.title || '未命名'}\n\n${options.content || ''}`
     try {
       await fs.mkdir(path.dirname(options.outputPath), { recursive: true })
@@ -45,7 +56,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
 
   ipcMain.handle('export:project', async (_event, projectPath: string, outputPath: string) => {
     if (!isSafePath(projectPath, projectsBasePath)) throw new Error('项目路径不在允许范围内')
-    if (!isSafePath(outputPath, projectsBasePath)) throw new Error('导出路径不在项目目录范围内')
+    assertSafeExportPath(outputPath, projectsBasePath)
     return new Promise<void>((resolve, reject) => {
       const archiver = require('archiver')
       const archive = archiver('zip', { zlib: { level: 9 } })
@@ -76,8 +87,14 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('dialog:saveFile', async (_event, defaultName: string) => {
     const win = getWindow()
     const isEpub = defaultName.endsWith('.epub')
+    // v14.6.1: defaultPath 改为显式目录（项目目录），不再依赖主进程 CWD——
+    // 打包后 CWD 取决于 exe 启动位置（可能无写权限，如 Program Files），
+    // 裸文件名会导致对话框默认落在不可写目录，用户直接点"保存"即失败。
+    const defaultPath = path.isAbsolute(defaultName)
+      ? defaultName
+      : path.join(projectsBasePath, defaultName.replace(/[/\\]/g, '_'))
     const result = await showSaveDialog(win, {
-      defaultPath: defaultName,
+      defaultPath,
       filters: isEpub
         ? [{ name: 'EPUB 电子书', extensions: ['epub'] }]
         : [{ name: 'Text Files', extensions: ['txt'] }],
@@ -87,8 +104,11 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
 
   ipcMain.handle('dialog:saveZip', async (_event, defaultName: string) => {
     const win = getWindow()
+    const defaultPath = path.isAbsolute(defaultName)
+      ? defaultName
+      : path.join(projectsBasePath, defaultName.replace(/[/\\]/g, '_'))
     const result = await showSaveDialog(win, {
-      defaultPath: defaultName,
+      defaultPath,
       filters: [{ name: '项目压缩包', extensions: ['zip'] }],
     })
     return result.canceled ? null : result.filePath
@@ -100,7 +120,7 @@ export function registerExportHandlers(ipcMain: IpcMain, getWindow: () => Browse
   ipcMain.handle('export:epub', async (_event, options: {
     title: string; author: string; chapters: { title: string; content: string }[]; outputPath: string
   }) => {
-    if (!isSafePath(options.outputPath, projectsBasePath)) throw new Error('导出路径不在项目目录范围内')
+    assertSafeExportPath(options.outputPath, projectsBasePath)
     try {
       const archiver = require('archiver')
       const output = require('fs').createWriteStream(options.outputPath)

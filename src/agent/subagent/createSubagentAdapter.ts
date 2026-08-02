@@ -29,16 +29,17 @@ export async function createSubagentAdapter(configId: string): Promise<ProtocolA
         const result = await anthropicService.chatAnthropicStream({ ...params, source: 'subagent' })
         return result
       },
-      abortStream: () => anthropicService.abortAnthropicStream(),
+      // v14.6.1: per-request abort 透传（并行子代理各自精确中止，不再误杀兄弟请求）
+      abortStream: (requestId) => anthropicService.abortAnthropicStream(requestId),
     })
   }
 
   if (!aiServicePromise) aiServicePromise = import('@/services/fileService')
   const { aiService } = await aiServicePromise
   return new OpenAIAdapter({
-    chatWithTools: async (msgs, cid, pid, tools, temperature) => {
+    chatWithTools: async (msgs, cid, pid, tools, temperature, _source, requestId) => {
       // v14.2.1: 标记子代理调用来源（token 统计区分）
-      const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature, 'subagent')
+      const result = await aiService.chatWithTools(msgs, cid, pid, tools, temperature, 'subagent', requestId)
       return {
         text: result.text,
         toolCalls: result.toolCalls?.map(tc => ({
@@ -47,8 +48,10 @@ export async function createSubagentAdapter(configId: string): Promise<ProtocolA
         finishReason: result.finishReason,
         usage: result.usage,
         reasoning_content: result.reasoning_content,
+        aborted: result.aborted === true,
       }
     },
-    abortStream: () => aiService.abortStream(),
+    // v14.6.1: per-request abort 透传（并行子代理各自精确中止，不再误杀兄弟请求）
+    abortStream: (requestId) => aiService.abortStream(requestId),
   })
 }

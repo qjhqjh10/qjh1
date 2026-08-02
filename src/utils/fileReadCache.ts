@@ -41,7 +41,9 @@ function normalizePath(raw: string): string {
   while (p.startsWith('../')) p = p.slice(3)
   // Strip trailing slash
   if (p.endsWith('/')) p = p.slice(0, -1)
-  return p
+  // v14.6.1: Windows 文件系统不区分大小写——"Chapters/1.md" 与 "chapters/1.md" 是同一文件，
+  // 缓存不折叠会让失效遗漏（AI 编辑后 GUI 命中陈旧条目）
+  return p.toLowerCase()
 }
 
 // ── Eviction ──

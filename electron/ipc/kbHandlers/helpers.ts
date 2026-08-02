@@ -4,6 +4,7 @@ import * as path from 'path'
 import { decryptKey, getOpenAI, getConfigStore, isSafePath } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logError } from '../logger'
+import { netFetch } from '../netFetch'
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge'
 
 let _projectsBasePath = ''
@@ -141,7 +142,8 @@ export interface EmbeddingResult {
 /** v14 批处理: getEmbedding 返回向量+usage（usage.jsonl 记账需要 token 数；部分兼容端点无 usage 字段 → 0） */
 export async function getEmbedding(text: string, apiUrl: string, apiKey: string, model: string): Promise<EmbeddingResult> {
   const OpenAI = await getOpenAI()
-  const client = new OpenAI({ apiKey, baseURL: apiUrl || undefined })
+  // v14.6.1: netFetch（系统代理/证书——别人电脑在代理网络下可连通）
+  const client = new OpenAI({ apiKey, baseURL: apiUrl || undefined, fetch: netFetch })
   const response = await client.embeddings.create({
     model,
     input: text,

@@ -61,7 +61,8 @@ const api = {
       ipcRenderer.invoke('ai:chat-stream', messages, configId, projectId),
     generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> =>
       ipcRenderer.invoke('ai:generateImage', prompt, configId, projectId, size, style),
-    abortStream: (): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat'); ipcRenderer.send('ai:abort-image') },
+    // v14.6.1: requestId 可选——带 id 精确中止该请求（并行子代理）；不带 = 中止全部在途请求
+    abortStream: (requestId?: string): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat', requestId); ipcRenderer.send('ai:abort-image') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
       ipcRenderer.on('ai:chat-chunk', handler)
@@ -84,8 +85,8 @@ const api = {
     },
     listModels: (configId: string, scope?: string): Promise<string[]> =>
       ipcRenderer.invoke('ai:listModels', configId, scope),
-    chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string): Promise<string> =>
-      ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools, temperature, source),
+    chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string): Promise<string> =>
+      ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools, temperature, source, requestId),
     executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>): Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>> =>
       ipcRenderer.invoke('ai:execute-file-tool', calls),
     // ── Anthropic 协议（流式 content blocks，独立通道） ──
@@ -111,10 +112,12 @@ const api = {
       temperature?: number
       /** v14.2.1: 调用来源（main/subagent/pipeline）— 供 token 统计区分 */
       source?: string
+      /** v14.6.1: 请求标识 — per-request abort（并行子代理场景精确中止） */
+      requestId?: string
     }): Promise<string> =>
       ipcRenderer.invoke('ai:anthropic-messages', params),
-    abortAnthropicStream: (): void => {
-      ipcRenderer.send('ai:abort-anthropic')
+    abortAnthropicStream: (requestId?: string): void => {
+      ipcRenderer.send('ai:abort-anthropic', requestId)
     },
     onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
@@ -144,6 +147,9 @@ const api = {
       ipcRenderer.invoke('dialog:openZip'),
   },
   app: {
+    // v14.7.0: 版本检查走主进程（渲染层 CSP 会拦截 github.com；主进程 netFetch 走系统代理）
+    checkUpdate: (): Promise<{ latestVersion: string; releaseUrl: string } | null> =>
+      ipcRenderer.invoke('app:check-update'),
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),
     getImitationProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getImitationProjectsPath'),
     getContinuationProjectDirsPath: (): Promise<string> => ipcRenderer.invoke('app:getContinuationProjectDirsPath'),

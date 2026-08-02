@@ -77,9 +77,11 @@ export async function logTokenUsage(entry: TokenUsageEntry) {
     } catch {}
   } catch (err) {
     console.error(`[stats] logTokenUsage primary failed (path: ${getStatsPath()}):`, err)
-    // Fallback: write to app root so we can debug
+    // Fallback: write to userData (v14.6.1: 原 app.getAppPath() 在打包后指向只读的 app.asar，回退必然失败)
     try {
-      const fallbackPath = path.join(app.getAppPath(), 'stats-fallback.jsonl')
+      const dir = path.join(app.getPath('userData'), 'ai-debug')
+      await fs.mkdir(dir, { recursive: true })
+      const fallbackPath = path.join(dir, 'stats-fallback.jsonl')
       await fs.appendFile(fallbackPath, JSON.stringify(entry) + '\n', 'utf-8')
       console.log(`[stats] Fallback written to ${fallbackPath}`)
     } catch (err2) {

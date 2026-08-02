@@ -33,7 +33,6 @@ export const projectTools: ToolDefinition[] = [
             callId: 'tool',
             toolName: 'create_project',
             args: { ...args, name: projName },
-            confirmed: true,
           },
         ])
         return results[0] || { status: 'error', summary: '创建失败' }
@@ -68,7 +67,6 @@ export const projectTools: ToolDefinition[] = [
             callId: 'tool',
             toolName: 'delete_project',
             args,
-            confirmed: true,
           },
         ])
         return results[0] || { status: 'error', summary: '删除失败' }

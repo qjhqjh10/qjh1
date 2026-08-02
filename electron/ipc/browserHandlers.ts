@@ -5,6 +5,7 @@
 
 import { IpcMain } from 'electron'
 import { isPrivateIP, resolvesToPrivateIP } from './ssrfGuard'
+import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
 const MAX_PAGE_SIZE = 100_000
 const PAGE_TIMEOUT = 30_000
@@ -29,7 +30,7 @@ async function fetchPage(url: string): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), PAGE_TIMEOUT)
   try {
-    const res = await fetch(url, {
+    const res = await netFetch(url, {  // v14.6.1: 系统代理/证书
       headers: { 'User-Agent': 'Mozilla/5.0 AIWritingAssistant/1.0' },
       signal: controller.signal,
     })

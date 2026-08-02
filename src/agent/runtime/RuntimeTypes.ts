@@ -41,6 +41,8 @@ export interface V4AgentRunInput {
   /** v14.5.0: 跨 run 续跑 — 上次中断的任务清单进度快照（interrupted && !allDone 时传入，
    * 新消息不含编号任务时据此恢复清单与进度，保证"未清空不接受完成"门控在续跑场景仍生效） */
   resumeTaskProgress?: TaskProgress
+  /** v14.6.1: 工具开关 — false 时本轮 tools 传空数组（模型只能纯文本对话，无法调用工具） */
+  toolsEnabled?: boolean
 }
 
 export interface V4AgentRunResult {
@@ -85,6 +87,9 @@ export interface V4AgentRunResult {
   /** v14.3.1: 运行被中断（迭代耗尽/超时/API失败/abort）且工作未完成 — 无论有无任务清单都返回；
    * 子代理据此判定"部分完成"（success 可能仍为 true，不能当作完整结果） */
   truncated?: boolean
+  /** v14.6.1: 本次 run 的推理链（DeepSeek thinking / Anthropic thinkingBlocks 累计）——
+   * 供 UI 持久化到 assistant 消息显示"思考过程"折叠面板（原面板读取恒 undefined 的死 UI） */
+  reasoningContent?: string
 }
 
 // ── v14.3: 子代理执行结果快照（跨 run 复用） ──

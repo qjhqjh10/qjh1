@@ -187,7 +187,7 @@ outline/          — 故事大纲
   emotion.yaml     情绪（YAML，segments[].chapterStart/chapterEnd/dominantEmotion + intensityCurve[]）
 characters/       — 角色卡（中文名.yaml，14字段:id/name/role/gender/age/occupation/background/appearance/personality/abilities/weaknesses/relationships/arc/importance + 可选customBlocks[]用户自定义条块）
 chapters/         — 章节正文（chapterN.txt 或 第N章.txt，Markdown，# 标题 → ## 分节）
-detailed_outline/ — 细纲（chapterN.yaml，id/title/order/plotOverview/characters/location/keyEvents/emotionCurve/writingNotes）
+detailed_outline/ — 细纲（chapterN.yaml，id/title/order/status(incomplete/completed)/plotOverview/characters/location/keyEvents/emotionCurve/writingNotes）
 summaries/        — 摘要（chapter{N}.md，## 剧情概述 / ## 关键事件 / ## 出场角色）
 
 ### 全局（../ 下）

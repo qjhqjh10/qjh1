@@ -10,6 +10,7 @@ import { IpcMain, SafeStorage } from 'electron'
 import { getConfigStore, localISOString, calculateCost } from './utils'
 import type { StoredConfig } from './utils'
 import { logTokenUsage } from './statsHandlers'
+import { netFetch } from './netFetch'
 
 // ── v11.7.0: system block 类型（与 anthropicService.ts 同步） ──
 
@@ -96,6 +97,8 @@ export function registerAnthropicHandlers(
         temperature?: number
         /** v14.2.1: 调用来源（main/subagent/pipeline）— 供 token 统计区分 */
         source?: string
+        /** v14.6.1: 请求标识 — per-request abort（并行子代理精确中止，不再单槽误杀） */
+        requestId?: string
       },
     ) => {
       // 1. 加载配置，解密 API key
@@ -111,19 +114,22 @@ export function registerAnthropicHandlers(
       const apiUrl = buildAnthropicUrl(config.apiUrl)
 
       // 2. AbortController
+      // v14.6.1: per-request abort——每个请求独立注册监听器按 requestId 精确中止；
+      // 不带 requestId 的中止（用户停止）命中该 webContents 全部在途请求
       const abortController = new AbortController()
       const wcId = event.sender.id
-      const onAbort = (ev: Electron.IpcMainEvent) => {
-        if (ev.sender.id === wcId) abortController.abort()
-      }
-      if (abortHandlers.has(wcId)) {
-        ipcMain.removeListener('ai:abort-anthropic', abortHandlers.get(wcId)!)
+      const rid = typeof params.requestId === 'string' && params.requestId
+        ? params.requestId : `req_${Date.now().toString(36)}`
+      const onAbort = (ev: Electron.IpcMainEvent, target?: string) => {
+        if (ev.sender.id !== wcId) return
+        if (target !== undefined && target !== rid) return
+        abortController.abort()
       }
       abortHandlers.set(wcId, onAbort)
       ipcMain.on('ai:abort-anthropic', onAbort)
       event.sender.once('destroyed' as any, () => {
         ipcMain.removeListener('ai:abort-anthropic', onAbort)
-        abortHandlers.delete(wcId)
+        if (abortHandlers.get(wcId) === onAbort) abortHandlers.delete(wcId)
       })
 
       let fullText = ''
@@ -212,7 +218,8 @@ export function registerAnthropicHandlers(
         }
         // ── END DEBUG ──
 
-        const response = await fetch(apiUrl, {
+        // v14.6.1: netFetch（Chromium 网络栈 = 系统代理 + 系统证书）——别人电脑在代理网络下可连通
+        const response = await netFetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

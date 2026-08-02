@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.6.0
+# AI写作软件—青剑 v14.7.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -12,7 +12,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 清单门控修复（GLOBAL_DONE_RE 裸锚点删除 + PARTIAL_DONE_RE 排除部分声明）；Anthropic 安全收窄（capabilities 接线 + toolsUsed 保留 + 子代理恒全量）
 - thinking 双协议回传；停止生成 aborted 语义；HTTP 工具 detail 保留（4000 截断）；审批 60s 超时 + WAITING_APPROVAL + broad 条件审批
 - 子代理 6 项（超时 abort/并发分片/操作记录隔离/会话池 TTL/verify 降级）；空响应角色交替；IME 防护；自动滚动；存储防抖合并；幻觉检测接线；token 条守卫；字数遵从（S_LEN）
-- 615 passed + 15 skipped（630）；对话场景 32
+- 620 passed + 15 skipped（635）；对话场景 32
 
 ### 安全与权限 (v14.4.0)
 - find_files 条件审批（approvalGate：scope=project 免审批 / computer 仍审批）+ 子代理 find_files
@@ -125,7 +125,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (615 passed + 15 skipped，共 630) |
+| `npx vitest run` | 全量单元测试 (620 passed + 15 skipped，共 635) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (238 passed + 14 skipped，共 252) |
 
 ## 32 场景对话测试

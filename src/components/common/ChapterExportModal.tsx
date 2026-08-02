@@ -35,6 +35,8 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
     return next
   })
 
+  const [exportError, setExportError] = useState('')
+
   const handleExport = async () => {
     if (exportMode === 'epub') {
       const chapters = detailedChapters
@@ -49,36 +51,47 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
         `${activeProjectName}.epub`.replace(/[<>:"/\\|?*]/g, '_'),
       )
       if (!outputPath) return
-      await exportService.exportEpub({
-        title: activeProjectName,
-        author: epubAuthor || '未知作者',
-        chapters,
-        outputPath,
-      })
+      // v14.6.1: 导出失败可见（原为 unhandled rejection，用户点了导出毫无反馈）
+      try {
+        await exportService.exportEpub({
+          title: activeProjectName,
+          author: epubAuthor || '未知作者',
+          chapters,
+          outputPath,
+        })
+      } catch (e) {
+        setExportError(e instanceof Error ? e.message : '导出失败，请重试')
+        return
+      }
       onClose()
       return
     }
 
-    if (exportMode === 'single') {
-      const first = detailedChapters.find(c => selectedIds.has(c.id))
-      if (!first) return
-      const content = exportType === 'body' ? writingChapters[first.id]?.content || '' : chapterSummaryMap[first.id] || ''
-      const outputPath = await dialogService.saveFile(`${first.title}.txt`)
-      if (!outputPath) return
-      await exportService.exportSingleChapter({ title: first.title, content, outputPath })
-    } else {
-      const outputPath = await dialogService.saveFile('小说合并导出.txt')
-      if (!outputPath) return
-      const chapters = detailedChapters
-        .filter(c => selectedIds.has(c.id))
-        .sort((a, b) => a.order - b.order)
-        .map((ch, idx) => ({
-          title: `第${idx + 1}章 ${ch.title}`,
-          content: exportType === 'body'
-            ? writingChapters[ch.id]?.content || ''
-            : chapterSummaryMap[ch.id] || '暂无摘要',
-        }))
-      await exportService.exportChapters({ chapters, outputPath, type: exportType })
+    try {
+      if (exportMode === 'single') {
+        const first = detailedChapters.find(c => selectedIds.has(c.id))
+        if (!first) return
+        const content = exportType === 'body' ? writingChapters[first.id]?.content || '' : chapterSummaryMap[first.id] || ''
+        const outputPath = await dialogService.saveFile(`${first.title}.txt`)
+        if (!outputPath) return
+        await exportService.exportSingleChapter({ title: first.title, content, outputPath })
+      } else {
+        const outputPath = await dialogService.saveFile('小说合并导出.txt')
+        if (!outputPath) return
+        const chapters = detailedChapters
+          .filter(c => selectedIds.has(c.id))
+          .sort((a, b) => a.order - b.order)
+          .map((ch, idx) => ({
+            title: `第${idx + 1}章 ${ch.title}`,
+            content: exportType === 'body'
+              ? writingChapters[ch.id]?.content || ''
+              : chapterSummaryMap[ch.id] || '暂无摘要',
+          }))
+        await exportService.exportChapters({ chapters, outputPath, type: exportType })
+      }
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : '导出失败，请重试')
+      return
     }
     onClose()
   }
@@ -185,6 +198,15 @@ export function ChapterExportModal({ isOpen, onClose, projectPath }: Props) {
           ))}
         </div>
       </div>
+      {exportError && (
+        <div style={{
+          marginTop: 12, padding: '10px 14px', borderRadius: 10,
+          background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)',
+          fontSize: 12, color: '#b91c1c',
+        }}>
+          {exportError}
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0ece8' }}>
         <Button variant="secondary" onClick={onClose}>取消</Button>
         <Button onClick={handleExport} disabled={selectedIds.size === 0}>

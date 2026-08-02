@@ -50,8 +50,13 @@ export function detectHallucination(text: string, toolsCalled: Set<string>): str
     { pattern: /(?:已经|已).{0,10}(追加|写入)/, tools: ['edit_file', 'create_file', 'kb_append_file'], label: '追加/写入' },
   ]
 
+  // v14.6.1: 否定/存在语境排除——"文件已存在，无需创建""无法写入""未能保存"等
+  // 命中"已…创建/写入"正则但并非声称已执行操作，原实现会误报幻觉
+  const NEGATION_RE = /无需|不用|不需要|不能|无法|没能|未能|失败|不成功|未成功|已存在|已经存在|已有了|已经有了|不存在|无法保存/
+
   for (const check of checks) {
     if (check.pattern.test(text)) {
+      if (NEGATION_RE.test(text)) continue
       const hasTool = check.tools.some(t => toolsCalled.has(t))
       if (!hasTool) {
         return `[系统提示] AI回复中声称"${check.label}"操作，但在本轮对话中未实际调用对应工具。以下内容可能不准确，建议要求AI重新执行并确认工具调用结果。`
@@ -63,10 +68,14 @@ export function detectHallucination(text: string, toolsCalled: Set<string>): str
 
 /**
  * v14.2.0: 跨 run 续跑注入 — 检测对话最后一条 assistant 消息携带的"中断未完成"任务清单，
- * 生成 [续跑] system 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
+ * 生成 [续跑] 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
  * 条件: taskProgress 存在 && !allDone（未全部完成）&& interrupted（中断/超时/迭代耗尽/API失败）。
  * 正常完成（allDone=true）或无任务清单 → 原样返回 history，不注入。
  * 纯函数不改入参，便于单测。
+ * v14.6.1: role 从 system 改为 user——Anthropic 协议把所有 system 提到顶层参数，
+ * 续跑指令离用户消息远、权重低；且每次快照变化都使 system 缓存断点失效。
+ * 改为 user 后留在消息序列中紧邻新用户消息（Anthropic 由 adapter 连续 user 合并逻辑并入同轮），
+ * 指令权重最大 + system 前缀稳定（缓存断点恢复有效）。
  */
 export function maybeInjectResume(
   history: Array<{ role: string; content: string }>,
@@ -81,16 +90,18 @@ export function maybeInjectResume(
   const doneList = tp.tasks.filter(t => t.done).map(t => `${t.id})${t.desc}`).join('；')
   const remainingList = tp.tasks.filter(t => !t.done).map(t => `${t.id})${t.desc}`).join('；')
   const content = `[续跑] 上一轮运行中断于任务 ${doneCount}/${total}，任务未全部完成。已完成: ${doneList || '无'}。剩余: ${remainingList}。请直接继续完成剩余任务，不要重新开始或重复已完成的工作。全部完成后明确说"全部完成"。`
-  return [...history, { role: 'system', content }]
+  return [...history, { role: 'user', content }]
 }
 
 /**
  * v14.3: 子代理快照注入 — 检测对话中最后一条携带 subagentSummaries 的 assistant 消息，
- * 生成 [子代理快照] system 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
+ * 生成 [子代理快照] 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
  * 目的：子代理的分析/修改/验收结论跨 run 复用——主代理不必重新委托即可引用上次结果。
  * 反向扫描（最后一条纯聊天的 assistant 不拦截其之前有快照的消息）；
  * 最多注入 opts.maxEntries 条（默认 3），每条 detail 截 opts.detailChars（默认 800）。
  * 纯函数不改入参，便于单测。
+ * v14.6.1: role 从 system 改为 user（同 maybeInjectResume——Anthropic 顶层 system 远端
+ * + 快照文本变化破坏缓存断点；user 注入由 adapter 连续 user 合并逻辑并入新消息轮）。
  */
 export function maybeInjectSubagentSummaries(
   history: Array<{ role: string; content: string }>,
@@ -109,7 +120,7 @@ export function maybeInjectSubagentSummaries(
     return `${i + 1}. [${s.tool}] ${s.filePath || '(无路径)'} — ${statusMark} ${s.summary || ''}${detail ? `\n   ${detail}` : ''}`
   })
   const content = `[子代理快照] 上次委托子代理的结果（信息为当时快照，文件可能已修改；需要最新内容请重新委托分析）:\n${lines.join('\n')}`
-  return [...history, { role: 'system', content }]
+  return [...history, { role: 'user', content }]
 }
 
 // ═══ v14.5.1: 从 AIChatWindow/index.tsx 抽取为纯函数（可单测）═══

@@ -51,7 +51,9 @@ const GLOBAL_DONE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任
 // v14.5.0: 部分进度声明检测（与 updateTaskProgressFromText 语义对齐）——
 // "第N项(…12字内)完成" / "任务X/Y" / "已完成N/N" / "已完成N项"。
 // 清单模式完成判定中，部分声明命中即排除全局声明（宁可多提示一轮，不漏放）。
-const PARTIAL_DONE_RE = /第\s*\d+\s*(?:项|个|步|件事?)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*\d+\s*(?:项|[\/／、和及~至\-—]+\s*\d+)/
+// v14.6.1: 补汉字数字与 章/篇/部分/部 量词——"第2章都完成了""前三项都完成了"此前不命中
+// PARTIAL（GLOBAL 的 `都.*完成` 命中 → 清单门控被确定性绕过，与 v14.5.0 修复的"部分声明"同族）
+const PARTIAL_DONE_RE = /第\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)(?!情况|了[吗么]|没有)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|章|篇|部分)/
 // 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
 // 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
 const CONTINUATION_RE = /接下来|下一步|下面|继续|我先|剩余|还有.{0,8}(?:任务|项|要做|需要做)/
@@ -144,6 +146,8 @@ export class V4UnifiedRuntime {
   private subagentSummaries: SubagentSummary[] = []  // v14.3: 子代理执行快照收集（随 run 结果返回）
   private _verifyFailed = false               // v14.3: 最近一次验收判定未通过（完成声明闸门依据）
   private _verifyFailedRounds = 0             // v14.3: 验收未通过轮数（每轮至多 +1；超过 MAX_VERIFY_FAIL_ROUNDS 放行）
+  private _cleanExit = false                  // v14.6.1: 正常收尾标记（完成/提问/纯聊天 break 前置位）——防"迭代触顶"误标 interrupted
+  private _dupReadHintInjected = false        // v14.6.1: 重复读取提醒每 run 只注入一次（原每工具轮重复注入）
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -186,6 +190,8 @@ export class V4UnifiedRuntime {
   /** 从模型文本解析进度声明（"已完成 3/6" / "已完成 4 项" / "第 5 项完成" / "任务 2/3 完成"） */
   private updateTaskProgressFromText(text: string): void {
     if (!this.taskList) return
+    // v14.6.1: "检查/确认/核实第N项完成情况"是请求核查而非完成声明——误置位会跳过剩余任务 nudge
+    if (/(?:检查|确认|核实|查看|看看).{0,10}(?:第\s*\d+|任务)/.test(text)) return
     let m: RegExpMatchArray | null
     if ((m = text.match(/已(?:经)?完成\s*(\d+)\s*[\/／、和及~至\-—]+\s*(\d+)/))) {
       this.setTaskDoneCount(parseInt(m[1], 10))
@@ -263,6 +269,13 @@ export class V4UnifiedRuntime {
     const store = isolated ? null : useAgentStore.getState()
     const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const runStartTime = Date.now()
+    // v14.6.1: 工具开关 — 关闭时本轮 tools 传空（模型只能纯文本对话）
+    if (input.toolsEnabled === false) {
+      this.tools = []
+    } else if (this.tools.length === 0 && this.fullTools.length > 0) {
+      // 上一轮关闭开关后恢复开启 → 恢复全量工具
+      this.tools = this.fullTools
+    }
 
     if (this.config.maxIterations < 1) {
       this.config.maxIterations = 30
@@ -302,6 +315,7 @@ export class V4UnifiedRuntime {
     let totalCost = 0            // v11.5.1: track cost
     let toolCallsCount = 0
     let collectedText = ''
+    let collectedReasoning = ''  // v14.6.1: 本轮推理链累计（UI 思考过程面板数据源）
     this.toolsUsed = []
     this.toolCallSteps = []
     this._nudgeCount = 0      // reset per run
@@ -309,6 +323,8 @@ export class V4UnifiedRuntime {
     this.subagentSummaries = []  // v14.3: reset per run
     this._verifyFailed = false   // v14.3: reset per run
     this._verifyFailedRounds = 0 // v14.3: reset per run
+    this._cleanExit = false      // v14.6.1: reset per run
+    this._dupReadHintInjected = false  // v14.6.1: reset per run
     this._discoveredToolNames = new Set()  // v13.2.0: reset per run
     this._consecutiveFailures = 0
     this._consecutivePathErrors = 0
@@ -347,10 +363,15 @@ export class V4UnifiedRuntime {
       ? `[参考信息]\n${contextResult.searchContext}\n\n[用户消息]\n${input.userMessage}`
       : input.userMessage
 
+    // v14.6.1: 续跑场景不注入 [任务边界]——UI 已注入 "[续跑] 请直接继续完成剩余任务"，
+    // 两条指令语义相反（边界说"不要继续"，续跑说"继续"），同场会互相抵消且可能让模型放弃续跑。
+    // v14.6.1: [续跑] 现为 user role 注入（Anthropic 顶层 system 远端问题），按内容前缀检测
+    const hasResumeHint = cleanedHistory.some(m =>
+      typeof m.content === 'string' && m.content.startsWith('[续跑]'))
     this.messagesForApi = [
       ...contextResult.systemMessages,
       ...cleanedHistory,
-      ...(cleanedHistory.length > 0
+      ...(cleanedHistory.length > 0 && !hasResumeHint
         ? [{ role: 'system' as const, content: '[任务边界] 以上是之前的对话历史，下面是用户的新请求。你可以参考历史中的信息（如已读取的文件内容、已创建的角色设定），但不要自动继续之前未完成的工具操作——只响应当前的新请求。' }]
         : []),
       { role: 'user', content: userContent },
@@ -599,6 +620,7 @@ export class V4UnifiedRuntime {
               })
               continue
             }
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问），迭代触顶不再误标 interrupted
             this.emitter.emit('response:streaming', {
               text: collectedText, accumulated: collectedText, timestamp: Date.now(),
             })
@@ -606,6 +628,7 @@ export class V4UnifiedRuntime {
           }
           // 向用户提问 → 不干预（等用户回答），防止"要继续吗？"被 nudge 死循环
           if (/[？?]/.test(collectedText)) {
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问），迭代触顶不再误标 interrupted
             this.emitter.emit('response:streaming', {
               text: collectedText, accumulated: collectedText, timestamp: Date.now(),
             })
@@ -629,6 +652,7 @@ export class V4UnifiedRuntime {
         // v14.5.1: 声明"完成"但同时有继续性文本（"已完成第1章，接下来写第2章"）→ 非收尾，
         // 落入下方③继续性检测（v14.1.0 只修了清单模式，无清单路径原会提前 break 丢失剩余工作）
         if (completionDeclared && !CONTINUATION_RE.test(collectedText) && (_hasWriteCall || !this._userRequestedFileOp)) {
+          this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -647,6 +671,7 @@ export class V4UnifiedRuntime {
         // v14.1.1: 修复"检查第3章/看看大纲"类请求读完文件输出短分析被自愈阶梯误 nudge 的问题
         //（旧逻辑仅长文本(>200字)会被接受，短分析会进入"未完成"nudge 循环）
         if (!this._userRequestedFileOp && this.toolsUsed.length > 0 && !_hasWriteCall) {
+          this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -658,6 +683,7 @@ export class V4UnifiedRuntime {
         // 之前这里直接 break，导致模型说"全部完成"但没调任何工具也被接受
         if (this.toolsUsed.length === 0 && !this._userRequestedFileOp) {
           // 纯聊天 → 接受模型的选择
+          this._cleanExit = true  // v14.6.1: 正常收尾
           break
         }
         if (this.toolsUsed.length === 0 && this._userRequestedFileOp) {
@@ -691,6 +717,7 @@ export class V4UnifiedRuntime {
           // v14.1.0: 写过后长文本不再直接 break——落入下方③继续性检测判断
           // 非文件操作的长文本（分析/讨论）→ 收尾接受（保持原行为）
           if (!this._userRequestedFileOp) {
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问），迭代触顶不再误标 interrupted
             this.emitter.emit('response:streaming', {
               text: collectedText, accumulated: collectedText, timestamp: Date.now(),
             })
@@ -703,6 +730,7 @@ export class V4UnifiedRuntime {
         if (_hasWriteCall) {
           // 向用户提问 → 不干预（等用户回答）
           if (/[？?]/.test(collectedText)) {
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问），迭代触顶不再误标 interrupted
             this.emitter.emit('response:streaming', {
               text: collectedText, accumulated: collectedText, timestamp: Date.now(),
             })
@@ -717,6 +745,7 @@ export class V4UnifiedRuntime {
             continue
           }
           // 写过后普通文本 = 收尾 → 接受（与旧 `if (_hasWriteCall) break` 行为等价）
+          this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -728,6 +757,7 @@ export class V4UnifiedRuntime {
 
         // 向用户提问 → 不干预（等用户回答）
         if (/[？?]/.test(collectedText)) {
+          this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
           this.emitter.emit('response:streaming', {
             text: collectedText, accumulated: collectedText, timestamp: Date.now(),
           })
@@ -807,7 +837,10 @@ export class V4UnifiedRuntime {
         // 多轮工具调用时模型可见自己的推理链）
         reasoning_content: response.reasoningContent,
       } as Message
-      if (response.reasoningContent) store?.setStreamingText(response.reasoningContent)
+      if (response.reasoningContent) {
+        store?.setStreamingText(response.reasoningContent)
+        collectedReasoning += (collectedReasoning ? '\n\n' : '') + response.reasoningContent
+      }
       this.messagesForApi.push(assistantMsg)
 
       // Execute tools: reads parallel, writes sequential
@@ -870,9 +903,17 @@ export class V4UnifiedRuntime {
         if (this.config.abortSignal.aborted) break
         await executeSingleTool(tc, execCtx)
       }
-      if (writeCalls.length > 0) _hasWriteCall = true  // v12.15.0: 工具执行路径中提前标记
-      // v15: 子 agent 委托完成文件操作（edit_file_task）也视为"已写"
-      if (serialReads.some(tc => SUBAGENT_WRITE_TOOLS.has(tc.name))) _hasWriteCall = true
+      // v14.6.1: _hasWriteCall 按"本轮写工具实际成功"置位——原只看是否发起调用，
+      // 写工具全部失败后模型说"完成"仍能过完成闸门（幻觉完成防不住）
+      if (writeCalls.length > 0 && writeCalls.some(tc =>
+        this.toolCallSteps.some(s => s.tool === tc.name && s.iteration === iteration && s.status === 'success'))) {
+        _hasWriteCall = true
+      }
+      // v15: 子 agent 委托完成文件操作（edit_file_task）也视为"已写"（同样要求成功）
+      if (serialReads.some(tc => SUBAGENT_WRITE_TOOLS.has(tc.name) &&
+        this.toolCallSteps.some(s => s.tool === tc.name && s.iteration === iteration && s.status === 'success'))) {
+        _hasWriteCall = true
+      }
       // v14.3.1: 截断 + 工具调用轮 → 继续消息插在工具结果之后（tool 结果已 push，顺序合法），
       // 引导模型继续完成剩余工作
       if (wasTruncated) {
@@ -985,7 +1026,8 @@ export class V4UnifiedRuntime {
         .map(s => { try { return JSON.parse(s.arguments || '{}').file_path || JSON.parse(s.arguments || '{}').dir_path } catch { return '' } })
         .filter(Boolean)
       const dupReads = readFilePaths.filter((p, i) => readFilePaths.indexOf(p) !== i)
-      if (dupReads.length > 0 && this._userRequestedFileOp && !_hasWriteCall) {
+      // v14.6.1: 每 run 只注入一次（原每工具轮重复 push 相同提醒，长 run 累积几十条）
+      if (dupReads.length > 0 && this._userRequestedFileOp && !_hasWriteCall && !this._dupReadHintInjected) {
         const dupSet = [...new Set(dupReads)].join('、')
         this.messagesForApi.push({
           role: 'user',
@@ -993,6 +1035,7 @@ export class V4UnifiedRuntime {
           // "直接引用历史"可能要求模型引用已不存在的内容；明确区分两种情形
           content: `已重复读取: ${dupSet}。若对话历史中该文件内容仍然完整（未被压缩清理），直接引用不要重复读取；若历史已被压缩丢失细节，重新读取是必要的。读取后请用 create_file 或 edit_file 写入产物。`,
         })
+        this._dupReadHintInjected = true
       }
     }
 
@@ -1000,7 +1043,9 @@ export class V4UnifiedRuntime {
     // 正常 break 的完成/提问路径不会走到这里（清单完成即 break，interrupted 保持 false）
     // v14.3.1: 无任务清单时同样标记（子代理场景——迭代触顶 = 部分完成，防"假成功"：
     // 此前子代理 6 轮耗尽 success 仍为 true，主代理把不完整结果当完成）
-    if (iteration >= this.config.maxIterations) {
+    // v14.6.1: _cleanExit 排除——模型恰好在最后一轮完成/提问/收尾时不再误标 interrupted
+    // （原实现把"第 10 轮正常完成"的子代理判为 truncated → 主代理重复委托，多付一次费用）
+    if (iteration >= this.config.maxIterations && !this._cleanExit) {
       interrupted = true
     }
 
@@ -1066,6 +1111,8 @@ export class V4UnifiedRuntime {
       // v14.3.1: 中断标记（迭代耗尽/超时/API失败/abort）— 无论有无任务清单都返回；
       // 子代理据此判定"部分完成"（success 仍可能为 true）
       ...(interrupted ? { truncated: true } : {}),
+      // v14.6.1: 本轮推理链（UI 思考过程面板数据源）
+      ...(collectedReasoning ? { reasoningContent: collectedReasoning } : {}),
     }
   }
 }

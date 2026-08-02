@@ -51,14 +51,15 @@ export interface StreamUsage { prompt_tokens: number; completion_tokens: number;
 export interface AIAPI {
   chat: (messages: { role: string; content: string }[], configId: string, projectId?: string) => Promise<string>
   chatStream: (messages: { role: string; content: string }[], configId: string, projectId?: string) => Promise<void>
-  abortStream: () => void
+  /** v14.6.1: requestId 可选 — 带 id 精确中止该请求（并行子代理），不带 = 中止全部 */
+  abortStream: (requestId?: string) => void
   onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void
   onChatDone: (callback: (data: { text: string; usage?: StreamUsage }) => void) => () => void
   onChatError: (callback: (data: { message: string }) => void) => () => void
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
   listModels: (configId: string, scope?: string) => Promise<string[]>
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
-  chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string) => Promise<string>
+  chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>
   executeFileTools: (calls: Array<{ callId: string; toolName: string; args: Record<string, unknown> }>) => Promise<Array<{ callId: string; toolName: string; status: string; summary: string; detail?: string }>>
   // ── Anthropic 协议 ──
   chatAnthropicStream: (params: {
@@ -82,8 +83,11 @@ export interface AIAPI {
     temperature?: number
     /** v14.2.1: 调用来源（main/subagent/pipeline）— 供 token 统计区分 */
     source?: string
+    /** v14.6.1: 请求标识 — per-request abort（并行子代理精确中止） */
+    requestId?: string
   }) => Promise<string>
-  abortAnthropicStream: () => void
+  /** v14.6.1: requestId 可选 — 带 id 精确中止该请求，不带 = 中止全部 */
+  abortAnthropicStream: (requestId?: string) => void
   onAnthropicChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void
   // M3: onAnthropicDone/onAnthropicError 已删除——usage/cost/error 全部随 invoke 返回值下发
 }
@@ -95,6 +99,8 @@ export interface DialogAPI {
 }
 
 export interface AppAPI {
+  /** v14.7.0: 版本检查（主进程 netFetch，渲染层 CSP 放行不了 github.com） */
+  checkUpdate: () => Promise<{ latestVersion: string; releaseUrl: string } | null>
   getProjectsBasePath: () => Promise<string>
   getImitationProjectsPath: () => Promise<string>
   getContinuationProjectDirsPath: () => Promise<string>

@@ -3,6 +3,8 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as chokidar from 'chokidar'
 import { isPrivateIP, resolvesToPrivateIP } from './ssrfGuard'
+import { isBlockedSystemPath } from './pathResolution'
+import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
 const pendingSaves = new Map<string, boolean>()
 let onFileWrite: ((filePath: string, content: string) => void) | null = null
@@ -54,10 +56,8 @@ export async function validateRemoteImageUrl(url: string): Promise<boolean> {
 }
 
 // ── System-critical directories (NEVER accessible — hard block) ──
-const SYSTEM_BLOCKED = [
-  'c:\\windows', 'c:\\system32', 'c:\\windows\\system32',
-  '/dev/', '/etc/', '/usr/', '/bin/', '/sys/', '/proc/', '/boot/',
-]
+// v14.6.1: 统一到 pathResolution.isBlockedSystemPath（任意盘符 + POSIX），
+// 原 SYSTEM_BLOCKED 仅拦 C: 盘——分享给他人时其 Windows 可能装在 D:/E: 盘。
 
 // ── App-internal write-protected dirs (read OK, write forbidden) ──
 const WRITE_PROTECTED_DIRS = ['node_modules', '.git', 'dist', 'release', '.git/']
@@ -87,11 +87,7 @@ export function registerFileHandlers(
 
   /** Check if a path is in a system-critical directory */
   function isSystemBlocked(resolved: string): boolean {
-    const lowered = resolved.toLowerCase()
-    for (const blocked of SYSTEM_BLOCKED) {
-      if (lowered.startsWith(blocked)) return true
-    }
-    return false
+    return isBlockedSystemPath(resolved)
   }
 
   /** Unified path resolution: app-relative → absolute, or absolute path as-is.
@@ -213,7 +209,7 @@ export function registerFileHandlers(
           // 超时覆盖 fetch 头 + 整个响应体读取（防"头秒回、体无限慢"挂死 IPC）
           const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT)
           try {
-            const res = await fetch(currentUrl, { redirect: 'manual', signal: controller.signal })
+            const res = await netFetch(currentUrl, { redirect: 'manual', signal: controller.signal })  // v14.6.1: 系统代理/证书
             if (res.status >= 300 && res.status < 400) {
               await res.body?.cancel().catch(() => {})
               if (hop === MAX_REDIRECTS) throw new Error('Too many redirects')

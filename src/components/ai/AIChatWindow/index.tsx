@@ -521,7 +521,9 @@ export default function AIChatWindow() {
         try {
           await fileService.ensureDir(`${base}/uploads/files`)
           await fileService.write(filePath, attachment.content)
-          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 ../../uploads/files/${attachment.name}。请用 read_file("../../uploads/files/${attachment.name}") 读取内容后分析。`
+          // v14.6.1: 路径修正——文件在 appRoot/uploads/files，主进程以 projectsPath 为基准
+          // 解析，`../../` 多上一级 → AI 读取必然失败；`../` 恰好 appRoot 一级
+          attachText = `[上传文件: ${attachment.name}]\n文件已保存到 ../uploads/files/${attachment.name}。请用 read_file("../uploads/files/${attachment.name}") 读取内容后分析。`
         } catch {
           attachText = `[上传文件: ${attachment.name}]\n${attachment.content.slice(0, 3000)}`
         }
@@ -558,7 +560,10 @@ export default function AIChatWindow() {
     }
 
     const capturedInputLength = input.trim().length
-    const pasteRef = pasteClipPath ? `[粘贴文本已保存: ../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}。要精准修改内容，使用 read_file("../../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}") 读取后用 edit_file 替换。]\n\n` : ''
+    // v14.6.1: 路径修正——文件实际在 appRoot/uploads/clips（projects 上一级），
+    // 主进程以 projectsPath 为基准解析，`../../` 会多上一级到 appRoot 的父目录 →
+    // AI 按提示 read_file 必然"文件不存在"。`../` 恰好一级。
+    const pasteRef = pasteClipPath ? `[粘贴文本已保存: ../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}。要精准修改内容，使用 read_file("../uploads/clips/${pasteClipPath.replace(/\\/g, '/').split('/').pop()}") 读取后用 edit_file 替换。]\n\n` : ''
     const fullContent = isRetry ? `${attachText || ''}${pasteRef}${pendingCorrection.current!}` : `${attachText || ''}${pasteRef}${input.trim()}`
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
@@ -620,6 +625,8 @@ export default function AIChatWindow() {
       const result = await bridgeRef.current.sendMessage(fullContent, {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
         resumeTaskProgress: lastProgressMsg?.taskProgress,
+        // v14.6.1: 工具开关接通（此前只驱动按钮样式，从未传给 bridge——死开关）
+        toolsEnabled: toolInvokeEnabled,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           // Parse popup commands from AI response (【打开草稿】, 【生成本章】, etc.)
@@ -694,6 +701,8 @@ export default function AIChatWindow() {
             // 下轮 maybeInjectSubagentSummaries 注入 [子代理快照] 供跨 run 复用。
             // 持久化截断：只保留最近 5 条（防 IndexedDB/镜像膨胀）
             subagentSummaries: (runResult as any).subagentSummaries?.slice(-5),
+            // v14.6.1: 推理链持久化（"思考过程"折叠面板数据源——原从未写入，面板恒不显示）
+            reasoningContent: (runResult as any).reasoningContent,
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -915,11 +924,13 @@ export default function AIChatWindow() {
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
             <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label="联网搜索" active={webSearchEnabled} onClick={() => setWebSearchEnabled(!webSearchEnabled)} />
+            {/* v14.6.1: 工具开关接通双协议——原 Anthropic 协议下按钮被禁用（行为恒开），
+                且开关状态从未传给 bridge（死开关）；现在 sendMessage 透传 toolsEnabled 真正门控 */}
             <ToggleButton
               icon={<span style={{ fontSize: 12 }}>🔧</span>}
               label={`调用工具${conversationToolNames.current.size > 0 ? ` · ${conversationToolNames.current.size}` : ''}`}
-              active={toolInvokeEnabled && (activeConfig as any)?.protocol !== 'anthropic'}
-              onClick={() => { if ((activeConfig as any)?.protocol !== 'anthropic') setToolInvokeEnabled(!toolInvokeEnabled) }}
+              active={toolInvokeEnabled}
+              onClick={() => setToolInvokeEnabled(!toolInvokeEnabled)}
             />
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
