@@ -1,7 +1,25 @@
 {
-  "currentVersion": "14.9.0",
-  "currentDate": "2026-08-02",
+  "currentVersion": "15.0.0",
+  "currentDate": "2026-08-03",
   "history": [
+    {
+      "version": "15.0.0",
+      "date": "2026-08-03",
+      "features": [
+        "绿色便携数据布局: dev 与打包版运行数据全部跟随软件位置（dev: 源码文件夹/userdata/；portable: exe 旁/userdata/）——projects/notes/knowledge_base/对话 IndexedDB/设置/会话等不再写入 C 盘 AppData；例外: 用户经 AI 写作助手明确指令的路径（全自由模式）仍可写软件外任意非系统目录；dev 对话数据已从 %APPDATA% 迁移到软件文件夹（IndexedDB 6.1M/config.json/agent-sessions 等）",
+        "版本更新改为在线文档: GitHub 网络受限 git 更新不可用——移除检查更新 IPC 链（main/preload/electron.d.ts），设置页「版本更新」按钮弹窗说明并跳转腾讯在线文档查看下载网盘链接（确定/取消/叉叉）；git 更新源地址删除",
+        "备份软约束: .ai_backups 由硬拒绝改为软约束——读工具放行（支持『读备份→写原件』恢复流程）、写工具返回引导性错误（不修改备份文件本身）、系统提示明确备份标识语义；备份保留份数 10→3（每文件最近 3 份）；delete_file 描述修正",
+        "AI 写作助手弹窗 UI 重构: 灰色工具条改白色柔和底+胶囊形开关、输入区改白色圆角卡片+圆形渐变发送按钮+圆点拖拽手柄、标题栏图标圆底+副文案；诊断面板移到用量条下方+工具条开关控制显隐（默认隐藏）；「就绪·输入消息开始」提示移除；区域分隔线加深",
+        "Agent 复杂任务测试脚本 test-ai-agent.mjs: 9 个复杂场景（细纲流水线/子代理全链路验收/搜索批量删除/跨run续跑/知识库Agentic RAG/重命名JSON修复/角色扮演创作/渐进披露联网KB维护/项目管理备份恢复大文件）替代旧 32 简单场景脚本；mock 与主进程行为对齐（备份软约束/kb 真实检索/delete_project 路径护栏）；新增 fileNotContains/fileAbsent/jsonValid 断言"
+      ],
+      "fixes": [
+        "测试脚本 SSE 解析修复: text.split('data:') 将 JSON 与下一事件名行粘连导致 JSON.parse 全失败（API 空响应）——重写为与主进程一致的按行解析（index 匹配块/input_json 累积/content_block_stop 收集 tool_use）",
+        "delete_project mock 安全护栏: 空名/根路径/隐藏目录拒绝（此前 resolve(projects/,'')=projects 根导致递归删除整个 projects/，用户项目误删事故）",
+        "kb.search mock 缺失修复: kb_search 工具 executor 走 e().kb.search——mock 补真实全文检索（此前『kb_search 接口异常』）",
+        "打包安全: .gitignore 补 userdata//imitation_projects//rewrite_templates//scripts/test-*.mjs；packaging-rules 记忆更新（新数据布局+5列黑名单+审查清单）；packaging 安全测试 10 项全过",
+        "测试: 655 passed + 15 skipped（670）；tsc 0 错误"
+      ]
+    },
     {
       "version": "14.9.0",
       "date": "2026-08-02",

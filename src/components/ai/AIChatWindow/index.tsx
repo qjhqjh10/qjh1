@@ -55,15 +55,19 @@ function actionBtnStyle(color: string): React.CSSProperties {
   }
 }
 
+// v14.9.x(UI): 胶囊形开关——激活态紫色柔和填充+描边，常态透明暖灰，hover 浅灰底
 const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8,
-      border: active ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)',
-      background: active ? 'rgba(124,58,237,0.06)' : 'transparent',
-      color: active ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: active ? 600 : 400,
-      cursor: 'pointer', transition: 'all 0.1s ease',
-    }}>
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 999,
+      border: active ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)',
+      background: active ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)',
+      color: active ? '#7c3aed' : '#6b5e54', fontSize: 11.5, fontWeight: active ? 600 : 500,
+      cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap', fontFamily: 'inherit',
+    }}
+      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)' }}
+      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.7)' }}
+    >
       {icon} {label}
     </button>
   )
@@ -184,6 +188,8 @@ export default function AIChatWindow() {
   }
 
   const [showAtRef, setShowAtRef] = useState(false)
+  // v14.9.x(UI): 诊断面板默认隐藏，由工具条"诊断面板"按钮控制显隐
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [atRefFilter, setAtRefFilter] = useState('')
   const [atRefFiles, setAtRefFiles] = useState<{ id: string; name: string }[]>([])
   const [selectedRefs, setSelectedRefs] = useState<{ id: string; name: string }[]>([])
@@ -874,33 +880,43 @@ export default function AIChatWindow() {
             display: 'flex', flexDirection: 'column', zIndex: 101, overflow: 'hidden',
           }}
         >
-          {/* Header (draggable) */}
+          {/* Header (draggable) — v14.9.x(UI): 图标置于柔和紫色圆底，关闭按钮圆角+hover */}
           <div
             onMouseDown={handleDragStart}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 18px', borderBottom: '1px solid rgba(0,0,0,0.06)', cursor: 'grab' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(0,0,0,0.05)', cursor: 'grab', userSelect: 'none' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <SparklesIcon style={{ width: 20, height: 20, color: '#7c3aed' }} />
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520' }}>AI写作助手</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 10, background: 'rgba(124,58,237,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <SparklesIcon style={{ width: 17, height: 17, color: '#7c3aed' }} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#2d2520', margin: 0 }}>AI写作助手</h3>
+                <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 1 }}>可拖拽移动 · 拖动边缘调整大小</div>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <button onClick={() => setAIChatOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9b8e84', display: 'flex' }}>
-                <XMarkIcon style={{ width: 18, height: 18 }} />
-              </button>
-            </div>
+            <button
+              onClick={() => setAIChatOpen(false)}
+              title="关闭"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, color: '#9b8e84', display: 'flex', borderRadius: 8, transition: 'all 0.15s ease' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.05)'; (e.currentTarget as HTMLElement).style.color = '#2d2520' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#9b8e84' }}
+            >
+              <XMarkIcon style={{ width: 18, height: 18 }} />
+            </button>
           </div>
 
-          {/* Conversation management */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.1)' }}>
+          {/* Conversation management — v14.9.x(UI): 灰底改白色细分隔；v14.9.x: 分隔线加深区分区域 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.09)', background: 'rgba(255,255,255,0.85)' }}>
             {/* Conversation selector */}
             <div style={{ flex: 1, position: 'relative' }}>
               <button onClick={() => setShowConvList(!showConvList)} style={{
-                width: '100%', textAlign: 'left', padding: '4px 10px', borderRadius: 8,
-                border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
-                fontSize: 11, color: '#2d2520', cursor: 'pointer',
+                width: '100%', textAlign: 'left', padding: '6px 12px', borderRadius: 10,
+                border: '1px solid rgba(0,0,0,0.07)', background: 'rgba(255,255,255,0.9)',
+                fontSize: 11.5, color: '#2d2520', cursor: 'pointer', fontFamily: 'inherit',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                transition: 'border-color 0.15s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
               }}>
-                {activeConversation.title} <span style={{ color: '#9b8e84', fontSize: 9 }}>({messages.length}条)</span>
+                {activeConversation.title} <span style={{ color: '#9b8e84', fontSize: 9.5 }}>({messages.length}条)</span>
               </button>
               {showConvList && (
                 <div
@@ -943,17 +959,17 @@ export default function AIChatWindow() {
             </button>
           </div>
 
-          {/* Source toggles */}
-          <div style={{ display: 'flex', gap: 6, padding: '8px 18px', borderBottom: '1px solid rgba(0,0,0,0.04)', background: 'rgba(0,0,0,0.1)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Source toggles — v14.9.x(UI): 灰底改白色柔和底，与上方会话条同组视觉；v14.9.x: 分隔线加深 */}
+          <div style={{ display: 'flex', gap: 6, padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.09)', background: 'rgba(255,255,255,0.85)', flexWrap: 'wrap', alignItems: 'center' }}>
             <ToggleButton icon={<BookOpenIcon style={{ width: 12, height: 12 }} />} label="知识库" active={kbEnabled} onClick={() => setKbEnabled(!kbEnabled)} />
             {kbEnabled && (
               <div style={{ position: 'relative' }}>
                 <button onClick={() => { loadKBFileList(); setShowKBFileList(!showKBFileList) }} title="选择知识库文件" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8,
-                  border: hasKbFileSelection ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.06)',
-                  background: hasKbFileSelection ? 'rgba(124,58,237,0.04)' : '#fff',
-                  color: hasKbFileSelection ? '#7c3aed' : '#9b8e84', fontSize: 11, fontWeight: hasKbFileSelection ? 600 : 400,
-                  cursor: 'pointer', fontFamily: 'inherit',
+                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999,
+                  border: hasKbFileSelection ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)',
+                  background: hasKbFileSelection ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)',
+                  color: hasKbFileSelection ? '#7c3aed' : '#6b5e54', fontSize: 11.5, fontWeight: hasKbFileSelection ? 600 : 500,
+                  cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease',
                 }}>
                   <ListBulletIcon style={{ width: 11, height: 11 }} />
                   文件 {isKbAll ? '(全部)' : hasKbFileSelection ? `(${selectedFileIds.length})` : ''}
@@ -975,7 +991,7 @@ export default function AIChatWindow() {
               </div>
             )}
             {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 4px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff' }}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 6px', borderRadius: 999, border: '1px solid rgba(0,0,0,0.07)', background: 'rgba(255,255,255,0.7)' }}
               title={`温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 越高回复越随机/有创意，越低越确定/保守`}>
               <button onClick={async () => {
                 if (!activeConfig) return
@@ -1009,9 +1025,9 @@ export default function AIChatWindow() {
               onClick={() => setToolInvokeEnabled(!toolInvokeEnabled)}
             />
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><DocumentTextIcon style={{ width: 11, height: 11 }} /> 文件</button>
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
             {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 8, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(0,0,0,0.06)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.06)' : '#fff', color: '#6b5e54', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}><PhotoIcon style={{ width: 11, height: 11 }} /> 图片</button>
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
             {/* Model switcher */}
             {/* v14.9(设计决策注释): 对话开始后禁止切换模型——设计如此，非缺陷：
                ① bridge 的 configId 在首次 sendMessage 时经 init 锁定（chatBridgeFactory.ts），
@@ -1029,10 +1045,10 @@ export default function AIChatWindow() {
                     if (newId) useSettingsStore.getState().setActiveConfig(newId)
                   }}
                   style={{
-                    padding: '3px 6px', borderRadius: 6,
-                    border: '1px solid rgba(0,0,0,0.1)', fontSize: 10,
-                    color: convLocked ? '#9b8e84' : '#4a3f38', background: convLocked ? '#f5f5f4' : '#fff', cursor: convLocked ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit', maxWidth: 150,
+                    padding: '4px 8px', borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.09)', fontSize: 11,
+                    color: convLocked ? '#9b8e84' : '#4a3f38', background: convLocked ? 'rgba(0,0,0,0.04)' : '#fff', cursor: convLocked ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit', maxWidth: 150, boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                   }}
                   title={convLocked ? '对话开始后不可切换模型（防止会话上下文与模型不匹配）' : '切换模型配置'}
                 >
@@ -1054,12 +1070,19 @@ export default function AIChatWindow() {
                 <select value={isLocked ? activeConversation.roleTemplateId : (useSettingsStore.getState().aiSettings.activeRoleTemplateId || "")}
                   disabled={isLocked}
                   onChange={e => { if (e.target.value) useSettingsStore.getState().setActiveRoleTemplate(e.target.value) }}
-                  style={{ padding: "3px 6px", borderRadius: 6, border: isLocked ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(0,0,0,0.1)", fontSize: 10, color: isLocked ? "#d97706" : "#4a3f38", background: isLocked ? "rgba(245,158,11,0.04)" : "#fff", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: "inherit", maxWidth: 130 }}
+                  style={{ padding: "4px 8px", borderRadius: 8, border: isLocked ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(0,0,0,0.09)", fontSize: 11, color: isLocked ? "#d97706" : "#4a3f38", background: isLocked ? "rgba(245,158,11,0.04)" : "#fff", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: "inherit", maxWidth: 130, boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
                   title={isLocked ? "角色模板已锁定" : "切换角色模板"}>
                   {roleTemplates.map(tpl => <option key={tpl.id} value={tpl.id}>🎭 {tpl.name}</option>)}
                 </select>
               )
             })()}
+            {/* v14.9.x(UI): 诊断面板开关——置于工具条最右侧，点击显示/隐藏（默认隐藏） */}
+            <ToggleButton
+              icon={<span style={{ fontSize: 12 }}>🩺</span>}
+              label="诊断面板"
+              active={showDiagnostics}
+              onClick={() => setShowDiagnostics(!showDiagnostics)}
+            />
           </div>
 
           <ContextUsageBar
@@ -1074,6 +1097,9 @@ export default function AIChatWindow() {
               compressMessages(targetMsg.id)
             }}
           />
+
+          {/* v14.9.x(UI): 诊断面板移至用量条下方，默认隐藏，由工具条开关控制 */}
+          {showDiagnostics && <DiagnosticPanel />}
 
           {/* Delete bar */}
           {selectedMsgIds.size > 0 && (
@@ -1489,17 +1515,16 @@ export default function AIChatWindow() {
           )}
 
           <AgentStateBar maxIterations={30} />
-          <DiagnosticPanel />
 
-          {/* Input */}
-          <div className="glass" style={{ padding: '10px 14px', borderTop: '1px solid rgba(0,0,0,0.06)', position: 'relative' }}>
+          {/* Input — v14.9.x(UI): 白色圆角卡片输入区，圆形渐变发送按钮，圆点拖拽手柄；v14.9.x: 分隔线加深 */}
+          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(0,0,0,0.09)', background: 'rgba(255,255,255,0.9)', position: 'relative' }}>
             {/* Ref tags */}
             {selectedRefs.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
                 {selectedRefs.map(ref => (
                   <span key={ref.id} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '2px 8px', borderRadius: 6, fontSize: 11,
+                    padding: '3px 10px', borderRadius: 999, fontSize: 11,
                     background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontWeight: 600,
                   }}>
                     @{ref.name}
@@ -1511,7 +1536,7 @@ export default function AIChatWindow() {
               </div>
             )}
             {attachment && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 12, background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', fontSize: 12, color: '#7c3aed' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 12, background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', fontSize: 12, color: '#7c3aed', marginBottom: 8 }}>
                 {attachment.previewUrl
                   ? <img src={attachment.previewUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
                   : (attachment.type === 'file' ? <DocumentTextIcon style={{ width: 14, height: 14 }} /> : <PhotoIcon style={{ width: 14, height: 14 }} />)
@@ -1520,13 +1545,13 @@ export default function AIChatWindow() {
                 <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8, position: 'relative' }}
+            <div style={{ display: 'flex', gap: 8, position: 'relative', alignItems: 'flex-end' }}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
             >
               {dragOver && (
-                <div style={{ position: 'absolute', inset: 0, zIndex: 5, borderRadius: 14, border: '2px dashed #7c3aed', background: 'rgba(124,58,237,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7c3aed', fontWeight: 600, pointerEvents: 'none' }}>
+                <div style={{ position: 'absolute', inset: 0, zIndex: 5, borderRadius: 16, border: '2px dashed #7c3aed', background: 'rgba(124,58,237,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7c3aed', fontWeight: 600, pointerEvents: 'none' }}>
                   松手以上传文件或图片
                 </div>
               )}
@@ -1544,9 +1569,9 @@ export default function AIChatWindow() {
                 const saved = localStorage.getItem('ai-input-height')
                 if (saved) el.style.height = saved
               }}
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.08)', borderRadius: '10px 10px 0 0', outline: 'none', resize: 'none', minHeight: 48, padding: '8px 12px', fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit', color: '#2d2520', background: 'rgba(0,0,0,0.02)', transition: 'height 0.15s ease' }}
+              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.09)', borderRadius: 14, outline: 'none', resize: 'none', minHeight: 48, padding: '10px 14px', fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', transition: 'height 0.15s ease, border-color 0.15s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
             />
-            {/* Custom resize handle — smooth, saves height */}
+            {/* Custom resize handle — 圆点抓手，置于输入框底部居中，拖拽保存高度 */}
             <div
               onMouseDown={e => {
                 const ta = (e.currentTarget.previousElementSibling || document.getElementById('ai-chat-input')) as HTMLTextAreaElement
@@ -1566,11 +1591,27 @@ export default function AIChatWindow() {
                 window.addEventListener('mousemove', hm)
                 window.addEventListener('mouseup', hu)
               }}
-              style={{ height: 6, cursor: 'ns-resize', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,0.04))', borderRadius: '0 0 10px 10px', flexShrink: 0 }}
-            />
+              title="拖拽调整输入框高度"
+              style={{ position: 'absolute', left: 0, right: 52, bottom: 0, height: 10, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0 }}
+            >
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
+            </div>
             <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
-              style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: input.trim() && activeConfigId ? '#7c3aed' : '#e5e0da', color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'flex-end' }}>
-              <PaperAirplaneIcon style={{ width: 17, height: 17 }} />
+              title="发送 (Enter)"
+              style={{
+                width: 40, height: 40, borderRadius: '50%', border: 'none', flexShrink: 0, alignSelf: 'flex-end',
+                background: input.trim() && activeConfigId ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e9e4df',
+                color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: input.trim() && activeConfigId ? '0 3px 10px rgba(124,58,237,0.32)' : 'none',
+                transition: 'all 0.15s ease', transform: 'scale(1)',
+              }}
+              onMouseEnter={e => { if (!e.currentTarget.disabled) (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
+            >
+              <PaperAirplaneIcon style={{ width: 18, height: 18 }} />
             </button>
           </div>
             {/* API connection error banner */}

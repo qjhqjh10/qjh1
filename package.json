@@ -1,6 +1,6 @@
 {
   "name": "ai-writing-qingjian",
-  "version": "14.9.0",
+  "version": "15.0.0",
   "description": "AI-assisted novel writing desktop application",
   "main": "dist-electron/main.js",
   "scripts": {

@@ -150,9 +150,6 @@ const api = {
       ipcRenderer.invoke('dialog:openZip'),
   },
   app: {
-    // v14.7.0: 版本检查走主进程（渲染层 CSP 会拦截 github.com；主进程 netFetch 走系统代理）
-    checkUpdate: (): Promise<{ latestVersion: string; releaseUrl: string } | null> =>
-      ipcRenderer.invoke('app:check-update'),
     getProjectsBasePath: (): Promise<string> => ipcRenderer.invoke('app:getProjectsBasePath'),
     getImitationProjectsPath: (): Promise<string> => ipcRenderer.invoke('app:getImitationProjectsPath'),
     getContinuationProjectDirsPath: (): Promise<string> => ipcRenderer.invoke('app:getContinuationProjectDirsPath'),

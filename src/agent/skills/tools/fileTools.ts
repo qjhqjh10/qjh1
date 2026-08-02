@@ -186,7 +186,7 @@ export const fileTools: ToolDefinition[] = [
   {
     schema: {
       name: 'delete_file',
-      description: '删除文件（自动备份到 .ai_backups/，可随时恢复）。',
+      description: '删除文件（系统自动备份原文件到 .ai_backups/，可在文件管理器中手动恢复）。',
       parameters: {
         type: 'object',
         properties: {

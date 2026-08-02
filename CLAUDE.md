@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v14.9.0
+# AI写作软件—青剑 v15.0.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -132,7 +132,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
 | 版本历史 | `src/data/version_history.json` (当前 v14.8.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
-| 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-conversation.mjs` |
+| 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
 
 ## 验证命令
@@ -143,24 +143,31 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | `npx vitest run` | 全量单元测试 (655 passed + 15 skipped，共 670) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
-## 32 场景对话测试
+## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
 
 ```bash
 cd /d/3/novel-writing-app
 export AI_API_KEY=sk-xxx  # 替换为你的 DeepSeek API key
 
-# 全部 32 场景 (~35分钟)
-npx tsx scripts/test-ai-conversation.mjs
+# 全部 7 个复杂场景 (~25分钟)
+npx tsx scripts/test-ai-agent.mjs
 
 # 指定场景
-npx tsx scripts/test-ai-conversation.mjs --scenario=S1,S2,S10,S_R1
-
-# 仅新增能力测试
-npx tsx scripts/test-ai-conversation.mjs --scenario=S_R1,S_R2,S_PD
-npx tsx scripts/test-ai-conversation.mjs --scenario=S_SUB_MEM,S_ASK,S_VERIFY_FIX   # v14.3 新增: 快照复用/会话追问/验收闭环
-npx tsx scripts/test-ai-conversation.mjs --scenario=S_RESUME,S_PAR,S_VERIFY   # v14.2 新增: 跨run续跑/批量并行/验收
-npx tsx scripts/test-ai-conversation.mjs --scenario=S_MT2,S_SUB1,S_SUB2   # v14.1 新增: 多任务压力/子代理委托
+npx tsx scripts/test-ai-agent.mjs --scenario=CA1,CA2
 ```
 
-测试通过真实 Bridge → Runtime → Adapter 运行，mock window.electron IPC 层。
-场景覆盖：读取分析/跨轮记忆/多任务/编辑/删除重建/内容转化/联网搜索/知识库/角色扮演/渐进披露/多任务压力/子代理委托。
+测试通过真实 Bridge → Runtime → Adapter 运行，mock window.electron IPC 层（行为与主进程对齐：
+备份目录 .ai_backups 软约束——写工具拒绝+引导性错误、读工具放行；kb_search 真实检索 knowledge_base/files/）。
+专用测试项目 `agent-proj`（不触碰用户项目），7 个复杂任务场景：
+
+| 场景 | 覆盖能力 |
+|------|---------|
+| CA1 细纲流水线 | 多阶段编排 / JSON 校验 / 字数遵从（≥1000字） |
+| CA2 子代理全链路 | analyze_file→edit_file_task→verify_task 验收闭环 |
+| CA3 搜索→批量→删除 | search_content 定位 / batch_replace 全局替换 / delete |
+| CA4 跨 run 续跑 | 任务清单中断快照 / [续跑] 恢复不重复 |
+| CA5 知识库 Agentic RAG | kb_search 检索 / kb_analyze 深度分析 / 结论落盘 |
+| CA6 重命名+校验修复 | rename_file / 损坏 JSON 修复 / YAML 创作 |
+| CA7 角色扮演创作 | 角色外壳下多文件创作不受影响 |
+
+旧脚本 `scripts/test-ai-conversation.mjs`（32 简单场景）已废弃。

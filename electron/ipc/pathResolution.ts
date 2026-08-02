@@ -34,6 +34,16 @@ export function resolveArg(raw: string, projectPath: string): string | null {
   return isBlockedSystemPath(resolved) ? null : resolved
 }
 
+/**
+ * v14.9.x: 备份目录段判定（.ai_backups，大小写不敏感）。
+ * v14.9.x 调整：不在此处硬拒绝（全自由模式路径照常解析）——备份文件的保护改为
+ * 写工具软约束（fileToolHandlers.executeFileTool 对写类工具返回引导性错误），
+ * 读工具放行以支持「备份 → 原件」恢复场景；AI 侧由 V4SystemPrompt 明确备份目录语义。
+ */
+export function containsBackupSegment(p: string): boolean {
+  return p.split(/[\\/]/).some(seg => seg.toLowerCase() === '.ai_backups')
+}
+
 /** 异步版：文件存在时 realpath 复核（解析符号链接后重查系统目录） */
 export async function safeResolveArg(raw: string, projectPath: string): Promise<string | null> {
   const resolved = resolveArg(raw, projectPath)

@@ -28,12 +28,9 @@ export function AgentStateBar({ maxIterations = 30 }: { maxIterations?: number }
   const toolEntries = Object.values(activeTools)
   const completedTools = toolEntries.filter(t => t.status === 'success' || t.status === 'error')
 
+  // v14.9.x(UI): 就绪提示已移除——空闲时不渲染任何东西（原"就绪 · 输入消息开始"占位）
   if (!isRunning && phase === 'IDLE' && !error && completedTools.length === 0) {
-    return (
-      <div style={{ padding: '3px 14px', fontSize: 10, color: '#9b8e84', opacity: 0.5 }}>
-        就绪 · 输入消息开始
-      </div>
-    )
+    return null
   }
 
   const info = PHASE_LABELS[phase] || PHASE_LABELS.IDLE

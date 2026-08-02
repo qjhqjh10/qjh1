@@ -101,8 +101,7 @@ export interface DialogAPI {
 }
 
 export interface AppAPI {
-  /** v14.7.0: 版本检查（主进程 netFetch，渲染层 CSP 放行不了 github.com） */
-  checkUpdate: () => Promise<{ latestVersion: string; releaseUrl: string } | null>
+  // v14.9.x: checkUpdate 已移除——GitHub 网络受限，版本更新改为腾讯在线文档方式
   getProjectsBasePath: () => Promise<string>
   getImitationProjectsPath: () => Promise<string>
   getContinuationProjectDirsPath: () => Promise<string>

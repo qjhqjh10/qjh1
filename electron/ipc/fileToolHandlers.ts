@@ -8,7 +8,7 @@ import { isSafePath, readFileWithEncoding } from './utils'
 import { validateFileContent } from './schemaValidation'
 import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
 // v14.9(C1): find_files walk 逐目录黑名单（pathResolution 已 re-export 共享模块判定）
-import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg } from './pathResolution'
+import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg, containsBackupSegment } from './pathResolution'
 import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
 
 export interface ToolCallArgs {
@@ -32,7 +32,10 @@ const MAX_WRITE_CHARS = 500_000
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB for edit/backup
 const MAX_SEARCH_RESULTS = 500
 const BACKUP_DIR = '.ai_backups'
-const MAX_BACKUPS_PER_FILE = 10
+// v14.9.x: 保留份数 10 → 3（用户要求；每文件至多 3 份最近备份，超限删最旧）
+const MAX_BACKUPS_PER_FILE = 3
+/** v14.9.x: 写类工具集合——备份目录软约束只拦这些，读工具（read_file 等）放行 */
+const WRITE_TOOLS = new Set(['create_file', 'edit_file', 'delete_file', 'rename_file', 'batch_replace'])
 const BACKUP_SEPARATOR = '___'
 
 // GLOBAL_DIR_NAMES / isBlockedSystemPath / resolveArg 已移至 pathResolution.ts（纯函数模块，可单测）
@@ -264,6 +267,20 @@ export async function executeFileTool(
   }
 
   try {
+    // v14.9.x: 备份目录写保护（软约束，非硬拒绝）——备份文件有标识（`时间戳___原文件名`）
+    // 且不应被修改；恢复场景的正确姿势是 read_file 读备份 → 写回原文件路径，故读工具不受限。
+    // AI 侧认知见 V4SystemPrompt「备份目录」说明。
+    if (WRITE_TOOLS.has(toolName)) {
+      const targets = [args.file_path, args.filePath, args.path, args.targetPath, args.new_path]
+        .filter((v): v is string => typeof v === 'string')
+      if (targets.some(t => containsBackupSegment(t))) {
+        return {
+          callId, toolName, status: 'error',
+          summary: '目标路径位于备份目录 .ai_backups，备份文件无需修改',
+          detail: '备份文件由系统自动生成（命名含时间戳，如 20260802_123456___plot.json），不需要也不应被修改。如需恢复文件：先 read_file 读取该备份内容，再用 edit_file/create_file 写入原文件路径。',
+        }
+      }
+    }
     switch (toolName) {
 
       // ── Read-only ──

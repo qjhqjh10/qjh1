@@ -1,49 +1,25 @@
 import { useState } from 'react'
 import versionData from '@/data/version_history.json'
 import SoftwareGuideModal from './SoftwareGuideModal'
+import Modal from '@/components/common/Modal'
+import Button from '@/components/common/Button'
+import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
 
-/** 语义化版本比较：a > b 返回正数，a < b 返回负数，相等返回 0 */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0
-    const nb = pb[i] || 0
-    if (na !== nb) return na - nb
-  }
-  return 0
-}
+// v14.9.x: 版本更新改为在线文档方式——GitHub 网络受限，git 更新功能不可用，
+// 已移除检查更新 IPC 与更新源地址，点击按钮弹窗说明并跳转腾讯在线文档查看网盘下载链接
+const UPDATE_DOC_URL = 'https://docs.qq.com/sheet/DZmhreVBGUVhnZGN0?tab=BB08J2'
 
 export function VersionTab() {
-  const [checkResult, setCheckResult] = useState<'idle' | 'checking' | 'latest' | 'update' | 'error'>('idle')
-  const [latestVersion, setLatestVersion] = useState('')
-  const [releaseUrl, setReleaseUrl] = useState('')
+  const [showUpdateModal, setShowUpdateModal] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
 
   const currentVersion = versionData.currentVersion
   const currentDate = versionData.currentDate
-  const repoUrl = 'https://github.com/qjhqjh10/qjh1/releases'
   const versionHistory = versionData.history
 
-  const handleCheckUpdate = async () => {
-    setCheckResult('checking')
-    try {
-      // v14.7.0: 走主进程 IPC——原渲染层 fetch 被 CSP connect-src 白名单拦截（github.com 不在列），
-      // 打包环境"检查更新"永远失败；主进程 netFetch 走系统代理，代理网络也能连通
-      if (!window.electron?.app?.checkUpdate) throw new Error('Electron bridge unavailable')
-      const result = await window.electron.app.checkUpdate()
-      const remoteVer = result?.latestVersion || ''
-      setLatestVersion(remoteVer)
-      setReleaseUrl(result?.releaseUrl || repoUrl)
-      // 语义化版本比较：仅当远端版本高于当前版本才提示更新（避免远端版本较旧时误报）
-      if (remoteVer && compareVersions(remoteVer, currentVersion) > 0) {
-        setCheckResult('update')
-      } else {
-        setCheckResult('latest')
-      }
-    } catch {
-      setCheckResult('error')
-    }
+  const openUpdateDoc = () => {
+    window.open(UPDATE_DOC_URL, '_blank', 'noopener')
+    setShowUpdateModal(false)
   }
 
   return (
@@ -62,38 +38,20 @@ export function VersionTab() {
             <div>
               <div style={{ fontSize: 13, color: '#6b5e54' }}>发布日期: {currentDate}</div>
               <div style={{ fontSize: 12, color: '#9b8e84', marginTop: 2 }}>序列号: build-{currentDate.replace(/-/g, '')}</div>
-              {checkResult === 'latest' && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginTop: 4 }}>已是最新版本</div>}
-              {checkResult === 'update' && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, marginTop: 4 }}>可更新到 v{latestVersion}</div>}
-              {checkResult === 'error' && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>GitHub 连接失败（国内网络限制），请手动查看</div>}
             </div>
           </div>
         </div>
 
         <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>检查更新</h4>
+          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#2d2520' }}>版本更新</h4>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <button onClick={handleCheckUpdate} disabled={checkResult === 'checking'} style={{
+            <button onClick={() => setShowUpdateModal(true)} style={{
               padding: '8px 20px', borderRadius: 12, border: 'none', background: '#7c3aed', color: '#fff',
-              fontSize: 13, fontWeight: 600, cursor: checkResult === 'checking' ? 'not-allowed' : 'pointer',
-              opacity: checkResult === 'checking' ? 0.6 : 1, fontFamily: 'inherit',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}>
-              {checkResult === 'checking' ? '检查中...' : '检查更新'}
+              📥 版本更新
             </button>
-            {checkResult === 'update' && (
-              <a href={releaseUrl} target="_blank" rel="noreferrer" style={{
-                padding: '8px 16px', borderRadius: 10, border: '1px solid #16a34a', background: 'rgba(22,163,74,0.05)',
-                color: '#16a34a', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
-              }}>下载 v{latestVersion}</a>
-            )}
-            {checkResult === 'error' && (
-              <a href={repoUrl} target="_blank" rel="noreferrer" style={{
-                padding: '8px 16px', borderRadius: 10, border: '1px solid #7c3aed', background: 'rgba(124,58,237,0.05)',
-                color: '#7c3aed', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'inherit',
-              }}>打开 GitHub Releases 查看更新</a>
-            )}
-          </div>
-          <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 10 }}>
-            更新源: github.com/qjhqjh10/qjh1/releases
+            <span style={{ fontSize: 11, color: '#9b8e84' }}>查看最新版本及下载链接（腾讯在线文档）</span>
           </div>
         </div>
 
@@ -127,6 +85,34 @@ export function VersionTab() {
         </div>
       </div>
       <SoftwareGuideModal isOpen={showGuide} onClose={() => setShowGuide(false)} />
+
+      {/* 版本更新弹窗 — 说明 git 更新不可用，引导进入腾讯在线文档查看下载链接 */}
+      <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title="版本更新" width={440}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: '50%', margin: '0 auto',
+            background: 'rgba(124,58,237,0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <ArrowTopRightOnSquareIcon style={{ width: 26, height: 26, color: '#7c3aed' }} />
+          </div>
+          <div style={{ fontSize: 13, color: '#4a3f38', lineHeight: 1.9 }}>
+            <p style={{ margin: '0 0 8px' }}>
+              因 GitHub 网络受限，软件内置的 <b>git 更新功能无法使用</b>，已改为在线文档方式。
+            </p>
+            <p style={{ margin: 0 }}>
+              点击「确定」进入 <b>腾讯在线文档</b>，可查看小说软件的最新版本说明与<b>下载网盘链接</b>。
+            </p>
+          </div>
+          <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', fontSize: 11, color: '#9b8e84', wordBreak: 'break-all', userSelect: 'text' }}>
+            {UPDATE_DOC_URL}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+            <Button variant="secondary" onClick={() => setShowUpdateModal(false)}>取消</Button>
+            <Button variant="primary" onClick={openUpdateDoc}>确定</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

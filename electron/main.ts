@@ -23,6 +23,20 @@ import { registerMCPHandlers } from './ipc/mcpHandlers'
 import { logError } from './ipc/logger'
 import { loadWindowBounds, saveWindowBounds } from './ipc/utils'
 
+// v14.9.x: 数据目录跟随软件位置（dev 与打包版一致，绿色便携）——
+// 所有运行产生的目录（projects/notes/knowledge_base/uploads/.appdata/IndexedDB 等）
+// 生成在软件文件夹下的 userdata/ 子目录（dev: 源码文件夹；portable: exe 旁；
+// nsis 安装版: 安装目录）。必须在任何 app.getPath() 调用前设置。
+// 例外：用户通过 AI 写作助手明确下达指令指向的路径（全自由模式工具操作）
+// 不受影响，仍可读写软件文件夹之外的任意非系统目录。
+const _isDev = process.env.NODE_ENV === 'development' || !!process.env.ELECTRON_RENDERER_URL
+if (_isDev) {
+  app.setPath('userData', join(app.getAppPath(), 'userdata'))
+} else {
+  const exeDir = process.env.PORTABLE_EXECUTABLE_DIR || dirname(process.execPath)
+  app.setPath('userData', join(exeDir, 'userdata'))
+}
+
 let mainWindow: BrowserWindow | null = null
 let watcher: ReturnType<typeof setupFileWatcher> | null = null
 let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null
@@ -272,27 +286,8 @@ app.whenReady().then(async () => {
 
   // v14.0.1: app:getSystemPrompt 已移除——系统提示词以代码内 CORE_SYSTEM_PROMPT 为唯一来源
   // （原 MD 文件是 v13.2 瘦身前旧版且打包不含 prompts，造成开发/打包行为不一致）
-
-  // v14.7.0: 版本检查移到主进程——渲染层 CSP connect-src 白名单不含 github.com，
-  // 原渲染层 fetch 在打包环境必然被 CSP 拦截（"检查更新"永远失败）；主进程 netFetch
-  // 走系统代理 + 无 CSP 限制，代理网络下也能连通
-  ipcMain.handle('app:check-update', async (): Promise<{ latestVersion: string; releaseUrl: string } | null> => {
-    try {
-      const { netFetch } = await import('./ipc/netFetch')
-      const res = await netFetch('https://api.github.com/repos/qjhqjh10/qjh1/releases/latest', {
-        headers: { 'User-Agent': 'AIWritingAssistant/1.0', Accept: 'application/vnd.github+json' },
-      })
-      if (!res.ok) return null
-      const data = await res.json() as { tag_name?: string; html_url?: string }
-      if (!data.tag_name) return null
-      return {
-        latestVersion: data.tag_name.replace(/^v/, ''),
-        releaseUrl: data.html_url || 'https://github.com/qjhqjh10/qjh1/releases',
-      }
-    } catch {
-      return null
-    }
-  })
+  // v14.9.x: app:check-update 已移除——GitHub 网络受限，git 更新功能不可用，
+  // 版本更新改为腾讯在线文档方式（见 VersionTab.tsx）
 
   // Diagnostic debug logging for Claude Code analysis
   ipcMain.handle('debug:append-log', async (_e, name: string, line: string) => {

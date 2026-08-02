@@ -57,3 +57,9 @@ test_data/
 scripts/v2-*.mjs
 scripts/v3-*.mjs
 scripts/v4-*.mjs
+
+# v14.9.x: dev 版统一数据目录（绿色便携，所有运行数据跟随软件）
+userdata/
+imitation_projects/
+rewrite_templates/
+scripts/test-*.mjs
