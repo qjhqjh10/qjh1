@@ -19,13 +19,12 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: AI写作软件—青剑
+# v15.0.0: scripts 空目录已移除（无运行时依赖，git 零追踪）
 extraResources:
   - from: .aiharness/templates
     to: .aiharness/templates
   - from: .aiharness/rules
     to: .aiharness/rules
-  - from: .aiharness/scripts
-    to: .aiharness/scripts
   - from: .aiharness/aiharness.json
     to: .aiharness/aiharness.json
   - from: .aiharness/AGENTS.md
