@@ -7,6 +7,7 @@ import type { Project } from '@/types/project'
 import type { ModelConfig } from '@/types/settings'
 import { DEFAULT_PROMPTS } from '@/types/settings'
 import { logError } from '@/utils/logger'
+import { migrateDefaultConfigs } from '@/utils/configMigration'
 import { injectThemeVars } from '@/theme'
 import { getTheme } from '@/themes'
 import { AgentErrorBoundary as ErrorBoundary } from '@/components/ai/ErrorBoundary'
@@ -137,7 +138,13 @@ export default function App() {
         for (const sc of (storedConfigs as ModelConfig[])) {
           existingMap.set(sc.id, { ...existingMap.get(sc.id), ...sc } as ModelConfig)
         }
-        useSettingsStore.getState().setConfigs([...existingMap.values()])
+        const merged = [...existingMap.values()]
+        // v15.1: 默认配置迁移——仍等于旧默认值的字段更新为新默认（用户自定义字段不动）
+        const { configs: migrated, changed } = migrateDefaultConfigs(merged)
+        useSettingsStore.getState().setConfigs(migrated)
+        if (changed) {
+          settingsService.saveConfigs(migrated).catch(e => logError('默认配置迁移保存失败', e))
+        }
       }
     }).catch((e) => { logError('从 electron-store 加载配置失败', e) })
   }, [])

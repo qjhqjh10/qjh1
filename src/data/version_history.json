@@ -1,7 +1,20 @@
 {
-  "currentVersion": "15.1.0",
+  "currentVersion": "15.2.0",
   "currentDate": "2026-08-04",
   "history": [
+    {
+      "version": "15.2.0",
+      "date": "2026-08-04",
+      "features": [
+        "小说改写·精准改写强化: 整章改写 prompt 强制「未标记段落逐字保留」（禁止重写/增删/润色，情色章节的非场景段落保持原样）；场景段改写输出范围约束（只输出该段，不得附加其他段落/标题/说明）；needsRewrite=false 的「保留原文」章节不再被改写（单章提示 + 批量排除——修复「全部改写」会把保留原文章节整章重写的 bug）；enforceTemplateRewrite 匹配面扩展（categories + contextMarkers.sceneName 双查，防漏判）",
+        "小说改写·场景合并规则恢复: 允许连续同类型场景合并为一条 marker、相似场景（如「亲密场景」「亲吻场景」）合并为最能概括的场景名——防重复改写（原收紧版禁止跨过渡段合并已回退）；注释说明设计意图",
+        "默认模型配置: 新模板默认改为 DeepSeek（deepseek-v4-flash + https://api.deepseek.com）+ Anthropic 协议 + 原生联网开启 + 上下文 1M + CNY 货币 + 定价 输入0.02/输出1/缓存2（元/百万 tokens）；新增 src/utils/configMigration.ts 字段级迁移——现有模板中仍等于旧默认值的字段启动时自动更新（用户自定义字段不动），附 4 项单元测试",
+        "死代码清理: mergeAdjacentSegments（rewriteSegmentUtils.ts，全仓零引用——相邻段合并由 assembleRewrittenChapter/FromSimple 的重叠区间合并承担）；chatStorageService 过时注释修正（v14.6 全自由模式后 fileHandlers 已无 globalAppDataPath 白名单）"
+      ],
+      "fixes": [
+        "测试: 664 passed + 15 skipped（679）；tsc 0 错误"
+      ]
+    },
     {
       "version": "15.1.0",
       "date": "2026-08-04",

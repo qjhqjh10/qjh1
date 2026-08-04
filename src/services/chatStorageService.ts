@@ -46,7 +46,8 @@ async function getStorageDir(): Promise<string | null> {
   if (_cachedStorageDir !== undefined) return _cachedStorageDir
 
   // Path 1: projectsBasePath → strip /projects → append /.appdata
-  // This path must match globalAppDataPath in fileHandlers.ts resolvePath whitelist
+  // v15.1: 过时注释移除——v14.6 全自由模式后 fileHandlers 已无 globalAppDataPath 白名单；
+  // .appdata 与 projects 同根（dev: 源码根；打包: userData），随软件位置自动跟随
   try {
     const { useStore } = await import('@/store')
     const base = useStore.getState().projectsBasePath

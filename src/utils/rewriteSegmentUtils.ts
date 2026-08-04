@@ -144,6 +144,7 @@ ${segmentText}
 - 增加详细的感官描写（视觉、触觉、听觉、嗅觉、味觉）
 - 扩展肢体互动的细节描述、对话中的情绪反应、环境氛围渲染${wordTargetInstruction}
 - 段落之间用空行分隔，不要使用缩进表示分段
+- ⚠️ 输出范围：只改写本场景段落本身——不得输出原文中的其他段落、不得添加章节标题、不得在段落前后附加任何说明文字
 - 直接输出改写后的段落内容，不要包含任何解释或标记。`
 }
 
@@ -210,22 +211,5 @@ export function assembleRewrittenChapter(
   return result
 }
 
-/** Merge adjacent segments that belong to the same scene type (gap ≤ 200 chars) */
-export function mergeAdjacentSegments(
-  segments: { start: number; end: number; rewritten: string; sceneName: string }[]
-): { start: number; end: number; rewritten: string; sceneName: string }[] {
-  if (segments.length <= 1) return segments
-  const sorted = [...segments].sort((a, b) => a.start - b.start)
-  const merged: { start: number; end: number; rewritten: string; sceneName: string }[] = []
-  for (const seg of sorted) {
-    const last = merged[merged.length - 1]
-    if (last && last.sceneName === seg.sceneName && seg.start - last.end <= 200) {
-      // Merge: extend end, join rewritten text, keep first sceneName
-      last.end = Math.max(last.end, seg.end)
-      last.rewritten = last.rewritten + '\n' + seg.rewritten
-    } else {
-      merged.push({ ...seg })
-    }
-  }
-  return merged
-}
+// v15.2.0: mergeAdjacentSegments 已删除——全仓零引用死代码（相邻段合并实际由
+// assembleRewrittenChapter/FromSimple 的区间重叠合并逻辑承担，见上）

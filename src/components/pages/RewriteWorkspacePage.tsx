@@ -67,7 +67,9 @@ function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTem
 - 示例：如果原文段落开头是"高先在课堂上命令同桌杨幂"，startText 就必须是"高先在课堂上命令同桌杨幂"，不能写成"高先命令同桌"或"课堂上"
 
 如果一个段落同时属于多个场景（如既是"亲吻场景"又是"亲密场景"），请分别创建两条 marker，可以指向相同或重叠的文本段。
-- ⚠️ 合并规则：如果同一场景类型在原文中连续出现多段（如连续3段都是战斗场景），请合并为一条 contextMarker，startText 取第一段的开头，endText 取最后一段的末尾。不要为连续的同类型场景创建多条记录。`
+- ⚠️ 合并规则（v15.1.1 恢复：允许合并，防重复改写）：
+  ① 同一场景类型在原文中连续出现多段（如连续3段都是战斗场景），合并为一条 contextMarker（startText 取第一段的开头，endText 取最后一段的末尾）；
+  ② 多个相似/同义场景（如「亲密场景」「亲吻场景」描述相同或重叠的段落）合并为一条，sceneName 使用最能概括的场景名（如合并为「亲密场景」）——不要为相似场景重复创建 marker，否则改写阶段会对同一段反复改写。`
     : ''
 
   const cfg = summaryConfig || DEFAULT_SUMMARY_CONFIG
@@ -233,6 +235,15 @@ function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | 
     wordTargetInstruction = `\n- 请在保持原文核心情节的基础上，适当扩充内容，在原文基础上额外扩充约${wordTarget}字（改写后总字数约为原文 + ${wordTarget}字）`
   }
 
+  // v15.1: 精准改写约束——未标记段落逐字保留（防模型借"加料改写"重写全文，
+  // 情色章节尤其危险：非场景段落的情色程度/内容不得改变）；仅场景段/无标记时整体润色
+  const hasMarkers = effectiveMarkers.length > 0
+  const precisionRule = hasMarkers
+    ? `- ⚠️ 精准改写：只有【需要改写的场景段落】标记覆盖的原文区间允许改写；未标记的段落必须逐字保留原文（包括情节、对话、心理描写、环境细节），禁止重写、禁止增删、禁止润色
+- 未标记段落若包含情色/敏感内容，保持原样输出，不得修改或加强
+- 被标记的场景段落若包含情色内容，仅按该场景的改写规则加料丰富该段落，不得把改写范围扩散到相邻未标记段落`
+    : `- 本章无精确场景标记，按通用指导整体润色改写，但须保持章节结构、情节顺序和人物关系不变`
+
   return `你是一位专业的小说改写助手。请基于本章内容与提供的参考信息，对本章进行改写。
 
 ${context}
@@ -244,11 +255,11 @@ ${rewriteRules}
 - 提升文笔质量和可读性
 - 保持与原文相近的字数范围
 - 保持原有的场景分类和叙事节奏${wordTargetInstruction}
-- 对于标记了精确位置的场景段落，仅改写该段文字，其余部分可保留原文
+${precisionRule}
 - 如果一个段落被标记为多个重叠场景，请综合所有场景的改写规则对该段进行改写
 - 段落格式：每段之间用空行分隔（即两个换行），不要用缩进表示分段
 
-请直接输出改写后的章节内容，不要包含任何解释或标记。`
+请直接输出改写后的章节内容（保留全部段落，仅改写允许改写的部分），不要包含任何解释或标记。`
 }
 
 // ── Parse AI response to ChapterAnalysis ──
@@ -314,12 +325,15 @@ async function callAIWithTimeout(
 }
 
 // ── Post-process: if template has scene rules and analysis detected matching scenes, force needsRewrite ──
+// v15.1: 匹配面扩展——categories 之外同时检查 contextMarkers.sceneName
+// （AI 可能把场景写进 markers 而未计入 categories，漏匹配会导致"保留原文"章节被跳过改写）
 function enforceTemplateRewrite(analysis: ChapterAnalysis, template?: RewritePromptTemplate | null): ChapterAnalysis {
   if (!template || template.sceneRules.length === 0) return analysis
   if (analysis.needsRewrite) return analysis // Already marked, no change needed
 
   const templateSceneNames = new Set(template.sceneRules.map(s => s.name))
   const hasMatchingScene = analysis.categories.some(c => templateSceneNames.has(c.name))
+    || analysis.contextMarkers.some(m => templateSceneNames.has(m.sceneName))
   if (hasMatchingScene) {
     return { ...analysis, needsRewrite: true }
   }
@@ -943,6 +957,11 @@ export default function RewriteWorkspacePage() {
         if (raw) analysis = JSON.parse(raw)
       } catch { /* no analysis, rewrite without it */ }
 
+      // v15.1(保护): 总结阶段标记为「保留原文」的章节不做改写（原实现会整章重写该章节）
+      if (analysis && analysis.needsRewrite === false) {
+        throw new Error('本章在识别阶段已标记为「保留原文」，无需改写。如需改写请先清除本章数据后重新总结')
+      }
+
       // ═══ Scene-segment rewriting path ═══
       const allMarkers = analysis?.contextMarkers?.filter(m => m.startText && m.endText) || []
       // Filter out user-disabled markers
@@ -1082,7 +1101,13 @@ export default function RewriteWorkspacePage() {
     setActiveRewritingIds(new Set())
     setFailedRewritingIds(new Set())
     // Only process chapters that haven't been rewritten yet
-    const chs = project.chapters.filter(ch => !rewrites.has(ch.id))
+    // v15.1(修复): 排除识别阶段标记为「保留原文」的章节（原实现会整章改写它们——与
+    // Stage 3/4 列表折叠逻辑不一致，且 UI 计数 needsRewriteTotal 已排除、实际处理未排除）
+    const chs = project.chapters.filter(ch => {
+      if (rewrites.has(ch.id)) return false
+      const analysis = analyses.get(ch.id)
+      return !analysis || analysis.needsRewrite
+    })
     if (chs.length === 0) { setError('所有章节已完成改写'); setRewriting(false); return }
     // Mark all target chapters as attempted
     setAttemptedRewriteIds(prev => {

@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.1.0
+# AI写作软件—青剑 v15.2.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,14 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v15.1.0)
+## 当前架构 (v15.2.0)
+
+### v15.2.0 精准改写强化 + 默认模型配置 DeepSeek 化 (2026-08-04)
+- 改写·精准改写：整章改写强制「未标记段落逐字保留」（情色内容保持原样）；场景段改写输出范围约束；needsRewrite=false 保留原文章节不再被改写（批量+单章保护）；enforceTemplateRewrite 匹配面扩展（categories+markers 双查）
+- 改写·场景合并规则：恢复允许合并（连续同类型/相似场景如亲密+亲吻合并为最能概括的场景，防重复改写）
+- 默认模型配置：新模板 = DeepSeek + anthropic 协议 + 原生联网 + 1M + CNY + 定价 0.02/1/2；新增 configMigration.ts 字段级迁移（旧默认字段自动更新、自定义字段不动，App 启动执行）
+- 死代码清理：mergeAdjacentSegments（零引用）；chatStorageService 过时注释
+- 测试 664 passed + 15 skipped（679）
 
 ### v15.1.0 小说改写全面升级 + AI写作助手增强 + 打包流程修复 (2026-08-04)
 - 改写：总结阶段 JSON 解析容错 + 120s 请求超时保护（防批量"一直闪绿灯"）+ 重总结失败保留旧数据 + 批量全失败不推进阶段；章节拆分误判排除（第X节课/第三回合等正文段落，6 处共用全局生效）；改写本章按钮 + 插入信息勾选区（情节概要/角色信息/关键事件/本章原文，注入顺序：参考→场景标记→改写要求恒最后）；改写字数语义修正（额外扩充X字）+ 场景段改写按占比接入加料目标
@@ -148,7 +155,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (660 passed + 15 skipped，共 675) |
+| `npx vitest run` | 全量单元测试 (664 passed + 15 skipped，共 679) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

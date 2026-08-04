@@ -60,22 +60,22 @@ export interface PromptTemplate {
 export const PROMPT_TYPES: PromptType[] = ['角色', '章节', '续写', '改写', '摘要', '审稿']
 
 export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
-  provider: 'openai',
-  apiUrl: 'https://api.openai.com/v1',
+  provider: 'deepseek',
+  apiUrl: 'https://api.deepseek.com',
   apiKey: '',
   // Main
-  model: 'gpt-4o',
+  model: 'deepseek-v4-flash',
   temperature: 1.0,  // v12.5.1: 创作温度升高到 1.0 — 深度推理关闭时保持创意自由度、工具执行轮由 toolTemperature 控制
   maxTokens: 0,
   contextWindow: 1000000,  // v14.9: 默认 1M（DeepSeek V4 长上下文）
-  protocol: 'openai' as const,
+  protocol: 'anthropic' as const,   // v15.1: 默认 Anthropic 协议（DeepSeek Anthropic 端点，与本地/官方推荐一致）
   enableThinking: true,             // v11.4: 默认启用深度推理
   reasoningEffort: 'max' as const,  // v11.4: 默认最大推理强度
   toolTemperature: 0.5,            // v12.5.1: 工具执行轮温度上限
-  nativeWebSearch: false,          // v14.8: 默认不使用模型原生联网
-  inputPricePerM: 2.50,
-  outputPricePerM: 10.00,
-  cacheHitPricePerM: 1.25,
+  nativeWebSearch: true,           // v15.1: 默认开启模型原生联网搜索（Responses API 服务端搜索）
+  inputPricePerM: 0.02,            // v15.1: 默认 CNY 定价（输入 0.02 / 输出 1 / 缓存 2 元每百万 tokens）
+  outputPricePerM: 1,
+  cacheHitPricePerM: 2,
   // Image
   imageModel: '',
   imageProvider: '',
@@ -85,7 +85,8 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   imageOutputPricePerM: 0,
   // Embedding
   embeddingModel: 'text-embedding-3-small',
-  currency: 'USD',
+  currency: 'CNY',                 // v15.1: 默认人民币
+  mainCurrency: 'CNY' as const,
 }
 
 export type ContextPriority = 'balanced' | 'kb-first' | 'model-first'

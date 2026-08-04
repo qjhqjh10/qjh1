@@ -4,16 +4,21 @@
 // 用法: node scripts/zip-dist.mjs <版本号>  （版本号缺省读 package.json）
 
 import { createWriteStream, existsSync } from 'fs'
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { ZipArchive } from 'archiver'
 
 const require = createRequire(import.meta.url)
 const pkg = require('../package.json')
 
+// v15.1.0 修复: 路径基于脚本位置（scripts/ 的上两级 = 项目根），不受调用方 cwd 影响
+// （package-dist.sh 在 release/ 下调用时，相对 cwd 的 release/win-unpacked 会错位成 release/release/…）
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
 const version = process.argv[2] || pkg.version
-const srcDir = resolve('release/win-unpacked')
-const outFile = resolve(`release/win-unpacked-${version}.zip`)
+const srcDir = resolve(projectRoot, 'release', 'win-unpacked')
+const outFile = resolve(projectRoot, 'release', `win-unpacked-${version}.zip`)
 
 if (!existsSync(srcDir)) {
   console.error(`🔴 找不到 ${srcDir} —— 请先运行 electron-builder --dir`)
