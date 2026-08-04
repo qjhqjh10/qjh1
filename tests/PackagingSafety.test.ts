@@ -165,8 +165,8 @@ describe('打包安全验证', () => {
       expect(isSafe).toBe(true)
       expect(hasForbidden).toBe(false)
     }
-    // Ensure we have the expected 4 resources
-    expect(items.length).toBe(5)
+    // Ensure we have the expected 4 resources（v15.0.0: scripts 空目录已从 extraResources 移除）
+    expect(items.length).toBe(4)
   })
 
   // ── 2. files 只包含构建产物 ──

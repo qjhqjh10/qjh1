@@ -3,6 +3,7 @@ import { rewriteTemplateService } from '@/services/fileService'
 import type { RewritePromptTemplate, SceneRule } from '@/types/rewritePrompts'
 import ScrollArea from '@/components/common/ScrollArea'
 import EmptyState from '@/components/common/EmptyState'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import {
   XMarkIcon,
   PlusIcon,
@@ -11,6 +12,7 @@ import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   ArrowLeftIcon,
+  DocumentDuplicateIcon,
 } from '@heroicons/react/24/outline'
 
 // ── Helper: generate unique ID ──
@@ -37,9 +39,11 @@ type TabKey = 'systemPrompt' | 'sceneRules' | 'rewriteRules'
 interface Props {
   isOpen: boolean
   onClose: () => void
+  /** v15.1: 打开时定位到指定模板（改写工作台「查看」按钮跳转） */
+  initialTemplateId?: string | null
 }
 
-export default function RewritePromptModal({ isOpen, onClose }: Props) {
+export default function RewritePromptModal({ isOpen, onClose, initialTemplateId }: Props) {
   // ── State ──
   const [templates, setTemplates] = useState<RewritePromptTemplate[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -49,6 +53,8 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
   const prevActiveIdRef = useRef<string | null>(null)
+  // v15.1: 删除确认弹窗状态
+  const [deleteTarget, setDeleteTarget] = useState<RewritePromptTemplate | null>(null)
 
   // ── Load templates ──
   const loadTemplates = useCallback(async () => {
@@ -62,8 +68,15 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
   }, [activeId])
 
   useEffect(() => {
-    if (isOpen) { loadTemplates(); setSearch('') }
-  }, [isOpen])
+    if (isOpen) {
+      loadTemplates()
+      setSearch('')
+      // v15.1: 定位到指定模板（改写工作台「查看」跳转）
+      if (initialTemplateId) setActiveId(initialTemplateId)
+      else if (templates.length > 0 && !activeId) setActiveId(templates[0].id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialTemplateId])
 
   // ── Filtered templates (search) ──
   const filteredTemplates = search.trim()
@@ -124,7 +137,6 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定删除此模板？')) return
     try {
       await rewriteTemplateService.delete(id)
       if (activeId === id) {
@@ -134,6 +146,38 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
       await loadTemplates()
     } catch (e: any) {
       alert('删除失败：' + (e.message || '未知错误'))
+    }
+  }
+
+  // v15.1: 复制模板 — 深拷贝并创建新模板，名称追加（N）数字后缀便于区分
+  const handleDuplicate = async (id: string) => {
+    try {
+      const t = templates.find(x => x.id === id)
+      if (!t) return
+      // 生成最小未用的数字后缀：xxx → xxx（1）、xxx（2）…
+      const usedNumbers = templates
+        .filter(x => x.id !== id)
+        .map(x => {
+          const m = x.name.match(/^(.*)（(\d+)）$/)
+          return m && m[1] === t.name ? Number(m[2]) : 0
+        })
+        .filter(n => n > 0)
+      let n = 1
+      while (usedNumbers.includes(n)) n++
+      const copy: RewritePromptTemplate = {
+        ...t,
+        id: '',
+        name: `${t.name}（${n}）`,
+        sceneRules: t.sceneRules.map(r => ({ ...r, id: `sr_${Math.random().toString(36).slice(2, 10)}` })),
+        sceneGuidance: { ...t.sceneGuidance },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      const saved = await rewriteTemplateService.save(copy)
+      await loadTemplates()
+      setActiveId(saved.id)
+    } catch (e: any) {
+      alert('复制失败：' + (e.message || '未知错误'))
     }
   }
 
@@ -557,8 +601,18 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
                     >
                       <ArrowDownTrayIcon style={{ width: 14, height: 14 }} />
                     </button>
+                    {/* v15.1: 复制模板 */}
                     <button
-                      onClick={e => { e.stopPropagation(); handleDelete(tmpl.id) }}
+                      onClick={e => { e.stopPropagation(); handleDuplicate(tmpl.id) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2, borderRadius: 4 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = '#7c3aed' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = '#9b8e84' }}
+                      title="复制模板（创建相同副本）"
+                    >
+                      <DocumentDuplicateIcon style={{ width: 14, height: 14 }} />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); setDeleteTarget(tmpl) }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 2, borderRadius: 4 }}
                       onMouseEnter={e => { e.currentTarget.style.color = '#dc2626' }}
                       onMouseLeave={e => { e.currentTarget.style.color = '#9b8e84' }}
@@ -580,6 +634,19 @@ export default function RewritePromptModal({ isOpen, onClose }: Props) {
               ) : null}
             </ScrollArea>
           </div>
+
+          {/* v15.1: 删除确认弹窗（替代原 window.confirm） */}
+          <ConfirmModal
+            isOpen={deleteTarget !== null}
+            title="删除提示词模板"
+            message={`确定要删除模板「${deleteTarget?.name || ''}」吗？\n删除后不可恢复，已使用该模板的改写项目将不再引用它。`}
+            confirmLabel="删除"
+            danger
+            onConfirm={() => {
+              if (deleteTarget) { handleDelete(deleteTarget.id); setDeleteTarget(null) }
+            }}
+            onCancel={() => setDeleteTarget(null)}
+          />
 
           {/* ── Right: Template details (8/11) ── */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

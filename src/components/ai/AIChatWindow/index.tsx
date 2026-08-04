@@ -4,7 +4,7 @@ import { useStore, useSettingsStore } from '@/store'
 import { aiService, kbService, fileService, settingsService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, SparklesIcon,
-  BookOpenIcon, GlobeAltIcon,
+  BookOpenIcon, GlobeAltIcon, BoltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   DocumentTextIcon, PhotoIcon,
@@ -56,17 +56,19 @@ function actionBtnStyle(color: string): React.CSSProperties {
 }
 
 // v14.9.x(UI): 胶囊形开关——激活态紫色柔和填充+描边，常态透明暖灰，hover 浅灰底
-const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+// v15.1: 增加 disabled 态（当前模型不支持该能力时如实禁用，如非 DeepSeek V4 的深度思考）
+const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onClick, disabled = false }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; disabled?: boolean }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 999,
       border: active ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)',
       background: active ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)',
       color: active ? '#7c3aed' : '#6b5e54', fontSize: 11.5, fontWeight: active ? 600 : 500,
-      cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap', fontFamily: 'inherit',
+      cursor: disabled ? 'not-allowed' : 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap', fontFamily: 'inherit',
+      opacity: disabled ? 0.45 : 1,
     }}
-      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)' }}
-      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.7)' }}
+      onMouseEnter={e => { if (!active && !disabled) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)' }}
+      onMouseLeave={e => { if (!active && !disabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.7)' }}
     >
       {icon} {label}
     </button>
@@ -1010,12 +1012,41 @@ export default function AIChatWindow() {
               }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
             </div>
             {/* v14.9(A2): 原生联网走 Responses 原生工具，依赖「调用工具」开启——工具关闭时按钮如实变灰
-                （原恒显示激活态，实际联网彻底不可用，开关与真实行为不一致） */}
+                （原恒显示激活态，实际联网彻底不可用，开关与真实行为不一致）
+                v15.1: 原生联网不再锁定——点击直接切换模型配置的 nativeWebSearch 并持久化。
+                立即生效（adapter 每次消息按最新配置重建，下一轮即走/不走 Responses 通道）。 */}
             <span title={activeConfig?.nativeWebSearch
-              ? (toolInvokeEnabled ? '该模型已启用原生联网搜索（Responses API 服务端搜索），软件内置联网搜索自动停用' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
-              : '软件内置联网搜索（DuckDuckGo）'}>
-              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch ? toolInvokeEnabled : webSearchEnabled} onClick={() => { if (!activeConfig?.nativeWebSearch) setWebSearchEnabled(!webSearchEnabled) }} />
+              ? (toolInvokeEnabled ? '原生联网搜索已开启（Responses API 服务端搜索），软件内置联网搜索自动停用。点击可关闭原生联网' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
+              : '软件内置联网搜索（DuckDuckGo）。点击可开启/关闭'}>
+              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch ? toolInvokeEnabled : webSearchEnabled} onClick={() => {
+                if (activeConfig?.nativeWebSearch) {
+                  useSettingsStore.getState().updateConfig(activeConfig.id, { nativeWebSearch: false })
+                  settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
+                } else {
+                  setWebSearchEnabled(!webSearchEnabled)
+                }
+              }} />
             </span>
+            {/* v15.1: 深度思考开关（同 DeepSeek App 交互）— 切换当前模型配置的 enableThinking。
+                仅 DeepSeek V4 系列生效（buildThinkingParams / Anthropic 端同判定），其它模型禁用置灰。
+                立即生效：主进程每次调用从 electron-store 读取 enableThinking。 */}
+            {(() => {
+              const m = (activeConfig?.model || '').toLowerCase()
+              const isDeepSeekV4 = /deepseek/.test(m) && /v4/.test(m)
+              const thinkingActive = isDeepSeekV4 && activeConfig ? activeConfig.enableThinking !== false : false
+              return (
+                <span title={isDeepSeekV4
+                  ? (thinkingActive ? '深度思考已开启（推理增强，温度自动失效）。点击可关闭' : '深度思考已关闭。点击可开启')
+                  : '深度思考仅 DeepSeek V4 系列模型支持'}>
+                  <ToggleButton icon={<BoltIcon style={{ width: 12, height: 12 }} />} label="深度思考" active={thinkingActive} disabled={!isDeepSeekV4} onClick={() => {
+                    if (!activeConfig || !isDeepSeekV4) return
+                    const next = activeConfig.enableThinking === false
+                    useSettingsStore.getState().updateConfig(activeConfig.id, { enableThinking: next })
+                    settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
+                  }} />
+                </span>
+              )
+            })()}
             {/* v14.6.1: 工具开关接通双协议——原 Anthropic 协议下按钮被禁用（行为恒开），
                 且开关状态从未传给 bridge（死开关）；现在 sendMessage 透传 toolsEnabled 真正门控 */}
             <ToggleButton
@@ -1678,6 +1709,34 @@ export default function AIChatWindow() {
               {!isEdge && <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84" opacity="0.3"/></svg>}
             </div>
           )})}
+          {/* v15.1: 浮窗内模态层——外层 transform 建立 containing block，把内层 position:fixed
+              的确认/审批弹窗约束在 AI写作助手浮窗内部（原直接渲染时 framer-motion 动画结束
+              transform 移除 → fixed 逃逸到整个主窗口，表现为"软件上又开一个弹窗"） */}
+          {(pendingApproval || convToDelete) && (
+            <div style={{ position: 'absolute', inset: 0, transform: 'translateZ(0)', zIndex: 1000 }}>
+              {pendingApproval && (
+                <DangerousToolModal
+                  tools={pendingApproval}
+                  onResolve={(approved) => {
+                    approvalResolveRef.current?.(approved)
+                    approvalResolveRef.current = null
+                    setPendingApproval(null)
+                  }}
+                />
+              )}
+              {convToDelete && (
+                <ConfirmModal
+                  isOpen={true}
+                  title="删除对话"
+                  message={`确定要删除此对话「${conversations.find(c => c.id === convToDelete)?.title || ''}」吗？此操作不可撤销。`}
+                  confirmLabel="删除"
+                  danger
+                  onConfirm={() => { handleDeleteConversation(convToDelete); setConvToDelete(null) }}
+                  onCancel={() => setConvToDelete(null)}
+                />
+              )}
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
@@ -1864,29 +1923,6 @@ export default function AIChatWindow() {
         totalIterations={toolDetailPanel.totalIterations}
         usage={toolDetailPanel.usage}
         onClose={() => setToolDetailPanel(null)}
-      />
-    )}
-    {/* Dangerous tool approval modal — replaces window.confirm() */}
-    {pendingApproval && (
-      <DangerousToolModal
-        tools={pendingApproval}
-        onResolve={(approved) => {
-          approvalResolveRef.current?.(approved)
-          approvalResolveRef.current = null
-          setPendingApproval(null)
-        }}
-      />
-    )}
-    {/* 对话删除确认弹窗 */}
-    {convToDelete && (
-      <ConfirmModal
-        isOpen={true}
-        title="删除对话"
-        message={`确定要删除此对话「${conversations.find(c => c.id === convToDelete)?.title || ''}」吗？此操作不可撤销。`}
-        confirmLabel="删除"
-        danger
-        onConfirm={() => { handleDeleteConversation(convToDelete); setConvToDelete(null) }}
-        onCancel={() => setConvToDelete(null)}
       />
     )}
     </>

@@ -40,6 +40,21 @@ export const STEP_KEY_TO_STAGE: Record<StageStepKey, RewriteStage> = {
 /** Ordered RewriteStage values (progressive milestones) */
 export const STAGE_ORDER: RewriteStage[] = ['imported', 'split', 'summarized', 'identified', 'rewritten', 'merged']
 
+/** v15.1: 项目级总结信息要求 — 新建向导「总结信息」步骤与项目设置中可修改，
+ *  缺省使用 DEFAULT_SUMMARY_CONFIG，不影响历史项目 */
+export interface RewriteSummaryConfig {
+  plotSummary?: string    // 情节概要要求文本
+  characters?: string     // 角色信息要求文本
+  keyEvents?: string      // 关键事件要求文本
+}
+
+/** v15.1: 总结信息默认要求（新建向导预填 / 项目设置显示，可被项目级配置覆盖） */
+export const DEFAULT_SUMMARY_CONFIG: Required<RewriteSummaryConfig> = {
+  plotSummary: '情节概要，100-200字',
+  characters: '每个出场角色一条，包含姓名、外貌/性格/能力等特征、主角/配角/龙套角色定位、在本章中的角色表现',
+  keyEvents: '本章重要情节节点，每条一句话描述，3-6条',
+}
+
 export interface RewriteProject {
   id: string
   name: string
@@ -52,6 +67,7 @@ export interface RewriteProject {
   modelConfigId?: string       // 关联的模型配置 ID
   concurrentThreads?: number   // 并发线程数 (1-10)
   rewriteWordTarget?: number   // 每章改写目标加料字数
+  summaryConfig?: RewriteSummaryConfig  // v15.1: 项目级总结信息要求
   createdAt: string
   updatedAt: string
 }

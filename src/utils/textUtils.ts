@@ -14,6 +14,20 @@ export const CHAPTER_PATTERNS: { regex: RegExp; type: string }[] = [
   { regex: /^第\s*[一二三四五六七八九十百千零\d]+\s*[章卷节回集][\s：:\-—·]?.{0,40}$/, type: 'chapter' },
 ]
 
+// v15.1: 章节误判排除（正文段落在行首以「第X」开头时不算章节标题）
+// 排除表分两类：
+// 1. FALSE_POSITIVE_HEAD：第X后直接跟正文量词/名词——"第二节课"(节+课)、"第三回合"(回+合)、
+//    "第三轮""第五次""第七场"等——这些行即使整体匹配章节正则也应排除
+// 2. FALSE_POSITIVE_TAIL：第X+[章卷节回集] 后紧跟正文延续词——"第三集开头""第二卷土重来"
+//    "第一集完结"等（真正的标题在量词后通常是分隔符或直接是标题内容，不会紧跟这些词）
+export const CHAPTER_FALSE_POSITIVE_HEAD = /^第\s*[一二三四五六七八九十百千零\d]+\s*(节课?|堂课?|回合?|次|场|轮|局|天|年|月|日|周|步|层|题|页|幕|阶段|集数|个|名|位|件|条|项|种|遍|号)/
+
+export const CHAPTER_FALSE_POSITIVE_TAIL = /^第\s*[一二三四五六七八九十百千零\d]+\s*[章卷节回集](课|回合|土|重来|数|中|里|完|终|开头|结尾|就|讲|的|第)/
+
+// v15.1: 以句号/省略号/分号结尾的行视为正文句子而非章节标题
+// （"第二节课开始，老师走进教室。"；真正的章节标题不以句号结尾）
+const CHAPTER_LINE_ENDING_PROTECT = /[。…；]$/
+
 export interface ChapterSplitResult {
   title: string
   content: string
@@ -28,6 +42,9 @@ export function splitChaptersByHeadings(content: string): ChapterSplitResult[] {
     const line = lines[i].trim()
     if (!line) continue
     if (line.length > 60) continue
+    // 正文段落保护：以「第X」开头的行若命中排除表或句子结尾标点，跳过
+    if (CHAPTER_FALSE_POSITIVE_HEAD.test(line) || CHAPTER_FALSE_POSITIVE_TAIL.test(line)) continue
+    if (CHAPTER_LINE_ENDING_PROTECT.test(line)) continue
     for (const pat of CHAPTER_PATTERNS) {
       if (pat.regex.test(line)) { headings.push({ title: line, startLine: i, type: pat.type }); break }
     }

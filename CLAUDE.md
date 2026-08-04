@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.0.0
+# AI写作软件—青剑 v15.1.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,15 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v14.9.0)
+## 当前架构 (v15.1.0)
+
+### v15.1.0 小说改写全面升级 + AI写作助手增强 + 打包流程修复 (2026-08-04)
+- 改写：总结阶段 JSON 解析容错 + 120s 请求超时保护（防批量"一直闪绿灯"）+ 重总结失败保留旧数据 + 批量全失败不推进阶段；章节拆分误判排除（第X节课/第三回合等正文段落，6 处共用全局生效）；改写本章按钮 + 插入信息勾选区（情节概要/角色信息/关键事件/本章原文，注入顺序：参考→场景标记→改写要求恒最后）；改写字数语义修正（额外扩充X字）+ 场景段改写按占比接入加料目标
+- 改写：项目设置弹窗放大可编辑（模型/并发线程/改写字数/提示词模板/总结信息）；新建向导 +「总结信息」步骤（项目级 summaryConfig）；顶栏模板只读 + 查看按钮（跳转提示词管理定位）；提示词管理 +复制按钮（名称自动加（N））+ 删除确认弹窗；清除本章数据按钮（总结/改写阶段）；修复 loadAllRewrites 达标判定/已删模型配置回退全局/模板已删显示
+- AI 写作助手：+深度思考开关（DeepSeek V4，立即生效）；原生联网聊天窗可开关；删除对话/审批弹窗约束浮窗内（transform 包含块）
+- 模型列表刷新：超时 8s→15s + 服务商选择引导
+- 打包：scripts/package-dist.sh 一键安全打包（自动清理 userdata + zip 硬闸门复检，修复 v15.0.0 分发事故）
+- 测试 660 passed + 15 skipped（675）
 
 ### v14.9.0 五路审计修复 + 大文件专项 (2026-08-02)
 - 上下文窗口默认 1M（8 处同步）；大文件流式搜索（search_content >2MB readline 逐行，仅 multiline 跳过）；read_file 结果 50K；list_directory 500 条截断提示
@@ -140,7 +148,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (655 passed + 15 skipped，共 670) |
+| `npx vitest run` | 全量单元测试 (660 passed + 15 skipped，共 675) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

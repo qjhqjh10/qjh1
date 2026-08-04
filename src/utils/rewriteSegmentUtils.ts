@@ -82,11 +82,15 @@ export function buildSceneGuidanceMap(template: RewritePromptTemplate): Record<s
 }
 
 /** Build a prompt for rewriting ONLY a specific scene segment (not the full chapter) */
+// v15.1: 新增 extraWordTarget + chapterWordCount —— 项目级「改写字数」按本段占全章字数比例
+// 换算成该段的加料目标（原实现完全不传改写字数，精密改写模式下加料目标不生效）
 export function buildSegmentRewritePrompt(
   segmentText: string,
   sceneNames: string[],
   description: string,
   template?: RewritePromptTemplate | null,
+  extraWordTarget?: number,
+  chapterWordCount?: number,
 ): string {
   // Build scene-specific guidance using proper name mapping
   let guidanceLines = ''
@@ -106,11 +110,22 @@ export function buildSegmentRewritePrompt(
   }
 
   // Word count: defer to template guidance, fallback to generic instruction
+  // v15.1: 项目级改写字数（额外加料）按段落占全章比例换算本段目标
   const originalWc = countCJKChars(segmentText)
   const hasTemplateGuidance = !!(template?.universalGuidance || (template?.sceneGuidance && Object.keys(template.sceneGuidance).length > 0))
+
+  let segmentTargetNote = ''
+  if (extraWordTarget && extraWordTarget > 0 && chapterWordCount && chapterWordCount > 0) {
+    const ratio = Math.min(1, originalWc / chapterWordCount)
+    const segTarget = Math.max(0, Math.round(extraWordTarget * ratio))
+    segmentTargetNote = segTarget > 0
+      ? `\n- 全章加料目标：在原文基础上额外扩充约${extraWordTarget}字。本段原文${originalWc}字（占全章约${Math.round(ratio * 100)}%），本段建议额外扩充约${segTarget}字。`
+      : ''
+  }
+
   const wordTargetInstruction = hasTemplateGuidance
-    ? `\n- 字数要求：请严格按照上述「场景改写规则」和「通用改写指导」中的篇幅控制来执行。如无特殊说明，请保持与原文相近的字数范围，适当扩展。原文本段${originalWc}字，作为扩展的基数参考。`
-    : `\n- 字数要求：请在保持原文核心情节的基础上，适当扩展内容，使改写后更加丰满。原文本段${originalWc}字，作为扩展的基数参考。`
+    ? `\n- 字数要求：请严格按照上述「场景改写规则」和「通用改写指导」中的篇幅控制来执行。如无特殊说明，请保持与原文相近的字数范围，适当扩展。原文本段${originalWc}字，作为扩展的基数参考。${segmentTargetNote}`
+    : `\n- 字数要求：请在保持原文核心情节的基础上，适当扩展内容，使改写后更加丰满。原文本段${originalWc}字，作为扩展的基数参考。${segmentTargetNote}`
 
   const sceneLabel = sceneNames.join(' + ')
   const isOverlap = sceneNames.length > 1

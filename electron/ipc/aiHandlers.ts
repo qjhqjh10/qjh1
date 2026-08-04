@@ -284,15 +284,18 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       throw new Error(`API 密钥未设置。请在模型设置中填写 API 密钥后重试。\n当前地址: ${apiUrl}`)
     }
 
+    // v15.1: 8s→15s——慢网络/代理环境下 models.list() 与 ping 均易在 8s 内超时，
+    // 造成"无法连接模型"误报（首启无缓存 DNS + 系统代理握手可 >8s）
+    const MODEL_LIST_TIMEOUT = 15_000
     try {
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000, fetch: netFetch })
+      const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: MODEL_LIST_TIMEOUT, fetch: netFetch })
       const response = await client.models.list()
       return response.data.map(m => m.id)
     } catch {
       try {
         const OpenAI = await getOpenAI()
-        const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: 8000, fetch: netFetch })
+        const client = new OpenAI({ apiKey, baseURL: apiUrl, timeout: MODEL_LIST_TIMEOUT, fetch: netFetch })
         await client.chat.completions.create({
           model: config.model || 'deepseek-chat',
           messages: [{ role: 'user', content: 'ping' }],
@@ -301,7 +304,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         return [config.model || 'deepseek-chat']
       } catch (err2) {
         const msg = err2 instanceof Error ? err2.message : String(err2)
-        throw new Error(`无法连接 API\n地址: ${apiUrl}\n密钥: ${apiKey ? apiKey.slice(0,8)+'...' : '(未设置)'}\n错误: ${msg}`)
+        // v15.1: 提示补充可操作指引——对方是默认模板(gpt-4o/openai.com)时点明最可能原因
+        const defaultHint = (!config.model || /gpt-4o/i.test(config.model)) && /openai\.com/i.test(apiUrl)
+          ? '\n\n提示: 当前配置仍是默认的 OpenAI 地址(gpt-4o)。若你使用的是 DeepSeek 等其它服务商，\n请先在「服务商」下拉框选择对应服务商(如 DeepSeek)，并确保模型名正确。'
+          : '\n\n请确认: ① API 地址与密钥正确(服务商处选对) ② 网络可访问该地址 ③ 系统代理/防火墙未拦截。'
+        throw new Error(`无法连接 API\n地址: ${apiUrl}\n密钥: ${apiKey ? apiKey.slice(0,8)+'...' : '(未设置)'}\n错误: ${msg}${defaultHint}`)
       }
     }
   })

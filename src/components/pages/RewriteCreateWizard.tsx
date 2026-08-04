@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { rewriteService, rewriteTemplateService } from '@/services/fileService'
-import type { RewriteProject, RewriteChapter } from '@/types/rewrite'
+import { DEFAULT_SUMMARY_CONFIG } from '@/types/rewrite'
+import type { RewriteProject, RewriteChapter, RewriteSummaryConfig } from '@/types/rewrite'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import type { ModelConfig } from '@/types/settings'
 import { formatWordCount, splitChaptersByHeadings, countCJKChars } from '@/utils/textUtils'
@@ -19,16 +20,19 @@ import {
   EyeIcon,
   ArrowPathIcon,
   PlayIcon,
+  AdjustmentsVerticalIcon,
 } from '@heroicons/react/24/outline'
 
 // ── Step definitions ──
+// v15.1: preview 后新增「总结信息」步骤（可修改情节概要/角色信息/关键事件的要求，存到项目内）
 const STEPS = [
   { key: 'import', num: 1, label: '导入文件', icon: FolderOpenIcon },
   { key: 'split', num: 2, label: '章节拆分', icon: DocumentTextIcon },
   { key: 'preview', num: 3, label: '预览信息', icon: EyeIcon },
-  { key: 'model', num: 4, label: '模型配置', icon: CogIcon },
-  { key: 'prompt', num: 5, label: '提示词策略', icon: SparklesIcon },
-  { key: 'confirm', num: 6, label: '确认创建', icon: CheckCircleIcon },
+  { key: 'summary', num: 4, label: '总结信息', icon: AdjustmentsVerticalIcon },
+  { key: 'model', num: 5, label: '模型配置', icon: CogIcon },
+  { key: 'prompt', num: 6, label: '提示词策略', icon: SparklesIcon },
+  { key: 'confirm', num: 7, label: '确认创建', icon: CheckCircleIcon },
 ] as const
 
 type StepKey = typeof STEPS[number]['key']
@@ -84,7 +88,10 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
   // ── Step 3: 预览信息 ──
   const [projectName, setProjectName] = useState('')
 
-  // ── Step 4: 模型配置 ──
+  // ── Step 4: 总结信息（v15.1 — 可修改情节概要/角色信息/关键事件的要求，保存到项目）──
+  const [summaryConfig, setSummaryConfig] = useState<RewriteSummaryConfig>({ ...DEFAULT_SUMMARY_CONFIG })
+
+  // ── Step 5: 模型配置 ──
   const configs = useSettingsStore(s => s.configs)
   const [configId, setConfigId] = useState('')
   const [concurrentThreads, setConcurrentThreads] = useState(3)
@@ -105,6 +112,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
       setFileName(''); setFileContent(''); setSourceFileName('')
       setSplitMethod('heading'); setCustomRegex(''); setSplitPreview(null)
       setProjectName('')
+      setSummaryConfig({ ...DEFAULT_SUMMARY_CONFIG })
       setConfigId(''); setConcurrentThreads(3); setRewriteWordTarget(4000)
       setConnectionResult('idle')
       setTemplateId(''); setViewingTemplate(null); setTemplateDetailTab('systemPrompt')
@@ -187,6 +195,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
       case 'import': return !!fileContent
       case 'split': return splitPreview !== null && splitPreview.length > 0
       case 'preview': return true
+      case 'summary': return true
       case 'model': return true
       case 'prompt': return true
       case 'confirm': return !!fileContent && !!projectName
@@ -221,20 +230,18 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
         chapters: splitResults.map(r => ({ title: r.title, content: r.content })),
       })
 
-      // Save additional config (template, model, threads, word target)
-      if (templateId || configId || concurrentThreads !== 3 || rewriteWordTarget !== 4000) {
-        const withConfig = {
-          ...updated,
-          templateId: templateId || undefined,
-          modelConfigId: configId || undefined,
-          concurrentThreads,
-          rewriteWordTarget,
-        }
-        const saved = await rewriteService.save(withConfig)
-        onCreated(saved as RewriteProject)
-      } else {
-        onCreated(updated as RewriteProject)
+      // Save additional config (template, model, threads, word target, summary config)
+      // v15.1: summaryConfig 默认值等于 DEFAULT_SUMMARY_CONFIG 时仍显式保存（保证项目内可编辑基线）
+      const withConfig = {
+        ...updated,
+        templateId: templateId || undefined,
+        modelConfigId: configId || undefined,
+        concurrentThreads,
+        rewriteWordTarget,
+        summaryConfig: { ...DEFAULT_SUMMARY_CONFIG, ...summaryConfig },
       }
+      const saved = await rewriteService.save(withConfig)
+      onCreated(saved as RewriteProject)
     } catch (e: any) {
       alert('创建失败：' + (e.message || '未知错误'))
     }
@@ -246,12 +253,78 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
       case 'import': return renderImportStep()
       case 'split': return renderSplitStep()
       case 'preview': return renderPreviewStep()
+      case 'summary': return renderSummaryStep()
       case 'model': return renderModelStep()
       case 'prompt': return renderPromptStep()
       case 'confirm': return renderConfirmStep()
       default: return null
     }
   }
+
+  // ── Step 4: 总结信息（v15.1）──
+  const renderSummaryStep = () => (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 0', gap: 16, minHeight: 0 }}>
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#2d2520', marginBottom: 4 }}>总结信息要求</div>
+        <div style={{ fontSize: 12, color: '#9b8e84', lineHeight: 1.6 }}>
+          以下要求将用于「内容总结」阶段，控制 AI 从每章提取的情节概要 / 角色信息 / 关键事件。
+          可按需修改（如调整字数、补充需要提取的重点）；创建后也可在项目详情「查看设置」中修改。
+        </div>
+      </div>
+      <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 6 }}>📌 情节概要要求</div>
+            <input
+              type="text"
+              value={summaryConfig.plotSummary || ''}
+              onChange={e => setSummaryConfig({ ...summaryConfig, plotSummary: e.target.value })}
+              placeholder={DEFAULT_SUMMARY_CONFIG.plotSummary}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 8,
+                border: '1px solid rgba(0,0,0,0.12)', fontSize: 14,
+                color: '#1a1410', outline: 'none', fontFamily: 'inherit',
+                background: '#fff', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#8b5cf6', marginBottom: 6 }}>👥 角色信息要求</div>
+            <textarea
+              rows={3}
+              value={summaryConfig.characters || ''}
+              onChange={e => setSummaryConfig({ ...summaryConfig, characters: e.target.value })}
+              placeholder={DEFAULT_SUMMARY_CONFIG.characters}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 8,
+                border: '1px solid rgba(0,0,0,0.12)', fontSize: 14, lineHeight: 1.7,
+                color: '#1a1410', outline: 'none', fontFamily: 'inherit',
+                background: '#fff', resize: 'vertical', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#ec4899', marginBottom: 6 }}>⚡ 关键事件要求</div>
+            <textarea
+              rows={3}
+              value={summaryConfig.keyEvents || ''}
+              onChange={e => setSummaryConfig({ ...summaryConfig, keyEvents: e.target.value })}
+              placeholder={DEFAULT_SUMMARY_CONFIG.keyEvents}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 8,
+                border: '1px solid rgba(0,0,0,0.12)', fontSize: 14, lineHeight: 1.7,
+                color: '#1a1410', outline: 'none', fontFamily: 'inherit',
+                background: '#fff', resize: 'vertical', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: '#9b8e84', lineHeight: 1.6 }}>
+            💡 提示：以上为预设要求，未修改时使用默认值。项目创建后如需调整，可在项目详情「查看设置」中修改，已总结章节需「重新总结」才会按新要求生成。
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  )
 
   const renderImportStep = () => (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 24 }}>
@@ -692,6 +765,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
             { icon: '🔗', title: '并发线程', value: `${concurrentThreads} 个线程` },
             { icon: '✏️', title: '改写字数', value: `${rewriteWordTarget} 字/章` },
             { icon: '📋', title: '提示词策略', value: selectedTemplate ? selectedTemplate.name : '不使用模板' },
+            { icon: '📌', title: '总结信息', value: '情节概要 / 角色信息 / 关键事件（可修改）' },
           ].map((row, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
               <span style={{ fontSize: 16, flexShrink: 0 }}>{row.icon}</span>
@@ -829,6 +903,7 @@ export default function RewriteCreateWizard({ isOpen, onClose, onCreated }: Prop
                         {s.key === 'import' && '选择要改写的小说文件'}
                         {s.key === 'split' && '配置章节拆分规则'}
                         {s.key === 'preview' && '确认小说的基本信息'}
+                        {s.key === 'summary' && '设置总结信息提取要求（可修改）'}
                         {s.key === 'model' && '选择模型和改写参数'}
                         {s.key === 'prompt' && '选择改写提示词策略'}
                         {s.key === 'confirm' && '确认所有设置并创建'}

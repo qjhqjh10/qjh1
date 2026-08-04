@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { rewriteService, fileService, dialogService, rewriteTemplateService } from '@/services/fileService'
-import { STAGE_STEPS, STAGE_NAMES, STEP_KEY_TO_STAGE, STAGE_ORDER } from '@/types/rewrite'
+import { STAGE_STEPS, STAGE_NAMES, STEP_KEY_TO_STAGE, STAGE_ORDER, DEFAULT_SUMMARY_CONFIG } from '@/types/rewrite'
 import type { RewriteProject, RewriteChapter, ChapterAnalysis, ChapterRewrite, ContextMarker } from '@/types/rewrite'
 import type { RewritePromptTemplate } from '@/types/rewritePrompts'
 import { formatWordCount, splitChaptersByHeadings, countCJKChars } from '@/utils/textUtils'
@@ -9,8 +9,10 @@ import { chatAI } from '@/utils/chatAI'
 import { useSettingsStore } from '@/store'
 import EmptyState from '@/components/common/EmptyState'
 import ScrollArea from '@/components/common/ScrollArea'
+import ConfirmModal from '@/components/common/ConfirmModal'
 import RewriteEditor from '@/components/common/RewriteEditor'
 import RewriteCompareModal from '@/components/common/RewriteCompareModal'
+import RewritePromptModal from '@/components/pages/RewritePromptModal'
 import { findTextInContent, extractSceneSegment, buildSceneGuidanceMap, buildSegmentRewritePrompt, assembleRewrittenChapterFromSimple, assembleRewrittenChapter } from '@/utils/rewriteSegmentUtils'
 import {
   ArrowLeftIcon,
@@ -43,7 +45,9 @@ function calcIsPassing(rewriteWc: number, chapterWc: number, rewriteTarget?: num
 }
 
 // ── Analysis prompt builder ──
-function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTemplate | null): string {
+// v15.1: summaryConfig 支持项目级自定义「情节概要/角色信息/关键事件」的要求文本，
+// 缺省使用 DEFAULT_SUMMARY_CONFIG（与历史行为一致）。
+function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTemplate | null, summaryConfig?: { plotSummary?: string; characters?: string; keyEvents?: string } | null): string {
   // Build scene recognition rules from template
   let sceneRulesSection = ''
   if (template && template.sceneRules.length > 0) {
@@ -66,15 +70,20 @@ function buildAnalysisPrompt(chapterContent: string, template?: RewritePromptTem
 - ⚠️ 合并规则：如果同一场景类型在原文中连续出现多段（如连续3段都是战斗场景），请合并为一条 contextMarker，startText 取第一段的开头，endText 取最后一段的末尾。不要为连续的同类型场景创建多条记录。`
     : ''
 
+  const cfg = summaryConfig || DEFAULT_SUMMARY_CONFIG
   return `你是一位专业的小说分析助手。请分析以下章节，提取结构化信息。
 
 章节内容：
 ${chapterContent}
 ${sceneRulesSection}
 ${markerInstructions ? '\n' + markerInstructions : ''}
+提取要求（请严格遵循）：
+- 情节概要：${cfg.plotSummary || DEFAULT_SUMMARY_CONFIG.plotSummary}
+- 角色信息：${cfg.characters || DEFAULT_SUMMARY_CONFIG.characters}
+- 关键事件：${cfg.keyEvents || DEFAULT_SUMMARY_CONFIG.keyEvents}
 请严格按以下JSON格式返回（不要包含markdown代码块标记，直接返回纯JSON）：
 {
-  "plotSummary": "情节概要，100-200字",
+  "plotSummary": "情节概要文本",
   "characters": [
     { "name": "角色名", "traits": "外貌/性格/能力等特征", "role": "主角/配角/龙套", "description": "在本章中的角色表现" }
   ],
@@ -92,25 +101,58 @@ ${markerInstructions ? '\n' + markerInstructions : ''}
 }`
 }
 
+// ── 改写参考信息注入选项（v15.1: 改写阶段右栏「插入信息」勾选区）──
+export interface RewriteContextOptions {
+  plotSummary: boolean   // 情节概要
+  characters: boolean    // 角色信息
+  keyEvents: boolean     // 关键事件
+  originalText: boolean  // 本章原文
+}
+
+export const DEFAULT_REWRITE_CONTEXT_OPTIONS: RewriteContextOptions = {
+  plotSummary: true,
+  characters: true,
+  keyEvents: true,
+  originalText: true,
+}
+
 // ── Rewrite prompt builder ──
-function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | null, template?: RewritePromptTemplate | null, wordTarget?: number, chapterId?: string, disabledMarkerKeys?: Set<string>): string {
+// v15.1: contextOptions 控制参考信息注入（默认全注入，与历史行为一致）。
+// 注入顺序（重要程度从低到高）：原文/参考分析 → 场景标记 → 改写规则 → 改写要求。
+// 改写要求恒在最后、最贴近输出指令，避免参考信息淹没用户需求与改写指令。
+function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | null, template?: RewritePromptTemplate | null, wordTarget?: number, chapterId?: string, disabledMarkerKeys?: Set<string>, contextOptions?: Partial<RewriteContextOptions>): string {
   // Filter out user-disabled markers if chapterId is provided
   const effectiveMarkers = analysis && chapterId && disabledMarkerKeys
     ? analysis.contextMarkers.filter((_, i) => !disabledMarkerKeys.has(`${chapterId}:${i}`))
     : analysis?.contextMarkers || []
 
-  let context = `原文内容：\n${chapterContent}`
+  const opts: RewriteContextOptions = { ...DEFAULT_REWRITE_CONTEXT_OPTIONS, ...contextOptions }
+
+  let context = ''
+  if (opts.originalText) {
+    context = `原文内容：\n${chapterContent}`
+  }
+  const analysisParts: string[] = []
   if (analysis) {
-    context += `\n\n章节分析：\n情节概要：${analysis.plotSummary}`
-    if (analysis.characters.length > 0) {
-      context += `\n出场角色：${analysis.characters.map(c => `${c.name}(${c.role})`).join('、')}`
+    if (opts.plotSummary && analysis.plotSummary) {
+      analysisParts.push(`情节概要：${analysis.plotSummary}`)
     }
-    if (analysis.keyEvents.length > 0) {
-      context += `\n关键事件：${analysis.keyEvents.join('；')}`
+    if (opts.characters && analysis.characters.length > 0) {
+      analysisParts.push(`出场角色：${analysis.characters.map(c => `${c.name}(${c.role})`).join('、')}`)
+    }
+    if (opts.keyEvents && analysis.keyEvents.length > 0) {
+      analysisParts.push(`关键事件：${analysis.keyEvents.join('；')}`)
     }
     if (analysis.categories.length > 0) {
-      context += `\n识别场景：${analysis.categories.map(c => `${c.name}(${c.count}次)`).join('、')}`
+      analysisParts.push(`识别场景：${analysis.categories.map(c => `${c.name}(${c.count}次)`).join('、')}`)
     }
+  }
+  if (analysisParts.length > 0) {
+    context += `${context ? '\n\n' : ''}章节分析：\n${analysisParts.join('\n')}`
+  }
+  if (!opts.originalText) {
+    // 未注入原文时明确告知模型，避免其臆造原文内容
+    context += `${context ? '\n\n' : ''}[注] 本次改写未提供本章原文，请基于提供的参考信息与你的创作能力进行改写。`
   }
 
   // Build precise scene location markers with startText/endText anchors
@@ -184,12 +226,14 @@ function buildRewritePrompt(chapterContent: string, analysis: ChapterAnalysis | 
   }
 
   // Add word target instruction if configured
+  // v15.1: 修正语义——wordTarget 是「额外加料字数」（项目设置：每章额外加料的目标字数），
+  // 原文案"改写后字数目标约为X字"会被模型误解为总字数目标（X 是加料量，总字数=原文+X）
   let wordTargetInstruction = ''
   if (wordTarget && wordTarget > 0) {
-    wordTargetInstruction = `\n- 请在保持原文核心情节的基础上，适当扩充内容，改写后字数目标约为${wordTarget}字`
+    wordTargetInstruction = `\n- 请在保持原文核心情节的基础上，适当扩充内容，在原文基础上额外扩充约${wordTarget}字（改写后总字数约为原文 + ${wordTarget}字）`
   }
 
-  return `你是一位专业的小说改写助手。请基于原文和章节分析，对本章进行改写。
+  return `你是一位专业的小说改写助手。请基于本章内容与提供的参考信息，对本章进行改写。
 
 ${context}
 ${sceneMarkerSection}
@@ -208,17 +252,18 @@ ${rewriteRules}
 }
 
 // ── Parse AI response to ChapterAnalysis ──
+// v15.1: 容错增强——AI 输出可能带前后缀说明/多余字符/思考痕迹（DeepSeek thinking 模式下尤其常见）。
+// 依次尝试：① 剥离 markdown 代码块后整体解析；② 提取首个 { 到末个 } 的子串解析。
+// ③ 仍失败则返回 null（由调用方决定重试/报错）。
 function parseAnalysisResponse(text: string): ChapterAnalysis | null {
-  try {
-    // Strip potential markdown code blocks
-    let json = text.trim()
-    if (json.startsWith('```')) {
-      json = json.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
-    }
-    const obj = JSON.parse(json)
+  const tryParse = (s: string): any | null => {
+    try { return JSON.parse(s) } catch { return null }
+  }
+  const normalize = (obj: any): ChapterAnalysis | null => {
+    if (!obj || typeof obj !== 'object') return null
     return {
       chapterId: '',
-      plotSummary: obj.plotSummary || '',
+      plotSummary: typeof obj.plotSummary === 'string' ? obj.plotSummary : '',
       characters: Array.isArray(obj.characters) ? obj.characters : [],
       keyEvents: Array.isArray(obj.keyEvents) ? obj.keyEvents : [],
       categories: Array.isArray(obj.categories) ? obj.categories : [],
@@ -226,8 +271,45 @@ function parseAnalysisResponse(text: string): ChapterAnalysis | null {
       needsRewrite: obj.needsRewrite !== false,
       analyzedAt: new Date().toISOString(),
     }
-  } catch {
-    return null
+  }
+  let json = text.trim()
+  if (!json) return null
+  // ① markdown 代码块剥离
+  if (json.startsWith('```')) {
+    json = json.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
+  }
+  let obj = tryParse(json)
+  if (obj) return normalize(obj)
+  // ② 提取首个 { 与末个 } 之间的子串（容忍 AI 在 JSON 前后附加说明文字）
+  const firstBrace = json.indexOf('{')
+  const lastBrace = json.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    obj = tryParse(json.slice(firstBrace, lastBrace + 1))
+    if (obj) return normalize(obj)
+  }
+  return null
+}
+
+// v15.1: 总结/改写请求超时保护——chatAI 底层走 ipcRenderer.invoke，主进程 SDK 超时 180s×2 重试
+// 可让单个请求挂起长达 9 分钟（批量并发时表现为"一直闪绿灯不出结果"）。
+// 前端 120s 兜底：超时按失败处理，批量循环继续下一批，不再无限卡住。
+const AI_REQUEST_TIMEOUT = 120_000
+
+async function callAIWithTimeout(
+  messages: Array<{ role: string; content: string }>,
+  configId: string,
+  system?: string,
+): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      chatAI(messages, configId, system),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`请求超时（${AI_REQUEST_TIMEOUT / 1000}秒），已跳过该章节`)), AI_REQUEST_TIMEOUT)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -252,12 +334,17 @@ export default function RewriteWorkspacePage() {
   const [searchParams] = useSearchParams()
   const projectId = searchParams.get('id') || ''
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
+  const configs = useSettingsStore(s => s.configs)
 
   // ── Core state ──
   const [project, setProject] = useState<RewriteProject | null>(null)
 
   // ── Effective model config: project-level overrides global ──
-  const effectiveConfigId = project?.modelConfigId || activeConfigId
+  // v15.1(修复): 项目绑定的模型配置若已被删除（设置中移除模板），回退到全局配置，
+  // 否则请求会报 "Model config not found"（用户视角：总结/改写莫名失败）
+  const effectiveConfigId = (project?.modelConfigId && configs.some(c => c.id === project.modelConfigId))
+    ? project.modelConfigId
+    : activeConfigId
   const [activeStep, setActiveStep] = useState(1)
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
   const [chapterContent, setChapterContent] = useState('')
@@ -279,6 +366,9 @@ export default function RewriteWorkspacePage() {
   // ── Stage 5: 合并输出 — selected chapter ──
   const [mergeSelectedChapterId, setMergeSelectedChapterId] = useState<string | null>(null)
 
+  // ── v15.1: 清除本章数据（总结+改写）确认弹窗 ──
+  const [clearTarget, setClearTarget] = useState<RewriteChapter | null>(null)
+
   // ── Stage 4: Rewrite state ──
   const [rewrites, setRewrites] = useState<Map<string, ChapterRewrite>>(new Map())
   const [rewriting, setRewriting] = useState(false)
@@ -286,6 +376,8 @@ export default function RewriteWorkspacePage() {
   const [rewritePaused, setRewritePaused] = useState(false)
   const rewritePausedRef = useRef(false)
   const [rewriteStreaming, setRewriteStreaming] = useState('')
+  // v15.1: 改写参考信息注入选项（默认全勾选，与历史行为一致）
+  const [rewriteContextOptions, setRewriteContextOptions] = useState<RewriteContextOptions>({ ...DEFAULT_REWRITE_CONTEXT_OPTIONS })
   const [showOriginal, setShowOriginal] = useState(false)
   const [editorReadOnly, setEditorReadOnly] = useState(true)
   const [showPreserveChapters, setShowPreserveChapters] = useState(false)
@@ -310,6 +402,8 @@ export default function RewriteWorkspacePage() {
   // ── Template state ──
   const [templates, setTemplates] = useState<RewritePromptTemplate[]>([])
   const [activeTemplate, setActiveTemplate] = useState<RewritePromptTemplate | null>(null)
+  // v15.1: 提示词管理弹窗（「查看」按钮跳转定位）
+  const [showPromptModal, setShowPromptModal] = useState(false)
 
   // ── Split state (Stage 1) ──
   const [splitting, setSplitting] = useState(false)
@@ -351,17 +445,8 @@ export default function RewriteWorkspacePage() {
     }).catch(() => {})
   }, [project?.templateId])
 
-  // ── Handle template selection change ──
-  const handleTemplateChange = useCallback(async (templateId: string) => {
-    if (!project) return
-    const tpl = templates.find(t => t.id === templateId)
-    setActiveTemplate(tpl || null)
-    const updated = { ...project, templateId: templateId || undefined, updatedAt: new Date().toISOString() }
-    try {
-      const saved = await rewriteService.save(updated)
-      setProject(saved)
-    } catch { /* ignore */ }
-  }, [project, templates])
+  // ── v15.1: 模板切换已移至「项目设置」——工作台顶栏只读显示模板名 + 「查看」跳转提示词管理。
+  //  模板列表在此仅用于显示名称；项目.templateId 变化时 useEffect 自动刷新 activeTemplate。
 
   // ── Load all analyses from disk on mount / step change ──
   const loadAllAnalyses = useCallback(async () => {
@@ -381,6 +466,8 @@ export default function RewriteWorkspacePage() {
   }, [project, projectId])
 
   // ── Load all rewrites from disk ──
+  // v15.1(修复): isPassing 判定与保存时对齐——原缺 rewriteWordTarget 参数，
+  // 重载页面后已达标章节可能被误判为"字数不达标"
   const loadAllRewrites = useCallback(async () => {
     if (!project || !project.chapters.length) return
     const map = new Map<string, ChapterRewrite>()
@@ -393,7 +480,7 @@ export default function RewriteWorkspacePage() {
             content,
             wordCount: countCJKChars(content),
             targetWordCount: ch.wordCount,
-            isPassing: calcIsPassing(countCJKChars(content), ch.wordCount),
+            isPassing: calcIsPassing(countCJKChars(content), ch.wordCount, project.rewriteWordTarget),
             rewrittenAt: '',
           })
         }
@@ -454,6 +541,45 @@ export default function RewriteWorkspacePage() {
 
   const handleBack = () => navigate('/rewrite')
 
+  // ── v15.1: 清除本章数据 — 删除该章的总结+改写文件并清理全部相关状态，
+  //  供「重新总结/重新改写」时从零开始（避免旧数据残留导致的问题） ──
+  const handleClearChapterData = useCallback(async (chapter: RewriteChapter) => {
+    if (!projectId) return
+    try {
+      await rewriteService.deleteAnalysis(projectId, chapter.fileName)
+      await rewriteService.deleteRewrite(projectId, chapter.fileName)
+      setAnalyses(prev => {
+        const next = new Map(prev)
+        next.delete(chapter.id)
+        return next
+      })
+      setRewrites(prev => {
+        const next = new Map(prev)
+        next.delete(chapter.id)
+        return next
+      })
+      setFailedAnalyzingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setNoSceneIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setActiveAnalyzingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setFailedRewritingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setAttemptedRewriteIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setActiveRewritingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setRewriteMetaMap(prev => {
+        const next = new Map(prev)
+        next.delete(chapter.id)
+        return next
+      })
+      setDisabledMarkerKeys(prev => {
+        const next = new Set(prev)
+        for (const k of prev) { if (k.startsWith(`${chapter.id}:`)) next.delete(k) }
+        return next
+      })
+      setError('')
+    } catch (e: any) {
+      setError('清除本章数据失败：' + (e.message || '未知错误'))
+    }
+  }, [projectId])
+
   // ═══════════════════════════════════════════════════════
   // Stage 1: 书籍拆分 (unchanged)
   // ═══════════════════════════════════════════════════════
@@ -500,8 +626,9 @@ export default function RewriteWorkspacePage() {
       const content = await rewriteService.readChapter(projectId, chapter.fileName)
       if (!content.trim()) throw new Error('章节内容为空')
 
-      const prompt = buildAnalysisPrompt(content, activeTemplate)
-      const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
+      // v15.1: 项目级总结信息 + 120s 超时保护（防"一直闪绿灯"卡死）
+      const prompt = buildAnalysisPrompt(content, activeTemplate, project?.summaryConfig)
+      const reply = await callAIWithTimeout([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
       const analysis = parseAnalysisResponse(reply)
       if (!analysis) throw new Error('AI返回格式异常，请重试')
 
@@ -518,6 +645,9 @@ export default function RewriteWorkspacePage() {
         next.set(chapter.id, finalAnalysis)
         return next
       })
+      // v15.1: 成功时清除失败标记（重新总结成功后的状态残留修复）
+      setFailedAnalyzingIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
+      setNoSceneIds(prev => { const next = new Set(prev); next.delete(chapter.id); return next })
 
       // Update project stage if first analysis
       if (project && project.stage === 'split') {
@@ -532,9 +662,12 @@ export default function RewriteWorkspacePage() {
     setAnalyzing(false)
   }, [projectId, effectiveConfigId, project, activeTemplate])
 
-  // ── Re-analyze single chapter (clear existing analysis first) ──
+  // ── Re-analyze single chapter ──
+  // v15.1: 失败保留旧总结——先备份磁盘旧分析，新分析失败时恢复（原逻辑先删旧文件，
+  // 新分析一旦失败（如格式出错）旧总结就丢了，重启后看到"部分章节已完成"实际是丢失后的残局）
   const handleReanalyzeChapter = useCallback(async (chapter: RewriteChapter) => {
     if (!effectiveConfigId) { setError('请先配置AI模型'); return }
+    const oldRaw = await rewriteService.readAnalysis(projectId, chapter.fileName).catch(() => '')
     try {
       // Delete analysis from disk
       await rewriteService.deleteAnalysis(projectId, chapter.fileName)
@@ -555,7 +688,22 @@ export default function RewriteWorkspacePage() {
       // Re-analyze
       await handleAnalyzeChapter(chapter)
     } catch (e: any) {
-      setError('重新总结失败：' + (e.message || '未知错误'))
+      // 新分析失败：恢复旧总结（若存在），避免"旧数据被清但新数据没来"的中间态
+      if (oldRaw) {
+        await rewriteService.saveAnalysis(projectId, chapter.fileName, oldRaw).catch(() => {})
+        try {
+          const analysis = JSON.parse(oldRaw) as ChapterAnalysis
+          analysis.chapterId = chapter.id
+          setAnalyses(prev => {
+            const next = new Map(prev)
+            next.set(chapter.id, analysis)
+            return next
+          })
+        } catch { /* 旧文件损坏则忽略 */ }
+        setError('重新总结失败（已保留原总结）：' + (e.message || '未知错误'))
+      } else {
+        setError('重新总结失败：' + (e.message || '未知错误'))
+      }
     }
   }, [projectId, effectiveConfigId, handleAnalyzeChapter])
 
@@ -594,8 +742,9 @@ export default function RewriteWorkspacePage() {
           const content = await rewriteService.readChapter(projectId, ch.fileName)
           if (!content.trim()) return { ch, success: false, error: '空章节' }
 
-          const prompt = buildAnalysisPrompt(content, activeTemplate)
-          const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
+          // v15.1: 项目级总结信息 + 120s 超时保护
+          const prompt = buildAnalysisPrompt(content, activeTemplate, project?.summaryConfig)
+          const reply = await callAIWithTimeout([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
           const analysis = parseAnalysisResponse(reply)
           if (!analysis) return { ch, success: false, error: '解析失败' }
 
@@ -615,6 +764,7 @@ export default function RewriteWorkspacePage() {
               next.set(ch.id, analysis)
               return next
             })
+            setFailedAnalyzingIds(prev => { const next = new Set(prev); next.delete(ch.id); return next })
             // Check for no template scenes
             const hasMatchingScene = activeTemplate?.sceneRules?.some(sr =>
               analysis.categories.some(c => c.name === sr.name)
@@ -642,8 +792,8 @@ export default function RewriteWorkspacePage() {
       if (analyzePausedRef.current) break
     }
 
-    // Update project stage
-    if (project) {
+    // v15.1: 至少成功一章才推进阶段（原无条件置 summarized，全失败也会推进）
+    if (project && done > 0) {
       const updated = { ...project, stage: 'summarized' as const, updatedAt: new Date().toISOString() }
       await rewriteService.save(updated)
       setProject(updated)
@@ -680,8 +830,9 @@ export default function RewriteWorkspacePage() {
           const content = await rewriteService.readChapter(projectId, ch.fileName)
           if (!content.trim()) return { ch, success: false, error: '空章节' }
 
-          const prompt = buildAnalysisPrompt(content, activeTemplate)
-          const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
+          // v15.1: 项目级总结信息 + 120s 超时保护
+          const prompt = buildAnalysisPrompt(content, activeTemplate, project?.summaryConfig)
+          const reply = await callAIWithTimeout([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
           const analysis = parseAnalysisResponse(reply)
           if (!analysis) return { ch, success: false, error: '解析失败' }
 
@@ -701,6 +852,7 @@ export default function RewriteWorkspacePage() {
               next.set(ch.id, analysis)
               return next
             })
+            setFailedAnalyzingIds(prev => { const next = new Set(prev); next.delete(ch.id); return next })
             const hasMatchingScene = activeTemplate?.sceneRules?.some(sr =>
               analysis.categories.some(c => c.name === sr.name)
             ) ?? true
@@ -813,7 +965,7 @@ export default function RewriteWorkspacePage() {
             if (!segment) return null
             const sceneNames = [...new Set(group.map(m => m.sceneName))]
             const description = group.map(m => m.description).filter(Boolean).join('；')
-            const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate)
+            const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate, project?.rewriteWordTarget, chapter.wordCount)
             return { key, prompt: segPrompt, marker: primary, start: segment.start, end: segment.end }
           })
           .filter(Boolean) as { key: string; prompt: string; marker: ContextMarker; start: number; end: number }[]
@@ -876,7 +1028,7 @@ export default function RewriteWorkspacePage() {
       }
 
       // ═══ Fallback: Full-chapter rewrite path (non-streaming) ═══
-      const prompt = buildRewritePrompt(content, analysis, activeTemplate, project?.rewriteWordTarget, chapter.id, disabledMarkerKeys)
+      const prompt = buildRewritePrompt(content, analysis, activeTemplate, project?.rewriteWordTarget, chapter.id, disabledMarkerKeys, rewriteContextOptions)
 
       const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
       const rewrittenContent = reply.trim()
@@ -919,7 +1071,7 @@ export default function RewriteWorkspacePage() {
       setError('改写失败：' + (e.message || '未知错误'))
     }
     setRewriting(false)
-  }, [projectId, effectiveConfigId, project, activeTemplate])
+  }, [projectId, effectiveConfigId, project, activeTemplate, rewriteContextOptions])
 
   const handleRewriteAll = useCallback(async () => {
     if (!project || !effectiveConfigId) { setError('请先配置AI模型'); return }
@@ -987,7 +1139,7 @@ export default function RewriteWorkspacePage() {
                 if (!segment) return null
                 const sceneNames = [...new Set(group.map(g => g.sceneName))]
                 const description = group.map(g => g.description).filter(Boolean).join('；')
-                const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate)
+                const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate, project?.rewriteWordTarget, ch.wordCount)
                 return { prompt: segPrompt, start: segment.start, end: segment.end }
               })
               .filter(Boolean) as { prompt: string; start: number; end: number }[]
@@ -1010,13 +1162,13 @@ export default function RewriteWorkspacePage() {
               rewrittenContent = assembleRewrittenChapterFromSimple(content, rewrittenSegments)
             } else {
               // Fallback: full-chapter rewrite
-              const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys)
+              const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys, rewriteContextOptions)
               const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
               rewrittenContent = reply
             }
           } else {
             // No markers: full-chapter rewrite
-            const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys)
+            const prompt = buildRewritePrompt(content, analysis, activeTemplate, wordTarget, ch.id, disabledMarkerKeys, rewriteContextOptions)
             const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
             rewrittenContent = reply
           }
@@ -1074,7 +1226,7 @@ export default function RewriteWorkspacePage() {
     }
     setRewriting(false)
     // rewrites/disabledMarkerKeys 参与过滤，须在依赖中（否则旧闭包重复改写已处理章节）
-  }, [project, projectId, effectiveConfigId, activeTemplate, rewrites, disabledMarkerKeys])
+  }, [project, projectId, effectiveConfigId, activeTemplate, rewrites, disabledMarkerKeys, rewriteContextOptions])
 
   const handleRetryWordCountFailures = useCallback(async () => {
     if (!project || !effectiveConfigId) return
@@ -1133,7 +1285,7 @@ export default function RewriteWorkspacePage() {
                 if (!segment) return null
                 const sceneNames = [...new Set(group.map(g => g.sceneName))]
                 const description = group.map(g => g.description).filter(Boolean).join('；')
-                const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate) + wordCountNote
+                const segPrompt = buildSegmentRewritePrompt(segment.text, sceneNames, description, activeTemplate, project?.rewriteWordTarget, ch.wordCount) + wordCountNote
                 return { prompt: segPrompt, start: segment.start, end: segment.end }
               })
               .filter(Boolean) as { prompt: string; start: number; end: number }[]
@@ -1153,12 +1305,14 @@ export default function RewriteWorkspacePage() {
               }
               rewrittenContent = assembleRewrittenChapterFromSimple(content, rewrittenSegments)
             } else {
-              const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount, ch.id, disabledMarkerKeys) + wordCountNote
+              // v15.1: 重试路径的 wordTarget 传 0——总字数底线已由 wordCountNote 表达，
+              // 若再传 ch.wordCount 会生成"额外扩充约X字"的错误指令（X 实为原文总字数）
+              const prompt = buildRewritePrompt(content, analysis, activeTemplate, 0, ch.id, disabledMarkerKeys, rewriteContextOptions) + wordCountNote
               const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
               rewrittenContent = reply
             }
           } else {
-            const prompt = buildRewritePrompt(content, analysis, activeTemplate, ch.wordCount, ch.id, disabledMarkerKeys) + wordCountNote
+            const prompt = buildRewritePrompt(content, analysis, activeTemplate, 0, ch.id, disabledMarkerKeys, rewriteContextOptions) + wordCountNote
             const reply = await chatAI([{ role: 'user', content: prompt }], effectiveConfigId, activeTemplate?.systemPrompt)
             rewrittenContent = reply
           }
@@ -1207,7 +1361,7 @@ export default function RewriteWorkspacePage() {
       setRewriteQueue({ done, total: failures.length, failed })
     }
     setRewriting(false)
-  }, [project, projectId, effectiveConfigId, activeTemplate, rewrites])
+  }, [project, projectId, effectiveConfigId, activeTemplate, rewrites, rewriteContextOptions])
 
   // ── Editor content change → save ──
   const handleEditorChange = useCallback(async (plainText: string) => {
@@ -1630,7 +1784,7 @@ export default function RewriteWorkspacePage() {
                     onMouseLeave={e => { if (canRetry) e.currentTarget.style.background = 'rgba(220,38,38,0.06)' }}
                   >
                     <ArrowPathIcon style={{ width: 13, height: 13 }} />
-                    {retryCount > 0 ? `失败章节重新总结 (${retryCount})` : '无需重新总结'}
+                    {retryCount > 0 ? `未总结章节重试 (${retryCount})` : '无需重新总结'}
                   </button>
                 </div>
               )
@@ -1693,6 +1847,31 @@ export default function RewriteWorkspacePage() {
                 {analyzePaused ? '▶ 继续总结' : '⏸ 暂停'}
               </button>
             )}
+
+            {/* v15.1: 清除本章数据 — 清空该章总结+改写，供重新总结/改写时从零开始 */}
+            <button
+              onClick={() => {
+                if (selectedChapterId) {
+                  const ch = chapters.find(c => c.id === selectedChapterId)
+                  if (ch) setClearTarget(ch)
+                }
+              }}
+              disabled={analyzing || !selectedChapterId}
+              title="删除该章已生成的总结与改写数据（不可恢复），随后可重新总结"
+              style={{
+                width: '100%', padding: '6px 0', borderRadius: 8,
+                border: '1px solid rgba(220,38,38,0.25)', cursor: analyzing || !selectedChapterId ? 'not-allowed' : 'pointer',
+                background: 'rgba(220,38,38,0.05)', color: '#dc2626',
+                fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit',
+                opacity: analyzing || !selectedChapterId ? 0.45 : 1, transition: 'all 0.15s ease',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}
+              onMouseEnter={e => { if (!analyzing && selectedChapterId) e.currentTarget.style.background = 'rgba(220,38,38,0.12)' }}
+              onMouseLeave={e => { if (!analyzing && selectedChapterId) e.currentTarget.style.background = 'rgba(220,38,38,0.05)' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+              清除本章数据
+            </button>
 
             {/* Batch analyze all chapters */}
             <button onClick={handleAnalyzeAll} disabled={analyzing || chapters.length === 0} style={{
@@ -2328,6 +2507,41 @@ export default function RewriteWorkspacePage() {
               </button>
             )}
 
+            {/* v15.1: 插入信息 — 控制改写时注入模型的参考信息（默认全勾选，与历史行为一致） */}
+            <div style={{
+              marginBottom: 12, padding: '10px 12px', borderRadius: 10,
+              border: '1px solid rgba(124,58,237,0.12)', background: 'rgba(124,58,237,0.03)',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#4a3f38', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2"><path d="M12 3v18M3 12h18" strokeLinecap="round"/></svg>
+                插入信息
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {([
+                  { key: 'plotSummary' as const, label: '情节概要' },
+                  { key: 'characters' as const, label: '角色信息' },
+                  { key: 'keyEvents' as const, label: '关键事件' },
+                  { key: 'originalText' as const, label: '本章原文' },
+                ]).map(opt => (
+                  <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12.5, color: '#4a3f38', fontFamily: 'inherit' }}>
+                    <input
+                      type="checkbox"
+                      checked={rewriteContextOptions[opt.key]}
+                      onChange={e => setRewriteContextOptions(prev => ({ ...prev, [opt.key]: e.target.checked }))}
+                      style={{ accentColor: '#7c3aed', width: 13, height: 13 }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 7, lineHeight: 1.5 }}>
+                注入顺序：本章原文/参考分析 → 场景标记 → 改写要求（需求与改写指令恒在最后，优先被模型遵循）
+                {!rewriteContextOptions.originalText && (
+                  <div style={{ color: '#d97706', marginTop: 3 }}>⚠️ 未勾选「本章原文」时模型无法看到原文，改写质量可能下降</div>
+                )}
+              </div>
+            </div>
+
             {/* Retry failed rewrites — only attempted-but-no-rewrite chapters */}
             {(() => {
               const failedRewriteCount = chapters.filter(ch => attemptedRewriteIds.has(ch.id) && !rewrites.has(ch.id)).length
@@ -2387,6 +2601,31 @@ export default function RewriteWorkspacePage() {
               </button>
             )}
 
+            {/* v15.1: 清除本章数据 — 清空该章总结+改写，供重新改写时从零开始 */}
+            <button
+              onClick={() => {
+                if (selectedChapterId) {
+                  const ch = chapters.find(c => c.id === selectedChapterId)
+                  if (ch) setClearTarget(ch)
+                }
+              }}
+              disabled={rewriting || !selectedChapterId}
+              title="删除该章已生成的总结与改写数据（不可恢复），随后可重新改写"
+              style={{
+                width: '100%', padding: '6px 0', borderRadius: 8,
+                border: '1px solid rgba(220,38,38,0.25)', cursor: rewriting || !selectedChapterId ? 'not-allowed' : 'pointer',
+                background: 'rgba(220,38,38,0.05)', color: '#dc2626',
+                fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit',
+                opacity: rewriting || !selectedChapterId ? 0.45 : 1, transition: 'all 0.15s ease',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}
+              onMouseEnter={e => { if (!rewriting && selectedChapterId) e.currentTarget.style.background = 'rgba(220,38,38,0.12)' }}
+              onMouseLeave={e => { if (!rewriting && selectedChapterId) e.currentTarget.style.background = 'rgba(220,38,38,0.05)' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+              清除本章数据
+            </button>
+
             <button onClick={handleRewriteAll} disabled={rewriting || chapters.length === 0} style={{
               width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
               cursor: rewriting || chapters.length === 0 ? 'not-allowed' : 'pointer',
@@ -2397,6 +2636,27 @@ export default function RewriteWorkspacePage() {
             }}>
               <SparklesIcon style={{ width: 15, height: 15 }} />
               {rewriting ? '改写中...' : `全部改写 (${needsRewriteTotal}章)`}
+            </button>
+            {/* v15.1: 改写本章 — 对左侧选中的章节单独改写（对齐总结阶段的「总结本章」交互） */}
+            <button
+              onClick={() => {
+                if (selectedChapterId) {
+                  const ch = chapters.find(c => c.id === selectedChapterId)
+                  if (ch) handleRewriteChapter(ch)
+                }
+              }}
+              disabled={rewriting || !selectedChapterId}
+              style={{
+                width: '100%', padding: '8px 0', borderRadius: 10, border: 'none',
+                cursor: rewriting || !selectedChapterId ? 'not-allowed' : 'pointer',
+                background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+                color: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                opacity: rewriting || !selectedChapterId ? 0.5 : 1, transition: 'all 0.2s ease',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}
+            >
+              <SparklesIcon style={{ width: 13, height: 13 }} />
+              {rewriting ? '改写中...' : '改写本章'}
             </button>
           </div>
         </div>
@@ -2717,24 +2977,32 @@ export default function RewriteWorkspacePage() {
           </div>
         </div>
 
-        {/* Template selector */}
-        <div style={{ flexShrink: 0, padding: '0 12px', borderRight: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* Template display — v15.1: 只读显示模板名 + 「查看」按钮跳转提示词管理（切换改到项目设置中） */}
+        <div style={{ flexShrink: 0, padding: '0 12px', borderRight: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 14, color: '#3a3530', whiteSpace: 'nowrap' }}>提示词模板</span>
-          <select
-            value={activeTemplate?.id || ''}
-            onChange={e => handleTemplateChange(e.target.value)}
+          <span style={{
+            padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
+            fontSize: 13, color: activeTemplate ? '#1a1410' : '#9b8e84',
+            background: activeTemplate ? '#fff' : 'rgba(0,0,0,0.02)',
+            fontFamily: 'inherit', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }} title={activeTemplate?.name || (project?.templateId ? '模板已被删除，请在项目设置中重新选择' : '未使用模板')}>
+            {activeTemplate ? activeTemplate.name : (project?.templateId ? '（模板已删除）' : '（不使用模板）')}
+          </span>
+          <button
+            onClick={() => setShowPromptModal(true)}
+            title="查看提示词模板详情（可在提示词管理中修改或切换）"
             style={{
-              padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.12)',
-              fontSize: 13, color: '#1a1410', background: '#fff',
-              fontFamily: 'inherit', cursor: 'pointer', outline: 'none',
-              maxWidth: 160,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.2)',
+              cursor: 'pointer', background: 'rgba(124,58,237,0.06)', color: '#7c3aed',
+              fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+              transition: 'all 0.12s ease', whiteSpace: 'nowrap',
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
           >
-            <option value="">（不使用模板）</option>
-            {templates.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+            <EyeIcon style={{ width: 13, height: 13 }} /> 查看
+          </button>
         </div>
 
         {/* Stage circles — centered */}
@@ -2793,6 +3061,27 @@ export default function RewriteWorkspacePage() {
 
       {/* ── Stage Content ── */}
       {renderStageContent()}
+
+      {/* v15.1: 提示词管理弹窗（顶栏「查看」按钮，定位到本项目模板） */}
+      <RewritePromptModal
+        isOpen={showPromptModal}
+        onClose={() => setShowPromptModal(false)}
+        initialTemplateId={project?.templateId}
+      />
+
+      {/* v15.1: 清除本章数据确认弹窗 */}
+      <ConfirmModal
+        isOpen={clearTarget !== null}
+        title="清除本章数据"
+        message={`确定要清除第${clearTarget?.chapterNumber}章「${clearTarget?.title || ''}」的总结与改写数据吗？\n该操作不可恢复。清除后可在本章重新执行总结 / 改写。`}
+        confirmLabel="清除"
+        danger
+        onConfirm={() => {
+          if (clearTarget) handleClearChapterData(clearTarget)
+          setClearTarget(null)
+        }}
+        onCancel={() => setClearTarget(null)}
+      />
     </div>
   )
 }
