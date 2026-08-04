@@ -35,11 +35,16 @@ else
 fi
 
 echo "══ 5/6 产物完整性验证 ══"
-DLL_COUNT=$(ls release/win-unpacked/*.dll 2>/dev/null | grep -c "node" || true)
-echo "  node*.dll 数量: $DLL_COUNT（0 = v14.7.0 解压事故复现，必须终止）"
-[ "$DLL_COUNT" -lt 1 ] && { echo "  🔴 node.dll 缺失——终止"; exit 1; }
+# v15.1.0 修正: Electron 29.4.6 官方包无 node.dll（静态链接，正常）——完整性改验：
+# ① 主 exe 存在 ② 标准 dll 集齐全（6 个：d3dcompiler_47/ffmpeg/libEGL/libGLESv2/
+#    vk_swiftshader/vulkan-1；v14.7.0 winCodeSign 解压事故表现为整个 win-unpacked 缺文件）
+# ③ resources/app.asar 存在
+DLL_COUNT=$(ls release/win-unpacked/*.dll 2>/dev/null | wc -l | tr -d ' ')
+echo "  标准 dll 数量: $DLL_COUNT（正常应为 6，Electron 29.4.6 无 node.dll）"
+[ "$DLL_COUNT" -lt 5 ] && { echo "  🔴 dll 文件集不完整（v14.7.0 解压事故复现）——终止"; exit 1; }
 [ -f "release/win-unpacked/AI写作软件—青剑.exe" ] || { echo "  🔴 主 exe 缺失——终止"; exit 1; }
-echo "  ✓ exe 与 node.dll 就位"
+[ -f "release/win-unpacked/resources/app.asar" ] || { echo "  🔴 resources/app.asar 缺失——终止"; exit 1; }
+echo "  ✓ exe / dll 集 / app.asar 就位"
 
 echo "══ 6/6 打包 zip + 防泄漏复检 ══"
 cd release
