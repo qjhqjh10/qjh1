@@ -177,6 +177,7 @@ export class BridgeContextBuilder {
           `对话时系统已注入相关片段，请优先基于已有信息（含此前 read_file/kb_analyze 的结果）作答——已了解的信息不要重复查阅；`
           + `仅当当前上下文无法确定设定细节或与已知信息矛盾时，才查阅对应文件：先用 kb_search 定位相关段落，`
           + `小文件用 read_file 读取全文（文件在 ../knowledge_base/files/ 目录），大文件优先 kb_analyze 深度分析（回传精简总结，避免全文占用大量上下文）；`
+          + `委托 kb_analyze 分析设定文件时，请在 query/focus 中说明分析角度——按角色扮演设定要点提炼：角色性格/关系/说话风格/世界观约束/行为准则与禁忌，而非泛泛的资料摘要（子代理看不到本角色的扮演设定，角度需由你传入）；`
           + `不要凭空猜测设定。`
         if (tplWorldFileIds.length > 0) {
           const names = tplWorldFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]

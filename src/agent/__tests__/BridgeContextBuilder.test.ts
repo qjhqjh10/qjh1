@@ -198,6 +198,9 @@ describe('角色模板设定文件（worldKbFileIds + scenarioKbFileIds）', () 
     expect(roleMsg!.content).toContain('仅当当前上下文无法确定设定细节')
     expect(roleMsg!.content).toContain('大文件优先 kb_analyze 深度分析')
     expect(roleMsg!.content).toContain('不要凭空猜测')
+    // v15.3.1(优化): 角色扮演角度传递——子代理看不到角色设定，主 agent 委托时须传分析角度
+    expect(roleMsg!.content).toContain('角色扮演设定要点')
+    expect(roleMsg!.content).toContain('子代理看不到本角色的扮演设定')
   })
 
   it('score 阈值过滤：低相关片段不注入（缺 score 的旧数据默认注入）', async () => {
