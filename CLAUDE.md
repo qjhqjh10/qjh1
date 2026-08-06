@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.3.1
+# AI写作软件—青剑 v15.4.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,15 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v15.3.1)
+## 当前架构 (v15.4.0)
+
+### v15.4.0 知识库场景化设置 + 片段注入模式 (2026-08-07)
+- 注入方式双模式（全量/片段）：生成功能（章节/批量/角色）可选择「全量注入」（现状：文件全文截断注入，perFile/total 上限）或「片段注入」（用户输入关键词 → 向量化语义检索 topK 相关片段注入，topK 取设置）；片段模式关键词为空自动退回全量、检索零结果不注入（不做静默回退全量）
+- 知识库设置三场景独立卡片：AI 写作助手（agent，恒语义检索）/ 章节生成·批量生成（chapterGen）/ AI 生成角色（characterGen），每场景可调注入方式 + searchTopK + 两个注入上限；generation 旧键保留为 @deprecated 兜底（getSceneKb 双保险回退）
+- knowledgePipeline 重构为单一真源：复活死代码 searchKB/injectChunks → searchKBMulti（多关键词分别检索+去重+score 降序）/ injectKnowledgeForScene（统一入口）/ buildKBBlock（批量预取一次 N 章复用，full 每文件仅读 1 次、chunk 仅 1 次检索）/ getSceneKb；KB_INJECT_SCORE_THRESHOLD 从 BridgeContextBuilder 收敛至此；删除死代码 injectKnowledge；使用指引文案增强（三处统一：「必须融合进正文/无关直接忽略/不要复述参考」）
+- 批量生成删内联 KB 实现（原不消费 totalMaxChars、不按【创作要求】定位）；AI 生成角色删内联实现（统一走 buildKBBlock）；章节生成 kbInjectMode/kbKeywords 随 ChapterGenSettings 持久化，批量/角色弹窗内 state
+- store persist version 8→9（generation → chapterGen/characterGen 同值拆分，保留兜底键）
+- 测试 711 passed + 15 skipped（726，+17 knowledgePipeline）；tsc 0；check-consistency 31/31
 
 ### v15.3.1 输入框拖拽修复 + 角色模板知识库设定文件 (2026-08-06)
 - 拖拽修复：手柄改 flex 布局置于 textarea 正下方（跟随其底缘，拖拽时手柄随鼠标走，方向感正确——原 absolute bottom:38 固定导致"往下拉、顶部悄悄上移"的反直觉）；textarea 内容超出时自动增高（scrollHeight，上限 220px，不收缩保留手动高度）；手柄 14px 高 + hover 紫色高亮
@@ -16,7 +24,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 主/子 agent 人设隔离确认 + 角色角度传递（用户提醒）：子代理上下文 = ROLE_PROMPTS 独立提示词 + 任务消息（无对话历史/无角色模板/KB 注入，SubagentService.setContextAssembler）——主 agent 角色扮演人设不会污染子代理；唯一缺口已补：角色设定文件提示词引导主 agent 委托 kb_analyze 时在 query/focus 传分析角度（角色扮演设定要点：性格/关系/说话风格/世界观约束/禁忌，而非泛泛资料摘要——子代理看不到扮演设定）
 - 上下文压缩策略重构（用户决策）：ContextCompressor 阈值参数化（CompressionThresholds 默认 0.7/0.8/0.9）+ 新增 compressDeep 链式方法（strip → 早期摘要 → 早期折叠，一次到底）——**主 agent**：chatBridgeFactory 传 thresholds 0.85/0.9/0.95 + deepAt 0.85（85% 才自动压缩，链式一次到底，进度条 ~85% 回退 ~15%，轮间执行不影响任务）；**子 agent**：SubagentService 传 0.75/0.85/0.95 渐进（75% 自动，无提醒）；AIChatWindow 进度条 **50%/70% 弹窗提醒**（各档一次，不自动压缩，ConfirmModal「知道了」）；压缩发生在 runtime 轮间（V4UnifiedRuntime:486-496）不打断任务
 - 缓存结论（调研）：角色模板全量注入位于 Anthropic 缓存断点（倒数第二 system 块=核心规则）之前——模板不变每轮命中缓存；切换/编辑模板才重写一次；KB 动态注入走 user 消息不进缓存前缀，缓存效率只升不降
-- 测试 693 passed + 15 skipped（708，+9：ContextCompressor 4 + BridgeContextBuilder 5）；tsc 0；check-consistency 31/31
+- 测试 693 passed + 15 skipped（708，+9：ContextCompressor 4 + BridgeContextBuilder 5）；tsc 0；check-consistency 31/31（v15.4.0 后 711 + 15 = 726）
 
 ### v15.3.0 AI 写作助手输入框改造（仿 DeepSeek）+ #工具提示 (2026-08-06)
 - 一体化输入框：输入区 + 发送按钮同框（圆角 18 容器统一描边/阴影，textarea 无边框，发送按钮移至容器内右下角 34px）；#工具按钮位于容器底部左侧（DeepSeek 输入框下方按钮位），显示已选数量 badge
@@ -178,7 +186,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (689 passed + 15 skipped，共 704) |
+| `npx vitest run` | 全量单元测试 (711 passed + 15 skipped，共 726) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

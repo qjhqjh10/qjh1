@@ -3,8 +3,9 @@ import Modal from '@/components/common/Modal'
 import Button from '@/components/common/Button'
 import { SparklesIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig, PromptTemplate } from '@/types/settings'
-import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
+import type { OutlineTabToggles, DetailedOutlineToggles, KBInjectMode } from '@/types/settings'
 import type { Character } from '@/types/character'
+import { buildKBBlock, getSceneKb } from '@/services/knowledgePipeline'
 import type { DetailedChapter } from '@/types/chapter'
 import { loadOutlineDimensions } from '@/utils/outlineData'
 import { loadAllSummaries } from '@/services/summaryService'
@@ -83,6 +84,9 @@ export function AICharacterGenerateDialog({
   // 知识库参考（v13.x 新增）
   const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set())
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
+  // v15.4.0: 知识库注入方式（全量/片段）与片段关键词——弹窗内 state
+  const [kbInjectMode, setKbInjectMode] = useState<KBInjectMode>('full')
+  const [kbKeywords, setKbKeywords] = useState('')
 
   const loadKBFiles = async () => {
     try { setKbFiles((await kbService.list()).files.map(f => ({ id: f.id, originalName: f.originalName }))) } catch { setKbFiles([]) }
@@ -193,20 +197,17 @@ export function AICharacterGenerateDialog({
       } catch { /* ignore */ }
     }
 
-    // 4. 知识库 (lowest priority, 补充参考；长度上限取自知识库设置)
+    // 4. 知识库 (lowest priority, 补充参考；v15.4.0: 统一走 knowledgePipeline——全量/片段两种模式)
     if (selectedKbFileIds.size > 0) {
       const { useSettingsStore } = await import('@/store')
-      const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
-      const perFile = Math.min(50000, Math.max(500, kbSettings?.generation?.fallbackPerFileMaxChars || 5000))
-      const kbParts: string[] = []
-      for (const fid of selectedKbFileIds) {
-        try {
-          const result = await kbService.read(fid) as { file: { originalName: string }; content: string }
-          const content = (result.content || '').trim()
-          if (content) kbParts.push(`【文件: ${result.file.originalName}】\n${content.slice(0, perFile)}`)
-        } catch { /* 单个文件读取失败跳过 */ }
-      }
-      if (kbParts.length > 0) parts.push(`【知识库参考】\n${kbParts.join('\n\n')}`)
+      const block = await buildKBBlock([...selectedKbFileIds], {
+        mode: kbInjectMode,
+        keywords: kbKeywords,
+        projectId: activeProjectId || '',
+        configId: aiGenConfigId || activeConfigId || '',
+        scene: getSceneKb(useSettingsStore.getState().aiSettings.kbSettings, 'characterGen'),
+      })
+      if (block) parts.push(block)
     }
 
     const referenceContext = parts.join('\n\n')
@@ -407,7 +408,7 @@ export function AICharacterGenerateDialog({
             </div>
           </div>
 
-          {/* 知识库 — lowest priority（补充参考） */}
+          {/* 知识库 — lowest priority（补充参考；v15.4.0: 全量/片段两种注入方式） */}
           <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(16,163,74,0.03)', border: '1px solid rgba(16,163,74,0.12)', flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#16a34a' }}>知识库 · {selectedKbFileIds.size} 个</span>
@@ -418,6 +419,22 @@ export function AICharacterGenerateDialog({
                 <button onClick={loadKBFiles} style={miniActionLink}>刷新</button>
               </div>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600 }}>注入方式:</span>
+              <button onClick={() => setKbInjectMode('full')} title="勾选文件全文截断注入（上限取知识库设置）"
+                style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                  border: kbInjectMode === 'full' ? '1px solid rgba(16,163,74,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                  background: kbInjectMode === 'full' ? 'rgba(16,163,74,0.08)' : '#fff', color: kbInjectMode === 'full' ? '#16a34a' : '#6b5e54', fontWeight: kbInjectMode === 'full' ? 600 : 400 }}>全量注入</button>
+              <button onClick={() => setKbInjectMode('chunk')} title="按关键词向量化检索相关片段注入（topK 取知识库设置）"
+                style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                  border: kbInjectMode === 'chunk' ? '1px solid rgba(16,163,74,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                  background: kbInjectMode === 'chunk' ? 'rgba(16,163,74,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#16a34a' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
+            </div>
+            {kbInjectMode === 'chunk' && (
+              <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
+                placeholder="片段关键词：如 剑术, 宗门, 炼丹（逗号/顿号分隔）"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', outline: 'none', marginBottom: 6, flexShrink: 0 }} />
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
               {kbFiles.map(f => (
                 <label key={f.id} style={{

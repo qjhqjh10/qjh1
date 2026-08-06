@@ -1,9 +1,9 @@
 import { convertTemplateToProfile, buildSceneAwareStylePrompt, classifySceneType } from '@/utils/styleInjector'
 import { ROLE_LABELS } from '@/components/common/eroticSceneConstants'
 import { logError } from '@/utils/logger'
-import { injectKnowledgeFallback } from '@/services/knowledgePipeline'
+import { injectKnowledgeForScene, getSceneKb } from '@/services/knowledgePipeline'
 import type { SceneTemplate, EroticSceneConfig, NovelSceneConfig } from '@/types/story'
-import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
+import type { OutlineTabToggles, DetailedOutlineToggles, KBInjectMode } from '@/types/settings'
 import type { DetailedChapter } from '@/types/chapter'
 import type { Character } from '@/types/character'
 
@@ -144,24 +144,27 @@ export function normalizeParagraphs(text: string): string {
 }
 
 /**
- * 向 prompt 注入知识库内容（v14.8: 直接注入所选文件全文，按字符截断）。
- * 不再做语义检索——用户勾选文件即希望以文件为单位完整参考（与批量生成/AI生成角色行为一致）。
- * 单文件上限 / 总上限取自知识库设置的「章节生成」场景。注入位置在"创作要求"之前。
+ * v15.4.0: 向 prompt 注入知识库内容——按知识库设置「章节生成」场景的注入方式分派：
+ * - full（默认）: 直接注入所选文件全文，按字符截断（单文件/总量上限取设置）
+ * - chunk: 按关键词做向量化语义检索，注入 topK 个相关片段（searchTopK 取设置）
+ * 注入位置统一在"创作要求"之前。片段模式关键词为空自动退回全量；检索零结果不注入。
  */
 export async function injectKBContents(
   prompt: string,
   selectedKbFileIds: Set<string>,
+  opts: { mode: KBInjectMode; keywords: string; projectId: string; configId: string },
 ): Promise<string> {
   if (selectedKbFileIds.size === 0) return prompt
 
   const { useSettingsStore } = await import('@/store')
   const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
-  const gen = kbSettings?.generation || { fallbackTotalMaxChars: 10000, fallbackPerFileMaxChars: 5000 }
-  const injected = await injectKnowledgeFallback(
-    prompt, [...selectedKbFileIds],
-    gen.fallbackTotalMaxChars || 10000,
-    gen.fallbackPerFileMaxChars || 5000,
-  )
+  const injected = await injectKnowledgeForScene(prompt, [...selectedKbFileIds], {
+    mode: opts.mode,
+    keywords: opts.keywords,
+    projectId: opts.projectId,
+    configId: opts.configId,
+    scene: getSceneKb(kbSettings, 'chapterGen'),
+  })
   return injected.prompt
 }
 
@@ -345,7 +348,7 @@ export function buildPrompt(opts: BuildPromptOptions): string {
     refParts.push(`【前文章节摘要】\n${summaries.join('\n')}`)
   }
   if (selectedKbFileIds.size > 0) {
-    refParts.push(`【知识库参考】以下知识库内容可供参考（注入在下方）`)
+    refParts.push(`【知识库参考】以下知识库内容将注入在下方：与本章细纲相关的设定必须融合进正文，无关内容直接忽略`)
   }
 
   // ════════════════════════════════════════════════════════════════

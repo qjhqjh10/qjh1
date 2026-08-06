@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
 import { aiService, fileService, styleTemplateService, kbService, settingsService } from '@/services/fileService'
+import { buildKBBlock, getSceneKb } from '@/services/knowledgePipeline'
+import type { KBInjectMode } from '@/types/settings'
 import { loadOutlineDimensions } from '@/utils/outlineData'
 import { loadAllSummaries, saveSummary } from '@/services/summaryService'
 import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
@@ -76,6 +78,9 @@ export default function BatchGenerationModal({
   // KB + summaries
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<string>>(new Set(cg.selectedSummaryIds || []))
   const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set(cg.selectedKbFileIds || []))
+  // v15.4.0: 知识库注入方式（全量/片段）与片段关键词——弹窗内 state（与 selectedKbFileIds 生命周期一致）
+  const [kbInjectMode, setKbInjectMode] = useState<KBInjectMode>('full')
+  const [kbKeywords, setKbKeywords] = useState('')
   const [autoSummary, setAutoSummary] = useState(false)
   const [selectedSummaryPromptId, setSelectedSummaryPromptId] = useState(NONE_ID)
   const [kbDeleteConfirm, setKbDeleteConfirm] = useState<{ type: 'batch'; ids: string[]; count: number } | { type: 'single'; id: string; name: string } | null>(null)
@@ -161,7 +166,7 @@ export default function BatchGenerationModal({
     setDetailedOutlineFields(prev => { const n = { ...prev }; for (const k of Object.keys(n) as (keyof DetailedOutlineToggles)[]) n[k] = val; return n })
   }
 
-  const buildPromptForChapter = async (ch: DetailedChapter, loadedDims?: any, summaryIds?: Set<string>) => {
+  const buildPromptForChapter = async (ch: DetailedChapter, loadedDims?: any, summaryIds?: Set<string>, kbBlock?: string | null) => {
     const parts: string[] = []
     // Style injection
     if (selectedStyleTemplateId && selectedStyleTemplate) {
@@ -195,22 +200,8 @@ export default function BatchGenerationModal({
         if (summaryTexts.length > 0) parts.push(`【前文章节摘要】\n${summaryTexts.join('\n\n')}`)
       } catch {}
     }
-    // Knowledge base（v13.x: 无需在项目内，长度上限取自知识库设置）
-    if (selectedKbFileIds.size > 0) {
-      try {
-        const { useSettingsStore } = await import('@/store')
-        const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
-        const perFile = Math.min(50000, Math.max(500, kbSettings?.generation?.fallbackPerFileMaxChars || 5000))
-        const kbContents = await Promise.all([...selectedKbFileIds].map(async fid => {
-          const res = await kbService.read(fid)
-          const content = res?.content || ''
-          if (content) return String(content).slice(0, perFile)
-          return ''
-        }))
-        const kbText = kbContents.filter(Boolean).join('\n\n---\n\n')
-        if (kbText) parts.push(`【知识库参考】\n${kbText}`)
-      } catch {}
-    }
+    // Knowledge base（v15.4.0: 预取块由 handleStart 构建一次、N 章复用——全量/片段两种模式）
+    if (kbBlock) parts.push(kbBlock)
     // Outline tab dimensions
     if (outlineTabs.plot && outlineContent) parts.push(`【故事剧情】\n${outlineContent.slice(0, 15000)}`)
     if (outlineTabs.worldbuilding && worldbuildingContent) parts.push(`【世界观设定】\n${worldbuildingContent.slice(0, 30000)}`)
@@ -259,6 +250,17 @@ export default function BatchGenerationModal({
       ? await loadOutlineDimensions(pp, outlineTabs)
       : undefined
 
+    // v15.4.0: 知识库注入块预取一次、N 章复用（full 每文件仅读 1 次；chunk 仅 1 次检索）
+    const kbBlock = selectedKbFileIds.size > 0
+      ? await buildKBBlock([...selectedKbFileIds], {
+          mode: kbInjectMode,
+          keywords: kbKeywords,
+          projectId: activeProjectId || '',
+          configId: genConfigId,
+          scene: getSceneKb(useSettingsStore.getState().aiSettings.kbSettings, 'chapterGen'),
+        })
+      : null
+
     for (let i = 0; i < items.length; i++) {
       if (!runningRef.current) break
       setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'generating' as QueueStatus } : q))
@@ -275,7 +277,7 @@ export default function BatchGenerationModal({
           autoSummaryIds = new Set(recent5.map(c => c.id))
           setSelectedSummaryIds(autoSummaryIds)
         }
-        const prompt = await buildPromptForChapter(ch || sortedChapters[0], loadedDims, autoSummaryIds)
+        const prompt = await buildPromptForChapter(ch || sortedChapters[0], loadedDims, autoSummaryIds, kbBlock)
         const messages = [{ role: 'user' as const, content: prompt }]
 
         if (streamMode) {
@@ -535,6 +537,25 @@ export default function BatchGenerationModal({
                 {/* 知识库注入 — flex(3) */}
                 <div style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                   <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>知识库注入 · {selectedKbFileIds.size} 个</div>
+                  {/* v15.4.0: 注入方式（全量/片段）+ 片段关键词——批量 N 章共用一次注入块 */}
+                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600 }}>注入方式:</span>
+                    <button onClick={() => setKbInjectMode('full')} title="勾选文件全文截断注入（上限取知识库设置）"
+                      style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                        border: kbInjectMode === 'full' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                        background: kbInjectMode === 'full' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'full' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'full' ? 600 : 400 }}>全量注入</button>
+                    <button onClick={() => setKbInjectMode('chunk')} title="按关键词向量化检索相关片段注入（topK 取知识库设置）"
+                      style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                        border: kbInjectMode === 'chunk' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                        background: kbInjectMode === 'chunk' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
+                  </div>
+                  {kbInjectMode === 'chunk' && (
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
+                        placeholder="片段关键词：如 剑术, 宗门, 炼丹（逗号/顿号分隔）"
+                        style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+                    </div>
+                  )}
                   <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button onClick={async () => { await loadKBFiles(); if (kbFiles.length > 0) setSelectedKbFileIds(new Set(kbFiles.map(f => f.id))) }} style={{...miniActionLink, fontSize: 12}}>全选</button>
                     <button onClick={() => setSelectedKbFileIds(new Set())} style={{...miniActionLink, fontSize: 12}}>清空</button>
@@ -543,6 +564,11 @@ export default function BatchGenerationModal({
                       <button onClick={() => setKbDeleteConfirm({ type: 'batch', ids: [...selectedKbFileIds], count: selectedKbFileIds.size })} style={{ ...miniActionLink, fontSize: 12, color: '#dc2626' }}>🗑 删除选中</button>
                     )}
                   </div>
+                  {kbInjectMode === 'chunk' && (
+                    <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 4, lineHeight: 1.5 }}>
+                      💡 片段模式未填关键词时自动退回全量注入；检索不到相关片段时不注入任何内容。
+                    </div>
+                  )}
                   {kbLoaded && kbFiles.length > 0 ? (
                     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 4, alignContent: 'flex-start' }} className="custom-scrollbar">
                       {kbFiles.map(f => (

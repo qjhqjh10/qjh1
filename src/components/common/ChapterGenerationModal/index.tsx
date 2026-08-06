@@ -4,7 +4,7 @@ import { aiService, kbService, fileService, templateService, styleTemplateServic
 import { chatAIWithUsage, chatAIStream, chatAI } from "@/utils/chatAI";
 import { loadOutlineDimensions } from "@/utils/outlineData";
 import { loadAllSummaries, saveSummary } from "@/services/summaryService";
-import type { OutlineTabToggles, DetailedOutlineToggles } from "@/types/settings";
+import type { OutlineTabToggles, DetailedOutlineToggles, KBInjectMode } from "@/types/settings";
 import Modal from "../Modal";
 import ConfirmModal from "../ConfirmModal";
 import { SparklesIcon, BookOpenIcon } from "@heroicons/react/24/outline";
@@ -71,6 +71,9 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [selectedKbFileIds, setSelectedKbFileIds] = useState<Set<string>>(new Set(cg.selectedKbFileIds || []))
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
   const [kbLoaded, setKbLoaded] = useState(false)
+  // v15.4.0: 知识库注入方式（全量/片段）与片段关键词——随章节生成设置持久化
+  const [kbInjectMode, setKbInjectMode] = useState<KBInjectMode>(cg.kbInjectMode ?? 'full')
+  const [kbKeywords, setKbKeywords] = useState(cg.kbKeywords ?? '')
 
   const [genConfigId, setGenConfigId] = useState(activeConfigId || '')
   const [wordTarget, setWordTarget] = useState(cg.wordTarget)
@@ -123,6 +126,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   useEffect(() => { updateCg({ outlineTabs, detailedOutlineFields }) }, [outlineTabs, detailedOutlineFields])
   useEffect(() => { updateCg({ wordTarget, streamMode, replaceMode }) }, [wordTarget, streamMode, replaceMode])
   useEffect(() => { updateCg({ selectedCharacterIds: [...selectedCharacterIds], selectedSummaryIds: [...selectedSummaryIds], selectedKbFileIds: [...selectedKbFileIds] }) }, [selectedCharacterIds, selectedSummaryIds, selectedKbFileIds])
+  useEffect(() => { updateCg({ kbInjectMode, kbKeywords }) }, [kbInjectMode, kbKeywords])
   useEffect(() => { updateCg({ selectedSceneId, selectedStyleTemplateId }) }, [selectedSceneId, selectedStyleTemplateId])
   useEffect(() => { updateCg({ prevTextEnabled, prevTextSourceChapterId, prevTextSelectedContent }) }, [prevTextEnabled, prevTextSourceChapterId, prevTextSelectedContent])
 
@@ -295,8 +299,13 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         chapterPrompt, wordTarget, replaceMode,
         prevTextInjection,
       })
-      // v14.8: 直接注入所选知识库文件（单文件/总量上限取自知识库设置 — 章节生成场景）
-      prompt = await injectKBContents(prompt, selectedKbFileIds)
+      // v15.4.0: 知识库注入（全量截断 / 关键词语义片段，设置取自「章节生成」场景；关键词为空自动退回全量）
+      prompt = await injectKBContents(prompt, selectedKbFileIds, {
+        mode: kbInjectMode,
+        keywords: kbKeywords,
+        projectId: activeProjectId || '',
+        configId: genConfigId,
+      })
 
       const messages = [{ role: 'user' as const, content: prompt }]
 
@@ -670,6 +679,25 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
             {/* Knowledge base */}
             <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>知识库注入 · {selectedKbFileIds.size} 个</div>
+              {/* v15.4.0: 注入方式（全量/片段）+ 片段关键词 */}
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600 }}>注入方式:</span>
+                <button onClick={() => setKbInjectMode('full')} title="勾选文件全文截断注入（上限取知识库设置）"
+                  style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                    border: kbInjectMode === 'full' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                    background: kbInjectMode === 'full' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'full' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'full' ? 600 : 400 }}>全量注入</button>
+                <button onClick={() => setKbInjectMode('chunk')} title="按关键词向量化检索相关片段注入（topK 取知识库设置）"
+                  style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                    border: kbInjectMode === 'chunk' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
+                    background: kbInjectMode === 'chunk' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
+              </div>
+              {kbInjectMode === 'chunk' && (
+                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
+                    placeholder="片段关键词：如 剑术, 宗门, 炼丹（逗号/顿号分隔）"
+                    style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+                </div>
+              )}
               <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={miniActionLink}>全选</button>
                 <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
@@ -681,6 +709,11 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                   <button onClick={() => setKbDeleteConfirm({ type: 'batch', ids: [...selectedKbFileIds], count: selectedKbFileIds.size })} style={{ ...miniActionLink, color: '#dc2626' }}>🗑 删除选中</button>
                 )}
               </div>
+              {kbInjectMode === 'chunk' && (
+                <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 4, lineHeight: 1.5 }}>
+                  💡 片段模式未填关键词时自动退回全量注入；检索不到相关片段时不注入任何内容。
+                </div>
+              )}
               {kbLoaded && kbFiles.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
                   {kbFiles.map(f => (

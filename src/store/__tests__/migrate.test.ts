@@ -45,12 +45,15 @@ describe('migrateSettings (H2)', () => {
     const prompts = out.prompts as Array<{ type: string; title: string }>
     expect(prompts.find(p => p.title === '润色模板')!.type).toBe('改写')
 
-    // v7+v8: kbSettings 分场景（agent/generation 两场景同值）
+    // v7+v8+v9: kbSettings 分场景（v15.4.0: generation → chapterGen/characterGen 同值，agent 保留）
     const kb = ai.kbSettings as AnyRecord
     const agentKb = kb.agent as AnyRecord
     expect(typeof agentKb.searchTopK).toBe('number')
-    expect((kb.generation as AnyRecord).searchTopK).toBe(agentKb.searchTopK)
-    expect((kb.generation as AnyRecord).fallbackPerFileMaxChars).toBe(agentKb.fallbackPerFileMaxChars)
+    expect((kb.chapterGen as AnyRecord).searchTopK).toBe(agentKb.searchTopK)
+    expect((kb.characterGen as AnyRecord).searchTopK).toBe(agentKb.searchTopK)
+    expect((kb.chapterGen as AnyRecord).injectMode).toBe('full')
+    expect((kb.characterGen as AnyRecord).injectMode).toBe('full')
+    expect((kb.generation as AnyRecord).searchTopK).toBe(agentKb.searchTopK)  // 兜底键保持同值
 
     // 既有字段不丢失
     expect((ai.chapterGen as AnyRecord).useOutline).toBe(true)
@@ -71,7 +74,7 @@ describe('migrateSettings (H2)', () => {
     expect((ai.kbSettings as AnyRecord).agent).toBeDefined()
   })
 
-  it('version=7 只应用 v8（平铺 kbSettings → 分场景，保留用户值）', () => {
+  it('version=7 只应用 v8+v9（平铺 kbSettings → 分场景，保留用户值）', () => {
     const v4 = makeV4State()
     const state: AnyRecord = {
       ...v4,
@@ -88,8 +91,36 @@ describe('migrateSettings (H2)', () => {
     expect((kb.agent as AnyRecord).searchTopK).toBe(9)
     expect((kb.generation as AnyRecord).searchTopK).toBe(9)
     expect((kb.agent as AnyRecord).fallbackPerFileMaxChars).toBe(3000)
+    // v9 (v15.4.0): generation → chapterGen/characterGen 同值 + injectMode 补全
+    expect((kb.chapterGen as AnyRecord).searchTopK).toBe(9)
+    expect((kb.characterGen as AnyRecord).searchTopK).toBe(9)
+    expect((kb.chapterGen as AnyRecord).injectMode).toBe('full')
     // v5 不重复执行: 已有 roleTemplates 不被覆盖
     expect((out.aiSettings as AnyRecord).roleTemplates).toEqual([{ id: 'rt1', name: '已有模板' }])
+  })
+
+  it('version=8 应用 v9（generation → chapterGen/characterGen 同值拆分，用户自定义值保留）', () => {
+    const v4 = makeV4State()
+    const state: AnyRecord = {
+      ...v4,
+      aiSettings: {
+        ...(v4.aiSettings as AnyRecord),
+        kbSettings: {
+          agent: { searchTopK: 3, fallbackPerFileMaxChars: 2000, fallbackTotalMaxChars: 5000, injectMode: 'full' as const },
+          generation: { searchTopK: 7, fallbackPerFileMaxChars: 4000, fallbackTotalMaxChars: 9000, injectMode: 'full' as const },
+        },
+      },
+    }
+    const out = migrateSettings(state, 8)
+    const kb = (out.aiSettings as AnyRecord).kbSettings as AnyRecord
+    // agent 用户自定义值保留
+    expect((kb.agent as AnyRecord).searchTopK).toBe(3)
+    // generation 用户值同值复制到新键 + 兜底键保留
+    expect((kb.chapterGen as AnyRecord).searchTopK).toBe(7)
+    expect((kb.characterGen as AnyRecord).searchTopK).toBe(7)
+    expect((kb.chapterGen as AnyRecord).fallbackPerFileMaxChars).toBe(4000)
+    expect((kb.chapterGen as AnyRecord).injectMode).toBe('full')
+    expect((kb.generation as AnyRecord).searchTopK).toBe(7)
   })
 
   it('version=2 应用 v3 主题映射 + v4 清空 configs（审查补强）', () => {
@@ -104,9 +135,9 @@ describe('migrateSettings (H2)', () => {
     expect((out.aiSettings as AnyRecord).chapterGen).toBeDefined()
   })
 
-  it('version=8（当前版本）返回原状态', () => {
+  it('version=9（当前版本）返回原状态', () => {
     const state = makeV4State()
-    const out = migrateSettings(state, 8)
+    const out = migrateSettings(state, 9)
     expect(out).toEqual(state)
   })
 

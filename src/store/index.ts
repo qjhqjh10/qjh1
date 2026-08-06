@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/types/project'
 import type { Character } from '@/types/character'
 import type { DetailedChapter, WritingChapter } from '@/types/chapter'
-import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles, RoleTemplate } from '@/types/settings'
+import type { ModelConfig, PromptTemplate, PromptType, AIAssistantSettings, DisplaySettings, ChapterGenSettings, OutlineTabToggles, DetailedOutlineToggles, RoleTemplate, KBSceneSettings } from '@/types/settings'
 import { DEFAULT_AI_SETTINGS, DEFAULT_KB_SETTINGS, DEFAULT_KB_SCENE, DEFAULT_DISPLAY_SETTINGS, DEFAULT_PROMPTS, DEFAULT_OUTLINE_TABS, DEFAULT_DETAILED_OUTLINE_TOGGLES } from '@/types/settings'
 
 export interface PopupWindow {
@@ -324,7 +324,7 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'novel-writer-settings',
-      version: 8,
+      version: 9,
       partialize: (state) => ({
         ...state,
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
@@ -386,6 +386,8 @@ export function migrateSettings(persisted: unknown, version: number): Record<str
       selectedCharacterIds: Array.isArray(oldCG.selectedCharacterIds) ? oldCG.selectedCharacterIds : [],
       selectedSummaryIds: Array.isArray(oldCG.selectedSummaryIds) ? oldCG.selectedSummaryIds : [],
       selectedKbFileIds: Array.isArray(oldCG.selectedKbFileIds) ? oldCG.selectedKbFileIds : [],
+      kbInjectMode: (oldCG as any).kbInjectMode === 'chunk' ? 'chunk' : 'full',   // v15.4.0: 默认全量
+      kbKeywords: typeof (oldCG as any).kbKeywords === 'string' ? (oldCG as any).kbKeywords : '',
       styleStrength: (oldCG as any).styleStrength === 'light' || (oldCG as any).styleStrength === 'strong' ? (oldCG as any).styleStrength : 'normal',
       prevTextEnabled: typeof (oldCG as any).prevTextEnabled === 'boolean' ? (oldCG as any).prevTextEnabled : true,
       prevTextSourceChapterId: typeof (oldCG as any).prevTextSourceChapterId === 'string' ? (oldCG as any).prevTextSourceChapterId : '',
@@ -441,6 +443,21 @@ export function migrateSettings(persisted: unknown, version: number): Record<str
     const kbSettings = {
       agent: { ...DEFAULT_KB_SCENE, ...flat },
       generation: { ...DEFAULT_KB_SCENE, ...flat },
+    }
+    p = { ...p, aiSettings: { ...ai, kbSettings } }
+  }
+
+  if (version < 9) {
+    // v9 (v15.4.0): 知识库设置场景拆分 — generation → chapterGen/characterGen（同值），
+    // 各场景补 injectMode（默认 full=现状行为）；保留 generation 键供运行时 getSceneKb 兜底（不再写入）
+    const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const oldKb = (ai.kbSettings && typeof ai.kbSettings === 'object' ? ai.kbSettings : {}) as Record<string, unknown>
+    const gen = { ...DEFAULT_KB_SCENE, ...((oldKb.generation && typeof oldKb.generation === 'object') ? oldKb.generation as Partial<KBSceneSettings> : {}) }
+    const kbSettings = {
+      agent: { ...DEFAULT_KB_SCENE, ...((oldKb.agent && typeof oldKb.agent === 'object') ? oldKb.agent as Partial<KBSceneSettings> : {}) },
+      chapterGen: { ...gen },
+      characterGen: { ...gen },
+      generation: { ...gen },   // 兜底键：值保持同步，不参与 UI 与消费写入
     }
     p = { ...p, aiSettings: { ...ai, kbSettings } }
   }

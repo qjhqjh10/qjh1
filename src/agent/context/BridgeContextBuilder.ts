@@ -6,11 +6,8 @@
 
 import { estimateTokens } from '../utils/tokenEstimation'
 import type { Message } from '../state/types'
-
-// v15.3.1(优化): KB 自动注入的相关度阈值（cosine 相似度）——低于此值的片段视为无关不注入。
-// 对齐「酒馆世界书」的"不激活就不注入"：省 token + 减少低相关噪音；AI 需要时可自行 kb_search/kb_analyze。
-// 各 embedding 模型分数分布略有差异，0.3 为保守值（宁缺毋滥）；显式 @引用名单（refsText）不受影响。
-export const KB_INJECT_SCORE_THRESHOLD = 0.3
+// v15.4.0: 阈值常量收敛到 knowledgePipeline（单一真源，agent 与生成场景共用）
+import { KB_INJECT_SCORE_THRESHOLD } from '@/services/knowledgePipeline'
 
 // ── Types ──
 

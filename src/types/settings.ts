@@ -124,6 +124,9 @@ export interface ChapterGenSettings {
   selectedSummaryIds: string[]
   styleStrength: 'light' | 'normal' | 'strong'
   selectedKbFileIds: string[]
+  // v15.4.0: 知识库注入方式（全量/片段）与片段关键词——随章节生成设置持久化
+  kbInjectMode: KBInjectMode
+  kbKeywords: string
   // 前文注入
   prevTextEnabled: boolean
   prevTextSourceChapterId: string   // 空=自动选 N-1
@@ -162,6 +165,8 @@ export const DEFAULT_CHAPTER_GEN: ChapterGenSettings = {
   selectedCharacterIds: [],
   selectedSummaryIds: [],
   selectedKbFileIds: [],
+  kbInjectMode: 'full',   // v15.4.0: 默认全量注入（现状行为）
+  kbKeywords: '',
   styleStrength: 'normal',
   prevTextEnabled: true,
   prevTextSourceChapterId: '',
@@ -232,29 +237,40 @@ export function createDefaultRoleTemplate(name?: string): RoleTemplate {
   }
 }
 
-// ── 知识库设置 (v13.x) ──
+// ── 知识库设置 (v13.x, v15.4.0 场景拆分) ──
+
+/** v15.4.0: 注入方式 — full=所选文件全文截断注入（现状） | chunk=关键词语义检索片段注入 */
+export type KBInjectMode = 'full' | 'chunk'
 
 /** 单个场景的知识库注入参数 */
 export interface KBSceneSettings {
-  /** 语义检索片段数（默认 5） */
+  /** v15.4.0: 注入方式（默认 full = 现状行为；agent 场景恒为语义检索不渲染此字段） */
+  injectMode: KBInjectMode
+  /** 语义检索片段数（默认 5；章节生成/角色生成片段模式每次检索注入的片段数 1-20） */
   searchTopK: number
-  /** 全量注入降级时每文件最多字符（默认 5000） */
+  /** 全量注入时每文件最多字符（默认 5000） */
   fallbackPerFileMaxChars: number
-  /** 全量注入降级时总字符上限（默认 10000） */
+  /** 全量注入时总字符上限（默认 10000） */
   fallbackTotalMaxChars: number
 }
 
 /**
- * 知识库设置 — 按场景分开配置：
- * - agent:     AI 写作助手（每轮语义检索 topK + 降级全量注入）
- * - generation: 章节生成 / 批量生成 / AI 生成角色（检索 maxChunks + 降级全量注入）
+ * 知识库设置 — 按使用场景分开配置（v15.4.0 拆分）：
+ * - agent:        AI 写作助手（每轮语义检索 topK，行为不变）
+ * - chapterGen:   章节生成 / 批量生成（v15.4.0 起可选 全量截断 or 关键词语义片段注入）
+ * - characterGen: AI 生成角色（同 chapterGen）
+ * - generation:   @deprecated v15.4.0 — 已被 chapterGen/characterGen 取代；仅运行时兜底读取（getSceneKb），不再写入
  */
 export interface KBSettings {
   agent: KBSceneSettings
-  generation: KBSceneSettings
+  chapterGen: KBSceneSettings
+  characterGen: KBSceneSettings
+  /** @deprecated v15.4.0 — 保留供运行时兜底，不再写入 */
+  generation?: KBSceneSettings
 }
 
 export const DEFAULT_KB_SCENE: KBSceneSettings = {
+  injectMode: 'full',
   searchTopK: 5,
   fallbackPerFileMaxChars: 5000,
   fallbackTotalMaxChars: 10000,
@@ -262,7 +278,8 @@ export const DEFAULT_KB_SCENE: KBSceneSettings = {
 
 export const DEFAULT_KB_SETTINGS: KBSettings = {
   agent: { ...DEFAULT_KB_SCENE },
-  generation: { ...DEFAULT_KB_SCENE },
+  chapterGen: { ...DEFAULT_KB_SCENE },
+  characterGen: { ...DEFAULT_KB_SCENE },
 }
 
 export interface AIAssistantSettings {
