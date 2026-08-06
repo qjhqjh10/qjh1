@@ -430,6 +430,11 @@ export function AICharacterGenerateDialog({
                   border: kbInjectMode === 'chunk' ? '1px solid rgba(16,163,74,0.35)' : '1px solid rgba(0,0,0,0.1)',
                   background: kbInjectMode === 'chunk' ? 'rgba(16,163,74,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#16a34a' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
             </div>
+            {/* v15.4.0: 模式对比提示——帮助选择注入方式 */}
+            <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 6, lineHeight: 1.5 }}>
+              全量：适合整体参考（世界观全貌、人物卡）——文件大时按上限截断，末尾可能丢失；
+              片段：适合按主题精准参考（如角色特质、宗门、武器）——关键词向量化定位，省 token 且不丢关键段落
+            </div>
             {kbInjectMode === 'chunk' && (
               <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
                 placeholder="片段关键词：如 剑术, 宗门, 炼丹（逗号/顿号分隔）"

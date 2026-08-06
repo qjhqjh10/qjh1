@@ -549,6 +549,11 @@ export default function BatchGenerationModal({
                         border: kbInjectMode === 'chunk' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
                         background: kbInjectMode === 'chunk' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
                   </div>
+                  {/* v15.4.0: 模式对比提示——帮助选择注入方式 */}
+                  <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 4, lineHeight: 1.5 }}>
+                    全量：适合整体参考（世界观全貌、人物卡）——文件大时按上限截断，末尾可能丢失；
+                    片段：适合按主题精准参考（如本章要写战斗、衣服、某角色）——关键词向量化定位，省 token 且不丢关键段落
+                  </div>
                   {kbInjectMode === 'chunk' && (
                     <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                       <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
