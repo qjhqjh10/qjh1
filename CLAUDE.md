@@ -10,9 +10,10 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 
 ### v15.3.1 输入框拖拽修复 + 角色模板知识库设定文件 (2026-08-06)
 - 拖拽修复：手柄改 flex 布局置于 textarea 正下方（跟随其底缘，拖拽时手柄随鼠标走，方向感正确——原 absolute bottom:38 固定导致"往下拉、顶部悄悄上移"的反直觉）；textarea 内容超出时自动增高（scrollHeight，上限 220px，不收缩保留手动高度）；手柄 14px 高 + hover 紫色高亮
-- 角色模板知识库设定文件（分组补充语义，用户决策）：RoleTemplate 拆 **worldKbFileIds（世界观设定文件）+ scenarioKbFileIds（场景对话设定文件）**，两组互斥（同一文件不可两边勾选，防 AI 读取归属冲突）；设置弹窗世界观/场景卡片**正下方各内嵌一个文件勾选区**（SettingFilePicker 组件，勾选自动从另一组移除 + 已选入对方时禁用标注）；未勾选 + 知识库开关关闭 = 完全不检索不调用（无"每轮必用知识库"）；BridgeContextBuilder 两组都进检索范围（与 selectedKbFileIds 合并，独立于渲染层「知识库」开关）；提示词**分两段**点名文件名（[世界观设定文件]/[场景对话设定文件]，构建时查 kbService.list 映射 id→originalName）+ 引导：按话题检索片段速览 → 需要完整设定时**直接 read_file("../knowledge_base/files/xxx.md") 读对应组文件全文或 kb_analyze 深度分析**（AI 想了解世界观只读世界观文件，不会找场景文件；不碎片化反复检索、不凭空猜测）
+- 角色模板知识库设定文件（分组补充语义，用户决策）：RoleTemplate 拆 **worldKbFileIds（世界观设定文件）+ scenarioKbFileIds（场景对话设定文件）**，两组互斥（同一文件不可两边勾选，防 AI 读取归属冲突）；设置弹窗世界观/场景卡片**正下方各内嵌一个文件勾选区**（SettingFilePicker 组件，勾选自动从另一组移除 + 已选入对方时禁用标注）；未勾选 + 知识库开关关闭 = 完全不检索不调用（无"每轮必用知识库"）；BridgeContextBuilder 两组都进检索范围（与 selectedKbFileIds 合并，独立于渲染层「知识库」开关）；提示词**分两段**点名文件名（[世界观设定文件]/[场景对话设定文件]，构建时查 kbService.list 映射 id→originalName）+ **酒馆世界书理念的使用规则**（用户决策）：优先基于已有信息（含已注入片段/此前查阅结果）作答——**已了解的信息不重复查阅**；仅当信息不足或矛盾时才查阅：kb_search 定位 → 小文件 read_file 全文 / **大文件优先 kb_analyze**（子代理深度分析回传精简总结，避免全文占大量上下文；read_file 全文仅当轮 tool_result 可见、历史保留 5 工具轮后折叠为摘要需重读）
+- 知识库注入相关度阈值（对齐酒馆"不激活不注入"）：KB_INJECT_SCORE_THRESHOLD=0.3——cosine score 低于阈值的片段不自动注入（省 token + 减噪音；缺 score 旧数据默认注入；kb_search 工具不受限，AI 可自查）
 - 缓存结论（调研）：角色模板全量注入位于 Anthropic 缓存断点（倒数第二 system 块=核心规则）之前——模板不变每轮命中缓存；切换/编辑模板才重写一次；KB 动态注入走 user 消息不进缓存前缀，缓存效率只升不降
-- 测试 688 passed + 15 skipped（703，+4 BridgeContextBuilder）；tsc 0；check-consistency 31/31
+- 测试 689 passed + 15 skipped（704，+5 BridgeContextBuilder）；tsc 0；check-consistency 31/31
 
 ### v15.3.0 AI 写作助手输入框改造（仿 DeepSeek）+ #工具提示 (2026-08-06)
 - 一体化输入框：输入区 + 发送按钮同框（圆角 18 容器统一描边/阴影，textarea 无边框，发送按钮移至容器内右下角 34px）；#工具按钮位于容器底部左侧（DeepSeek 输入框下方按钮位），显示已选数量 badge
@@ -174,7 +175,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (688 passed + 15 skipped，共 703) |
+| `npx vitest run` | 全量单元测试 (689 passed + 15 skipped，共 704) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

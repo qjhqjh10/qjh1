@@ -192,8 +192,26 @@ describe('角色模板设定文件（worldKbFileIds + scenarioKbFileIds）', () 
     expect(roleMsg!.content).toContain('角色设定.md')
     expect(roleMsg!.content).toContain('read_file')
     expect(roleMsg!.content).toContain('../knowledge_base/files/')
-    expect(roleMsg!.content).toContain('kb_analyze 深度分析该文件')
+    expect(roleMsg!.content).toContain('kb_analyze')
+    // v15.3.1(优化): 酒馆世界书理念——已有信息不重复查、信息不足才查阅、大文件优先 kb_analyze
+    expect(roleMsg!.content).toContain('已了解的信息不要重复查阅')
+    expect(roleMsg!.content).toContain('仅当当前上下文无法确定设定细节')
+    expect(roleMsg!.content).toContain('大文件优先 kb_analyze 深度分析')
     expect(roleMsg!.content).toContain('不要凭空猜测')
+  })
+
+  it('score 阈值过滤：低相关片段不注入（缺 score 的旧数据默认注入）', async () => {
+    searchMock.mockResolvedValue([
+      { fileId: 'f1', fileName: 'a.md', content: '高相关片段', score: 0.55 },
+      { fileId: 'f2', fileName: 'b.md', content: '低相关噪音', score: 0.12 },
+      { fileId: 'f3', fileName: 'c.md', content: '旧数据无score', score: undefined },
+    ])
+    const builder = new BridgeContextBuilder({ ...NO_KB })
+    const { searchContext, injectedKbFileIds } = await builder.buildContext('问题', [], null, CORE)
+    expect(searchContext).toContain('高相关片段')
+    expect(searchContext).not.toContain('低相关噪音')
+    expect(searchContext).toContain('旧数据无score')
+    expect(injectedKbFileIds).toEqual(['f1', 'f3'])
   })
 
   it('未勾选设定文件时无提示、无检索（kbEnabled=false 完全跳过）', async () => {

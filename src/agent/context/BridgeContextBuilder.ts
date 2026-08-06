@@ -7,6 +7,11 @@
 import { estimateTokens } from '../utils/tokenEstimation'
 import type { Message } from '../state/types'
 
+// v15.3.1(优化): KB 自动注入的相关度阈值（cosine 相似度）——低于此值的片段视为无关不注入。
+// 对齐「酒馆世界书」的"不激活就不注入"：省 token + 减少低相关噪音；AI 需要时可自行 kb_search/kb_analyze。
+// 各 embedding 模型分数分布略有差异，0.3 为保守值（宁缺毋滥）；显式 @引用名单（refsText）不受影响。
+export const KB_INJECT_SCORE_THRESHOLD = 0.3
+
 // ── Types ──
 
 export interface ContextBuilderOptions {
@@ -93,11 +98,16 @@ export class BridgeContextBuilder {
           exclude.size > 0 ? [...exclude] : undefined,
         )
         if (Array.isArray(results) && results.length > 0) {
-          searchContext += '\n[知识库]\n' +
-            results.map((r: any) => `📄 ${r.fileName || '(未知文件)'}\n${r.content || ''}`).join('\n---\n')
-          // v14.8: 记录本轮注入文件 id（供 kb_search 工具排除 + 随 run 结果跨 run 持久化）
-          for (const r of results) {
-            if (r.fileId) this.injectedFileIds.add(String(r.fileId))
+          // v15.3.1(优化): score 阈值过滤——低相关片段不注入（对齐酒馆世界书"不激活不注入"；
+          // 缺 score 的旧数据视为相关默认注入；kb_search 工具不受此限制，AI 可自行查阅）
+          const filtered = results.filter((r: any) => (r.score ?? 1) >= KB_INJECT_SCORE_THRESHOLD)
+          if (filtered.length > 0) {
+            searchContext += '\n[知识库]\n' +
+              filtered.map((r: any) => `📄 ${r.fileName || '(未知文件)'}\n${r.content || ''}`).join('\n---\n')
+            // v14.8: 记录本轮注入文件 id（供 kb_search 工具排除 + 随 run 结果跨 run 持久化）
+            for (const r of filtered) {
+              if (r.fileId) this.injectedFileIds.add(String(r.fileId))
+            }
           }
         }
       } catch { /* unavailable */ }
@@ -158,23 +168,26 @@ export class BridgeContextBuilder {
           charLines.push(parts.join('\n'))
         })
 
-        // v15.3.1: 设定文件提示分两段——世界观文件 / 场景对话文件各归各（AI 按需求定位对应文件组）：
-        // ① 对话时已按话题检索注入相关片段（速览）② 需要完整设定时直接 read_file 读对应组文件全文
-        //（不碎片化检索；文件位于 ../knowledge_base/files/，与知识库路径约定一致，见系统提示）
+        // v15.3.1: 设定文件提示分两段——世界观文件 / 场景对话文件各归各（AI 按需求定位对应文件组）。
+        // v15.3.1(优化): 使用原则对齐「酒馆世界书」理念——已有信息不重复查、信息不足才查阅：
+        // ① 系统已按话题注入相关片段（低相关片段已被 score 阈值过滤），优先基于已有信息作答
+        // ② 仅当信息不足/不确定时才查阅：kb_search 定位 → 小文件 read_file 全文 / 大文件 kb_analyze
+        //   （kb_analyze 委托子代理，回传精简总结不撑爆主上下文；read_file 全文仅当轮可见且占 token）
+        const SETTING_FILE_USE_RULE =
+          `对话时系统已注入相关片段，请优先基于已有信息（含此前 read_file/kb_analyze 的结果）作答——已了解的信息不要重复查阅；`
+          + `仅当当前上下文无法确定设定细节或与已知信息矛盾时，才查阅对应文件：先用 kb_search 定位相关段落，`
+          + `小文件用 read_file 读取全文（文件在 ../knowledge_base/files/ 目录），大文件优先 kb_analyze 深度分析（回传精简总结，避免全文占用大量上下文）；`
+          + `不要凭空猜测设定。`
         if (tplWorldFileIds.length > 0) {
           const names = tplWorldFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
           charLines.push(
-            `[世界观设定文件] 本角色勾选 ${tplWorldFileIds.length} 个世界观设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，`
-            + `完整世界观存于其中（对话时已按话题检索注入相关片段，但片段未必覆盖全部）。`
-            + `涉及世界观/设定的完整细节时，请直接 read_file 读取对应文件全文（文件在 ../knowledge_base/files/ 目录），或 kb_analyze 深度分析该文件——不要凭空猜测、不要碎片化反复检索。`
+            `[世界观设定文件] 本角色勾选 ${tplWorldFileIds.length} 个世界观设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，完整世界观存于其中。${SETTING_FILE_USE_RULE}`
           )
         }
         if (tplScenarioFileIds.length > 0) {
           const names = tplScenarioFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
           charLines.push(
-            `[场景对话设定文件] 本角色勾选 ${tplScenarioFileIds.length} 个场景与对话设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，`
-            + `完整场景/对话设定存于其中（对话时已按话题检索注入相关片段，但片段未必覆盖全部）。`
-            + `涉及场景/对话的完整细节时，请直接 read_file 读取对应文件全文（文件在 ../knowledge_base/files/ 目录），或 kb_analyze 深度分析该文件——不要凭空猜测、不要碎片化反复检索。`
+            `[场景对话设定文件] 本角色勾选 ${tplScenarioFileIds.length} 个场景与对话设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，完整场景/对话设定存于其中。${SETTING_FILE_USE_RULE}`
           )
         }
 

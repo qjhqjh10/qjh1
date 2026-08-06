@@ -15,7 +15,7 @@
       "fixes": [
         "输入框拖拽方向修复（手柄跟随底缘+自动增高）；角色模板设定文件独立于渲染层「知识库」开关",
         "顺手修复: CLAUDE.md 过期引用（test-ai-conversation.mjs）；scripts/tool-schemas.json 重新生成（delete_file 描述漂移）；.gitignore 补 continuation_project_dirs/",
-        "测试: 688 passed + 15 skipped（703，+24）；tsc 0；check-consistency 31/31"
+        "测试: 689 passed + 15 skipped（704，+25）；tsc 0；check-consistency 31/31"
       ]
     },
     {
