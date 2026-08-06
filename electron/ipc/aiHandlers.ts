@@ -7,6 +7,7 @@ import { netFetch } from './netFetch'
 import { convertMessages, convertTools, type ConverterMessage, type ResponseItem } from './responsesConverter'
 import type { StoredConfig } from './utils'
 import type { ModelConfig } from '../../src/types/settings'
+import { parseOpenRouterModels, type ModelPricePreset } from '../../src/utils/modelPricing'
 
 function categorizeError(err: unknown): string {
   const message = err instanceof Error ? err.message : 'Unknown error'
@@ -310,6 +311,27 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           : '\n\n请确认: ① API 地址与密钥正确(服务商处选对) ② 网络可访问该地址 ③ 系统代理/防火墙未拦截。'
         throw new Error(`无法连接 API\n地址: ${apiUrl}\n密钥: ${apiKey ? apiKey.slice(0,8)+'...' : '(未设置)'}\n错误: ${msg}${defaultHint}`)
       }
+    }
+  })
+
+  // v15.2.1: 联网获取模型实时价格（OpenRouter 免密钥公开目录 https://openrouter.ai/api/v1/models）
+  // 价格波动频繁（DeepSeek 2026-08-06 公告拟涨价）——设置页"联网查价"按钮拉取，覆盖内置参考价
+  ipcMain.handle('ai:fetch-model-pricing', async () => {
+    const PRICING_TIMEOUT = 15_000
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), PRICING_TIMEOUT)
+    try {
+      const res = await netFetch('https://openrouter.ai/api/v1/models', { signal: controller.signal })
+      if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}`)
+      const json: unknown = await res.json()
+      const models: Record<string, ModelPricePreset> = parseOpenRouterModels(json)
+      if (Object.keys(models).length === 0) throw new Error('响应中没有可解析的模型价格')
+      return { models, source: 'OpenRouter', fetchedAt: Date.now() }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`联网查价失败（${msg}）。网络受限时请使用内置参考价。`)
+    } finally {
+      clearTimeout(timer)
     }
   })
 

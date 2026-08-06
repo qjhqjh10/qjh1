@@ -100,6 +100,8 @@ export const aiService = {
     return { text: raw, usage: undefined }
   },
   listModels: (configId: string, scope?: string) => e().ai.listModels(configId, scope),
+  /** v15.2.1: 联网获取模型实时价格（OpenRouter，USD） */
+  fetchModelPricing: () => e().ai.fetchModelPricing(),
   chatWithTools: async (
     messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[],
     configId: string,

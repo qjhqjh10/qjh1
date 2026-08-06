@@ -3,6 +3,7 @@ import type { StyleProject, SceneTemplate } from './story'
 import type { StyleTemplate, RuleTemplate } from './styleTemplate'
 import type { KnowledgeFile, KnowledgeMetadata } from './knowledge'
 import type { ContinuationProject } from './continuation'
+import type { ModelPricePreset } from '../utils/modelPricing'
 
 export interface FileAPI {
   read: (path: string) => Promise<string>
@@ -58,6 +59,8 @@ export interface AIAPI {
   onChatError: (callback: (data: { message: string }) => void) => () => void
   onChatCancelled: (callback: (data: { message: string }) => void) => () => void
   listModels: (configId: string, scope?: string) => Promise<string[]>
+  /** v15.2.1: 联网获取模型实时价格（OpenRouter 公开目录，免密钥，USD 价） */
+  fetchModelPricing: () => Promise<{ models: Record<string, ModelPricePreset>; source: string; fetchedAt: number }>
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>
   /** v14.8: DeepSeek Responses API（原生联网搜索通道）— 模型配置勾选原生联网时由 ResponsesAdapter 路由 */

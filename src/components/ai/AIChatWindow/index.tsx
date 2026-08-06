@@ -9,7 +9,9 @@ import {
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   DocumentTextIcon, PhotoIcon,
   TrashIcon, Square2StackIcon, WrenchScrewdriverIcon, FolderOpenIcon,
+  HashtagIcon,
 } from '@heroicons/react/24/outline'
+import { ALL_TOOLS } from '@/agent/skills/tools'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { debugApiError } from '@/services/debugLogService'
@@ -21,7 +23,7 @@ import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
 
-import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination, hasResumeIntent, buildThinkingPlanFromRun } from "./utils";
+import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination, hasResumeIntent, buildThinkingPlanFromRun, buildToolHintText } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
 import type { IChatBridge } from '@/agent/ChatBridgeInterface'
 import { createChatBridge } from '@/agent/ChatBridgeInterface'
@@ -77,6 +79,12 @@ const ToggleButton = React.memo(function ToggleButton({ icon, label, active, onC
 
 // ── 文件引用提取：从消息的工具调用步骤中解析生成/修改过的文件 ──
 const FILE_TOOLS = new Set(['create_file', 'edit_file', 'batch_replace', 'rename_file', 'kb_append_file'])
+
+// ── v15.3.0: #工具选择列表（来源 = 真实工具注册表 ALL_TOOLS，保证工具名合法且与运行时一致） ──
+// 用户只能通过输入框「#」按钮选择——手工输入 "#工具名" 不生效（防 prompt 混淆/拼写错误）
+const TOOL_PICKER_LIST: { name: string; desc: string }[] = ALL_TOOLS
+  .map(t => ({ name: t.schema.name, desc: t.schema.description }))
+  .sort((a, b) => a.name.localeCompare(b.name))
 
 interface FileRef { path: string; tool: string }
 
@@ -195,6 +203,10 @@ export default function AIChatWindow() {
   const [atRefFilter, setAtRefFilter] = useState('')
   const [atRefFiles, setAtRefFiles] = useState<{ id: string; name: string }[]>([])
   const [selectedRefs, setSelectedRefs] = useState<{ id: string; name: string }[]>([])
+  // v15.3.0: #工具提示——用户通过「#」按钮选择的工具名（软提示，非强制；随下一条消息发送后清空）
+  const [selectedToolHints, setSelectedToolHints] = useState<string[]>([])
+  const [showToolPicker, setShowToolPicker] = useState(false)
+  const [toolFilter, setToolFilter] = useState('')
 
   // KB file selector
   const [showKBFileList, setShowKBFileList] = useState(false)
@@ -444,8 +456,8 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false) }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
@@ -609,9 +621,11 @@ export default function AIChatWindow() {
     const refsText = selectedRefs.length > 0
       ? `[@引用文件: ${selectedRefs.map(r => r.name).join('、')}]\n`
       : ''
+    // v15.3.0: #工具提示（软提示：建议模型可能使用这些工具，非强制）——随用户消息一起发送
+    const toolHintText = buildToolHintText(selectedToolHints)
     const fullContent = isRetry
-      ? `${attachText || ''}${pasteRef}${refsText}${pendingCorrection.current!}`
-      : `${attachText || ''}${pasteRef}${refsText}${input.trim()}`
+      ? `${attachText || ''}${pasteRef}${refsText}${toolHintText}${pendingCorrection.current!}`
+      : `${attachText || ''}${pasteRef}${refsText}${toolHintText}${input.trim()}`
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
@@ -639,6 +653,8 @@ export default function AIChatWindow() {
     setInput('')
     setAttachment(null)
     setSelectedRefs([])  // v14.9(接线): 引用已随消息发送，清空 chips
+    setSelectedToolHints([])  // v15.3.0: 工具提示已随消息发送，清空
+    setShowToolPicker(false)
     // setLoading(true) already called at entry — loading indicator is already active
 
     try {
@@ -819,6 +835,11 @@ export default function AIChatWindow() {
   // @ reference handling
   const handleInputChange = async (value: string) => {
     setInput(value)
+    // v15.3.1: 自动增高（仿 DeepSeek 网页版）——内容超出当前高度时增高，不收缩（保留手动拖拽高度）
+    const ta = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null
+    if (ta && ta.scrollHeight > ta.offsetHeight) {
+      ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
+    }
     // 用户手动输入 → 清除待处理的重试状态，防止手动消息被重试文本覆盖
     pendingCorrection.current = null
     autoRetryRef.current = false
@@ -1549,6 +1570,24 @@ export default function AIChatWindow() {
 
           {/* Input — v14.9.x(UI): 白色圆角卡片输入区，圆形渐变发送按钮，圆点拖拽手柄；v14.9.x: 分隔线加深 */}
           <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(0,0,0,0.09)', background: 'rgba(255,255,255,0.9)', position: 'relative' }}>
+            {/* v15.3.0: #工具提示 chips（蓝色加粗，与 @引用 区分；仅按钮选择生成，手输 # 不生效） */}
+            {selectedToolHints.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                {selectedToolHints.map(name => (
+                  <span key={name} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                    background: 'rgba(37,99,235,0.08)', color: '#2563eb', fontWeight: 700,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+                  }}>
+                    #{name}
+                    <button onClick={() => setSelectedToolHints(prev => prev.filter(n => n !== name))} title="移除工具提示" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#2563eb', display: 'flex', opacity: 0.6 }}>
+                      <XMarkIcon style={{ width: 12, height: 12 }} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             {/* Ref tags */}
             {selectedRefs.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -1576,13 +1615,17 @@ export default function AIChatWindow() {
                 <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8, position: 'relative', alignItems: 'flex-end' }}
+            {/* ── v15.3.0: 一体化输入容器（仿 DeepSeek 网页版）——输入区 + 发送按钮同框，
+                底部左侧 #工具选择按钮，右下角发送按钮；textarea 无边框由容器统一描边/圆角/阴影。
+                v15.3.1: 改 flex column——拖拽手柄置于 textarea 正下方（跟随其底缘，拖拽方向感正确：
+                手柄随鼠标走，不再是"顶部悄悄上移"）；textarea 内容超出时自动增高（上限 220px） ── */}
+            <div style={{ borderRadius: 18, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', padding: '10px 12px 4px', position: 'relative', display: 'flex', flexDirection: 'column' }}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
             >
               {dragOver && (
-                <div style={{ position: 'absolute', inset: 0, zIndex: 5, borderRadius: 16, border: '2px dashed #7c3aed', background: 'rgba(124,58,237,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7c3aed', fontWeight: 600, pointerEvents: 'none' }}>
+                <div style={{ position: 'absolute', inset: 0, zIndex: 5, borderRadius: 18, border: '2px dashed #7c3aed', background: 'rgba(124,58,237,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7c3aed', fontWeight: 600, pointerEvents: 'none' }}>
                   松手以上传文件或图片
                 </div>
               )}
@@ -1593,26 +1636,28 @@ export default function AIChatWindow() {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
               }}
               placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
-              disabled={!activeConfigId} rows={3}
+              disabled={!activeConfigId} rows={1}
               className="focus-ring"
               ref={el => {
                 if (!el) return
                 const saved = localStorage.getItem('ai-input-height')
                 if (saved) el.style.height = saved
               }}
-              style={{ flex: 1, border: '1px solid rgba(0,0,0,0.09)', borderRadius: 14, outline: 'none', resize: 'none', minHeight: 48, padding: '10px 14px', fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: '#fff', transition: 'height 0.15s ease, border-color 0.15s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
+              style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', minHeight: 48, padding: '6px 2px 2px', fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: 'transparent', display: 'block' }}
             />
-            {/* Custom resize handle — 圆点抓手，置于输入框底部居中，拖拽保存高度 */}
+            {/* Custom resize handle — v15.3.1: flex 布局置于 textarea 正下方（跟随其底缘），
+                拖拽时手柄/底缘随鼠标移动（顶部不动），方向感正确；h=14 易命中 + hover 高亮。
+                拖拽基于按下瞬间高度快照，上限 220（与自动增高一致），结果存 localStorage。 */}
             <div
               onMouseDown={e => {
-                const ta = (e.currentTarget.previousElementSibling || document.getElementById('ai-chat-input')) as HTMLTextAreaElement
+                const ta = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null
                 if (!ta) return
                 const startY = e.clientY
                 const startH = ta.offsetHeight
                 let raf = 0
                 const hm = (ev: MouseEvent) => {
                   if (!raf) raf = requestAnimationFrame(() => {
-                    const h = Math.max(48, startH + (ev.clientY - startY))
+                    const h = Math.max(48, Math.min(220, startH + (ev.clientY - startY)))
                     ta.style.height = h + 'px'
                     localStorage.setItem('ai-input-height', ta.style.height)
                     raf = 0
@@ -1622,28 +1667,107 @@ export default function AIChatWindow() {
                 window.addEventListener('mousemove', hm)
                 window.addEventListener('mouseup', hu)
               }}
-              title="拖拽调整输入框高度"
-              style={{ position: 'absolute', left: 0, right: 52, bottom: 0, height: 10, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0 }}
-            >
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.12)' }} />
-            </div>
-            <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
-              title="发送 (Enter)"
-              style={{
-                width: 40, height: 40, borderRadius: '50%', border: 'none', flexShrink: 0, alignSelf: 'flex-end',
-                background: input.trim() && activeConfigId ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e9e4df',
-                color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: input.trim() && activeConfigId ? '0 3px 10px rgba(124,58,237,0.32)' : 'none',
-                transition: 'all 0.15s ease', transform: 'scale(1)',
+              title="拖拽调整输入框高度（内容超出时会继续自动增高）"
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(124,58,237,0.08)'
+                for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(124,58,237,0.55)'
               }}
-              onMouseEnter={e => { if (!e.currentTarget.disabled) (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(0,0,0,0.14)'
+              }}
+              style={{ height: 14, margin: '2px 0', borderRadius: 6, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0, transition: 'background 0.15s ease' }}
             >
-              <PaperAirplaneIcon style={{ width: 18, height: 18 }} />
-            </button>
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+            </div>
+            {/* 底部行：#工具按钮（左）+ 发送按钮（右，框内右下角） */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+              <button onClick={() => setShowToolPicker(v => !v)}
+                title="选择工具提示——告诉 AI 你本轮可能使用这些工具（软提示，非强制；可多选，随下一条消息发送）"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999,
+                  border: (showToolPicker || selectedToolHints.length > 0) ? '1px solid rgba(37,99,235,0.3)' : '1px solid rgba(0,0,0,0.08)',
+                  background: (showToolPicker || selectedToolHints.length > 0) ? 'rgba(37,99,235,0.08)' : 'transparent',
+                  color: (showToolPicker || selectedToolHints.length > 0) ? '#2563eb' : '#6b5e54',
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                }}>
+                <HashtagIcon style={{ width: 13, height: 13 }} />
+                工具
+                {selectedToolHints.length > 0 && (
+                  <span style={{ background: '#2563eb', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, padding: '0 4px' }}>{selectedToolHints.length}</span>
+                )}
+              </button>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>{selectedToolHints.length > 0 ? '随下一条消息发送' : ''}</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
+                title="发送 (Enter)"
+                style={{
+                  width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
+                  background: input.trim() && activeConfigId ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e9e4df',
+                  color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: input.trim() && activeConfigId ? '0 3px 10px rgba(124,58,237,0.32)' : 'none',
+                  transition: 'all 0.15s ease', transform: 'scale(1)',
+                }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
+              >
+                <PaperAirplaneIcon style={{ width: 15, height: 15 }} />
+              </button>
+            </div>
+
+            {/* v15.3.0: #工具选择 popover（仿 Claude Code / 输入 @ 的文件选择器）——可多选 */}
+            {showToolPicker && (
+              <div style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0, zIndex: 30, background: '#fff', borderRadius: 14, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                <div style={{ padding: 10, borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <HashtagIcon style={{ width: 13, height: 13, color: '#9b8e84', flexShrink: 0 }} />
+                  <input value={toolFilter} onChange={e => setToolFilter(e.target.value)} placeholder="搜索工具（如 file / kb / search / analyze）"
+                    className="focus-ring"
+                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: 12, fontFamily: 'inherit', color: '#2d2520', background: 'transparent' }} />
+                  <button onClick={() => setShowToolPicker(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 14, lineHeight: 1 }}>✕</button>
+                </div>
+                {!toolInvokeEnabled && (
+                  <div style={{ padding: '6px 12px', fontSize: 10, background: 'rgba(245,158,11,0.08)', color: '#b45309', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+                    ⚠️ 工具条「调用工具」开关已关闭——工具提示将不会生效，请先开启
+                  </div>
+                )}
+                <div className="custom-scrollbar" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  {TOOL_PICKER_LIST.filter(t => {
+                    const f = toolFilter.trim().toLowerCase()
+                    if (!f) return true
+                    return t.name.toLowerCase().includes(f) || t.desc.toLowerCase().includes(f)
+                  }).map(t => {
+                    const selected = selectedToolHints.includes(t.name)
+                    return (
+                      <button key={t.name} onClick={() => setSelectedToolHints(prev => prev.includes(t.name) ? prev.filter(n => n !== t.name) : [...prev, t.name])}
+                        title={t.desc}
+                        style={{
+                          width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none',
+                          background: selected ? 'rgba(37,99,235,0.06)' : 'transparent',
+                          cursor: 'pointer', borderBottom: '1px solid rgba(0,0,0,0.03)',
+                          display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit',
+                        }}>
+                        <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontSize: 12, fontWeight: 700, color: selected ? '#2563eb' : '#2d2520', minWidth: 118, flexShrink: 0 }}>#{t.name}</span>
+                        <span style={{ fontSize: 10, color: '#9b8e84', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.desc}</span>
+                        {selected && <span style={{ color: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✓ 已选</span>}
+                      </button>
+                    )
+                  })}
+                  {TOOL_PICKER_LIST.filter(t => {
+                    const f = toolFilter.trim().toLowerCase()
+                    return f && (t.name.toLowerCase().includes(f) || t.desc.toLowerCase().includes(f))
+                  }).length === 0 && toolFilter.trim() && (
+                    <div style={{ padding: '12px', textAlign: 'center', color: '#9b8e84', fontSize: 12 }}>无匹配工具</div>
+                  )}
+                </div>
+                <div style={{ padding: '8px 12px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: 10, color: '#9b8e84', lineHeight: 1.6 }}>
+                  提示 AI「可能使用」所选工具（软提示，非强制）——AI 仍可自主选择其他工具或工具组合。可多选，再次点击取消。选择后随下一条消息发送。
+                </div>
+              </div>
+            )}
           </div>
             {/* API connection error banner */}
             {apiError && (
@@ -1657,10 +1781,10 @@ export default function AIChatWindow() {
                 <button onClick={() => setApiError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 14 }}>✕</button>
               </div>
             )}
-            {/* @ file selector popup */}
+            {/* @ file selector popup — v15.3.0: 位置对齐一体化输入容器（left/right 16） */}
             {showAtRef && (
               <div className="custom-scrollbar" style={{
-                position: "absolute", bottom: "100%", left: 0, right: 56,
+                position: "absolute", bottom: "100%", left: 16, right: 16,
                 maxHeight: 200, overflowY: "auto", background: "#fff", borderRadius: 12,
                 border: "1px solid rgba(0,0,0,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
                 marginBottom: 4, zIndex: 10,

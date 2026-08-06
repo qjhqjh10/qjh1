@@ -3,6 +3,7 @@ import type { ModelConfig } from '../src/types/settings'
 import type { StyleProject, SceneTemplate } from '../src/types/story'
 import type { KnowledgeFile, KnowledgeMetadata } from '../src/types/knowledge'
 import type { KBSearchResult, KBWebSearchResult, KBFileEstimate, UsageResult, SessionStatsResult } from '../src/types/electron'
+import type { ModelPricePreset } from '../src/utils/modelPricing'
 
 const api = {
   files: {
@@ -85,6 +86,9 @@ const api = {
     },
     listModels: (configId: string, scope?: string): Promise<string[]> =>
       ipcRenderer.invoke('ai:listModels', configId, scope),
+    // v15.2.1: 联网获取模型实时价格（OpenRouter 公开目录，免密钥）
+    fetchModelPricing: (): Promise<{ models: Record<string, ModelPricePreset>; source: string; fetchedAt: number }> =>
+      ipcRenderer.invoke('ai:fetch-model-pricing'),
     chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string): Promise<string> =>
       ipcRenderer.invoke('ai:chat-with-tools', messages, configId, projectId, tools, temperature, source, requestId),
     // v14.8: DeepSeek Responses API（原生联网搜索通道）— 模型配置勾选原生联网时由 ResponsesAdapter 路由

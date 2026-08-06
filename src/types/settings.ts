@@ -24,10 +24,10 @@ export interface ModelConfig {
   mainApiUrl?: string
   mainApiKey?: string
 
-  // ── Main 定价 ──
-  inputPricePerM: number
-  outputPricePerM: number
-  cacheHitPricePerM: number
+  // ── Main 定价（元或美元/百万 tokens）──
+  inputPricePerM: number            // 输入（缓存未命中）全价
+  outputPricePerM: number           // 输出
+  cacheHitPricePerM: number         // 输入（缓存命中）折扣价
   mainCurrency?: 'USD' | 'CNY'
 
   // ── 🎨 Image 图片模型 ──
@@ -73,9 +73,9 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   reasoningEffort: 'max' as const,  // v11.4: 默认最大推理强度
   toolTemperature: 0.5,            // v12.5.1: 工具执行轮温度上限
   nativeWebSearch: true,           // v15.1: 默认开启模型原生联网搜索（Responses API 服务端搜索）
-  inputPricePerM: 0.02,            // v15.1: 默认 CNY 定价（输入 0.02 / 输出 1 / 缓存 2 元每百万 tokens）
-  outputPricePerM: 1,
-  cacheHitPricePerM: 2,
+  inputPricePerM: 1,               // v15.2.1: 默认 CNY 定价 = DeepSeek V4-Flash 官方价（v15.1 曾映射错位为 0.02/1/2）
+  outputPricePerM: 2,              //   输入（缓存未命中）1 / 输出 2 / 输入（缓存命中）0.02 元每百万 tokens
+  cacheHitPricePerM: 0.02,
   // Image
   imageModel: '',
   imageProvider: '',
@@ -192,6 +192,12 @@ export interface RoleTemplate {
   characters: CharacterCard[]     // 角色卡片列表（最少1个用户+1个AI角色）
   worldSetting: string            // 世界观背景（借鉴酒馆 World Info 常开条目）
   scenarioSetting: string         // 场景/对话补充设定
+  /** v15.3.1: 世界观设定文件（知识库）——完整世界观存于文件，作为 worldSetting 文本框的补充；
+   * 独立于渲染层「知识库」开关：勾选即每轮语义检索（限定范围）。与 scenarioKbFileIds 互斥（同一文件不可两边勾选） */
+  worldKbFileIds?: string[]
+  /** v15.3.1: 场景/对话设定文件（知识库）——完整场景对话设定存于文件，作为 scenarioSetting 文本框的补充；
+   * AI 想了解场景对话时只读取这组文件，不会翻找世界观文件 */
+  scenarioKbFileIds?: string[]
 }
 
 export const CHARACTER_IDENTITIES = ['男主', '女主', '男配', '女配', '反派', '路人', '自定义'] as const

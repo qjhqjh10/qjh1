@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.2.0
+# AI写作软件—青剑 v15.3.1
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,12 +6,31 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v15.2.0)
+## 当前架构 (v15.3.1)
+
+### v15.3.1 输入框拖拽修复 + 角色模板知识库设定文件 (2026-08-06)
+- 拖拽修复：手柄改 flex 布局置于 textarea 正下方（跟随其底缘，拖拽时手柄随鼠标走，方向感正确——原 absolute bottom:38 固定导致"往下拉、顶部悄悄上移"的反直觉）；textarea 内容超出时自动增高（scrollHeight，上限 220px，不收缩保留手动高度）；手柄 14px 高 + hover 紫色高亮
+- 角色模板知识库设定文件（分组补充语义，用户决策）：RoleTemplate 拆 **worldKbFileIds（世界观设定文件）+ scenarioKbFileIds（场景对话设定文件）**，两组互斥（同一文件不可两边勾选，防 AI 读取归属冲突）；设置弹窗世界观/场景卡片**正下方各内嵌一个文件勾选区**（SettingFilePicker 组件，勾选自动从另一组移除 + 已选入对方时禁用标注）；未勾选 + 知识库开关关闭 = 完全不检索不调用（无"每轮必用知识库"）；BridgeContextBuilder 两组都进检索范围（与 selectedKbFileIds 合并，独立于渲染层「知识库」开关）；提示词**分两段**点名文件名（[世界观设定文件]/[场景对话设定文件]，构建时查 kbService.list 映射 id→originalName）+ 引导：按话题检索片段速览 → 需要完整设定时**直接 read_file("../knowledge_base/files/xxx.md") 读对应组文件全文或 kb_analyze 深度分析**（AI 想了解世界观只读世界观文件，不会找场景文件；不碎片化反复检索、不凭空猜测）
+- 缓存结论（调研）：角色模板全量注入位于 Anthropic 缓存断点（倒数第二 system 块=核心规则）之前——模板不变每轮命中缓存；切换/编辑模板才重写一次；KB 动态注入走 user 消息不进缓存前缀，缓存效率只升不降
+- 测试 688 passed + 15 skipped（703，+4 BridgeContextBuilder）；tsc 0；check-consistency 31/31
+
+### v15.3.0 AI 写作助手输入框改造（仿 DeepSeek）+ #工具提示 (2026-08-06)
+- 一体化输入框：输入区 + 发送按钮同框（圆角 18 容器统一描边/阴影，textarea 无边框，发送按钮移至容器内右下角 34px）；#工具按钮位于容器底部左侧（DeepSeek 输入框下方按钮位），显示已选数量 badge
+- #工具提示：点击 # 按钮弹出工具列表（数据源 = 真实工具注册表 ALL_TOOLS 32 工具，带搜索过滤，可多选，再次点击取消）；输入框上方显示 "#工具名" 蓝色加粗 chips（与 @引用紫色区分）；仅按钮选择生效——手输 # 不解析（防 prompt 混淆）
+- 软提示语义：随消息发送 `[工具提示: 用户建议本轮可能使用到以下工具（仅供参考，非强制...）: #create_file ...]`（buildToolHintText 纯函数，防御性去重+合法名校验）；不强制/不限制 agent 工具选择；「调用工具」开关关闭时 popover 顶部警告
+- 发送后/切换对话清空工具提示状态；@引用 popover 对齐新容器（left/right 16）
+- 测试 684 passed + 15 skipped（699，+4 buildToolHintText）；tsc 0；check-consistency 31/31（v15.3.1 后 688 + 15 = 703）
+
+### v15.2.1 模型定价修正 + 选模型自动调价 + 联网查价 (2026-08-06)
+- 定价默认值修正：v15.1 把 DeepSeek V4-Flash 定价映射错位（0.02/1/2）→ 修正为输入（缓存未命中）1 / 输出 2 / 输入（缓存命中）0.02（元/百万 tokens）；configMigration 增「错位三元组修正」（三字段全等于错位值才改，用户改过任一个则整组不动）
+- 内置价格表 src/utils/modelPricing.ts：30+ 主流模型（DeepSeek/OpenAI/Anthropic/Gemini/智谱/千问/Kimi）2026-08 核实价；选模型自动填 货币+输入+输出+缓存命中+上下文窗口
+- 联网查价：主进程 ai:fetch-model-pricing（netFetch 走系统代理，拉 OpenRouter /api/v1/models 免密钥，USD/百万 tokens，15s 超时）；设置页「🔗 联网查价」按钮匹配当前模型实时更新
+- 测试 680 passed + 15 skipped（695）；tsc 0；check-consistency 31/31（v15.3.0 后 684 + 15 = 699）
 
 ### v15.2.0 精准改写强化 + 默认模型配置 DeepSeek 化 (2026-08-04)
 - 改写·精准改写：整章改写强制「未标记段落逐字保留」（情色内容保持原样）；场景段改写输出范围约束；needsRewrite=false 保留原文章节不再被改写（批量+单章保护）；enforceTemplateRewrite 匹配面扩展（categories+markers 双查）
 - 改写·场景合并规则：恢复允许合并（连续同类型/相似场景如亲密+亲吻合并为最能概括的场景，防重复改写）
-- 默认模型配置：新模板 = DeepSeek + anthropic 协议 + 原生联网 + 1M + CNY + 定价 0.02/1/2；新增 configMigration.ts 字段级迁移（旧默认字段自动更新、自定义字段不动，App 启动执行）
+- 默认模型配置：新模板 = DeepSeek + anthropic 协议 + 原生联网 + 1M + CNY + 定价 1/2/0.02（v15.2.1 修正）；新增 configMigration.ts 字段级迁移（旧默认字段自动更新、自定义字段不动，App 启动执行）
 - 死代码清理：mergeAdjacentSegments（零引用）；chatStorageService 过时注释
 - 测试 664 passed + 15 skipped（679）
 
@@ -155,7 +174,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (664 passed + 15 skipped，共 679) |
+| `npx vitest run` | 全量单元测试 (688 passed + 15 skipped，共 703) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
@@ -185,4 +204,4 @@ npx tsx scripts/test-ai-agent.mjs --scenario=CA1,CA2
 | CA6 重命名+校验修复 | rename_file / 损坏 JSON 修复 / YAML 创作 |
 | CA7 角色扮演创作 | 角色外壳下多文件创作不受影响 |
 
-旧脚本 `scripts/test-ai-conversation.mjs`（32 简单场景）已废弃。
+旧脚本 test-ai-conversation.mjs（32 简单场景）已废弃（v14.9 起删除，由 `scripts/test-ai-agent.mjs` 替代）。

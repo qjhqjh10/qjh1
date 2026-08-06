@@ -11,6 +11,7 @@ import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS, IMAGE_PROVIDER_PRESETS } from '
 import type { ProviderPreset } from '@/types/settings'
 import { FormField } from '../shared'
 import { logError } from '@/utils/logger'
+import { lookupModelPrice, matchLiveModel, type ModelPricePreset } from '@/utils/modelPricing'
 
 // ── Shared styles ──
 const cardInner: React.CSSProperties = { padding: '20px 22px', borderRadius: 16, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(0,0,0,0.06)' }
@@ -57,7 +58,7 @@ function ModelCard({
   showMainFields, apiUrlHint, providerPresets,
   configId, onRefreshModels, loadingModels, modelList, showDropdown, setShowDropdown,
   thinkingEnabled, onThinkingChange, reasoningEffort, onReasoningEffort,
-  children,
+  priceActions, children,
 }: {
   icon: string; title: string; desc: string
   modelValue: string; onModelChange: (v: string) => void; placeholder: string
@@ -81,6 +82,8 @@ function ModelCard({
   modelList: string[]; showDropdown: boolean; setShowDropdown: (v: boolean) => void
   thinkingEnabled?: boolean; onThinkingChange?: (v: boolean) => void
   reasoningEffort?: string; onReasoningEffort?: (v: string) => void
+  /** v15.2.1: 定价行末尾附加内容（联网查价按钮/状态），仅 Main 卡传入 */
+  priceActions?: React.ReactNode
   children?: React.ReactNode
 }) {
   const sym = currency === 'CNY' ? '¥' : '$'
@@ -322,6 +325,7 @@ function ModelCard({
               <div style={hintText}>{sym}/百万t</div>
             </div>
           )}
+          {priceActions}
         </div>
       )}
 
@@ -346,6 +350,8 @@ export function ModelSettingsTab() {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null) // 'main'|'image'
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [showClearConfigConfirm, setShowClearConfigConfirm] = useState(false)
+  // v15.2.1: 联网查价状态（'idle' 未操作 / 'loading' 查询中 / 'ok' 已更新 / 'err' 失败提示）
+  const [priceFetch, setPriceFetch] = useState<{ status: 'idle' | 'loading' | 'ok' | 'err'; msg?: string }>({ status: 'idle' })
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -408,6 +414,48 @@ export function ModelSettingsTab() {
   }
 
   const u = (patch: Partial<ModelConfig>) => updateConfig(activeConfig.id, patch)
+
+  // ── v15.2.1: 价格自动调整 ──
+  // 选择/输入模型名时，按内置参考价表自动填入：货币 + 输入（缓存未命中）+ 输出 + 缓存命中 + 上下文窗口
+  const applyPreset = (preset: ModelPricePreset) => {
+    u({
+      inputPricePerM: preset.input,
+      outputPricePerM: preset.output,
+      cacheHitPricePerM: preset.cacheHit,
+      mainCurrency: preset.currency,
+      currency: preset.currency,
+      ...(preset.contextWindow ? { contextWindow: preset.contextWindow } : {}),
+    })
+  }
+
+  const handleModelChange = (v: string) => {
+    u({ model: v })
+    const preset = lookupModelPrice(v)
+    if (preset) {
+      applyPreset(preset)
+      setPriceFetch({ status: 'ok', msg: `已按内置参考价自动填入（${preset.source}）。价格会波动，可点「🔗 联网查价」获取实时价。` })
+    } else {
+      setPriceFetch({ status: 'idle', msg: undefined })
+    }
+  }
+
+  // 联网查价：OpenRouter 免密钥公开目录（主进程 netFetch 走系统代理/证书），USD 计价
+  const handleFetchPrice = async () => {
+    setPriceFetch({ status: 'loading' })
+    try {
+      const { models, source, fetchedAt } = await aiService.fetchModelPricing()
+      const preset = matchLiveModel(models, activeConfig.model)
+      if (preset) {
+        applyPreset(preset)
+        const t = new Date(fetchedAt).toLocaleTimeString()
+        setPriceFetch({ status: 'ok', msg: `已更新为 ${source} 实时价格（USD）${t} 获取，共 ${Object.keys(models).length} 个模型。若想回到人民币官方价，重新输入模型名即可。` })
+      } else {
+        setPriceFetch({ status: 'err', msg: `${source} 中未找到「${activeConfig.model}」（已收录 ${Object.keys(models).length} 个模型）。请检查模型名，或使用内置参考价。` })
+      }
+    } catch (err) {
+      setPriceFetch({ status: 'err', msg: err instanceof Error ? err.message : '联网查价失败（可能网络受限），已保留当前价格。' })
+    }
+  }
 
   return (
     <>
@@ -478,7 +526,7 @@ export function ModelSettingsTab() {
             {/* ── 💪 Main ── */}
             <ModelCard
               icon="💪" title="Main 主力模型" desc="AI写作助手核心模型 — 对话执行、工具调用、章节创作。"
-              modelValue={activeConfig.model} onModelChange={v => u({ model: v })}
+              modelValue={activeConfig.model} onModelChange={handleModelChange}
               placeholder="deepseek-v4-flash / deepseek-v4-pro / gpt-4o"
               tempValue={activeConfig.temperature} onTempChange={v => u({ temperature: v })}
               toolTempValue={activeConfig.toolTemperature ?? 0.5} onToolTempChange={v => u({ toolTemperature: v })}
@@ -498,6 +546,18 @@ export function ModelSettingsTab() {
               modelList={mainModelList} showDropdown={activeDropdown === 'main'} setShowDropdown={(v) => setActiveDropdown(v ? 'main' : null)}
               thinkingEnabled={activeConfig.enableThinking !== false} onThinkingChange={v => u({ enableThinking: v })}
               reasoningEffort={activeConfig.reasoningEffort || 'max'} onReasoningEffort={v => u({ reasoningEffort: v as 'high' | 'max' })}
+              priceActions={
+                <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                  <button onClick={handleFetchPrice} disabled={priceFetch.status === 'loading'}
+                    title="从 OpenRouter 公开目录拉取该模型当前价格（USD，免密钥）。价格频繁波动，联网获取更准确。"
+                    style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.06)', color: '#7c3aed', fontSize: 11, fontWeight: 600, cursor: priceFetch.status === 'loading' ? 'wait' : 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                    {priceFetch.status === 'loading' ? '⏳ 查询中…' : '🔗 联网查价'}
+                  </button>
+                  {priceFetch.msg && (
+                    <span style={{ fontSize: 10, lineHeight: 1.5, color: priceFetch.status === 'err' ? '#dc2626' : priceFetch.status === 'ok' ? '#16a34a' : '#9b8e84' }}>{priceFetch.msg}</span>
+                  )}
+                </div>
+              }
             >
               {/* v14.8: 原生联网搜索 — 围绕 DeepSeek 的模型能力配置 */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)' }}>

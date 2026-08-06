@@ -1,8 +1,9 @@
 // ── v15.1.0 默认模型配置迁移 ──
 // 背景：v15.1.0 将 DEFAULT_MODEL_CONFIG 默认值改为 DeepSeek（anthropic 协议 / 原生联网 /
-// CNY 定价 0.02-1-2 / 1M 上下文）。用户要求"新模板 + 现有默认模板"都生效。
+// CNY 定价 / 1M 上下文）。用户要求"新模板 + 现有默认模板"都生效。
 // 策略：字段级迁移——仅当某字段仍等于 v15.0.0 旧默认值时才更新为新默认值；
 // 用户手动改过的字段保持不变（不覆盖自定义）。
+// v15.2.1：v15.1.0 定价字段映射错位（输入 0.02/输出 1/缓存 2），本文件一并修正为新默认 1/2/0.02。
 import type { ModelConfig } from '@/types/settings'
 
 // v15.0.0 旧默认值（迁移源，仅识别"未自定义"字段）
@@ -18,7 +19,7 @@ const OLD = {
   cacheHitPricePerM: 1.25,
 }
 
-// v15.1.0 新默认值（迁移目标，与 DEFAULT_MODEL_CONFIG 一致）
+// 新默认值（迁移目标，与 DEFAULT_MODEL_CONFIG 一致）
 const NEW = {
   provider: 'deepseek',
   apiUrl: 'https://api.deepseek.com',
@@ -26,10 +27,15 @@ const NEW = {
   protocol: 'anthropic' as const,
   nativeWebSearch: true,
   currency: 'CNY' as const,
-  inputPricePerM: 0.02,
-  outputPricePerM: 1,
-  cacheHitPricePerM: 2,
+  inputPricePerM: 1,
+  outputPricePerM: 2,
+  cacheHitPricePerM: 0.02,
 }
+
+// v15.1.0 曾写入的错位价格三元组（输入 0.02/输出 1/缓存 2 → 应为 1/2/0.02）。
+// 仅当三个字段全部仍等于错位默认值时才整体修正——任一个被用户改过则整组不动（不覆盖自定义）。
+const WRONG_PRICE_TRIPLE = { inputPricePerM: 0.02, outputPricePerM: 1, cacheHitPricePerM: 2 }
+const CORRECT_PRICE_TRIPLE = { inputPricePerM: 1, outputPricePerM: 2, cacheHitPricePerM: 0.02 }
 
 export function migrateDefaultConfigs(configs: ModelConfig[]): { configs: ModelConfig[]; changed: boolean } {
   let changed = false
@@ -49,6 +55,13 @@ export function migrateDefaultConfigs(configs: ModelConfig[]): { configs: ModelC
     if (c.inputPricePerM === OLD.inputPricePerM) { patch.inputPricePerM = NEW.inputPricePerM; changed = true }
     if (c.outputPricePerM === OLD.outputPricePerM) { patch.outputPricePerM = NEW.outputPricePerM; changed = true }
     if (c.cacheHitPricePerM === OLD.cacheHitPricePerM) { patch.cacheHitPricePerM = NEW.cacheHitPricePerM; changed = true }
+    // v15.2.1: 修正 v15.1.0 错位定价（仅当三字段仍全等于错位默认值）
+    if (c.inputPricePerM === WRONG_PRICE_TRIPLE.inputPricePerM
+      && c.outputPricePerM === WRONG_PRICE_TRIPLE.outputPricePerM
+      && c.cacheHitPricePerM === WRONG_PRICE_TRIPLE.cacheHitPricePerM) {
+      Object.assign(patch, CORRECT_PRICE_TRIPLE)
+      changed = true
+    }
     return Object.keys(patch).length > 0 ? { ...c, ...patch } : c
   })
   return { configs: next, changed }

@@ -6,7 +6,7 @@
 // 纯函数，不依赖 React/store。
 
 import { describe, it, expect } from 'vitest'
-import { maybeInjectResume, maybeInjectSubagentSummaries, hasResumeIntent, buildThinkingPlanFromRun } from '../utils'
+import { maybeInjectResume, maybeInjectSubagentSummaries, hasResumeIntent, buildThinkingPlanFromRun, buildToolHintText } from '../utils'
 import type { Message } from '@/components/ai/chatConstants'
 
 function assistantMsg(overrides: Partial<Message> = {}): Message {
@@ -250,5 +250,34 @@ describe('maybeInjectSubagentSummaries', () => {
 
     expect(JSON.stringify(history)).toBe(historySnapshot)
     expect(JSON.stringify(messages)).toBe(messagesSnapshot)
+  })
+})
+
+// ── v15.3.0: buildToolHintText（#工具提示）──
+describe('buildToolHintText（#工具提示注入）', () => {
+  it('无工具返回空串', () => {
+    expect(buildToolHintText([])).toBe('')
+    expect(buildToolHintText(undefined as any)).toBe('')
+  })
+
+  it('单个工具生成软提示（非强制语义）', () => {
+    const text = buildToolHintText(['create_file'])
+    expect(text).toContain('[工具提示:')
+    expect(text).toContain('#create_file')
+    expect(text).toContain('仅供参考，非强制')  // 软提示措辞：不强制、不限制
+    expect(text).toContain('也可使用其他工具')
+  })
+
+  it('多工具并列显示', () => {
+    const text = buildToolHintText(['read_file', 'edit_file', 'kb_search'])
+    expect(text).toContain('#read_file #edit_file #kb_search')
+  })
+
+  it('防御性：去重 + 过滤非法工具名（含空格/大写/符号）', () => {
+    const text = buildToolHintText(['read_file', 'read_file', 'Create File', 'bad#name', 'normal_tool'])
+    expect(text).toContain('#read_file')
+    expect(text).not.toContain('Create')
+    expect(text).not.toContain('bad#name')
+    expect(text).toContain('#normal_tool')
   })
 })

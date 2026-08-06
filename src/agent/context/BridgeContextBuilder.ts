@@ -52,20 +52,44 @@ export class BridgeContextBuilder {
     // ── 1. 始终全量规则（前缀缓存使重复传输几乎免费，且模型每轮都需要完整规则）──
     let effectivePrompt = corePrompt
 
-    // ── 2. KB search + Web search（始终执行，动态内容）──
+    // 读取 settings store（角色模板 + 旧 customRoles 共用）——提前到 KB 检索前，
+    // v15.3.1: 角色模板勾选的设定文件（kbFileIds）独立于渲染层「知识库」开关，勾选即检索
+    const { useSettingsStore, useStore } = await import('@/store')
+    const aiSettings = useSettingsStore.getState().aiSettings
+    const activeTplId = aiSettings.activeRoleTemplateId
+    const activeTpl = activeTplId ? aiSettings.roleTemplates?.find(t => t.id === activeTplId) : undefined
+    // v15.3.1: 设定文件分两组——世界观设定文件 / 场景对话设定文件（互斥，AI 按需求定位到正确文件组）
+    const tplWorldFileIds = activeTpl?.worldKbFileIds || []
+    const tplScenarioFileIds = activeTpl?.scenarioKbFileIds || []
+    const tplKbFileIds = [...tplWorldFileIds, ...tplScenarioFileIds]
+
+    // ── 2. KB search + Web search（动态内容）──
     // v13.x: 知识库检索不再要求项目内 — 未指定项目时检索全部文件
     let searchContext = ''
-    if (this.opts.kbEnabled) {
+    const kbActive = this.opts.kbEnabled || tplKbFileIds.length > 0
+    // v15.3.1: 角色设定文件名映射（仅勾选设定文件时查一次，轻量元数据 IPC）——
+    // 提示词点名文件名，AI 才能直接 read_file("../knowledge_base/files/xxx.md") 定位读取
+    let kbIdNameMap = new Map<string, string>()
+    if (tplKbFileIds.length > 0) {
       try {
         const { kbService } = await import('@/services/fileService')
-        const { useSettingsStore } = await import('@/store')
-        const kbSettings = useSettingsStore.getState().aiSettings.kbSettings
+        const meta = await kbService.list() as { files?: { id: string; originalName: string }[] }
+        for (const f of (meta?.files || [])) kbIdNameMap.set(f.id, f.originalName)
+      } catch { /* 查不到文件名时提示词只显示数量 */ }
+    }
+    if (kbActive) {
+      try {
+        const { kbService } = await import('@/services/fileService')
+        const kbSettings = aiSettings.kbSettings
         const topK = Math.min(20, Math.max(1, kbSettings?.agent?.searchTopK || 5))
         // v14.8: 排除集 = 跨 run 历史已注入（excludeKbFileIds）+ 本轮实例已注入（per-run 归属，消除并发串扰）
         const exclude = new Set(this.opts.excludeKbFileIds ?? [])
         for (const id of this.injectedFileIds) exclude.add(id)
+        // v15.3.1: 检索范围 = 渲染层勾选（@引用/知识库文件）∪ 角色模板设定文件
+        const fileIds = [...(this.opts.selectedKbFileIds ?? []), ...tplKbFileIds]
         const results = await kbService.search(
-          msg.slice(0, 4000), this.opts.projectId || '', this.opts.configId, topK, this.opts.selectedKbFileIds,
+          msg.slice(0, 4000), this.opts.projectId || '', this.opts.configId, topK,
+          fileIds.length > 0 ? fileIds : undefined,
           exclude.size > 0 ? [...exclude] : undefined,
         )
         if (Array.isArray(results) && results.length > 0) {
@@ -105,13 +129,9 @@ export class BridgeContextBuilder {
     // ── 7. Assemble system messages — 角色身份 + 核心规则 ──
     const systemMessages: Array<{ role: 'system'; content: string }> = []
 
-    // 读取 settings store（角色模板 + 旧 customRoles 共用）
-    const { useSettingsStore, useStore } = await import('@/store')
-    const aiSettings = useSettingsStore.getState().aiSettings
-
     // v13.0: 注入角色模板 — "语气外壳"，不替换写作助手内核
-    const activeTplId = aiSettings.activeRoleTemplateId
-    const activeTpl = activeTplId ? aiSettings.roleTemplates?.find(t => t.id === activeTplId) : undefined
+    // v15.3.1: 模板勾选的设定文件（kbFileIds）→ 提示词告知模型深度设定存于文件，
+    // 需要时自主 kb_search / kb_analyze 精确查阅（检索结果已随本轮注入，但片段未必覆盖全部设定）
     if (activeTpl && activeTpl.characters.length > 0) {
       const userChars = activeTpl.characters.filter(c => c.isUser)
       const aiChars = activeTpl.characters.filter(c => !c.isUser)
@@ -137,6 +157,26 @@ export class BridgeContextBuilder {
           if (c.firstMessage) parts.push(`- 首次发言风格参考："${c.firstMessage}"`)
           charLines.push(parts.join('\n'))
         })
+
+        // v15.3.1: 设定文件提示分两段——世界观文件 / 场景对话文件各归各（AI 按需求定位对应文件组）：
+        // ① 对话时已按话题检索注入相关片段（速览）② 需要完整设定时直接 read_file 读对应组文件全文
+        //（不碎片化检索；文件位于 ../knowledge_base/files/，与知识库路径约定一致，见系统提示）
+        if (tplWorldFileIds.length > 0) {
+          const names = tplWorldFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
+          charLines.push(
+            `[世界观设定文件] 本角色勾选 ${tplWorldFileIds.length} 个世界观设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，`
+            + `完整世界观存于其中（对话时已按话题检索注入相关片段，但片段未必覆盖全部）。`
+            + `涉及世界观/设定的完整细节时，请直接 read_file 读取对应文件全文（文件在 ../knowledge_base/files/ 目录），或 kb_analyze 深度分析该文件——不要凭空猜测、不要碎片化反复检索。`
+          )
+        }
+        if (tplScenarioFileIds.length > 0) {
+          const names = tplScenarioFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
+          charLines.push(
+            `[场景对话设定文件] 本角色勾选 ${tplScenarioFileIds.length} 个场景与对话设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，`
+            + `完整场景/对话设定存于其中（对话时已按话题检索注入相关片段，但片段未必覆盖全部）。`
+            + `涉及场景/对话的完整细节时，请直接 read_file 读取对应文件全文（文件在 ../knowledge_base/files/ 目录），或 kb_analyze 深度分析该文件——不要凭空猜测、不要碎片化反复检索。`
+          )
+        }
 
         charLines.unshift('[角色扮演设定 — 这是你的人格外壳，你的核心写作助手能力（文件操作、知识库搜索、章节创作等全部工具）保持不变]')
         systemMessages.push({ role: 'system', content: charLines.join('\n\n') })

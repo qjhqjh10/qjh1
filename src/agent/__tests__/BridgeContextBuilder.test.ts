@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BridgeContextBuilder } from '../context/BridgeContextBuilder'
 
-const { searchMock, webSearchMock, getStateMock } = vi.hoisted(() => {
+const { searchMock, webSearchMock, getStateMock, listMock } = vi.hoisted(() => {
   const getStateMock = vi.fn<() => { aiSettings: Record<string, unknown>; configs: unknown[] }>()
   getStateMock.mockImplementation(() => ({
     aiSettings: {
@@ -15,13 +15,14 @@ const { searchMock, webSearchMock, getStateMock } = vi.hoisted(() => {
     },
     configs: [] as unknown[],
   }))
-  return { searchMock: vi.fn(), webSearchMock: vi.fn(), getStateMock }
+  return { searchMock: vi.fn(), webSearchMock: vi.fn(), getStateMock, listMock: vi.fn() }
 })
 
 vi.mock('@/services/fileService', () => ({
   kbService: {
     search: (...args: unknown[]) => searchMock(...args),
     webSearch: (...args: unknown[]) => webSearchMock(...args),
+    list: (...args: unknown[]) => listMock(...args),
   },
 }))
 
@@ -42,6 +43,8 @@ function result(search: unknown) {
 beforeEach(() => {
   searchMock.mockReset()
   webSearchMock.mockReset()
+  listMock.mockReset()
+  listMock.mockResolvedValue({ files: [{ id: 'kf1', originalName: '世界观设定.md' }, { id: 'kf2', originalName: '角色设定.md' }] })
   getStateMock.mockReset()
   getStateMock.mockImplementation(() => ({
     aiSettings: {
@@ -124,5 +127,80 @@ describe('原生联网跳过 DDG', () => {
     const r = await b.buildContext('q', [], null, CORE)
     expect(webSearchMock).toHaveBeenCalledTimes(1)
     expect(r.searchContext).toContain('[网络搜索]')
+  })
+})
+
+// ── v15.3.1: 角色模板设定文件（世界观组 worldKbFileIds + 场景组 scenarioKbFileIds，互斥）──
+describe('角色模板设定文件（worldKbFileIds + scenarioKbFileIds）', () => {
+  const TPL = {
+    id: 'tpl1', name: '测试模板',
+    characters: [
+      { id: 'c1', name: '用户', identity: '男主', gender: '男', personality: '', relationship: '', avatar: '', isUser: true },
+      { id: 'c2', name: '助手', identity: '女主', gender: '女', personality: '温柔', relationship: '恋人', avatar: '', isUser: false },
+    ],
+    worldSetting: '修仙世界',
+    scenarioSetting: '',
+    worldKbFileIds: ['kf1'],
+    scenarioKbFileIds: ['kf2'],
+  }
+  const setupTplState = () => {
+    getStateMock.mockImplementation(() => ({
+      aiSettings: {
+        kbSettings: { agent: { searchTopK: 5 } },
+        searchResultCount: 5,
+        safeSearch: 'moderate',
+        roleTemplates: [TPL],
+        activeRoleTemplateId: 'tpl1',
+      },
+      configs: [],
+    }))
+  }
+
+  it('模板设定文件独立于「知识库」开关：kbEnabled=false 仍检索且限定该文件', async () => {
+    setupTplState()
+    searchMock.mockResolvedValue([{ fileId: 'kf1', fileName: '设定.md', content: '她怕黑' }])
+    const builder = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false })
+    const { searchContext } = await builder.buildContext('她喜欢什么', [], null, CORE)
+    expect(searchMock).toHaveBeenCalledTimes(1)
+    // 第 5 参 fileIds = 模板勾选文件
+    expect(searchMock.mock.calls[0][4]).toEqual(['kf1', 'kf2'])
+    expect(searchContext).toContain('她怕黑')
+  })
+
+  it('模板设定文件与渲染层勾选（@引用/知识库文件）合并检索', async () => {
+    setupTplState()
+    searchMock.mockResolvedValue([])
+    const builder = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false, selectedKbFileIds: ['r1'] })
+    await builder.buildContext('你好', [], null, CORE)
+    expect(searchMock.mock.calls[0][4]).toEqual(['r1', 'kf1', 'kf2'])
+  })
+
+  it('system 消息分段提示：世界观文件与场景文件各归各、分别点名文件名', async () => {
+    setupTplState()
+    searchMock.mockResolvedValue([])
+    const builder = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false })
+    const { systemMessages } = await builder.buildContext('你好', [], null, CORE)
+    const roleMsg = systemMessages.find(s => s.content.includes('[角色扮演设定'))
+    expect(roleMsg).toBeDefined()
+    // 世界观组：点名世界观文件 + read_file 引导
+    expect(roleMsg!.content).toContain('[世界观设定文件]')
+    expect(roleMsg!.content).toContain('1 个世界观设定文件')
+    expect(roleMsg!.content).toContain('世界观设定.md')
+    // 场景组：点名场景文件 + read_file 引导（AI 按需求定位对应文件组）
+    expect(roleMsg!.content).toContain('[场景对话设定文件]')
+    expect(roleMsg!.content).toContain('1 个场景与对话设定文件')
+    expect(roleMsg!.content).toContain('角色设定.md')
+    expect(roleMsg!.content).toContain('read_file')
+    expect(roleMsg!.content).toContain('../knowledge_base/files/')
+    expect(roleMsg!.content).toContain('kb_analyze 深度分析该文件')
+    expect(roleMsg!.content).toContain('不要凭空猜测')
+  })
+
+  it('未勾选设定文件时无提示、无检索（kbEnabled=false 完全跳过）', async () => {
+    searchMock.mockResolvedValue([])
+    const builder = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false })
+    const { systemMessages } = await builder.buildContext('你好', [], null, CORE)
+    expect(searchMock).not.toHaveBeenCalled()
+    expect(systemMessages.some(s => s.content.includes('[世界观设定文件]') || s.content.includes('[场景对话设定文件]'))).toBe(false)
   })
 })

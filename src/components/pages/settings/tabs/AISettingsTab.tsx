@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/store'
-import { settingsService } from '@/services/fileService'
+import { settingsService, kbService } from '@/services/fileService'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -708,6 +708,65 @@ function TextSettingModal({
   )
 }
 
+// ── v15.3.1: 设定文件勾选区——挂载在世界观/场景卡片正下方作为补充（非独立区域），
+//    与另一组互斥（同一文件不可两边勾选，防止 AI 读取时归属冲突） ──
+function SettingFilePicker({
+  label, desc, fileIds, onChange, files, otherIds, otherLabel,
+}: {
+  label: string
+  desc?: string
+  fileIds: string[]
+  onChange: (ids: string[]) => void
+  files: { id: string; name: string }[]
+  otherIds: string[]
+  otherLabel: string
+}) {
+  return (
+    <div style={{
+      padding: '10px 12px', borderRadius: 10, flexShrink: 0,
+      background: 'rgba(255,255,255,0.5)', border: '1px dashed rgba(0,0,0,0.12)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>{label}</label>
+        <span style={{ fontSize: 10, color: fileIds.length ? '#7c3aed' : '#9b8e84', fontWeight: 600 }}>
+          已选 {fileIds.length} 个
+        </span>
+      </div>
+      {desc && <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6, lineHeight: 1.5 }}>{desc}</div>}
+      {files.length === 0 ? (
+        <div style={{ fontSize: 10, color: '#c5bfb8', padding: '4px 0' }}>
+          知识库暂无文件 —— 请先在知识库页面上传设定文档
+        </div>
+      ) : (
+        <div className="custom-scrollbar" style={{ maxHeight: 110, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {files.map(f => {
+            const checked = fileIds.includes(f.id)
+            const inOther = otherIds.includes(f.id)
+            return (
+              <label key={f.id} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', borderRadius: 6,
+                cursor: inOther ? 'not-allowed' : 'pointer', fontSize: 11,
+                color: inOther ? '#c5bfb8' : '#4a3f38',
+                background: checked ? 'rgba(124,58,237,0.05)' : 'transparent', fontFamily: 'inherit',
+              }}>
+                <input type="checkbox" checked={checked} disabled={inOther}
+                  onChange={e => {
+                    const cur = fileIds
+                    const next = e.target.checked ? [...cur, f.id] : cur.filter(id => id !== f.id)
+                    onChange(next)
+                  }}
+                  style={{ accentColor: '#7c3aed', width: 12, height: 12, cursor: inOther ? 'not-allowed' : 'pointer', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                {inOther && <span style={{ fontSize: 9, color: '#d97706', flexShrink: 0 }}>已选入{otherLabel}</span>}
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 角色模板详情弹窗（参考 ModelSettingsTab 左栏列表+右栏详情）
 // ═══════════════════════════════════════════════════════════════
@@ -732,6 +791,20 @@ function RoleTemplateDetailModal({
   const [editingCharId, setEditingCharId] = useState<string | null>(null)
   const [worldModalOpen, setWorldModalOpen] = useState(false)
   const [scenarioModalOpen, setScenarioModalOpen] = useState(false)
+  // v15.3.1: 角色设定文件（知识库）勾选——文件列表加载一次，随弹窗打开刷新
+  const [kbFileList, setKbFileList] = useState<{ id: string; name: string }[]>([])
+
+  // 加载知识库文件列表（角色设定文件勾选用）
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    kbService.list().then(meta => {
+      if (cancelled) return
+      const files = (meta as { files?: { id: string; originalName: string }[] })?.files || []
+      setKbFileList(files.map(f => ({ id: f.id, name: f.originalName })))
+    }).catch(() => { if (!cancelled) setKbFileList([]) })
+    return () => { cancelled = true }
+  }, [open])
 
   // ── 拖动 + 缩放状态（v13.x: 统一共享拖拽 hook）──
   const initialW = Math.round(window.innerWidth * 9 / 10)
@@ -982,6 +1055,8 @@ function RoleTemplateDetailModal({
                     📖 补充设定
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
+                    {/* ── 世界观组：卡片 + 正下方设定文件勾选区（文件是其补充，非独立区域） ── */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
                     {/* 世界观背景 — 点击预览卡片打开大弹窗编辑 */}
                     <div onClick={() => setWorldModalOpen(true)} style={{
                       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
@@ -1010,7 +1085,26 @@ function RoleTemplateDetailModal({
                           : '点击此处填写世界观背景设定...'}
                       </div>
                     </div>
+                    {/* 世界观设定文件（补充）——AI 想了解世界观时只读这组文件，不会翻找场景文件；与场景组互斥 */}
+                    <SettingFilePicker
+                      label="📚 世界观设定文件（补充）"
+                      desc="完整世界观存于这些文件——AI 想了解世界观时直接读取对应文件，不会找场景设定文件"
+                      fileIds={activeTemplate.worldKbFileIds || []}
+                      onChange={ids => {
+                        const added = ids.filter(id => !(activeTemplate.worldKbFileIds || []).includes(id))
+                        update({
+                          worldKbFileIds: ids,
+                          scenarioKbFileIds: (activeTemplate.scenarioKbFileIds || []).filter(id => !added.includes(id)),
+                        })
+                      }}
+                      files={kbFileList}
+                      otherIds={activeTemplate.scenarioKbFileIds || []}
+                      otherLabel="场景设定"
+                    />
+                    </div>
 
+                    {/* ── 场景组：卡片 + 正下方设定文件勾选区（文件是其补充，非独立区域） ── */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
                     {/* 场景/对话设定 — 点击预览卡片打开大弹窗编辑 */}
                     <div onClick={() => setScenarioModalOpen(true)} style={{
                       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
@@ -1038,6 +1132,23 @@ function RoleTemplateDetailModal({
                           ? (activeTemplate.scenarioSetting.length > 200 ? activeTemplate.scenarioSetting.slice(0, 200) + '...' : activeTemplate.scenarioSetting)
                           : '点击此处填写场景与对话设定...'}
                       </div>
+                    </div>
+                    {/* 场景设定文件（补充）——AI 想了解场景/对话时只读这组文件；与世界观组互斥 */}
+                    <SettingFilePicker
+                      label="📚 场景与对话设定文件（补充）"
+                      desc="完整场景/对话设定存于这些文件——AI 想了解场景对话时直接读取对应文件，不会找世界观设定文件"
+                      fileIds={activeTemplate.scenarioKbFileIds || []}
+                      onChange={ids => {
+                        const added = ids.filter(id => !(activeTemplate.scenarioKbFileIds || []).includes(id))
+                        update({
+                          scenarioKbFileIds: ids,
+                          worldKbFileIds: (activeTemplate.worldKbFileIds || []).filter(id => !added.includes(id)),
+                        })
+                      }}
+                      files={kbFileList}
+                      otherIds={activeTemplate.worldKbFileIds || []}
+                      otherLabel="世界观"
+                    />
                     </div>
                   </div>
                 </div>

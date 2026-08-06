@@ -101,6 +101,18 @@ export function buildThinkingPlanFromRun(
 }
 
 /**
+ * v15.3.0: #工具提示文本 — 用户通过输入框「#」按钮选择的工具提示。
+ * 语义为软提示（suggestion，非强制）：仅告知模型"用户建议可能使用这些工具"，
+ * 模型仍自主决定是否使用、使用哪些工具（不被限制/不被强制）。
+ * 纯函数便于单测；防御性去重 + 非法名过滤（工具名必须与注册表一致，白名单由调用方保证）。
+ */
+export function buildToolHintText(toolNames: string[]): string {
+  const names = [...new Set((toolNames || []).map(t => t.trim()).filter(t => /^[a-z0-9_]+$/i.test(t)))]
+  if (names.length === 0) return ''
+  return `[工具提示: 用户建议本轮可能使用到以下工具（仅供参考，非强制——请根据实际任务自主选择合适工具，也可使用其他工具或工具组合）: ${names.map(t => `#${t}`).join(' ')}]`
+}
+
+/**
  * v14.2.0: 跨 run 续跑注入 — 检测对话最后一条 assistant 消息携带的"中断未完成"任务清单，
  * 生成 [续跑] 提示消息追加到 history 尾部（新历史在 runtime 中位于用户消息之前）。
  * 条件: taskProgress 存在 && !allDone（未全部完成）&& interrupted（中断/超时/迭代耗尽/API失败）

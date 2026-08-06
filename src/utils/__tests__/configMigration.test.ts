@@ -1,4 +1,5 @@
 // v15.1: 默认模型配置迁移测试——字段级迁移，仅更新仍等于旧默认值的字段
+// v15.2.1: 定价默认值改为 1/2/0.02，并新增"v15.1 错位价格三元组修正"用例
 import { describe, it, expect } from 'vitest'
 import { migrateDefaultConfigs } from '../configMigration'
 
@@ -31,7 +32,7 @@ const OLD_TEMPLATE = {
 }
 
 describe('migrateDefaultConfigs (v15.1)', () => {
-  it('旧默认模板整体迁移为新默认（anthropic/原生联网/CNY/0.02-1-2/DeepSeek）', () => {
+  it('旧默认模板整体迁移为新默认（anthropic/原生联网/CNY/1-2-0.02/DeepSeek）', () => {
     const { configs, changed } = migrateDefaultConfigs([{ ...OLD_TEMPLATE } as any])
     expect(changed).toBe(true)
     const c = configs[0]
@@ -39,9 +40,9 @@ describe('migrateDefaultConfigs (v15.1)', () => {
     expect(c.nativeWebSearch).toBe(true)
     expect(c.currency).toBe('CNY')
     expect(c.mainCurrency).toBe('CNY')
-    expect(c.inputPricePerM).toBe(0.02)
-    expect(c.outputPricePerM).toBe(1)
-    expect(c.cacheHitPricePerM).toBe(2)
+    expect(c.inputPricePerM).toBe(1)      // 输入（缓存未命中）
+    expect(c.outputPricePerM).toBe(2)     // 输出
+    expect(c.cacheHitPricePerM).toBe(0.02) // 输入（缓存命中）
     expect(c.provider).toBe('deepseek')
     expect(c.apiUrl).toBe('https://api.deepseek.com')
     expect(c.model).toBe('deepseek-v4-flash')
@@ -75,10 +76,29 @@ describe('migrateDefaultConfigs (v15.1)', () => {
     expect(configs[0].mainCurrency).toBe('USD')
   })
 
-  it('新默认模板（v15.1 值）迁移后无变化', () => {
+  it('新默认模板（v15.2.1 正确值）迁移后无变化', () => {
     const fresh = {
       ...OLD_TEMPLATE,
       id: 'c4',
+      protocol: 'anthropic' as const,
+      nativeWebSearch: true,
+      currency: 'CNY' as const,
+      mainCurrency: 'CNY' as const,
+      inputPricePerM: 1,
+      outputPricePerM: 2,
+      cacheHitPricePerM: 0.02,
+      provider: 'deepseek',
+      apiUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+    } as any
+    const { changed } = migrateDefaultConfigs([fresh])
+    expect(changed).toBe(false)
+  })
+
+  it('v15.1.0 错位定价（0.02/1/2）整体修正为 1/2/0.02', () => {
+    const wrong = {
+      ...OLD_TEMPLATE,
+      id: 'c5',
       protocol: 'anthropic' as const,
       nativeWebSearch: true,
       currency: 'CNY' as const,
@@ -90,7 +110,31 @@ describe('migrateDefaultConfigs (v15.1)', () => {
       apiUrl: 'https://api.deepseek.com',
       model: 'deepseek-v4-flash',
     } as any
-    const { changed } = migrateDefaultConfigs([fresh])
-    expect(changed).toBe(false)
+    const { configs, changed } = migrateDefaultConfigs([wrong])
+    expect(changed).toBe(true)
+    expect(configs[0].inputPricePerM).toBe(1)
+    expect(configs[0].outputPricePerM).toBe(2)
+    expect(configs[0].cacheHitPricePerM).toBe(0.02)
+  })
+
+  it('v15.1.0 错位价仅改过其中一个字段时整组不动（尊重自定义）', () => {
+    const partial = {
+      ...OLD_TEMPLATE,
+      id: 'c6',
+      protocol: 'anthropic' as const,
+      nativeWebSearch: true,
+      currency: 'CNY' as const,
+      mainCurrency: 'CNY' as const,
+      inputPricePerM: 0.02,
+      outputPricePerM: 1.5,   // 用户改过输出价
+      cacheHitPricePerM: 2,
+      provider: 'deepseek',
+      apiUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+    } as any
+    const { configs } = migrateDefaultConfigs([partial])
+    expect(configs[0].inputPricePerM).toBe(0.02)
+    expect(configs[0].outputPricePerM).toBe(1.5)
+    expect(configs[0].cacheHitPricePerM).toBe(2)
   })
 })
