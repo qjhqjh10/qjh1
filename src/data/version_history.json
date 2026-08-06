@@ -1,7 +1,22 @@
 {
-  "currentVersion": "15.3.1",
-  "currentDate": "2026-08-06",
+  "currentVersion": "15.4.0",
+  "currentDate": "2026-08-07",
   "history": [
+    {
+      "version": "15.4.0",
+      "date": "2026-08-07",
+      "features": [
+        "知识库注入双模式: 生成功能（章节生成/批量生成/AI生成角色）可选择「全量注入」（文件全文截断注入，perFile/total 上限可调）或「片段注入」（输入关键词 → 向量化语义检索 topK 相关片段注入，topK 取设置）——片段模式关键词为空自动退回全量、检索零结果不注入（不静默回退全量）；三个生成弹窗均含注入方式切换 + 关键词输入 + 模式对比提示",
+        "知识库设置三场景独立卡片: AI 写作助手（agent，恒语义检索）/ 章节生成·批量生成（chapterGen）/ AI 生成角色（characterGen）——每场景可调 注入方式 + searchTopK（1-20）+ 每文件/总字符上限；旧 generation 键保留为 @deprecated 兜底（getSceneKb 双保险回退）",
+        "knowledgePipeline 重构为单一真源: 复活死代码 searchKB/injectChunks → searchKBMulti（多关键词分别检索 ceil(topK/N)、内容去重、score 降序）/ injectKnowledgeForScene（统一入口）/ buildKBBlock（批量 N 章预取一次复用：全量每文件仅读 1 次、片段仅 1 次检索）/ getSceneKb；KB_INJECT_SCORE_THRESHOLD 从 BridgeContextBuilder 收敛（单一真源）；删除死代码 injectKnowledge；使用指引文案增强（必须融合进正文/无关直接忽略/不要复述参考，三处统一）",
+        "生成管道统一: 批量生成与 AI 生成角色删除各自内联的 KB 实现（原不消费 totalMaxChars、不按【创作要求】定位）——统一走 knowledgePipeline；章节生成 kbInjectMode/kbKeywords 随 ChapterGenSettings 持久化（下次打开保留），批量/角色弹窗内 state",
+        "store 迁移 v9: generation → chapterGen/characterGen 同值拆分，各场景补 injectMode='full'（默认全量=现状行为），保留兜底键"
+      ],
+      "fixes": [
+        "测试: 711 passed + 15 skipped（726，+17 knowledgePipeline 单测 + migrate v9 用例）；tsc 0；check-consistency 31/31",
+        "改动前备份至 .aiharness/backups/，验证全部通过后删除"
+      ]
+    },
     {
       "version": "15.3.1",
       "date": "2026-08-06",
@@ -15,7 +30,7 @@
       "fixes": [
         "输入框拖拽方向修复（手柄跟随底缘+自动增高）；角色模板设定文件独立于渲染层「知识库」开关",
         "顺手修复: CLAUDE.md 过期引用（test-ai-conversation.mjs）；scripts/tool-schemas.json 重新生成（delete_file 描述漂移）；.gitignore 补 continuation_project_dirs/",
-        "测试: 689 passed + 15 skipped（704，+25）；tsc 0；check-consistency 31/31"
+        "测试: 693 passed + 15 skipped（708，+29）；tsc 0；check-consistency 31/31"
       ]
     },
     {
