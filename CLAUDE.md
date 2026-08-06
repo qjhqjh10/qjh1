@@ -12,6 +12,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 拖拽修复：手柄改 flex 布局置于 textarea 正下方（跟随其底缘，拖拽时手柄随鼠标走，方向感正确——原 absolute bottom:38 固定导致"往下拉、顶部悄悄上移"的反直觉）；textarea 内容超出时自动增高（scrollHeight，上限 220px，不收缩保留手动高度）；手柄 14px 高 + hover 紫色高亮
 - 角色模板知识库设定文件（分组补充语义，用户决策）：RoleTemplate 拆 **worldKbFileIds（世界观设定文件）+ scenarioKbFileIds（场景对话设定文件）**，两组互斥（同一文件不可两边勾选，防 AI 读取归属冲突）；设置弹窗世界观/场景卡片**正下方各内嵌一个文件勾选区**（SettingFilePicker 组件，勾选自动从另一组移除 + 已选入对方时禁用标注）；未勾选 + 知识库开关关闭 = 完全不检索不调用（无"每轮必用知识库"）；BridgeContextBuilder 两组都进检索范围（与 selectedKbFileIds 合并，独立于渲染层「知识库」开关）；提示词**分两段**点名文件名（[世界观设定文件]/[场景对话设定文件]，构建时查 kbService.list 映射 id→originalName）+ **酒馆世界书理念的使用规则**（用户决策）：优先基于已有信息（含已注入片段/此前查阅结果）作答——**已了解的信息不重复查阅**；仅当信息不足或矛盾时才查阅：kb_search 定位 → 小文件 read_file 全文 / **大文件优先 kb_analyze**（子代理深度分析回传精简总结，避免全文占大量上下文；read_file 全文仅当轮 tool_result 可见、历史保留 5 工具轮后折叠为摘要需重读）
 - 知识库注入相关度阈值（对齐酒馆"不激活不注入"）：KB_INJECT_SCORE_THRESHOLD=0.3——cosine score 低于阈值的片段不自动注入（省 token + 减噪音；缺 score 旧数据默认注入；kb_search 工具不受限，AI 可自查）
+- 主/子 agent 分工强化（对齐 orchestrator-worker 最佳实践，用户决策）：V4SystemPrompt 新增「重任务优先委托」原则（大文件读取/分析 >2万字符、长文件精确修改、知识库深度分析、多文件综合总结 → 优先委托 analyze_file/edit_file_task/kb_analyze，子代理独立上下文只回传摘要，主 agent 上下文保持轻量；简单任务直接用工具不委托）；read_file 超 50 万字符截断提示追加委托引导（建议 analyze_file 或 offset/limit 分段读，不再让主 agent 硬扛超大文件）
 - 缓存结论（调研）：角色模板全量注入位于 Anthropic 缓存断点（倒数第二 system 块=核心规则）之前——模板不变每轮命中缓存；切换/编辑模板才重写一次；KB 动态注入走 user 消息不进缓存前缀，缓存效率只升不降
 - 测试 689 passed + 15 skipped（704，+5 BridgeContextBuilder）；tsc 0；check-consistency 31/31
 

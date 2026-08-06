@@ -435,8 +435,12 @@ export async function executeFileTool(
           return { callId, toolName, status: 'success', summary: `${end - start} 字符${rangeInfo}`, detail: sliced }
         }
         // 无 offset/limit: 读全文（50万字符截断）
+        // v15.3.1(优化): 截断提示引导委托——主 agent 硬读超大文件只会看到截断内容；
+        // 明确告知改用 analyze_file 子代理（独立上下文读全文，只回传摘要）或 offset/limit 分段读
         const truncated = content.length > MAX_READ_CHARS
-          ? content.slice(0, MAX_READ_CHARS) + `\n\n... (内容过长，已截断至 ${MAX_READ_CHARS} 字符)`
+          ? content.slice(0, MAX_READ_CHARS)
+            + `\n\n... (内容过长，已截断至 ${MAX_READ_CHARS} 字符，共 ${content.length} 字符——全文超出单次读取上限)。`
+            + `如需完整分析，请改用 analyze_file 委托子代理（子代理在独立上下文读全文，只回传摘要，不占用你的上下文），或使用 offset/limit 分段读取。`
           : content
         return { callId, toolName, status: 'success', summary: `${content.length} 字符`, detail: truncated }
       }
