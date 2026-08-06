@@ -228,3 +228,49 @@ describe('ContextCompressor', () => {
     expect(result.some(m => m.content === '最近的回答')).toBe(true)
   })
 })
+
+// ── v15.3.1: 阈值参数化 + 链式深度压缩 ──
+describe('ContextCompressor v15.3.1（参数化阈值 + compressDeep）', () => {
+  it('自定义阈值：85% strip / 90% summarize / 95% collapse', () => {
+    const c = new ContextCompressor(1000, { thresholds: { strip: 0.85, summarize: 0.9, collapse: 0.95 } })
+    expect(c.getStage(800)).toBe('none')
+    expect(c.getStage(860)).toBe('strip_detail')
+    expect(c.getStage(910)).toBe('summarize_pairs')
+    expect(c.getStage(960)).toBe('collapse_early')
+  })
+
+  it('shouldDeepCompress：达到 deepAt 返回 true（主 agent 85% 链式触发）', () => {
+    const c = new ContextCompressor(1000, { thresholds: { strip: 0.85, summarize: 0.9, collapse: 0.95 }, deepAt: 0.85 })
+    expect(c.shouldDeepCompress(840)).toBe(false)
+    expect(c.shouldDeepCompress(850)).toBe(true)
+    expect(c.shouldDeepCompress(900)).toBe(true)
+    // 不设 deepAt → 恒 false（子 agent 渐进压缩）
+    const noDeep = new ContextCompressor(1000)
+    expect(noDeep.shouldDeepCompress(999)).toBe(false)
+  })
+
+  it('compressDeep：链式一次到底（strip → 摘要 → 折叠），显著减少消息数', () => {
+    const c = new ContextCompressor(1000, { deepAt: 0.85 })
+    // 构造 10 轮对话（user + assistant + tool 结果）
+    const msgs: Message[] = [
+      { role: 'system', content: '核心规则' },
+    ]
+    for (let i = 0; i < 10; i++) {
+      msgs.push({ role: 'user', content: `第${i}轮问题${'很长的内容'.repeat(30)}` })
+      msgs.push({ role: 'assistant', content: `第${i}轮回答${'也很长的内容'.repeat(30)}` })
+      msgs.push(makeToolMsg(`工具${i}`, '非常长的工具详情'.repeat(50)))
+    }
+    const result = c.compressDeep(msgs, 880)  // 88% ≥ deepAt 85%
+    expect(result.length).toBeLessThan(msgs.length)
+    // 保留 system + 压缩摘要 + 最近若干条（collapse_early 保护最近 5 条消息）
+    expect(result[0].role).toBe('system')
+    const kept = result.filter(m => m.role === 'user').length
+    expect(kept).toBeLessThanOrEqual(2)  // 早期轮次已被摘要/折叠
+  })
+
+  it('compressDeep 在未达阈值时原样返回', () => {
+    const c = new ContextCompressor(1000, { deepAt: 0.85 })
+    const msgs: Message[] = [{ role: 'user', content: '你好' }]
+    expect(c.compressDeep(msgs, 500)).toBe(msgs)
+  })
+})

@@ -119,6 +119,11 @@ export abstract class BaseChatBridge {
         contextWindow: this.contextWindow,
         temperature: creativeTemp,
         toolTemperature: toolTemp,
+        // v15.3.1: 主 agent 压缩策略——85% 才自动压缩，达到 85% 链式一次到底（Claude Code 式回退 ~15%）
+        compressConfig: {
+          thresholds: { strip: 0.85, summarize: 0.9, collapse: 0.95 },
+          deepAt: 0.85,
+        },
         // v14 批处理: 审计接线 — api:call 事件带 cost/model（会话统计消费）
         auditTrail: this.auditTrail,
         model: (modelConfig as any)?.model,

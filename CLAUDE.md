@@ -14,8 +14,9 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - 知识库注入相关度阈值（对齐酒馆"不激活不注入"）：KB_INJECT_SCORE_THRESHOLD=0.3——cosine score 低于阈值的片段不自动注入（省 token + 减噪音；缺 score 旧数据默认注入；kb_search 工具不受限，AI 可自查）
 - 主/子 agent 分工强化（对齐 orchestrator-worker 最佳实践，用户决策）：V4SystemPrompt 新增「重任务优先委托」原则（大文件读取/分析 >2万字符、长文件精确修改、知识库深度分析、多文件综合总结 → 优先委托 analyze_file/edit_file_task/kb_analyze，子代理独立上下文只回传摘要，主 agent 上下文保持轻量；简单任务直接用工具不委托）；read_file 超 50 万字符截断提示追加委托引导（建议 analyze_file 或 offset/limit 分段读，不再让主 agent 硬扛超大文件）
 - 主/子 agent 人设隔离确认 + 角色角度传递（用户提醒）：子代理上下文 = ROLE_PROMPTS 独立提示词 + 任务消息（无对话历史/无角色模板/KB 注入，SubagentService.setContextAssembler）——主 agent 角色扮演人设不会污染子代理；唯一缺口已补：角色设定文件提示词引导主 agent 委托 kb_analyze 时在 query/focus 传分析角度（角色扮演设定要点：性格/关系/说话风格/世界观约束/禁忌，而非泛泛资料摘要——子代理看不到扮演设定）
+- 上下文压缩策略重构（用户决策）：ContextCompressor 阈值参数化（CompressionThresholds 默认 0.7/0.8/0.9）+ 新增 compressDeep 链式方法（strip → 早期摘要 → 早期折叠，一次到底）——**主 agent**：chatBridgeFactory 传 thresholds 0.85/0.9/0.95 + deepAt 0.85（85% 才自动压缩，链式一次到底，进度条 ~85% 回退 ~15%，轮间执行不影响任务）；**子 agent**：SubagentService 传 0.75/0.85/0.95 渐进（75% 自动，无提醒）；AIChatWindow 进度条 **50%/70% 弹窗提醒**（各档一次，不自动压缩，ConfirmModal「知道了」）；压缩发生在 runtime 轮间（V4UnifiedRuntime:486-496）不打断任务
 - 缓存结论（调研）：角色模板全量注入位于 Anthropic 缓存断点（倒数第二 system 块=核心规则）之前——模板不变每轮命中缓存；切换/编辑模板才重写一次；KB 动态注入走 user 消息不进缓存前缀，缓存效率只升不降
-- 测试 689 passed + 15 skipped（704，+5 BridgeContextBuilder）；tsc 0；check-consistency 31/31
+- 测试 693 passed + 15 skipped（708，+9：ContextCompressor 4 + BridgeContextBuilder 5）；tsc 0；check-consistency 31/31
 
 ### v15.3.0 AI 写作助手输入框改造（仿 DeepSeek）+ #工具提示 (2026-08-06)
 - 一体化输入框：输入区 + 发送按钮同框（圆角 18 容器统一描边/阴影，textarea 无边框，发送按钮移至容器内右下角 34px）；#工具按钮位于容器底部左侧（DeepSeek 输入框下方按钮位），显示已选数量 badge

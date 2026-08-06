@@ -167,7 +167,11 @@ export class V4UnifiedRuntime {
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
     this.adapter = adapter
-    this.compressor = new ContextCompressor(config.contextWindow ?? 1_000_000)  // v14.9: 默认 1M
+    // v15.3.1: 压缩配置可注入（主 agent 85% 深度 / 子 agent 75% 渐进）；不传用默认 0.7/0.8/0.9
+    this.compressor = new ContextCompressor(config.contextWindow ?? 1_000_000, {  // v14.9: 默认 1M
+      thresholds: config.compressConfig?.thresholds,
+      deepAt: config.compressConfig?.deepAt,
+    })
   }
 
   // ── Dependency Injection ──
@@ -488,8 +492,11 @@ export class V4UnifiedRuntime {
       if (this.compressor.needsCompression(estimatedTokens)) {
         const newSinceCompress = this.lastCompressLength > 0
           ? this.messagesForApi.length - this.lastCompressLength : 0
-        // v14 批处理: 第 4 参保护最近 2 轮 tool detail（strip_detail 阶段不截断）
-        this.messagesForApi = this.compressor.compress(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress), 2)
+        // v15.3.1: 达到深度压缩阈值（主 agent 85%）→ 链式一次到底（Claude Code 式回退 ~15%）；
+        // 否则渐进三阶段。v14 批处理: 第 4 参保护最近 2 轮 tool detail（strip_detail 阶段不截断）
+        this.messagesForApi = this.compressor.shouldDeepCompress(estimatedTokens)
+          ? this.compressor.compressDeep(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress), 2)
+          : this.compressor.compress(this.messagesForApi, estimatedTokens, Math.max(5, newSinceCompress), 2)
         this.lastCompressLength = this.messagesForApi.length
       }
 

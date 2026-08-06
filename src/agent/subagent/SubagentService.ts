@@ -226,6 +226,11 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
       contextWindow,
       temperature,
       toolTemperature,
+      // v15.3.1: 子代理压缩策略——75% 自动渐进压缩（strip→摘要→折叠），无需提醒；
+      // 子代理上下文独立（isolatedStore），压缩不影响主 agent
+      compressConfig: {
+        thresholds: { strip: 0.75, summarize: 0.85, collapse: 0.95 },
+      },
       isolatedStore: true,
       // v14 批处理: 审计接线 — 子代理 api:call 事件同样记录（会话统计消费）
       auditTrail,

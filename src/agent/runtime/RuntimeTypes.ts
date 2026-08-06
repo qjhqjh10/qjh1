@@ -10,8 +10,17 @@ import type {
   Message,
 } from '../state/types'
 import type { AuditTrail } from '../audit/AuditTrail'
+import type { CompressionThresholds } from '../context/ContextCompressor'
 
 // ── Config ──
+
+/** v15.3.1: 上下文压缩配置（主 agent 85% 深度 / 子 agent 75% 渐进，见 chatBridgeFactory/SubagentService） */
+export interface CompressConfig {
+  /** 三阶段触发比例（默认 0.7/0.8/0.9） */
+  thresholds?: Partial<CompressionThresholds>
+  /** 达到该比例时链式一次到底压缩（compressDeep）——不设则始终渐进 */
+  deepAt?: number
+}
 
 export interface V4AgentConfig {
   configId: string
@@ -19,6 +28,8 @@ export interface V4AgentConfig {
   maxIterations: number
   abortSignal: AbortSignal
   contextWindow?: number
+  /** v15.3.1: 上下文压缩阈值/深度压缩配置（不传用默认 0.7/0.8/0.9 渐进） */
+  compressConfig?: CompressConfig
   /** v10.0.0: 跳过 ANALYZE 阶段强制文本分析。默认 false。 */
   skipAnalyze?: boolean
   /** v10.0.0: 跳过 Skill Gate（测试 mock 用）。默认 false。 */

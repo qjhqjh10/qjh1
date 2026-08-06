@@ -17,6 +17,18 @@ import { estimateTokens, estimateMessages } from '../utils/tokenEstimation'
 
 export type CompressionStage = 'none' | 'strip_detail' | 'summarize_pairs' | 'collapse_early'
 
+// v15.3.1: 压缩阈值可参数化（主 agent 85% 深度 / 子 agent 75% 渐进）
+export interface CompressionThresholds {
+  /** strip_detail 触发比例（工具详情截断），默认 0.7 */
+  strip: number
+  /** summarize_pairs 触发比例（早期轮次摘要），默认 0.8 */
+  summarize: number
+  /** collapse_early 触发比例（早期对话折叠），默认 0.9 */
+  collapse: number
+}
+
+export const DEFAULT_COMPRESSION_THRESHOLDS: CompressionThresholds = { strip: 0.7, summarize: 0.8, collapse: 0.9 }
+
 const LLM_COMPRESS_PROMPT = `请将以下对话历史压缩为一段简洁的上下文摘要（200-400字），保留关键信息：用户的核心需求和目标、已做出的重要决策、创建/修改了哪些文件及原因、当前任务的进展和下一步、用户的偏好和习惯。`
 
 export interface LLMCompressResult {
@@ -27,9 +39,17 @@ export interface LLMCompressResult {
 
 export class ContextCompressor {
   private contextWindow: number
+  private thresholds: CompressionThresholds
+  /** 达到该比例时用 compressDeep（链式一次到底，Claude Code 式回退 ~15%）——不设则始终渐进 compress */
+  private deepAt: number | null
 
-  constructor(contextWindow: number = 1_000_000) {  // v14.9: 默认 1M
+  constructor(
+    contextWindow: number = 1_000_000,  // v14.9: 默认 1M
+    options?: { thresholds?: Partial<CompressionThresholds>; deepAt?: number },
+  ) {
     this.contextWindow = contextWindow
+    this.thresholds = { ...DEFAULT_COMPRESSION_THRESHOLDS, ...options?.thresholds }
+    this.deepAt = options?.deepAt ?? null
   }
 
   /** Update context window size at runtime (e.g. from model config) */
@@ -47,14 +67,19 @@ export class ContextCompressor {
 
   getStage(usedTokens: number): CompressionStage {
     const pct = usedTokens / this.contextWindow
-    if (pct >= 0.90) return 'collapse_early'
-    if (pct >= 0.80) return 'summarize_pairs'
-    if (pct >= 0.70) return 'strip_detail'
+    if (pct >= this.thresholds.collapse) return 'collapse_early'
+    if (pct >= this.thresholds.summarize) return 'summarize_pairs'
+    if (pct >= this.thresholds.strip) return 'strip_detail'
     return 'none'
   }
 
   needsCompression(usedTokens: number): boolean {
     return this.getStage(usedTokens) !== 'none'
+  }
+
+  /** v15.3.1: 是否达到"深度压缩"阈值（链式一次到底） */
+  shouldDeepCompress(usedTokens: number): boolean {
+    return this.deepAt !== null && usedTokens / this.contextWindow >= this.deepAt
   }
 
   /**
@@ -73,6 +98,20 @@ export class ContextCompressor {
       case 'collapse_early': return this.collapseEarly(messages, protectRecent)
       default: return messages
     }
+  }
+
+  /**
+   * v15.3.1: 链式一次到底压缩（Claude Code 式）——达到 deepAt 阈值时调用：
+   * strip 旧工具详情 → 早期轮次摘要 → 早期对话折叠（保留最近 N 条 + system 摘要），
+   * 一次压缩到低水位（进度条从 ~85% 回退到 ~15%）。
+   * 逐阶段调用（每步压缩后的内容参与下一步），与 compress 的单阶段互斥。
+   */
+  compressDeep(messages: Message[], usedTokens: number, protectRecent = 5, protectRecentRounds = 2): Message[] {
+    if (!this.needsCompression(usedTokens)) return messages
+    let result = this.stripDetail(messages, this.getRecentBoundary(messages, protectRecentRounds))
+    result = this.summarizePairs(result)
+    result = this.collapseEarly(result, protectRecent)
+    return result
   }
 
   // ── Stage 1: Strip verbose detail from tool results ──

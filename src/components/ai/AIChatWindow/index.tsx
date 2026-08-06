@@ -253,6 +253,22 @@ export default function AIChatWindow() {
   const [cumulativeTokens, setCumulativeTokens] = useState(0)
   const [currentContextTokens, setCurrentContextTokens] = useState(0)  // v11.5.1: 当前消息的上下文用量（非累计）
   const [tokenBreakdown, setTokenBreakdown] = useState<{ label: string; chars: number }[]>([])
+  // v15.3.1: 上下文用量提醒（50%/70% 各弹窗一次，不自动压缩；85% 由 runtime 自动链式压缩）
+  const [pctReminder, setPctReminder] = useState<number | null>(null)
+  const remindedPctRef = useRef(new Set<number>())
+
+  useEffect(() => {
+    const ctxWindow = activeConfig?.contextWindow ?? 1000000
+    if (!ctxWindow || currentContextTokens <= 0) return
+    const pct = currentContextTokens / ctxWindow
+    for (const [threshold, label] of [[0.5, 50], [0.7, 70]] as const) {
+      if (pct >= threshold && !remindedPctRef.current.has(label)) {
+        remindedPctRef.current.add(label)
+        setPctReminder(label)
+        break
+      }
+    }
+  }, [currentContextTokens, activeConfig?.contextWindow])
 
   const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
 
@@ -1857,6 +1873,19 @@ export default function AIChatWindow() {
                   danger
                   onConfirm={() => { handleDeleteConversation(convToDelete); setConvToDelete(null) }}
                   onCancel={() => setConvToDelete(null)}
+                />
+              )}
+              {/* v15.3.1: 上下文用量提醒——50%/70% 各弹窗一次（不自动压缩；85% 由 runtime 自动链式压缩） */}
+              {pctReminder !== null && (
+                <ConfirmModal
+                  isOpen={true}
+                  title={pctReminder === 50 ? '上下文用量已达 50%' : '上下文用量已达 70%'}
+                  message={pctReminder === 50
+                    ? `当前上下文已使用约 50%（${(currentContextTokens / 1000).toFixed(0)}K / ${((activeConfig?.contextWindow ?? 1000000) / 1000).toFixed(0)}K tokens）。长任务请注意控制信息量；达到 85% 时将自动压缩早期对话（不影响正在执行的任务）。`
+                    : `当前上下文已使用约 70%（${(currentContextTokens / 1000).toFixed(0)}K / ${((activeConfig?.contextWindow ?? 1000000) / 1000).toFixed(0)}K tokens）。即将接近自动压缩阈值（85%）——届时早期对话将被压缩为摘要（进度条会回退）。也可点击用量条旁的「智能压缩」手动压缩。`}
+                  confirmLabel="知道了"
+                  onConfirm={() => setPctReminder(null)}
+                  onCancel={() => setPctReminder(null)}
                 />
               )}
             </div>
