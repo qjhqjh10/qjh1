@@ -4,6 +4,7 @@
 
 import { AgentEventEmitter } from './AgentEventEmitter'
 import { ContextCompressor } from '../context/ContextCompressor'
+import { ReadResultTracker } from '../context/ReadResultTracker'
 // v11.3: skillRegistry removed
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
@@ -163,6 +164,7 @@ export class V4UnifiedRuntime {
   private _cleanExit = false                  // v14.6.1: 正常收尾标记（完成/提问/纯聊天 break 前置位）——防"迭代触顶"误标 interrupted
   private _dupReadHintInjected = false        // v14.6.1: 重复读取提醒每 run 只注入一次（原每工具轮重复注入）
   private kbInjectedFileIds: string[] = []    // v14.8: 本轮 KB 预注入文件 id（execCtx → kb_search 排除 + run 结果跨 run 持久化）
+  private readTracker: ReadResultTracker | null = null  // v15.6: read_file 去重层（per-run 生命周期，历史重建覆盖跨 run）
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -412,6 +414,11 @@ export class V4UnifiedRuntime {
 
     // v13.x: 清除超过 5 轮的 read_file 结果 → 旧文件内容不再占用上下文
     const cleanedHistory = cleanOldReadResults(this.historyMessages)
+
+    // v15.6: read_file 去重层 — per-run 新建，从"模型实际可见的历史"重建（覆盖跨 run 场景；
+    // 5 轮外已被折叠的 read 结果重建不到 → 重读全文是合理行为）。run 结束即弃，
+    // GUI 手动编辑发生在 run 之间 → 与去重记录天然无冲突。
+    this.readTracker = ReadResultTracker.rebuildFromHistory(cleanedHistory)
 
     // v13.x: 搜索上下文注入 user message（保持 system 前缀稳定 → 缓存命中）
     const userContent = contextResult.searchContext
@@ -949,6 +956,9 @@ export class V4UnifiedRuntime {
           function: { name: tc.name, arguments: tc.arguments },
         })),
         thinkingBlocks: response.thinkingBlocks,  // v11.5.1: preserve for multi-turn
+        // v15.5: 服务端工具块（server_tool_use / web_search_tool_result）随消息持久化，
+        // 下轮 messagesToAnthropic 原样回传（DeepSeek Anthropic 端点原生联网要求）
+        serverToolBlocks: (response as any).serverToolBlocks,
         // v14.5.0: 推理内容随消息历史回传（OpenAI 协议 aiHandlers 据此保留 reasoning_content，
         // 多轮工具调用时模型可见自己的推理链）
         reasoning_content: response.reasoningContent,
@@ -971,6 +981,8 @@ export class V4UnifiedRuntime {
         toolsUsed: this.toolsUsed,
         toolCallSteps: this.toolCallSteps,
         emitter: this.emitter,
+        // v15.6: read_file 去重层实例（同 run 共享；子代理独立 runtime 各自持有）
+        readTracker: this.readTracker || undefined,
         iteration,
         // v14.5.0: 子代理（isolatedStore）内部工具调用跳过全局操作历史写入
         skipOpHistory: !!this.config.isolatedStore,

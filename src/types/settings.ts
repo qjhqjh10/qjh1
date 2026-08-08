@@ -17,7 +17,7 @@ export interface ModelConfig {
   contextWindow?: number          // 上下文窗口大小 (如 1000000=1M)
   protocol?: 'openai' | 'anthropic'  // API 协议：openai (默认) 或 anthropic (流式 content blocks)
   enableThinking?: boolean          // v11.4: 启用 DeepSeek V4 深度推理 (thinking mode)
-  reasoningEffort?: 'high' | 'max'  // v11.4: 推理强度 (默认 max，简单对话可降为 high)
+  reasoningEffort?: 'low' | 'high' | 'max'  // v11.4: 推理强度（默认 max；v15.5 扩展 low 档——官方文档三档 low/high/max）
   toolTemperature?: number          // v12.5.1: 工具执行轮温度上限 (默认 0.5，仅深度推理关闭时生效)
   nativeWebSearch?: boolean         // v14.8: 模型支持原生联网搜索（DeepSeek v4-flash 经 Responses API 服务端搜索）。勾选后 AI 写作助手自动停用软件内置联网搜索，保持单一联网通道
   mainProvider?: string
@@ -361,6 +361,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'moonshot', label: 'Moonshot（月之暗面）', apiUrl: 'https://api.moonshot.cn/v1' },
   { name: 'baidu', label: '百度文心一言', apiUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop' },
   { name: 'siliconflow', label: '硅基流动（SiliconFlow）', apiUrl: 'https://api.siliconflow.cn/v1' },
+  { name: 'opencode', label: 'OpenCode Go（订阅制）', apiUrl: 'https://opencode.ai/zen/go/v1' },
   { name: 'lmstudio', label: 'LM Studio（本地）', apiUrl: 'http://localhost:1234/v1' },
   { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
 ]

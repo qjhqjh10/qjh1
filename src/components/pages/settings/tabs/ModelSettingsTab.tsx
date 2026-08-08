@@ -218,9 +218,11 @@ function ModelCard({
                 }}>{thinkingEnabled ? '⚡ 已启用' : '关闭'}</button>
                 {thinkingEnabled && (
                   <select value={reasoningEffort} onChange={e => onReasoningEffort(e.target.value)}
-                    style={{ padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 9, fontFamily: 'inherit', color: '#6b5e54' }}>
+                    style={{ padding: '2px 4px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 9, fontFamily: 'inherit', color: '#6b5e54' }}
+                    title="推理强度：max 最强推理 / high 均衡 / low 快速低耗">
                     <option value="max">max 最强</option>
                     <option value="high">high 均衡</option>
+                    <option value="low">low 快速</option>
                   </select>
                 )}
               </div>
@@ -545,7 +547,7 @@ export function ModelSettingsTab() {
               configId={activeConfig.id} onRefreshModels={() => handleRefreshModels('main')} loadingModels={loadingMainModels}
               modelList={mainModelList} showDropdown={activeDropdown === 'main'} setShowDropdown={(v) => setActiveDropdown(v ? 'main' : null)}
               thinkingEnabled={activeConfig.enableThinking !== false} onThinkingChange={v => u({ enableThinking: v })}
-              reasoningEffort={activeConfig.reasoningEffort || 'max'} onReasoningEffort={v => u({ reasoningEffort: v as 'high' | 'max' })}
+              reasoningEffort={activeConfig.reasoningEffort || 'max'} onReasoningEffort={v => u({ reasoningEffort: v as 'low' | 'high' | 'max' })}
               priceActions={
                 <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
                   <button onClick={handleFetchPrice} disabled={priceFetch.status === 'loading'}
@@ -568,14 +570,18 @@ export function ModelSettingsTab() {
                   </label>
                   <span style={{ fontSize: 10, color: activeConfig.nativeWebSearch ? '#7c3aed' : '#9b8e84', lineHeight: 1.5 }}>
                     {activeConfig.nativeWebSearch
-                      ? '已启用 — AI 写作助手对话中，模型可自主调用原生联网搜索（Responses API 服务端搜索）；软件内置联网搜索自动停用，保持单一联网通道'
+                      ? (activeConfig.protocol === 'anthropic'
+                        ? '已启用 — Anthropic 协议下模型可自主调用服务端 web_search 工具（DeepSeek 官方端点原生支持）；软件内置联网搜索自动停用'
+                        : '已启用 — AI 写作助手对话中，模型可自主调用原生联网搜索（Responses API 服务端搜索）；软件内置联网搜索自动停用，保持单一联网通道')
                       : '未启用 — AI 写作助手使用软件内置的 DuckDuckGo 联网搜索'}
                   </span>
                 </div>
                 {(activeConfig.model || '').toLowerCase().includes('deepseek') && (
                   <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', fontSize: 10, color: '#b45309', lineHeight: 1.6 }}>
                     💡 DeepSeek 提示：旧模型名 <b>deepseek-chat / deepseek-reasoner</b> 已于 2026-07-24 退役，请改用 <b>deepseek-v4-flash</b> 或 <b>deepseek-v4-pro</b>。
-                    {activeConfig.nativeWebSearch && ' 原生联网目前仅 deepseek-v4-flash 支持（Responses API 服务端搜索）。'}
+                    {activeConfig.nativeWebSearch && (activeConfig.protocol === 'anthropic'
+                      ? ' Anthropic 协议 + DeepSeek 官方端点：原生联网经服务端 web_search 工具（官方文档确认支持）。'
+                      : ' 原生联网经 Responses API 服务端搜索（官方文档确认支持）。')}
                   </div>
                 )}
               </div>

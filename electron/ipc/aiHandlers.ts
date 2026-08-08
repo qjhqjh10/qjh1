@@ -57,13 +57,26 @@ function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
  * 现统一抽取，三处（含 ai:chat-with-tools）共用同一判定。
  * useThinking 为 true 时调用方应抑制 temperature（DeepSeek thinking 与 temperature 互斥）。
  */
+// v15.5: effort 三档归一化（官方文档：OpenAI 格式 reasoning_effort 取值 low/high/max，
+// 无 medium；Anthropic/Responses 格式另见各适配层映射）——任何历史残留值落回 max
+const EFFORT_LEVELS = ['low', 'high', 'max'] as const
+export function normalizeEffort(v: unknown): (typeof EFFORT_LEVELS)[number] {
+  return EFFORT_LEVELS.includes(v as any) ? (v as any) : 'max'
+}
+
 function buildThinkingParams(config: { model: string; enableThinking?: boolean; reasoningEffort?: string }) {
   const isDeepSeek = /deepseek/i.test(config.model)
-  const useThinking = isDeepSeek && /v4/i.test(config.model) && config.enableThinking !== false
+  const v4Model = isDeepSeek && /v4/i.test(config.model)
+  // v15.5 修复: 思考开关双向生效——此前关闭时不传 disabled，而官方文档明确
+  // 「思考模式默认打开」→ 关闭开关从未真正生效（模型仍在思考）。现显式 disabled。
+  if (v4Model && config.enableThinking === false) {
+    return { useThinking: false, patch: { extra_body: { thinking: { type: 'disabled' } } } }
+  }
+  const useThinking = v4Model && config.enableThinking !== false
   return {
     useThinking,
     patch: useThinking
-      ? { extra_body: { thinking: { type: 'enabled' } }, reasoning_effort: config.reasoningEffort || 'max' }
+      ? { extra_body: { thinking: { type: 'enabled' } }, reasoning_effort: normalizeEffort(config.reasoningEffort) }
       : {},
   }
 }
@@ -273,12 +286,17 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       apiUrl = config.imageApiUrl
     } else {
       apiKey = config.apiKey
-      // Anthropic 协议的地址含 /anthropic，/models 端点不存在于此路径
-      // 自动回退到供应商的 OpenAI 兼容基础地址
+      // Anthropic 协议的地址含 /anthropic 或完整 /v1/messages（如 OpenCode zen/go），
+      // /models 端点不存在于此路径——回退到供应商的 OpenAI 兼容基础地址
       const protocol = (config as any).protocol
-      apiUrl = (protocol === 'anthropic')
-        ? (config.apiUrl || '').replace(/\/anthropic(\/.*)?$/, '').replace(/\/+$/, '')
-        : config.apiUrl
+      if (protocol === 'anthropic') {
+        apiUrl = (config.apiUrl || '')
+          .replace(/\/anthropic(\/.*)?$/, '')
+          .replace(/\/v1\/messages$/, '')   // v15.5: OpenCode zen/go/v1/messages → zen/go/v1
+          .replace(/\/+$/, '')
+      } else {
+        apiUrl = config.apiUrl
+      }
     }
 
     if (!apiKey) {
@@ -625,10 +643,21 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         }
         if (convertedTools.length > 0) params.tools = convertedTools
         if (useThinking) {
-          // responses 无 'max' 档（实测 effort 取值 high/low/medium/minimal）
+          // responses 无 'max' 档（实测 effort 取值 high/low/medium/minimal）→ max 映射 high
           params.reasoning = { effort: (config as any).reasoningEffort === 'max' ? 'high' : ((config as any).reasoningEffort || 'high') }
-        } else if (temperature !== undefined) {
-          params.temperature = temperature
+        } else if (/deepseek/i.test(config.model)) {
+          // v15.5: 思考关闭时显式 effort:'none'——DeepSeek 官方文档「思考模式默认打开」，
+          // 不传则原生联网通道仍走 thinking（开关失效）；none 表示关闭思考
+          params.reasoning = { effort: 'none' }
+          if (temperature !== undefined) {
+            params.temperature = temperature
+          }
+        } else {
+          // v15.5: 非 deepseek 的 responses 模型（如 OpenCode gpt-5.6-luna）不强制关闭推理——
+          // OpenAI Responses 协议推理默认开启，显式 none 反而禁用其原生推理能力
+          if (temperature !== undefined) {
+            params.temperature = temperature
+          }
         }
 
         let stream: AsyncIterable<{ type: string; delta?: string; item?: ResponseItem; response?: { usage?: Record<string, unknown> } }>

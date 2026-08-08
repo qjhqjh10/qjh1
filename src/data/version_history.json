@@ -1,7 +1,23 @@
 {
-  "currentVersion": "15.4.0",
-  "currentDate": "2026-08-07",
+  "currentVersion": "15.6.0",
+  "currentDate": "2026-08-09",
   "history": [
+    {
+      "version": "15.6.0",
+      "date": "2026-08-09",
+      "features": [
+        "AI 写作助手大文件修改优化（read_file 去重层 + 版本感知）: 新增 ReadResultTracker——同 run 内同文件同范围重复 read → 发\"已读取过，见前文第 N 轮\"提示（不重发全文）；文件被写工具修改过 → 发\"已修改+位置\"提示（引导 search_content 定位或 offset/limit 精确读，不重读全文）——解决\"同一文件多次讨论修改，旧版本信息重复上传\"的核心痛点（对齐 Claude Code FileRead 去重层，实测 18% Read 调用是同文件碰撞）",
+        "去重安全机制: FNV-1a 内容指纹确认前文仍完整在上下文中（被压缩清理则放弃去重完整回传）；防呆计数器（连续 dup≥2 第 3 次强制完整回传）；写工具（含子代理 edit_file_task）成功后失效已读记录；per-run 生命周期（GUI 手动编辑在 run 之间，天然无冲突）；历史重建 rebuildFromHistory 覆盖跨 run 场景",
+        "提示词增强: 文件操作指南新增「大文件精准修改流程」（① 用户已给位置→直接 edit ② 位置不确定→先问用户 ③ 明确位置→search_content 定位→read offset/limit 精确读 ④⑤ 去重提示理解）——实测 CA10 场景（25.7KB 章节 4 轮修改）第 2 轮起模型不再重读全文，全部用 search_content+batch_replace 精准修改",
+        "测试脚本增强（test-ai-agent.mjs）: 新增 CA10 场景（大文件多次讨论修改 4 轮迭代 + 去重断言 + maxCount 检查）+ 缓存命中率统计（每轮独立口径）+ stderr 实时进度输出 + dotenv 支持（key 存 .env 不暴露命令行）",
+        "缓存语义修正（探针实测确认）: DeepSeek Anthropic 端点 usage 为互斥语义（input_tokens 不含 cache_read，相加=总输入）——修复成本计算（anthropicHandlers 合并 input+read 再算 cost）与 totalTokens（adapter 加 read），修复前 effectiveInput 被减成负数归 0 导致未命中成本漏算"
+      ],
+      "fixes": [
+        "v15.5 遗留补全: 深度思考开关双向生效（关闭时显式 thinking:disabled / reasoning.effort:none，修复\"思考默认打开导致开关失效\"）；Anthropic 协议原生联网（服务端 web_search 工具，官方文档确认 server_tool_use/web_search_tool_result Supported）；OpenCode Go 支持（Anthropic URL 拼接修复 /v1/messages、gpt-5.6-luna 走 responses 通道、服务商预设）；联网死区修复（Anthropic 协议+原生联网时 DDG 回退，按钮如实显示）",
+        "代码收敛: writeSummary 单一实现（ToolExecutor 与 rebuildFromHistory 共用，删除重复逻辑+无效三元残留）；reasoningEffort low 档类型断言补全",
+        "测试: 740 passed + 15 skipped（755，+17：ReadResultTracker 14 + V4Simulation 2 + 提示词 1）；tsc 0；check-consistency 31/31"
+      ]
+    },
     {
       "version": "15.4.0",
       "date": "2026-08-07",

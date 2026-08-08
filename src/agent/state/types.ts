@@ -18,6 +18,9 @@ export interface Message {
   reasoning_content?: string
   /** v11.5.1: Anthropic extended thinking blocks — must be preserved across multi-turn conversations */
   thinkingBlocks?: Array<{ thinking: string; signature: string }>
+  /** v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——
+   * DeepSeek Anthropic 端点原生联网多轮回传必需 */
+  serverToolBlocks?: Array<Record<string, unknown>>
 }
 
 // ── Tool Calls ──

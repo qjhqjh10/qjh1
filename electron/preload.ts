@@ -114,7 +114,8 @@ const api = {
       }>
       configId: string
       projectId?: string
-      tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>
+      // v15.5: input_schema 可选——服务端工具（web_search_20250305）无 input_schema
+      tools?: Array<{ name: string; description: string; input_schema?: Record<string, unknown>; type?: string; max_uses?: number }>
       /** v12.5.1: 阶段感知温度 */
       temperature?: number
       /** v14.2.1: 调用来源（main/subagent/pipeline）— 供 token 统计区分 */

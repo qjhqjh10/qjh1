@@ -51,6 +51,15 @@ describe('V4 System Prompt', () => {
     expect(CORE_SYSTEM_PROMPT).toContain('list_directory')
   })
 
+  // v15.6: 大文件精准修改流程引导（先定位再精确读 + 去重提示理解）
+  it('v15.6: 包含大文件精准修改流程与去重提示理解', () => {
+    expect(CORE_SYSTEM_PROMPT).toContain('大文件精准修改流程')
+    expect(CORE_SYSTEM_PROMPT).toContain('search_content')
+    expect(CORE_SYSTEM_PROMPT).toContain('offset, limit')
+    expect(CORE_SYSTEM_PROMPT).toContain('已读取过该文件此范围')
+    expect(CORE_SYSTEM_PROMPT).toContain('该文件已修改')
+  })
+
   it('buildSystemPrompt v13.2.0: core + 写作规范手册引用 (瘦身至外部文件)', async () => {
     const prompt = await buildSystemPrompt()
     expect(prompt).toContain('青剑')

@@ -105,15 +105,43 @@ describe('跨 run 排除（excludeKbFileIds）', () => {
 })
 
 describe('原生联网跳过 DDG', () => {
-  it('webSearchEnabled 且模型勾选原生联网 → 不调用 webSearch', async () => {
+  it('DeepSeek V4 + 原生联网（Responses 真会跑）→ 不调用 webSearch', async () => {
     searchMock.mockResolvedValue([])
+    webSearchMock.mockResolvedValue([{ title: 't', snippet: 's' }])
     getStateMock.mockImplementation(() => ({
       aiSettings: { kbSettings: { agent: { searchTopK: 5 } }, searchResultCount: 5, safeSearch: 'moderate' },
-      configs: [{ id: 'cfg1', nativeWebSearch: true }] as unknown[],
+      configs: [{ id: 'cfg1', protocol: 'openai', nativeWebSearch: true, model: 'deepseek-v4-flash', apiUrl: 'https://api.deepseek.com' }] as unknown[],
     }))
     const b = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: true })
     await b.buildContext('q', [], null, CORE)
     expect(webSearchMock).not.toHaveBeenCalled()
+  })
+
+  // v15.5: 修复死区——Anthropic 协议 + DeepSeek 官方端点 + 原生联网 → 服务端 web_search 工具（真原生，跳过 DDG）
+  it('Anthropic 协议 + DeepSeek 官方端点 + 原生联网 → 服务端 web_search，跳过 DDG', async () => {
+    searchMock.mockResolvedValue([])
+    webSearchMock.mockResolvedValue([{ title: 't', snippet: 's' }])
+    getStateMock.mockImplementation(() => ({
+      aiSettings: { kbSettings: { agent: { searchTopK: 5 } }, searchResultCount: 5, safeSearch: 'moderate' },
+      configs: [{ id: 'cfg1', protocol: 'anthropic', nativeWebSearch: true, model: 'deepseek-v4-flash', apiUrl: 'https://api.deepseek.com' }] as unknown[],
+    }))
+    const b = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: true })
+    const r = await b.buildContext('q', [], null, CORE)
+    expect(webSearchMock).not.toHaveBeenCalled()
+  })
+
+  // v15.5: Anthropic 协议但非 DeepSeek 官方端点（如 OpenCode）→ 无服务端 web_search，回退 DDG
+  it('Anthropic 协议 + 非 DeepSeek 端点（如 OpenCode）+ 原生联网 → 回退 DDG', async () => {
+    searchMock.mockResolvedValue([])
+    webSearchMock.mockResolvedValue([{ title: 't', snippet: 's' }])
+    getStateMock.mockImplementation(() => ({
+      aiSettings: { kbSettings: { agent: { searchTopK: 5 } }, searchResultCount: 5, safeSearch: 'moderate' },
+      configs: [{ id: 'cfg1', protocol: 'anthropic', nativeWebSearch: true, model: 'qwen3.7-max', apiUrl: 'https://opencode.ai/zen/go/v1/messages' }] as unknown[],
+    }))
+    const b = new BridgeContextBuilder({ projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: true })
+    const r = await b.buildContext('q', [], null, CORE)
+    expect(webSearchMock).toHaveBeenCalledTimes(1)
+    expect(r.searchContext).toContain('[网络搜索]')
   })
 
   it('未勾选原生联网 → 正常调用 webSearch', async () => {

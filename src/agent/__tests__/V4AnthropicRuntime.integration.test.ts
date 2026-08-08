@@ -345,12 +345,16 @@ describe('Anthropic Message Format Conversion', () => {
     const sentTools = streamCalls[0].tools
     expect(sentTools).toBeDefined()
     expect(sentTools!.length).toBe(3)
-    // Each tool should have name, description, input_schema
+    // Each tool should have name, description, input_schema (v15.5: 服务端工具除外)
     for (const t of sentTools!) {
       expect(t.name).toBeTruthy()
       expect(t.description).toBeDefined()
-      expect(t.input_schema).toBeDefined()
-      expect(t.input_schema.type).toBe('object')
+      if (t.type === 'web_search_20250305') {
+        expect(t.input_schema).toBeUndefined()
+      } else {
+        expect(t.input_schema).toBeDefined()
+        expect(t.input_schema!.type).toBe('object')
+      }
     }
   })
 
@@ -901,4 +905,40 @@ async function liveToolExecutor(
     console.log(`[Live] ${result.toolCalls} 次工具调用: ${result.toolsUsed.join(', ')}`)
     console.log(`[Live] 回复摘要: ${result.text.slice(0, 300)}`)
   }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════
+// v15.5: 服务端 web_search 工具（Anthropic 原生联网）
+// ══════════════════════════════════════════════════════════════
+describe('Anthropic 服务端 web_search（原生联网）', () => {
+  it('模型输出 server_tool_use → 不触发本地执行，块透传给下轮回传', async () => {
+    const { svc, streamCalls } = makeAnthropicAI([
+      // 第一轮：模型调服务端搜索（server_tool_use 以 toolUses 形式返回）
+      makeStreamResult({
+        text: '',
+        toolUses: [{ id: 'ws_1', name: 'web_search', input: { query: 'React 19 新特性' } }],
+        stopReason: 'tool_use',
+        serverToolBlocks: [{ type: 'server_tool_use', id: 'ws_1', name: 'web_search', input: { query: 'React 19 新特性' } }],
+      }),
+      // 第二轮：模型基于搜索结果作答（无本地工具）
+      makeStreamResult({ text: 'React 19 的新特性包括 Actions...', stopReason: 'end_turn' }),
+    ])
+    const adapter = new AnthropicAdapter(svc)
+    const runtime = makeRuntime(adapter, { maxIterations: 3 })
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools([])
+
+    const result = await runtime.run({ userMessage: '查一下 React 19 新特性', attachments: [] })
+
+    // 服务端工具不触发本地执行
+    expect(callCount()).toBe(0)
+    // 文本正常返回
+    expect(result.text).toContain('React 19')
+    // 服务端工具块随消息历史透传（下轮 messagesToAnthropic 原样回传）
+    expect(streamCalls.length).toBeGreaterThanOrEqual(2)
+    const secondCallMessages = streamCalls[1]?.messages as Array<{ content?: Array<Record<string, unknown>> }>
+    const serverBlocks = secondCallMessages?.flatMap(m => (m.content || [])).filter(b => b?.type === 'server_tool_use')
+    expect(serverBlocks.length).toBeGreaterThanOrEqual(1)
+  })
 })

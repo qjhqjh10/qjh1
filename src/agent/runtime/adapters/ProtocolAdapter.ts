@@ -22,6 +22,9 @@ export interface NormalizedModelResponse {
   reasoningContent?: string
   /** v11.5.1: Anthropic extended thinking blocks — populated for Anthropic protocol, undefined for OpenAI */
   thinkingBlocks?: Array<{ thinking: string; signature: string }>
+  /** v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——Anthropic 协议
+   * 原生联网（DeepSeek web_search），挂到 assistant 消息供下轮回传 */
+  serverToolBlocks?: Array<Record<string, unknown>>
   /** v14.5.0: 用户点击"停止生成"（OpenAI: aiHandlers aborted:true；Anthropic: stopReason='aborted'） */
   aborted?: boolean
 }

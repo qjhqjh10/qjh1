@@ -2,6 +2,7 @@
 // Handles: tool argument parsing, execution with timeout, event emission, result filtering.
 
 import { ContractExecutor } from '../context/ContractExecutor'
+import { ReadResultTracker, normalizeReadPath, hashStr, buildDupDetail, buildChangedDetail } from '../context/ReadResultTracker'
 import type { ToolExecutorFn, SubagentSummary } from './RuntimeTypes'
 import type { Message, ToolCallRequest, ToolResult } from '../state/types'
 import type { AgentEventEmitter } from './AgentEventEmitter'
@@ -113,6 +114,8 @@ export interface ToolExecContext {
   injectedKbFileIds?: string[]
   /** v14.3: 子代理执行快照收集器（主 runtime 持有数组，run 结束随结果返回） */
   subagentSummaries: SubagentSummary[]
+  /** v15.6: read_file 去重层（同 run 内同文件同范围重复读 → 不重发全文） */
+  readTracker?: ReadResultTracker
   /** v9.5.5: Store for tool progress tracking */
   store: {
     addToolExecution: (callId: string, toolName: string) => void
@@ -131,6 +134,20 @@ export async function executeSingleTool(
   tc: ToolCallRequest,
   ctx: ToolExecContext,
 ): Promise<void> {
+  // v15.5: 服务端工具（web_search）由服务端同响应内完成（Anthropic server_tool_use 机制，
+  // DeepSeek 端点原生支持）——本地跳过执行，不回填 tool_result（服务端已回填 web_search_tool_result
+  // 并让模型在同一响应内继续生成）。此分支只标记已用，避免 runtime 误判"未知工具"。
+  if (tc.name === 'web_search') {
+    if (!ctx.toolsUsed.includes(tc.name)) ctx.toolsUsed.push(tc.name)
+    ctx.store.addToolExecution(tc.id, tc.name)
+    ctx.store.completeTool(tc.id, 'success', '服务端已执行（搜索由模型服务端完成）')
+    ctx.toolCallSteps.push({
+      tool: tc.name, status: 'success', summary: '服务端搜索完成', durationMs: 0,
+      iteration: ctx.iteration, arguments: tc.arguments,
+    })
+    return
+  }
+
   if (!ctx.toolsUsed.includes(tc.name)) ctx.toolsUsed.push(tc.name)
 
   ctx.store.addToolExecution(tc.id, tc.name)
@@ -266,7 +283,48 @@ export async function executeSingleTool(
 
   // Filter result for API context (ContractExecutor: strip verbose detail)
   const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
-  const finalResult = note ? { ...resultForApi, note } : resultForApi
+  let finalResult = note ? { ...resultForApi, note } : resultForApi
+
+  // v15.6: read_file 去重层（版本感知）——
+  //   同 run 内同文件同范围重复 read → 'dup'：发"已读取过"提示，不重发全文
+  //   文件被 write 工具改过 → 'changed'：发"已修改+位置"提示，引导精确读取新内容区段
+  //   前文被压缩清理（指纹不匹配）→ 放弃去重，完整回传
+  //   连续 dup ≥ 2 次 → 强制完整回传（防死板绕圈）
+  const tracker = ctx.readTracker
+  if (tracker && tc.name === 'read_file' && result.status === 'success'
+      && typeof args.file_path === 'string' && args.file_path) {
+    const ra = ReadResultTracker.readArgsOf(args)
+    if (ra) {
+      const content = JSON.stringify(finalResult)
+      const contentHash = hashStr(content)
+      const check = tracker.checkRead(ra.filePath, ra.rangeKey, contentHash, ctx.messagesForApi, ctx.iteration)
+      if (check.status === 'dup' && !check.forceReturnFull) {
+        if (check.stillInContext) {
+          finalResult = { ...finalResult, detail: buildDupDetail(check.record, String(result.summary || '')) }
+        }
+        // stillInContext=false → 前文已被压缩 → 本轮完整回传（内容在但模型看不到）并覆盖记录
+        if (!check.stillInContext) tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
+      } else if (check.status === 'changed' && !check.forceReturnFull) {
+        if (check.stillInContext) {
+          finalResult = { ...finalResult, detail: buildChangedDetail(check.writes, String(result.summary || '')) }
+        }
+        // 前文旧版本已被压缩 → 完整回传（模型需要内容，历史里已没有）
+        if (!check.stillInContext) tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
+      } else {
+        tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
+      }
+    }
+  }
+
+  // v15.6: 写工具成功后记录文件变更（用于 read 去重的 'changed' 判定）
+  // 摘要统一走 tracker.writeSummary（单一实现，与 rebuildFromHistory 共用，防漂移）
+  if (tracker && result.status === 'success' && WRITE_TOOLS.has(tc.name)) {
+    const fp = normalizeReadPath(extractFilePath(args))
+    if (fp) {
+      tracker.recordWrite(fp, ctx.iteration, tracker.writeSummary(tc.name, args))
+    }
+  }
+
   ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
 
 }

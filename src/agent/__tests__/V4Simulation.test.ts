@@ -760,3 +760,62 @@ describe('Agent 功能全景验证', () => {
     expect(callLog[1].tools.length).toBe(toolRegistry.getAllSchemas().length)
   })
 })
+
+// ═══════════════════════════════════════════════════════
+// v15.6: read_file 去重层（版本感知）集成测试
+// ═══════════════════════════════════════════════════════
+
+describe('read_file 去重层（v15.6）', () => {
+  it('同 run 连续两次 read 同文件同范围 → 第二次 tool 结果 detail 为"已读取过"', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '先读一下', toolCalls: [{ id: 'r1', name: 'read_file', arguments: JSON.stringify({ file_path: 'outline/plot.md' }) }] },
+      { text: '再读一次确认', toolCalls: [{ id: 'r2', name: 'read_file', arguments: JSON.stringify({ file_path: 'outline/plot.md' }) }] },
+      { text: '完成。' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 5)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读取 plot 两次', attachments: [] })
+
+    // 去重发生在第 3 次 API 调用（ROUND 2，第二次 read 的结果注入后）
+    const secondCall = callLog[2]
+    expect(secondCall).toBeDefined()
+    const toolMsgs = secondCall.messages.filter(m => m.role === 'tool')
+    // 第二条 tool 消息 = 第二次 read 的结果 → 应被去重
+    const dupMsg = toolMsgs.map(m => JSON.parse(String(m.content))).find(c => String(c.detail || '').includes('已读取过'))
+    expect(dupMsg).toBeDefined()
+    expect(String(dupMsg.detail)).toContain('第 1 轮')
+    // 不再包含全文
+    expect(String(dupMsg.detail)).not.toContain('校园日常')
+  })
+
+  it('read → edit → read 同文件 → 第三次 read detail 为"已修改+位置"', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '读一下', toolCalls: [{ id: 'r1', name: 'read_file', arguments: JSON.stringify({ file_path: 'outline/plot.md' }) }] },
+      { text: '改一下', toolCalls: [{ id: 'e1', name: 'edit_file', arguments: JSON.stringify({ file_path: 'outline/plot.md', old_string: '许倩隐藏修仙身份', new_string: '许倩公开修仙身份' }) }] },
+      { text: '再读确认', toolCalls: [{ id: 'r2', name: 'read_file', arguments: JSON.stringify({ file_path: 'outline/plot.md' }) }] },
+      { text: '完成。' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 6)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    await rt.run({ userMessage: '读、改、再读', attachments: [] })
+
+    // 第二次 read 的结果注入在第 4 次 API 调用（ROUND 3）：tool 消息 detail 应为"已修改"
+    const thirdCall = callLog[3]
+    expect(thirdCall).toBeDefined()
+    const toolMsgs = thirdCall.messages.filter(m => m.role === 'tool')
+    // 找包含"已修改"的 read 结果（非 edit 自身的结果）
+    const changedMsg = toolMsgs.map(m => JSON.parse(String(m.content))).find(c => {
+      const d = String(c.detail || '')
+      return d.includes('已修改') && d.includes('该文件已修改')
+    })
+    expect(changedMsg).toBeDefined()
+    expect(String(changedMsg.detail)).toContain('许倩隐藏修仙身份')
+    expect(String(changedMsg.detail)).not.toContain('校园日常')  // 不重发全文
+  })
+})

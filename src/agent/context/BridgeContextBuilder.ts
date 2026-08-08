@@ -112,9 +112,18 @@ export class BridgeContextBuilder {
     if (this.opts.webSearchEnabled) {
       try {
         const { useSettingsStore } = await import('@/store')
-        // v14.8: 模型配置勾选「原生联网搜索」→ 跳过软件内置 DDG 搜索（单一联网通道，避免两套搜索结果重复/冲突）
+        // v15.5: 跳过内置 DDG 仅当「原生联网真会跑」——三条件之一：
+        //   A) shouldUseResponses（DeepSeek V4+OpenAI 原生联网 / OpenCode gpt responses）
+        //   B) DeepSeek 官方端点 + Anthropic 协议 + 原生联网（服务端 web_search 工具）
+        // 修复死区：原逻辑仅看 nativeWebSearch 字段——Anthropic 协议或非 deepseek 模型时
+        // 原生通道不跑、DDG 又被跳过 → 联网开关形同虚设。
+        const { shouldUseResponses } = await import('@/agent/runtime/adapters/responsesRouter')
         const activeCfg = useSettingsStore.getState().configs.find(c => c.id === this.opts.configId)
-        if (!activeCfg?.nativeWebSearch) {
+        const model = (activeCfg?.model || '').toLowerCase()
+        const apiUrl = (activeCfg?.apiUrl || '').toLowerCase()
+        const deepSeekAnthropicNative = !!activeCfg?.nativeWebSearch && apiUrl.includes('deepseek.com')
+          && /deepseek/i.test(model) && activeCfg.protocol === 'anthropic'
+        if (!shouldUseResponses(activeCfg) && !deepSeekAnthropicNative) {
           const { kbService } = await import('@/services/fileService')
           const aiSettings = useSettingsStore.getState().aiSettings
           const count = Math.min(10, Math.max(1, aiSettings.searchResultCount || 5))

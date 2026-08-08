@@ -48,11 +48,10 @@ function toAnthropicTools(openaiTools: unknown[]): AnthropicToolDef[] {
       return {
         name: fn.name,
         description: fn.description || '',
-        input_schema: {
-          type: 'object' as const,
-          properties: fn.parameters?.properties || {},
-          required: fn.parameters?.required || [],
-        },
+        // v15.5: 服务端工具（type='web_search_20250305'）无 input_schema——由服务端执行
+        ...(fn.type === 'web_search_20250305'
+          ? { type: 'web_search_20250305' as const, max_uses: 3 }
+          : { input_schema: { type: 'object' as const, properties: fn.parameters?.properties || {}, required: fn.parameters?.required || [] } }),
       }
     })
     .filter(Boolean) as AnthropicToolDef[]
@@ -117,19 +116,31 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
         // Backward compat: old single thinking field
         content.push({ type: 'thinking' as any, thinking: (m as any).thinking, signature: (m as any).signature || '' })
       }
-      for (const tc of (m as any).tool_calls) {
-        let input: Record<string, unknown> = {}
-        try {
-          input = typeof tc.function?.arguments === 'string'
-            ? JSON.parse(tc.function.arguments)
-            : (tc.function?.arguments || {})
-        } catch { /* keep empty */ }
-        content.push({
-          type: 'tool_use',
-          id: tc.id,
-          name: tc.function?.name || tc.name,
-          input,
-        })
+      // v15.5: 服务端工具块（server_tool_use / web_search_tool_result）原样回传——
+      // DeepSeek Anthropic 端点要求多轮保留（否则 400）。runtime 把 server_tool_use 也归入
+      // tool_calls，此处按 serverToolBlocks 标记还原；存在服务端块时跳过普通 tool_use
+      // 转换（防双份重复回传——server_tool_use 与 tool_use 同块双发会 400）
+      const serverBlocks = (m as any).serverToolBlocks
+      if (serverBlocks && Array.isArray(serverBlocks)) {
+        for (const sb of serverBlocks) {
+          if (sb?.type) content.push({ ...sb } as any)
+        }
+        // 服务端块已覆盖（server_tool_use + web_search_tool_result），跳过 tool_calls 转换
+      } else {
+        for (const tc of (m as any).tool_calls) {
+          let input: Record<string, unknown> = {}
+          try {
+            input = typeof tc.function?.arguments === 'string'
+              ? JSON.parse(tc.function.arguments)
+              : (tc.function?.arguments || {})
+          } catch { /* keep empty */ }
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.function?.name || tc.name,
+            input,
+          })
+        }
       }
       result.push({ role: 'assistant', content })
     } else {
@@ -216,10 +227,32 @@ export class AnthropicAdapter implements ProtocolAdapter {
     const anthropicMessages = messagesToAnthropic(nonSystemMsgs)
     const anthropicTools = toAnthropicTools(params.tools)
 
+    // v15.5: DeepSeek Anthropic 端点原生支持 web_search 服务端工具（官方文档确认：
+    // server_tool_use / web_search_tool_result Supported；Claude Code 集成文档明确
+    // 「DeepSeek API 原生支持 Web Search」）。模型配置勾选「原生联网」且 API 地址为
+    // DeepSeek 官方端点时注入服务端工具——模型自主判断调用搜索（agentic），
+    // 搜索/解密/总结全在服务端完成，无需本地执行器。
+    // 限定 DeepSeek 官方端点：OpenCode 等第三方 Anthropic 端点（Qwen/MiniMax）不保证
+    // 支持 server_tool_use，注入会 400。
+    try {
+      const { useSettingsStore } = await import('@/store')
+      const cfg = useSettingsStore.getState().configs.find(c => c.id === params.configId)
+      const apiUrl = ((cfg as any)?.apiUrl || '').toLowerCase()
+      if ((cfg as any)?.nativeWebSearch && apiUrl.includes('deepseek.com')) {
+        anthropicTools.push({
+          name: 'web_search',
+          description: '搜索互联网获取最新信息。当用户的问题需要实时/网络信息时调用。',
+          type: 'web_search_20250305',
+          max_uses: 3,
+        } as AnthropicToolDef)
+      }
+    } catch { /* 配置读取失败则回退无 web_search */ }
+
     // v11.7.0: Mark tools with cache_control — caches all tool definitions on first call
+    // v15.5: 服务端工具（web_search）不支持 cache_control——只标记最后一个客户端自定义工具
     if (anthropicTools.length > 0) {
-      const lastTool = anthropicTools[anthropicTools.length - 1]
-      lastTool.cache_control = { type: 'ephemeral' }
+      const lastCustom = [...anthropicTools].reverse().find(t => !t.type)
+      if (lastCustom) lastCustom.cache_control = { type: 'ephemeral' }
     }
 
     // 3. Call Anthropic streaming API
@@ -258,6 +291,16 @@ export class AnthropicAdapter implements ProtocolAdapter {
     // v11.7.0: 拆分 cacheCreation vs cacheRead — 首轮 creation 不计入 display 扣除
     const cacheCreation = streamResult.usage?.cache_creation_input_tokens || 0
     const cacheRead = streamResult.usage?.cache_read_input_tokens || 0
+    // v15.5: 服务端工具（web_search）由服务端同响应内完成（搜索→结果回填→模型继续），
+    // 保留在 toolCalls 让 runtime 正确识别为工具轮；本地 ToolExecutor 对 web_search
+    // 跳过执行（见 ToolExecutor），不会误报"未知工具"
+    const serverToolCalls = (streamResult.toolUses || []).filter(tu => tu.name === 'web_search')
+    const serverToolBlocks = streamResult.serverToolBlocks || (serverToolCalls.length > 0 ? [{
+      type: 'server_tool_use',
+      id: serverToolCalls[0].id,
+      name: 'web_search',
+      input: serverToolCalls[0].input,
+    }] : undefined)
     return {
       text: streamResult.text || '',
       toolCalls: (streamResult.toolUses || []).map(tu => ({
@@ -266,10 +309,17 @@ export class AnthropicAdapter implements ProtocolAdapter {
         arguments: JSON.stringify(tu.input),
       })),
       finishReason: streamResult.stopReason || 'end_turn',
+      // v15.5: 服务端工具块透传——runtime 挂到 assistant 消息供下轮回传
+      serverToolBlocks,
       usage: {
         inputTokens: streamResult.usage?.input_tokens || 0,
         outputTokens: streamResult.usage?.output_tokens || 0,
-        totalTokens: (streamResult.usage?.input_tokens || 0) + (streamResult.usage?.output_tokens || 0),
+        // v15.6: Anthropic 协议 usage 为互斥语义——input_tokens 不含 cache_read。
+        // totalTokens 必须加上命中部分（= API 实际处理的总输入），否则 billedTokens
+        // （total − cacheHit）低估、token 统计虚低
+        totalTokens: (streamResult.usage?.input_tokens || 0)
+          + (streamResult.usage?.cache_read_input_tokens || 0)
+          + (streamResult.usage?.output_tokens || 0),
         // v11.7.0: 分开记录 creation 和 read。display 只扣 read（首轮 creation 是实际输入）
         cacheHitTokens: cacheRead,
         cacheCreationTokens: cacheCreation,

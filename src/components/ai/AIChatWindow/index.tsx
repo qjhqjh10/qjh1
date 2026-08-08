@@ -12,6 +12,7 @@ import {
   HashtagIcon,
 } from '@heroicons/react/24/outline'
 import { ALL_TOOLS } from '@/agent/skills/tools'
+import { shouldUseResponses } from '@/agent/runtime/adapters/responsesRouter'
 import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { debugApiError } from '@/services/debugLogService'
@@ -206,6 +207,8 @@ export default function AIChatWindow() {
   // v15.3.0: #工具提示——用户通过「#」按钮选择的工具名（软提示，非强制；随下一条消息发送后清空）
   const [selectedToolHints, setSelectedToolHints] = useState<string[]>([])
   const [showToolPicker, setShowToolPicker] = useState(false)
+  const [showEffortPicker, setShowEffortPicker] = useState(false)  // v15.5: 思考等级选择 popover
+  const [inputFocused, setInputFocused] = useState(false)  // v15.5: 输入卡片 focus 高亮
   const [toolFilter, setToolFilter] = useState('')
 
   // KB file selector
@@ -271,6 +274,18 @@ export default function AIChatWindow() {
   }, [currentContextTokens, activeConfig?.contextWindow])
 
   const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
+
+  // v15.5: 点击外部关闭 #工具 / effort popover
+  useEffect(() => {
+    if (!showToolPicker && !showEffortPicker) return
+    const dismiss = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest('.input-popover-anchor') || t.closest('.input-popover')) return
+      setShowToolPicker(false); setShowEffortPicker(false)
+    }
+    window.addEventListener('mousedown', dismiss)
+    return () => window.removeEventListener('mousedown', dismiss)
+  }, [showToolPicker, showEffortPicker])
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     // Synchronous init: try localStorage as bootstrap fallback while IndexedDB loads async
@@ -472,8 +487,8 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
@@ -1029,41 +1044,74 @@ export default function AIChatWindow() {
                 )}
               </div>
             )}
-            {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call. */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 6px', borderRadius: 999, border: '1px solid rgba(0,0,0,0.07)', background: 'rgba(255,255,255,0.7)' }}
-              title={`温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 越高回复越随机/有创意，越低越确定/保守`}>
-              <button onClick={async () => {
-                if (!activeConfig) return
-                const newTemp = Math.max(0, +(activeConfig.temperature || 0.8).toFixed(1) - 0.1)
-                useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
-                await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
-              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>−</button>
-              <span style={{ fontSize: 10, fontWeight: 600, color: '#6b5e54', minWidth: 36, textAlign: 'center', cursor: 'default' }}>
-                {activeConfig?.temperature?.toFixed(1) ?? '0.8'}°C
-              </span>
-              <button onClick={async () => {
-                if (!activeConfig) return
-                const newTemp = Math.min(2, +(activeConfig.temperature || 0.8).toFixed(1) + 0.1)
-                useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
-                await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
-              }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10, color: '#9b8e84', fontFamily: 'inherit', lineHeight: 1 }}>+</button>
-            </div>
+            {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call.
+                v15.5: 深度思考开启时温度参数不生效（官方文档：思考模式不支持 temperature，传了不报错也不生效）
+                → 控件如实置灰 + 提示原因（防止用户调了没效果误以为 bug） */}
+            {(() => {
+              const m = (activeConfig?.model || '').toLowerCase()
+              const isDeepSeekV4 = /deepseek/.test(m) && /v4/.test(m)
+              const tempInactive = isDeepSeekV4 && activeConfig ? activeConfig.enableThinking !== false : false
+              return (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 6px', borderRadius: 999, border: '1px solid rgba(0,0,0,0.07)', background: 'rgba(255,255,255,0.7)' }}
+                  title={tempInactive
+                    ? `温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 深度思考模式下温度参数不生效（DeepSeek 官方：思考模式固定采样，忽略温度）`
+                    : `温度: ${activeConfig?.temperature?.toFixed(1) ?? '0.8'} — 越高回复越随机/有创意，越低越确定/保守`}>
+                  <button disabled={tempInactive} onClick={async () => {
+                    if (!activeConfig) return
+                    const newTemp = Math.max(0, +(activeConfig.temperature || 0.8).toFixed(1) - 0.1)
+                    useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
+                    await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
+                  }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: tempInactive ? 'not-allowed' : 'pointer', fontSize: 10, color: tempInactive ? '#c9c0b8' : '#9b8e84', fontFamily: 'inherit', lineHeight: 1, opacity: tempInactive ? 0.6 : 1 }}>−</button>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: tempInactive ? '#b0a89e' : '#6b5e54', minWidth: 36, textAlign: 'center', cursor: 'default', textDecoration: tempInactive ? 'line-through' : 'none' }}>
+                    {activeConfig?.temperature?.toFixed(1) ?? '0.8'}°C
+                  </span>
+                  <button disabled={tempInactive} onClick={async () => {
+                    if (!activeConfig) return
+                    const newTemp = Math.min(2, +(activeConfig.temperature || 0.8).toFixed(1) + 0.1)
+                    useSettingsStore.getState().updateConfig(activeConfig.id, { temperature: newTemp })
+                    await settingsService.saveConfigs(useSettingsStore.getState().configs) // 明文存储到 electron-store（v13.x 决策）；MASKED_KEY 占位符由主进程保留旧密钥
+                  }} style={{ padding: '1px 4px', border: 'none', background: 'transparent', cursor: tempInactive ? 'not-allowed' : 'pointer', fontSize: 10, color: tempInactive ? '#c9c0b8' : '#9b8e84', fontFamily: 'inherit', lineHeight: 1, opacity: tempInactive ? 0.6 : 1 }}>+</button>
+                </div>
+              )
+            })()}
             {/* v14.9(A2): 原生联网走 Responses 原生工具，依赖「调用工具」开启——工具关闭时按钮如实变灰
                 （原恒显示激活态，实际联网彻底不可用，开关与真实行为不一致）
                 v15.1: 原生联网不再锁定——点击直接切换模型配置的 nativeWebSearch 并持久化。
-                立即生效（adapter 每次消息按最新配置重建，下一轮即走/不走 Responses 通道）。 */}
-            <span title={activeConfig?.nativeWebSearch
-              ? (toolInvokeEnabled ? '原生联网搜索已开启（Responses API 服务端搜索），软件内置联网搜索自动停用。点击可关闭原生联网' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
-              : '软件内置联网搜索（DuckDuckGo）。点击可开启/关闭'}>
-              <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />} label={activeConfig?.nativeWebSearch ? '联网搜索(原生)' : '联网搜索'} active={activeConfig?.nativeWebSearch ? toolInvokeEnabled : webSearchEnabled} onClick={() => {
-                if (activeConfig?.nativeWebSearch) {
-                  useSettingsStore.getState().updateConfig(activeConfig.id, { nativeWebSearch: false })
-                  settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
-                } else {
-                  setWebSearchEnabled(!webSearchEnabled)
-                }
-              }} />
-            </span>
+                v15.5: 原生联网真通道判定——三条：
+                  A) DeepSeek V4 + OpenAI 协议 + 原生联网 → Responses API（服务端 web_search）
+                  B) DeepSeek + Anthropic 协议 + 原生联网 → 服务端 web_search 工具（官方文档确认）
+                  C) OpenCode Go + gpt-* 模型 → Responses 通道（官方 go.mdx）
+                  不满足任何一条 → 回退软件内置 DDG 搜索（修复默认配置联网死区） */}
+            {(() => {
+              let nativeActive = false
+              try { nativeActive = shouldUseResponses(activeConfig) } catch { nativeActive = false }
+              const m = (activeConfig?.model || '').toLowerCase()
+              const apiUrl = (activeConfig?.apiUrl || '').toLowerCase()
+              const nativeOn = !!activeConfig?.nativeWebSearch
+              // 路 B：DeepSeek 官方端点 + Anthropic 协议 + 原生联网 → 服务端 web_search 工具
+              const deepSeekAnthropicNative = nativeOn && apiUrl.includes('deepseek.com')
+                && /deepseek/i.test(m) && (activeConfig?.protocol === 'anthropic')
+              const realNative = nativeActive || deepSeekAnthropicNative
+              return (
+                <span title={nativeOn
+                  ? (realNative
+                    ? (toolInvokeEnabled ? '原生联网搜索已开启（服务端搜索，Responses API 或 web_search 工具），软件内置联网搜索自动停用。点击可关闭原生联网' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
+                    : '当前配置（协议/模型/地址）不满足原生联网条件，使用软件内置搜索。点击可关闭原生联网')
+                  : '软件内置联网搜索（DuckDuckGo）。点击可开启/关闭'}>
+                  <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />}
+                    label={nativeOn && realNative ? '联网搜索(原生)' : '联网搜索'}
+                    active={nativeOn ? (realNative ? toolInvokeEnabled : webSearchEnabled) : webSearchEnabled}
+                    onClick={() => {
+                      if (activeConfig?.nativeWebSearch) {
+                        useSettingsStore.getState().updateConfig(activeConfig.id, { nativeWebSearch: false })
+                        settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
+                      } else {
+                        setWebSearchEnabled(!webSearchEnabled)
+                      }
+                    }} />
+                </span>
+              )
+            })()}
             {/* v15.1: 深度思考开关（同 DeepSeek App 交互）— 切换当前模型配置的 enableThinking。
                 仅 DeepSeek V4 系列生效（buildThinkingParams / Anthropic 端同判定），其它模型禁用置灰。
                 立即生效：主进程每次调用从 electron-store 读取 enableThinking。 */}
@@ -1584,8 +1632,9 @@ export default function AIChatWindow() {
 
           <AgentStateBar maxIterations={30} />
 
-          {/* Input — v14.9.x(UI): 白色圆角卡片输入区，圆形渐变发送按钮，圆点拖拽手柄；v14.9.x: 分隔线加深 */}
-          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(0,0,0,0.09)', background: 'rgba(255,255,255,0.9)', position: 'relative' }}>
+          {/* Input — v15.5: 融入对话框（去除卡片底座感——输入卡片与最后一条消息同底色自然衔接，
+              仅保留浅分隔线；卡片自身轻边框聚焦时才加深，视觉上"长在对话框里"如 DeepSeek 网页版） */}
+          <div style={{ padding: '8px 16px 12px', borderTop: '1px solid rgba(0,0,0,0.06)', background: 'transparent', position: 'relative' }}>
             {/* v15.3.0: #工具提示 chips（蓝色加粗，与 @引用 区分；仅按钮选择生成，手输 # 不生效） */}
             {selectedToolHints.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -1631,11 +1680,19 @@ export default function AIChatWindow() {
                 <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
             )}
-            {/* ── v15.3.0: 一体化输入容器（仿 DeepSeek 网页版）——输入区 + 发送按钮同框，
-                底部左侧 #工具选择按钮，右下角发送按钮；textarea 无边框由容器统一描边/圆角/阴影。
-                v15.3.1: 改 flex column——拖拽手柄置于 textarea 正下方（跟随其底缘，拖拽方向感正确：
-                手柄随鼠标走，不再是"顶部悄悄上移"）；textarea 内容超出时自动增高（上限 220px） ── */}
-            <div style={{ borderRadius: 18, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', padding: '10px 12px 4px', position: 'relative', display: 'flex', flexDirection: 'column' }}
+            {/* ── v15.5: 一体化输入容器 v3（融合对话框——卡片底座并入最后一条消息区，无独立边框/阴影，
+                仅以分隔线 + 背景区分；textarea 无边框，聚焦时容器描边淡紫高亮。
+                底部行：#工具（左）· effort 思考等级（中，仅思考开启）· 发送（右）。
+                拖拽手柄上移置于 textarea 上方（输入区顶缘把手）：向上拖 = 增高，向下拖 = 降低。
+                v15.3.0/15.3.1 历史见 git 注释 ── */}
+            <div style={{
+              borderRadius: 18,
+              border: inputFocused ? '1px solid rgba(124,58,237,0.45)' : '1px solid rgba(0,0,0,0.06)',
+              background: 'rgba(255,255,255,0.92)',
+              boxShadow: inputFocused ? '0 4px 20px rgba(124,58,237,0.10)' : '0 2px 10px rgba(0,0,0,0.04)',
+              padding: '6px 12px 4px', position: 'relative', display: 'flex', flexDirection: 'column',
+              transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+            }}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
@@ -1645,12 +1702,53 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
+              {/* v15.5: 拖拽手柄上移——置于 textarea 上方，向下拖增高、向上拖降低（直觉方向）。
+                  按下快照起始高度，delta 直接加到高度；上限 220 与自动增高一致，结果存 localStorage。 */}
+              <div
+                onMouseDown={e => {
+                  const ta = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null
+                  if (!ta) return
+                  e.preventDefault()
+                  const startY = e.clientY
+                  const startH = ta.offsetHeight
+                  let raf = 0
+                  const hm = (ev: MouseEvent) => {
+                    if (!raf) raf = requestAnimationFrame(() => {
+                      // v15.5 修正: 手柄在 textarea 上方——向上拖 = 增高（顶缘上移），向下拖 = 降低。
+                      // 手柄是输入区"顶缘"的把手：向上拉把顶缘往上拽 → 变高；向下压 → 变矮。
+                      const h = Math.max(48, Math.min(220, startH - (ev.clientY - startY)))
+                      ta.style.height = h + 'px'
+                      localStorage.setItem('ai-input-height', ta.style.height)
+                      raf = 0
+                    })
+                  }
+                  const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
+                  window.addEventListener('mousemove', hm)
+                  window.addEventListener('mouseup', hu)
+                }}
+                title="拖拽调整输入框高度（向上拉增高，向下拉降低；内容超出时会继续自动增高）"
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'rgba(124,58,237,0.08)'
+                  for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(124,58,237,0.55)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'transparent'
+                  for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(0,0,0,0.14)'
+                }}
+                style={{ height: 14, margin: '2px 0 0', borderRadius: 6, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0, transition: 'background 0.15s ease', opacity: 0.7 }}
+              >
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
+              </div>
               <textarea id="ai-chat-input" value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => {
                 // v14.5.0: IME 组合期确认候选的 Enter 不发送（中文输入法误发半截消息）
                 if ((e.nativeEvent as any).isComposing) return
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
               }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
               disabled={!activeConfigId} rows={1}
               className="focus-ring"
@@ -1661,46 +1759,9 @@ export default function AIChatWindow() {
               }}
               style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', minHeight: 48, padding: '6px 2px 2px', fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: 'transparent', display: 'block' }}
             />
-            {/* Custom resize handle — v15.3.1: flex 布局置于 textarea 正下方（跟随其底缘），
-                拖拽时手柄/底缘随鼠标移动（顶部不动），方向感正确；h=14 易命中 + hover 高亮。
-                拖拽基于按下瞬间高度快照，上限 220（与自动增高一致），结果存 localStorage。 */}
-            <div
-              onMouseDown={e => {
-                const ta = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null
-                if (!ta) return
-                const startY = e.clientY
-                const startH = ta.offsetHeight
-                let raf = 0
-                const hm = (ev: MouseEvent) => {
-                  if (!raf) raf = requestAnimationFrame(() => {
-                    const h = Math.max(48, Math.min(220, startH + (ev.clientY - startY)))
-                    ta.style.height = h + 'px'
-                    localStorage.setItem('ai-input-height', ta.style.height)
-                    raf = 0
-                  })
-                }
-                const hu = () => { window.removeEventListener('mousemove', hm); window.removeEventListener('mouseup', hu) }
-                window.addEventListener('mousemove', hm)
-                window.addEventListener('mouseup', hu)
-              }}
-              title="拖拽调整输入框高度（内容超出时会继续自动增高）"
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'rgba(124,58,237,0.08)'
-                for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(124,58,237,0.55)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'transparent'
-                for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(0,0,0,0.14)'
-              }}
-              style={{ height: 14, margin: '2px 0', borderRadius: 6, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0, transition: 'background 0.15s ease' }}
-            >
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-            </div>
-            {/* 底部行：#工具按钮（左）+ 发送按钮（右，框内右下角） */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-              <button onClick={() => setShowToolPicker(v => !v)}
+            {/* 底部行：#工具按钮（左）+ effort 思考等级（中）+ 发送按钮（右，框内右下角） */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <button className="input-popover-anchor" onClick={() => { setShowToolPicker(v => !v); setShowEffortPicker(false) }}
                 title="选择工具提示——告诉 AI 你本轮可能使用这些工具（软提示，非强制；可多选，随下一条消息发送）"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999,
@@ -1716,6 +1777,58 @@ export default function AIChatWindow() {
                   <span style={{ background: '#2563eb', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, padding: '0 4px' }}>{selectedToolHints.length}</span>
                 )}
               </button>
+              {/* v15.5: effort 思考等级按钮（仿 DeepSeek App）——位于输入框内 #工具 旁。
+                  仅 DeepSeek V4 + 思考开启时显示；点击弹出 low/high/max 三档，按钮显示当前档。
+                  官方映射：OpenAI reasoning_effort / Anthropic output_config.effort /
+                  Responses reasoning.effort（无 max 档，适配层映射 high）。默认 max。 */}
+              {(() => {
+                const m = (activeConfig?.model || '').toLowerCase()
+                const isDeepSeekV4 = /deepseek/.test(m) && /v4/.test(m)
+                const thinkingActive = isDeepSeekV4 && activeConfig ? activeConfig.enableThinking !== false : false
+                if (!isDeepSeekV4 || !thinkingActive) return null
+                const curEffort = (activeConfig?.reasoningEffort as string) || 'max'
+                return (
+                  <span style={{ position: 'relative' }}>
+                    <button
+                      className="input-popover-anchor" onClick={() => { setShowEffortPicker(v => !v); setShowToolPicker(false) }}
+                      title={`思考等级: ${curEffort.toUpperCase()}（${curEffort === 'max' ? '最强推理' : curEffort === 'high' ? '均衡' : '快速低耗'}）— 点击切换深度思考的推理强度`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 10px', borderRadius: 999,
+                        border: showEffortPicker ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(124,58,237,0.18)',
+                        background: showEffortPicker ? 'rgba(124,58,237,0.12)' : 'rgba(124,58,237,0.05)',
+                        color: '#7c3aed', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease',
+                      }}>
+                      <SparklesIcon style={{ width: 12, height: 12 }} />
+                      {curEffort.toUpperCase()}
+                    </button>
+                    {showEffortPicker && (
+                      <div className="input-popover" style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 30, background: '#fff', borderRadius: 12, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', padding: 4, minWidth: 170 }}>
+                        {(['max', 'high', 'low'] as const).map(lvl => (
+                          <button key={lvl} onClick={() => {
+                            if (!activeConfig) return
+                            useSettingsStore.getState().updateConfig(activeConfig.id, { reasoningEffort: lvl })
+                            settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
+                            setShowEffortPicker(false)
+                          }} style={{
+                            width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 8, border: 'none',
+                            background: curEffort === lvl ? 'rgba(124,58,237,0.08)' : 'transparent', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit', fontSize: 11.5,
+                          }}>
+                            <span style={{ fontWeight: 700, color: curEffort === lvl ? '#7c3aed' : '#2d2520', minWidth: 32 }}>
+                              {lvl.toUpperCase()}
+                            </span>
+                            <span style={{ fontSize: 10, color: '#9b8e84', flex: 1 }}>
+                              {lvl === 'max' ? '最强推理（默认）' : lvl === 'high' ? '均衡' : '快速低耗'}
+                            </span>
+                            {curEffort === lvl && <span style={{ color: '#7c3aed', fontSize: 11, fontWeight: 700 }}>✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                )
+              })()}
               <span style={{ fontSize: 10, color: '#9b8e84' }}>{selectedToolHints.length > 0 ? '随下一条消息发送' : ''}</span>
               <div style={{ flex: 1 }} />
               <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
@@ -1737,7 +1850,7 @@ export default function AIChatWindow() {
 
             {/* v15.3.0: #工具选择 popover（仿 Claude Code / 输入 @ 的文件选择器）——可多选 */}
             {showToolPicker && (
-              <div style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0, zIndex: 30, background: '#fff', borderRadius: 14, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+              <div className="input-popover" style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0, zIndex: 30, background: '#fff', borderRadius: 14, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
                 <div style={{ padding: 10, borderBottom: '1px solid rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <HashtagIcon style={{ width: 13, height: 13, color: '#9b8e84', flexShrink: 0 }} />
                   <input value={toolFilter} onChange={e => setToolFilter(e.target.value)} placeholder="搜索工具（如 file / kb / search / analyze）"

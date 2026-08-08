@@ -75,6 +75,9 @@ export const anthropicService = {
         // v14.5.0: 透传 thinkingBlocks（主进程已下发；原实现丢弃 → 多轮工具调用时
         // 模型看不到自己的推理链，Anthropic 端点可能对缺失 thinking/signature 报 400）
         thinkingBlocks: parsed.thinkingBlocks || undefined,
+        // v15.5: 透传服务端工具块（server_tool_use / web_search_tool_result）——
+        // 多轮回传必需（DeepSeek Anthropic 端点要求回传 web_search_tool_result）
+        serverToolBlocks: parsed.serverToolBlocks || undefined,
       }
     } catch (err) {
       logError('anthropicService.chatAnthropicStream failed', err)

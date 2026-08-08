@@ -48,13 +48,23 @@ export interface AnthropicThinkingBlock {
 export interface AnthropicToolDef {
   name: string
   description: string
-  input_schema: {
+  /** v15.5: 服务端执行工具（web_search_20250305）无 input_schema（官方定义：type+name+max_uses），
+   * 客户端自定义工具才有 input_schema —— 改为可选 */
+  input_schema?: {
     type: 'object'
     properties: Record<string, unknown>
     required?: string[]
   }
   /** v11.7.0: Anthropic prompt caching — marks this tool def as cacheable */
   cache_control?: { type: 'ephemeral' }
+  /** v15.5: 工具类型——web_search_20250305 服务端执行搜索（DeepSeek Anthropic 端点原生支持，
+   * 官方文档确认 server_tool_use/web_search_tool_result Supported）；
+   * 缺省 = 客户端自定义工具（custom），由本地 tool_executor 执行 */
+  type?: 'web_search_20250305' | 'custom' | string
+  /** v15.5: web_search 工具可选参数（Anthropic 官方定义） */
+  max_uses?: number
+  allowed_domains?: string[]
+  blocked_domains?: string[]
 }
 
 /** 流式响应的累积结果 */
@@ -71,6 +81,9 @@ export interface AnthropicStreamResult {
   thinking?: string
   /** v11.5.1: Extended thinking blocks — preserved for multi-turn conversation */
   thinkingBlocks?: Array<{ thinking: string; signature: string }>
+  /** v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——服务端执行搜索，
+   * 多轮回传原样回传（DeepSeek Anthropic 端点要求） */
+  serverToolBlocks?: Array<Record<string, unknown>>
   usage?: {
     input_tokens: number
     output_tokens: number

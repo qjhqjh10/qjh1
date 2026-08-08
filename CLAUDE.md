@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.4.0
+# AI写作软件—青剑 v15.6.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,22 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v15.4.0)
+## 当前架构 (v15.6.0)
+
+### v15.6.0 read_file 去重层 + 大文件精准修改 (2026-08-09)
+- **ReadResultTracker 去重层**（src/agent/context/ReadResultTracker.ts 新建）：解决"同一文件多次讨论修改，旧版本信息重复上传"核心痛点（对齐 Claude Code FileRead 去重层）——同 run 内同文件同范围重复 read → 'dup'（发"已读取过，见前文第 N 轮"提示，不重发全文）；文件被写工具修改过 → 'changed'（发"已修改+位置"提示，引导 search_content 定位或 offset/limit 精确读）；FNV-1a 内容指纹确认前文仍完整在上下文（被压缩清理则放弃去重）；防呆计数器（连续 dup≥2 第 3 次强制完整回传）；写工具（含子代理 edit_file_task）成功后失效；per-run 生命周期 + rebuildFromHistory 历史重建（覆盖跨 run）；writeSummary 单一实现（ToolExecutor 与 rebuildFromHistory 共用）
+- 注入点：ToolExecutor.executeSingleTool（filterForContext 后 push 前，read_file 去重替换 + 写工具 recordWrite）；V4UnifiedRuntime（per-run 新建 + execCtx 注入）
+- **提示词「大文件精准修改流程」**（V4SystemPrompt 文件操作指南新增）：① 用户已给位置→直接 edit ② 位置不确定→先问用户 ③ 明确位置→search_content 定位→read offset/limit 精确读（≤3000字符）④⑤ 去重提示理解；实测 CA10 场景（25.7KB 章节 4 轮修改）第 2 轮起模型不再重读全文，全部 search_content+batch_replace 精准修改
+- **缓存语义修正（探针实测确认）**：DeepSeek Anthropic 端点 usage 为互斥语义（input_tokens 不含 cache_read，相加=总输入）——anthropicHandlers 合并 input+read 再算成本（修复 effectiveInput 减成负数归 0 的漏算）；AnthropicAdapter totalTokens 加 read；测试脚本缓存命中率统计（真实口径 read/(input+read)，实测平均 86%/末轮 98.9%）
+- 测试 740 passed + 15 skipped（755，+17：ReadResultTracker 14 + V4Simulation 2 + 提示词 1）；tsc 0；check-consistency 31/31
+
+### v15.5.0 AI 写作助手增强 + 协议/联网全面 (2026-08-08)
+- **深度思考开关双向生效**：关闭时显式 thinking:disabled（OpenAI/Anthropic）+ reasoning.effort:'none'（Responses）——修复"思考模式默认打开导致开关失效"（官方文档确认）；effort 三档 low/high/max（normalizeEffort 归一化；Anthropic output_config.effort；Responses 无 max 映射 high）；输入框内 #工具 旁 effort 按钮（三档显示当前值）+ 温度失效提示（思考开启置灰删除线）
+- **Anthropic 协议原生联网**（服务端 web_search 工具）：DeepSeek 官方文档确认 server_tool_use/web_search_tool_result Supported；AnthropicAdapter 在 DeepSeek 官方端点 + 原生联网时注入 web_search_20250305 服务端工具；handler SSE 捕获 server_tool_use 块；多轮回传 serverToolBlocks 原样保留；ToolExecutor 跳过本地执行
+- **OpenCode Go 支持**：buildAnthropicUrl 识别完整 /v1/messages 路径；ai:listModels 剥离 /v1/messages；shouldUseResponses 支持 gpt-* 模型走 responses 通道（路 B）；PROVIDER_PRESETS 添加 OpenCode Go
+- **联网死区修复**：BridgeContextBuilder 跳过 DDG 仅当 shouldUseResponses 真跑（Anthropic 协议+原生联网时回退 DDG）；联网按钮如实显示
+- **输入框 v3**：融合对话框（去卡片底座，聚焦紫高亮）+ 拖拽手柄上移（向上拖增高）
+- 测试 723 passed + 15 skipped；tsc 0；check-consistency 31/31
 
 ### v15.4.0 知识库场景化设置 + 片段注入模式 (2026-08-07)
 - 注入方式双模式（全量/片段）：生成功能（章节/批量/角色）可选择「全量注入」（现状：文件全文截断注入，perFile/total 上限）或「片段注入」（用户输入关键词 → 向量化语义检索 topK 相关片段注入，topK 取设置）；片段模式关键词为空自动退回全量、检索零结果不注入（不做静默回退全量）
@@ -186,8 +201,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (711 passed + 15 skipped，共 726) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (254 passed + 14 skipped，共 268) |
+| `npx vitest run` | 全量单元测试 (740 passed + 15 skipped，共 755) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (283 passed + 14 skipped，共 297) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
 

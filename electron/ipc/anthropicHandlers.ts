@@ -41,16 +41,13 @@ function categorizeError(err: unknown): string {
 // ── 构建 Anthropic API 端点 URL ──
 
 function buildAnthropicUrl(apiUrl: string): string {
-  // 如果 URL 已含 'anthropic' → 检查是否已经是完整路径
-  if (apiUrl.includes('anthropic')) {
-    const cleaned = apiUrl.replace(/\/+$/, '')
-    // 如果已经以 /v1/messages 结尾 → 不再追加
-    if (cleaned.endsWith('/v1/messages')) return cleaned
-    return cleaned + '/v1/messages'
-  }
+  const cleaned = apiUrl.replace(/\/+$/, '')
+  // 用户已填完整 /v1/messages 路径（含 OpenCode Zen/Go 等非 /anthropic 前缀）→ 直接使用
+  if (cleaned.endsWith('/v1/messages')) return cleaned
+  // URL 已含 'anthropic' → 追加 /v1/messages（DeepSeek Anthropic 兼容端点 /anthropic/v1/messages）
+  if (cleaned.includes('anthropic')) return cleaned + '/v1/messages'
   // 否则：去掉 /v1 后缀（如果有），追加 /anthropic/v1/messages
-  let base = apiUrl.replace(/\/+$/, '')
-  base = base.replace(/\/v1$/, '')
+  const base = cleaned.replace(/\/v1$/, '')
   return base + '/anthropic/v1/messages'
 }
 
@@ -176,24 +173,33 @@ export function registerAnthropicHandlers(
           stream: true,
         }
         // v11.4: Enable extended thinking for DeepSeek V4 (Anthropic protocol, configurable)
-        // v14.8: budget_tokens 保持硬编码 8192（决策：high/max 两档均为"尽力推理"，8192 覆盖两档典型路径；
-        // effort↔budget 映射待 DeepSeek 官方文档明确后跟进——OpenAI 端由 reasoning_effort 控制，见 aiHandlers.buildThinkingParams）
-        const isDeepSeekV4 = /deepseek.*v4/i.test(config.model) && (config as any).enableThinking !== false
-        if (isDeepSeekV4) {
-          body.thinking = { type: 'enabled', budget_tokens: 8192 }
+        // v15.5: 官方文档确认——Anthropic 格式思考强度控制参数为 output_config.effort（low/high/max），
+        // thinking.budget_tokens 被忽略（无需传）；思考关闭时显式 thinking:{type:'disabled'}
+        // （DeepSeek 思考模式默认打开——原实现关闭开关后仍走 thinking，从未真正关闭）
+        const isDeepSeekV4Model = /deepseek.*v4/i.test(config.model)
+        const thinkingEnabled = isDeepSeekV4Model && (config as any).enableThinking !== false
+        if (isDeepSeekV4Model) {
+          body.thinking = thinkingEnabled ? { type: 'enabled' } : { type: 'disabled' }
+          if (thinkingEnabled) {
+            body.output_config = { effort: (config as any).reasoningEffort || 'max' }
+          }
         }
         // v12.5.1: 阶段感知温度 — runtime 传入时使用，否则回退到 config.temperature
+        // 思考模式下 temperature 参数不生效（官方文档：为兼容传了不报错），不传更干净
         const effectiveTemperature = params.temperature ?? config.temperature
-        if (!isDeepSeekV4 && effectiveTemperature !== undefined) {
+        if (!thinkingEnabled && effectiveTemperature !== undefined) {
           body.temperature = effectiveTemperature
         }
         if (params.tools && params.tools.length > 0) {
           // v11.7.0: 透传 cache_control in tool definitions
+          // v15.5: 透传服务端工具 type（web_search_20250305）——服务端工具无 input_schema
           body.tools = params.tools.map((t: any) => {
-            const tool: Record<string, unknown> = {
-              name: t.name,
-              description: t.description,
-              input_schema: t.input_schema,
+            const tool: Record<string, unknown> = { name: t.name, description: t.description }
+            if (t.type) {
+              tool.type = t.type
+              if (t.max_uses) tool.max_uses = t.max_uses
+            } else {
+              tool.input_schema = t.input_schema || { type: 'object', properties: {} }
             }
             if (t.cache_control) tool.cache_control = t.cache_control
             return tool
@@ -261,6 +267,9 @@ export function registerAnthropicHandlers(
           name: string
           input: Record<string, unknown>
         }> = []
+        // v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——服务端执行搜索，
+        // 不在本地执行，但多轮回传必须原样保留（DeepSeek Anthropic 端点要求回传 web_search_tool_result）
+        const serverToolBlocks: Array<Record<string, unknown>> = []
         fullText = ''
         let stopReason = 'end_turn'
         let inputTokens = 0
@@ -287,6 +296,14 @@ export function registerAnthropicHandlers(
             case 'content_block_start': {
               const block = (evt.data as any)?.content_block
               if (block) {
+                // v15.5: server_tool_use——服务端执行工具（DeepSeek web_search）的调用块。
+                // 整个搜索生命周期由服务端完成（调用→搜索→结果回填），客户端无需执行；
+                // 完整块存下用于多轮回传（服务端要求回传 web_search_tool_result）。
+                if (block.type === 'server_tool_use') {
+                  serverToolBlocks.push({ ...block, index: (evt.data as any).index ?? contentBlocks.length })
+                  contentBlocks.push({ type: block.type, index: (evt.data as any).index ?? contentBlocks.length, input: block.input || {} })
+                  break
+                }
                 const cb: any = { type: block.type, index: (evt.data as any).index ?? contentBlocks.length }
                 if (block.type === 'tool_use') {
                   cb.id = block.id
@@ -431,7 +448,13 @@ export function registerAnthropicHandlers(
         // 不再混入 cache_creation（创建按正常输入价计费：calculateCost 的
         // effectiveInput = input − cacheHit，creation 自然落入输入价档）。
         // 修复前 creation 按命中价（约输入价 1/10）计费 → 成本低估、缓存统计虚高。
+        // v15.6: Anthropic 协议 usage 为【互斥语义】——input_tokens 不含 cache_read。
+        // calculateCost 假设 OpenAI 包含语义（input 含 cacheHit）→ effectiveInput = input − cacheHit
+        // 会减成负数归 0，未命中部分成本漏算。此处先合并：effectiveInput = input + cacheRead
+        // （Anthropic 的总输入 = input + cache_read + cache_creation），再传给 calculateCost
+        // 让 effectiveInput = (input+read) − read = input，恢复正确的未命中计费。
         const cacheHitTotal = cacheReadTokens
+        const anthropicTotalInput = inputTokens + cacheReadTokens  // 互斥语义 → 合并回包含语义
         if (inputTokens > 0 || outputTokens > 0) {
           logTokenUsage({
             timestamp: localISOString(),
@@ -439,10 +462,10 @@ export function registerAnthropicHandlers(
             configId: config.id,
             configName: config.name,
             model: config.model,
-            inputTokens,
+            inputTokens: anthropicTotalInput,
             outputTokens,
             cacheHitTokens: cacheHitTotal,
-            cost: calculateCost(inputTokens, outputTokens, cacheHitTotal, config),
+            cost: calculateCost(anthropicTotalInput, outputTokens, cacheHitTotal, config),
             // v14.2.1: 子代理委托标 'subagent'；主 agent 不传 → 'main'；chatAI 流水线传 'pipeline'
             source: params.source || 'main',
           }).catch((err) => {
@@ -471,13 +494,16 @@ export function registerAnthropicHandlers(
           toolUses,
           stopReason,
           thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
+          // v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——多轮回传必需
+          serverToolBlocks: serverToolBlocks.length > 0 ? serverToolBlocks : undefined,
           usage: {
             input_tokens: inputTokens,
             output_tokens: outputTokens,
             cache_creation_input_tokens: cacheCreationTokens,
             cache_read_input_tokens: cacheReadTokens,
             // v13.x: 补 cost——此前渲染层 chatWithUsage/chatStream 的 cost 恒为 0
-            cost: calculateCost(inputTokens, outputTokens, cacheHitTotal, config),
+            // v15.6: 同上互斥语义修正——总输入 = input + cache_read（见 logTokenUsage 处注释）
+            cost: calculateCost(anthropicTotalInput, outputTokens, cacheHitTotal, config),
           },
         })
 
