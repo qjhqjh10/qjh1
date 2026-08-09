@@ -87,11 +87,17 @@ describe('kbService', () => {
     expect(typeof kbService.rename).toBe('function')
     expect(typeof kbService.download).toBe('function')
     expect(typeof kbService.webSearch).toBe('function')
+    // v16: 三级目录
+    expect(typeof kbService.listFolders).toBe('function')
+    expect(typeof kbService.createFolder).toBe('function')
+    expect(typeof kbService.renameFolder).toBe('function')
+    expect(typeof kbService.deleteFolder).toBe('function')
+    expect(typeof kbService.moveFile).toBe('function')
   })
 
-  it('has 16 methods', () => {
+  it('has 21 methods', () => {
     const methods = Object.keys(kbService)
-    expect(methods).toHaveLength(16)
+    expect(methods).toHaveLength(21)
   })
 })
 

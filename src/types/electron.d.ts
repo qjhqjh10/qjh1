@@ -213,19 +213,25 @@ export interface KBAPI {
   list: () => Promise<KnowledgeMetadata>
   read: (fileId: string) => Promise<{ file: KnowledgeFile; content: string }>
   selectFiles: () => Promise<string[]>
-  uploadFiles: (filePaths: string[], activeProjectId: string) => Promise<KnowledgeFile[]>
+  uploadFiles: (filePaths: string[], activeProjectId: string, folder?: string) => Promise<KnowledgeFile[]>
   delete: (fileId: string) => Promise<void>
   write: (fileId: string, content: string, configId?: string) => Promise<void>
   index: (fileId: string, configId: string) => Promise<{ chunkCount: number }>
   search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>
-  create: (name: string, content: string, projectId?: string) => Promise<{ id: string; name: string }>
+  create: (name: string, content: string, projectId?: string, folder?: string) => Promise<{ id: string; name: string }>
   append: (fileId: string, content: string, configId?: string) => Promise<void>
   download: (fileId: string) => Promise<boolean>
   getEmbedding: (text: string, configId: string) => Promise<number[]>
   estimate: (filePath: string) => Promise<KBFileEstimate>
   webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => Promise<KBWebSearchResult[]>
+  // v16: 三级目录
+  listFolders: () => Promise<Array<{ dir: string; subdirs: string[]; files: Array<{ id: string; name: string }> }>>
+  createFolder: (name: string, parent?: string) => Promise<{ name: string }>
+  renameFolder: (folder: string, newName: string) => Promise<boolean>
+  deleteFolder: (folder: string) => Promise<boolean>
+  moveFile: (fileId: string, folder: string) => Promise<boolean>
 }
 
 export interface ExtractionAPI {

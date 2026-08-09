@@ -152,6 +152,7 @@ async function doSave(conversations: Conversation[]): Promise<{ idbOk: boolean }
   if (filePath) {
     await writeFile(filePath, JSON.stringify(conversations))
     // Human-readable mirror — for CLI debugging
+    // v16: 新增 AI 消息的缓存/工具/耗时摘要（apiCallDetails 逐轮明细）
     let log = ''
     for (const conv of conversations) {
       log += `\n══════ ${conv.title} (${conv.id}) ══════\n`
@@ -160,10 +161,44 @@ async function doSave(conversations: Conversation[]): Promise<{ idbOk: boolean }
         const time = m.timestamp ? new Date(m.timestamp).toLocaleString('zh-CN') : '未知时间'
         const role = m.role === 'user' ? '👤 用户' : m.role === 'assistant' ? '🤖 AI' : `🔧 ${m.role}`
         log += `\n[${time}] ${role}\n${(m.content || '').slice(0, 500)}\n`
+        // v16: AI 消息附加分析摘要（usage 缓存 + 工具 + API 逐轮明细）
+        if (m.role === 'assistant') {
+          const u = m.usage
+          if (u) {
+            const hitRate = u.prompt_tokens + (u.cacheHitTokens || 0) > 0
+              ? Math.round((u.cacheHitTokens || 0) / (u.prompt_tokens + (u.cacheHitTokens || 0)) * 1000) / 10 : 0
+            log += `  ⚙️ usage: 输入${u.prompt_tokens} 输出${u.completion_tokens} 缓存命中${u.cacheHitTokens || 0}(${hitRate}%) 新建${u.cacheCreationTokens || 0} 费用${u.cost?.toFixed(4) ?? 0}\n`
+          }
+          if (m.toolsUsed && m.toolsUsed.length > 0) {
+            log += `  🔧 工具: ${m.toolsUsed.join(', ')}\n`
+          }
+          const steps = m.toolCallSteps || []
+          if (steps.length > 0) {
+            log += `  📋 步骤: ${steps.map(s => `${s.status === 'success' ? '✓' : '✗'}${s.tool}${s.summary ? `(${s.summary.slice(0, 40)})` : ''}`).join(' | ')}\n`
+          }
+          const details = (m as any).apiCallDetails as Array<{
+            iteration: number; inputTokens: number; outputTokens: number
+            cacheReadTokens: number; cacheCreationTokens: number; durationMs: number
+            toolCall: boolean; model: string; finishReason: string
+          }> | undefined
+          if (details && details.length > 0) {
+            for (const d of details) {
+              const totalIn = d.inputTokens + d.cacheReadTokens
+              const rate = totalIn > 0 ? Math.round(d.cacheReadTokens / totalIn * 1000) / 10 : 0
+              log += `  📊 API#${d.iteration}: 输入${d.inputTokens}+缓存${d.cacheReadTokens}(${rate}%) 新建${d.cacheCreationTokens} 输出${d.outputTokens} 耗时${(d.durationMs / 1000).toFixed(1)}s${d.toolCall ? ' 工具轮' : ''} [${d.finishReason}]\n`
+            }
+          }
+        }
       }
     }
     await writeFile(filePath.replace('.json', '.txt'), log)
   }
+  // v16: 会话记录导出（每个会话 → .appdata/chat-records/<会话名>/ 独立文件夹，
+  // 含 conversation.json / api-calls.jsonl / tools.jsonl / summary.json——供分析方直接读取）
+  try {
+    const { exportConversationRecord } = await import('./chatRecordService')
+    await Promise.all(conversations.map(c => exportConversationRecord(c).catch(() => null)))
+  } catch { /* 导出失败不影响主保存 */ }
   return { idbOk }
 }
 

@@ -1,7 +1,26 @@
 {
-  "currentVersion": "15.6.0",
+  "currentVersion": "16.0.0",
   "currentDate": "2026-08-09",
   "history": [
+    {
+      "version": "16.0.0",
+      "date": "2026-08-09",
+      "features": [
+        "知识库三级目录: 根目录 → 一级 → 二级子目录（KnowledgeFile.folder 字段 + kb:listFolders/createFolder/renameFolder/deleteFolder/moveFile 5 个 IPC + 目录树组件 KbFolderTree）——知识库页面左栏目录树+文件列表双区、面包屑导航、新建/重命名/删除文件夹、文件移动；AI 工具层（create_file/delete/rename）自动同步 metadata 归属",
+        "知识库页面 UI 重设计: 字体全面放大（列表 13.5/标题 17/内容 14.5）、交互增强（Toast 通知/搜索+目录双重过滤/悬浮高亮）、目录树展开收起+文件数统计",
+        "AI 写作助手知识库勾选大弹窗（KbSelectionModal）: 点「文件」按钮弹出 860px 大弹窗（替代原 220px dropdown）——顶部三态切换（全部/不使用/自定义）+ 搜索 + 计数；左侧三级目录树 + 右侧大勾选框文件列表（22px 勾选框/13.5 字体/目录全选按钮）",
+        "测试时间预算（test-ai-agent.mjs v1.1）: 每场景 maxSeconds 硬上限（超时强制中止 + [超时] 失败标记）+ --budget 全局缩放——基于 deepseek-v4-flash 实测 ~8-15s/轮",
+        "测试场景 11 个: 新增 CA11 综合场景（角色扮演→生成小说→极限扩写 2 万字→全文高频替换/不存在内容如实反馈/重复段落清理）实测通过（420s/750s 预算，缓存命中 76%/末轮 96%）；runScenario 历史注入修复（user 消息入历史，扮演设定不再丢失）",
+        "会话记录文件夹（chat-record）: 每个会话导出 .appdata/chat-records/<会话名>/ 独立文件夹——conversation.json（完整对话流）+ api-calls.jsonl（每轮 API 明细含缓存命中率）+ tools.jsonl + summary.json（会话摘要），可直接交给分析方",
+        "API 逐轮明细（apiCallDetails）: runtime 每次调用记录 input/output/cacheRead/cacheCreation/耗时/工具轮/模型/finishReason → 随消息持久化 → 聊天文件可算缓存命中率；txt 可读镜像增强（usage 缓存率+工具步骤+API 逐轮）",
+        "提示词强化: 大文件精准修改流程双重判断（>2 万字符 search 定位 / 用户明确要求通读才 read 全文——意图优先于字数）+ 模糊描述定位策略（用户口语化描述→推断原文关键词→换词试探→context_around 核对）+ search_content 机制说明（字面/正则匹配，语义检索是 kb_search）；子代理提示词位置意识（不假设读到末尾就是文件末尾）+ 指令模糊收敛（聚焦 2-5 处不无限探索）",
+        "缓存断点位置修复（AnthropicAdapter）: 断点由无条件倒数第二块改为末块易变（[当前任务]/[系统提醒]/[任务边界]）才前移——修复角色模板激活+无任务清单时核心规则每轮全量重编码不缓存的问题",
+        "mock 对齐与修复（测试脚本）: read_file 截断 8000→50 万（对齐主进程）、edit_file 匹配策略（trim/换行/唯一性/replace_all）、search_content 参数（regex/file_pattern/context）、fetch 接 AbortController（超时可真正取消）"
+      ],
+      "fixes": [
+        "全量检查与清理: 移除 showKBFileList 死状态（v16 大弹窗替代后残留）；tool-schemas.json 重新生成（edit_file_task 描述漂移）；审计发现 S1-S6 严重问题与 M1-M16 中等问题记录于 .aiharness/design/agent-audit-2026-08-09.md 待后续修复"
+      ]
+    },
     {
       "version": "15.6.0",
       "date": "2026-08-09",

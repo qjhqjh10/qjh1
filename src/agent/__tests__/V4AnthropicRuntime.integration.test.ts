@@ -397,6 +397,99 @@ describe('Anthropic Message Format Conversion', () => {
     }, 0)
     expect(toolResultCount).toBeGreaterThanOrEqual(2)
   })
+
+  // ── v16(缓存审计): 缓存断点位置判定 ──
+  // 断点规则：末块为运行时易变块（[当前任务]/[系统提醒]/[任务边界]）→ 断点前移到倒数第二块；
+  // 否则（末块为稳定内容，如角色模板 + 核心规则）→ 断点设在最后一块（核心规则最大稳定内容全缓存）。
+  describe('cache breakpoint placement', () => {
+    const cacheControlIndex = (system: unknown[]) =>
+      system.findIndex((s: any) => typeof s === 'object' && s !== null && s.type === 'text' && s.cache_control?.type === 'ephemeral')
+
+    it('places breakpoint on last block when last block is stable (role template + core rules)', async () => {
+      const { svc, streamCalls } = makeAnthropicAI([makeStreamResult({ text: '完成。' })])
+      const adapter = new AnthropicAdapter(svc)
+      const runtime = makeRuntime(adapter)
+      const { executor } = makeTrackedExecutor()
+      runtime.setToolExecutor(executor)
+      runtime.setTools([])
+
+      runtime.setContextAssembler(async () => ({
+        // 角色模板激活 + 无任务清单：两块稳定 system（末块 = 核心规则，最大稳定内容）
+        systemMessages: [
+          { role: 'system', content: '[角色扮演设定 — 江月白·剑宗师姐]' },
+          { role: 'system', content: '你是青剑，小说创作助手。核心规则...' },
+        ],
+        totalTokens: 100,
+        domains: [],
+        breakdown: [],
+      }))
+
+      await runtime.run({ userMessage: '测试', attachments: [] })
+      const sent = streamCalls[0].system
+      expect(sent.length).toBe(2)
+      const bp = cacheControlIndex(sent)
+      expect(bp).toBe(1)  // 断点在最后一块（核心规则）→ 两块全部缓存命中
+    })
+
+    it('places breakpoint on second-to-last when last block is volatile [当前任务]', async () => {
+      const { svc, streamCalls } = makeAnthropicAI([
+        makeStreamResult({
+          text: '开始执行',
+          toolUses: [{ id: 'tu_1', name: 'read_file', input: { file_path: 'a' } }],
+          stopReason: 'tool_use',
+        }),
+        makeStreamResult({ text: '完成。', stopReason: 'end_turn' }),
+      ])
+      const adapter = new AnthropicAdapter(svc)
+      const runtime = makeRuntime(adapter, { maxIterations: 3 })
+      const { executor } = makeTrackedExecutor()
+      runtime.setToolExecutor(executor)
+      runtime.setTools([])
+
+      runtime.setContextAssembler(async () => ({
+        systemMessages: [
+          { role: 'system', content: '你是青剑，小说创作助手。核心规则...' },
+        ],
+        totalTokens: 100,
+        domains: [],
+        breakdown: [],
+      }))
+
+      // 编号任务 → 触发 taskList 提取（门控：文件意图关键词 + 任务动词"创/改"）
+      // → 每轮注入 [当前任务]（易变块在 system 末尾）
+      await runtime.run({ userMessage: '按任务清单执行：1) 创建一个报告文件 2) 修改文件内容', attachments: [] })
+
+      // 第二轮起 runtime 注入 [当前任务]（易变块在末尾）
+      const secondCall = streamCalls[1]
+      const sent = secondCall.system
+      expect(sent.length).toBeGreaterThanOrEqual(2)
+      const lastStr = typeof sent[sent.length - 1] === 'string' ? sent[sent.length - 1] : (sent[sent.length - 1] as any)?.text || ''
+      expect(lastStr.startsWith('[当前任务]')).toBe(true)
+      const bp = cacheControlIndex(sent)
+      expect(bp).toBe(sent.length - 2)  // 断点在倒数第二块（稳定前缀）
+    })
+
+    it('places breakpoint on the only block when single system block', async () => {
+      const { svc, streamCalls } = makeAnthropicAI([makeStreamResult({ text: '完成。' })])
+      const adapter = new AnthropicAdapter(svc)
+      const runtime = makeRuntime(adapter)
+      const { executor } = makeTrackedExecutor()
+      runtime.setToolExecutor(executor)
+      runtime.setTools([])
+
+      runtime.setContextAssembler(async () => ({
+        systemMessages: [{ role: 'system', content: '只有一块稳定系统提示词。' }],
+        totalTokens: 100,
+        domains: [],
+        breakdown: [],
+      }))
+
+      await runtime.run({ userMessage: '测试', attachments: [] })
+      const sent = streamCalls[0].system
+      expect(sent.length).toBe(1)
+      expect(cacheControlIndex(sent)).toBe(0)
+    })
+  })
 })
 
 // ══════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v15.6.0
+# AI写作软件—青剑 v16.0.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,17 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v15.6.0)
+## 当前架构 (v16.0.0)
+
+### v16.0.0 知识库三级目录 + UI 重设计 + 测试时间预算 + 会话记录 (2026-08-09)
+- **知识库三级目录**: KnowledgeFile.folder 字段（根/一级/二级）+ kb:listFolders/createFolder/renameFolder/deleteFolder/moveFile 5 个 IPC + KbFolderTree 目录树组件；知识库页面重设计（目录树+文件列表双区/面包屑/文件夹操作/字体放大/Toast）；AI 工具层自动同步 metadata 归属
+- **知识库勾选大弹窗（KbSelectionModal）**: AI 写作助手「文件」按钮 → 860px 弹窗（三态切换+搜索+左目录树+右大勾选框列表），替代原 220px dropdown
+- **测试时间预算**: test-ai-agent.mjs 每场景 maxSeconds 超时上限 + --budget 缩放；场景 11 个（CA11 综合：角色扮演→生成→极限扩写 2 万字→极限修改，实测 420s 通过缓存 76%）
+- **会话记录文件夹**: chatRecordService 每个会话导出 .appdata/chat-records/<会话名>/（conversation.json + api-calls.jsonl + tools.jsonl + summary.json）；apiCallDetails API 逐轮明细（缓存命中率可算）
+- **提示词强化**: 大文件双重判断（字数+用户意图）+ 模糊描述定位策略 + search_content 机制说明；子代理位置意识 + 指令模糊收敛
+- **缓存断点修复**: AnthropicAdapter 末块易变才前移断点（角色模板场景核心规则全缓存）
+- **mock 对齐**: read_file 50 万截断/edit_file 匹配策略/search_content 参数/fetch AbortController
+- 审计: .aiharness/design/agent-audit-2026-08-09.md（S1-S6 严重 + M1-M16 中等，待修复）
 
 ### v15.6.0 read_file 去重层 + 大文件精准修改 (2026-08-09)
 - **ReadResultTracker 去重层**（src/agent/context/ReadResultTracker.ts 新建）：解决"同一文件多次讨论修改，旧版本信息重复上传"核心痛点（对齐 Claude Code FileRead 去重层）——同 run 内同文件同范围重复 read → 'dup'（发"已读取过，见前文第 N 轮"提示，不重发全文）；文件被写工具修改过 → 'changed'（发"已修改+位置"提示，引导 search_content 定位或 offset/limit 精确读）；FNV-1a 内容指纹确认前文仍完整在上下文（被压缩清理则放弃去重）；防呆计数器（连续 dup≥2 第 3 次强制完整回传）；写工具（含子代理 edit_file_task）成功后失效；per-run 生命周期 + rebuildFromHistory 历史重建（覆盖跨 run）；writeSummary 单一实现（ToolExecutor 与 rebuildFromHistory 共用）

@@ -215,8 +215,15 @@ export class AnthropicAdapter implements ProtocolAdapter {
     // 原实现（v11.7.0）在最后一块打断点 → 进度变化使"从开头到断点"的整段 system 前缀缓存
     // 失效（Anthropic 缓存"开头至最后一个 ephemeral 断点"的前缀），长任务每轮全量重编码。
     // 断点前移后：稳定前缀（核心规则/角色模板/项目信息）在断点之前 → 每轮命中；易变块不缓存（体量小）。
+    // v16(缓存审计修复): 断点位置按末块是否易变判定——运行时注入的 system 块（[当前任务]/
+    // [系统提醒]/[任务边界]）每轮可能变化 → 断点前移到倒数第二块；否则（如角色模板激活且无
+    // 任务清单时 [角色模板, 核心规则] 两块，末块=核心规则为最大稳定内容）断点设在最后一块——
+    // 原实现无条件取倒数第二块，导致核心规则（~3600 tokens）每轮全量重编码不享受缓存。
     if (systemBlocks.length > 0) {
-      const idx = systemBlocks.length > 1 ? systemBlocks.length - 2 : 0
+      const last = systemBlocks[systemBlocks.length - 1]
+      const lastStr = typeof last === 'string' ? last : ''
+      const lastVolatile = lastStr.startsWith('[当前任务]') || lastStr.startsWith('[系统提醒]') || lastStr.startsWith('[任务边界]')
+      const idx = systemBlocks.length > 1 && lastVolatile ? systemBlocks.length - 2 : systemBlocks.length - 1
       const target = systemBlocks[idx]
       systemBlocks[idx] = typeof target === 'string'
         ? { type: 'text' as const, text: target, cache_control: { type: 'ephemeral' as const } }

@@ -639,6 +639,7 @@ export async function executeFileTool(
         await fsp.writeFile(fp, content, 'utf-8')
 
         // If created in knowledge_base, auto-register in KB metadata so it appears in the KB page
+        // v16: 三级目录——按相对 knowledge_base/files/ 的层级记录 folder 归属（根/一级/二级）
         const kbPath = getKBPath()
         if (fp.startsWith(kbPath + path.sep)) {
           try {
@@ -647,10 +648,14 @@ export async function executeFileTool(
             const meta = await loadMetadata()
             const ext = path.extname(fp).toLowerCase().replace('.', '')
             const kbType = (['txt','md','pdf','docx'].includes(ext) ? ext : 'md') as 'txt'|'md'|'pdf'|'docx'
+            const filesDir = path.join(kbPath, 'files')
+            const relDir = path.dirname(fp).startsWith(filesDir + path.sep)
+              ? path.relative(filesDir, path.dirname(fp)).replace(/\\/g, '/') : ''
             meta.files.push({
               id, name: path.basename(fp), originalName: path.basename(fp),
               type: kbType, size: stat.size, chunkCount: 0,
               projects: [], source: 'ai', uploadedAt: new Date().toISOString(),
+              ...(relDir ? { folder: relDir } : {}),
             })
             await saveMetadata(meta)
           } catch { /* best-effort — KB metadata sync failure shouldn't block file creation */ }
@@ -885,6 +890,21 @@ export async function executeFileTool(
         try { await fsp.unlink(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
         }
+        // v16: AI 删除知识库文件 → 同步 metadata（防止幽灵文件残留在目录树/勾选列表）
+        try {
+          const kbPath = getKBPath()
+          if (fp.startsWith(kbPath + path.sep)) {
+            const meta = await loadMetadata()
+            const before = meta.files.length
+            const filesDir = path.join(kbPath, 'files')
+            meta.files = meta.files.filter(f => {
+              const folderParts = String(f.folder || '').split(/[\\/]+/).filter(Boolean).slice(0, 2)
+              const fileAbs = path.join(filesDir, ...folderParts, path.basename(f.name))
+              return fileAbs !== fp
+            })
+            if (meta.files.length !== before) await saveMetadata(meta)
+          }
+        } catch { /* best-effort */ }
         return {
           callId, toolName, status: 'success',
           summary: '已删除',
@@ -905,6 +925,28 @@ export async function executeFileTool(
         try { await fsp.access(np); return { callId, toolName, status: 'error', summary: `目标已存在: ${args.new_path}` } } catch { /* ok */ }
         await fsp.mkdir(path.dirname(np), { recursive: true })
         await fsp.rename(fp, np)
+        // v16: AI 重命名/移动知识库文件 → 同步 metadata（name/folder 跟随实际路径）
+        try {
+          const kbPath = getKBPath()
+          if (fp.startsWith(kbPath + path.sep) && np.startsWith(kbPath + path.sep)) {
+            const meta = await loadMetadata()
+            const filesDir = path.join(kbPath, 'files')
+            let changed = false
+            for (const f of meta.files) {
+              const folderParts = String(f.folder || '').split(/[\\/]+/).filter(Boolean).slice(0, 2)
+              if (path.join(filesDir, ...folderParts, f.name) === fp) {
+                const relDir = path.dirname(np).startsWith(filesDir + path.sep)
+                  ? path.relative(filesDir, path.dirname(np)).replace(/\\/g, '/') : ''
+                f.name = path.basename(np)
+                f.originalName = path.basename(np)
+                f.folder = relDir || undefined
+                changed = true
+                break
+              }
+            }
+            if (changed) await saveMetadata(meta)
+          }
+        } catch { /* best-effort */ }
         const srcRel = path.relative(projectPath, fp).replace(/\\/g, '/')
         const dstRel = path.relative(projectPath, np).replace(/\\/g, '/')
         return { callId, toolName, status: 'success', summary: `已重命名: ${srcRel} → ${dstRel}`, detail: `原路径: ${args.file_path}\n新路径: ${args.new_path}` }

@@ -37,6 +37,7 @@ import { ToolDetailPanel } from './components/ToolDetailPanel'
 import { DangerousToolModal, type DangerousTool } from './components/DangerousToolModal'
 import { StreamingMessage } from './components/StreamingMessage'
 import { VirtualMessageList } from './components/VirtualMessageList'
+import { KbSelectionModal } from './components/KbSelectionModal'
 
 // ── Module-level utilities (M12: moved out of render to avoid re-creation) ──
 
@@ -212,7 +213,8 @@ export default function AIChatWindow() {
   const [toolFilter, setToolFilter] = useState('')
 
   // KB file selector
-  const [showKBFileList, setShowKBFileList] = useState(false)
+  // v16: 知识库文件勾选大弹窗（替代原 dropdown）——showKBFilePicker 控制弹窗显隐
+  const [showKBFilePicker, setShowKBFilePicker] = useState(false)
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
   const [kbLoadError, setKbLoadError] = useState(false)  // M3: distinguish error from empty
   const currentSelections = aiSettings.kbFileSelections || {}
@@ -222,6 +224,9 @@ export default function AIChatWindow() {
   const isKbNone = selectedFileIds.length === 1 && selectedFileIds[0] === '__none__'
   const isKbAll = selectedFileIds.length === 0
   const hasKbFileSelection = selectedFileIds.length > 0 && !isKbNone
+  // v16: 弹窗用三态模式（全部/不使用/自定义）
+  const kbPickerMode: 'all' | 'none' | 'custom' = isKbAll ? 'all' : isKbNone ? 'none' : 'custom'
+  const kbPickerSelected = isKbAll ? [] : isKbNone ? [] : selectedFileIds.filter(id => id !== '__none__')
 
   const loadKBFileList = async () => {
     try {
@@ -828,6 +833,8 @@ export default function AIChatWindow() {
             // v14.9(接线): 「执行计划」卡片数据源——从实际工具执行记录回溯生成
             // （此前无写入点，面板是死 UI；纯聊天/无工具调用返回 undefined 不显示）
             thinkingPlan: buildThinkingPlanFromRun(runResult as any, fullContent),
+            // v16: API 逐轮明细随消息持久化（聊天文件分析用——缓存命中率/耗时/重试可算）
+            apiCallDetails: (runResult as any).apiCallDetails,
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -1018,30 +1025,18 @@ export default function AIChatWindow() {
             <ToggleButton icon={<BookOpenIcon style={{ width: 12, height: 12 }} />} label="知识库" active={kbEnabled} onClick={() => setKbEnabled(!kbEnabled)} />
             {kbEnabled && (
               <div style={{ position: 'relative' }}>
-                <button onClick={() => { loadKBFileList(); setShowKBFileList(!showKBFileList) }} title="选择知识库文件" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999,
+                {/* v16: 知识库「文件」按钮 → 打开大勾选弹窗（替代原 dropdown 简陋勾选） */}
+                <button onClick={() => { loadKBFileList(); setShowKBFilePicker(true) }} title="选择知识库文件" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 999,
                   border: hasKbFileSelection ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)',
                   background: hasKbFileSelection ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)',
                   color: hasKbFileSelection ? '#7c3aed' : '#6b5e54', fontSize: 11.5, fontWeight: hasKbFileSelection ? 600 : 500,
                   cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease',
                 }}>
                   <ListBulletIcon style={{ width: 11, height: 11 }} />
-                  文件 {isKbAll ? '(全部)' : hasKbFileSelection ? `(${selectedFileIds.length})` : ''}
+                  文件 {isKbAll ? '(全部)' : isKbNone ? '(不使用)' : hasKbFileSelection ? `(${selectedFileIds.filter(id => id !== '__none__').length})` : ''}
                 </button>
-                {showKBFileList && (
-                  <div className="custom-scrollbar" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 4, minWidth: 220, maxHeight: 260, overflowY: 'auto', background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', padding: 4 }}>
-                    <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                      <button onClick={selectAllKBFiles} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: isKbAll ? 600 : 400, color: isKbAll ? '#7c3aed' : '#6b5e54' }}>全部</button>
-                      <button onClick={() => useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: ['__none__'] } })} style={{ flex: 1, padding: '3px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', background: 'transparent', fontWeight: isKbNone ? 600 : 400, color: isKbNone ? '#7c3aed' : '#6b5e54' }}>不使用</button>
-                    </div>
-                    {kbFiles.length > 0 ? kbFiles.map(f => (
-                      <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', cursor: 'pointer', borderRadius: 6, fontSize: 11, color: '#2d2520' }}>
-                        <input type="checkbox" checked={isKbAll || selectedFileIds.includes(f.id)} onChange={() => toggleKBFile(f.id)} style={{ width: 13, height: 13, accentColor: '#7c3aed' }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.originalName}</span>
-                      </label>
-                    )) : <div style={{ fontSize: 11, color: '#9b8e84', textAlign: 'center', padding: 8 }}>暂无知识库文件</div>}
-                  </div>
-                )}
+                {/* 旧 dropdown 已移除（v16 由 KbSelectionModal 大弹窗替代） */}
               </div>
             )}
             {/* Temperature quick control — adjusts model creativity. API reads from electron-store on each call.
@@ -2007,6 +2002,16 @@ export default function AIChatWindow() {
       )}
     </AnimatePresence>
     {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
+    {/* v16: 知识库文件勾选大弹窗（弹窗在浮窗 transform 之外 → 全窗口 fixed 覆盖） */}
+    <KbSelectionModal
+      isOpen={showKBFilePicker}
+      onClose={() => setShowKBFilePicker(false)}
+      selectedIds={kbPickerSelected}
+      mode={kbPickerMode}
+      onSelectAll={selectAllKBFiles}
+      onSelectNone={() => useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: ['__none__'] } })}
+      onToggleFile={toggleKBFile}
+    />
     {/* Right-click context menu */}
     {breakdownModal && (
       <div style={{

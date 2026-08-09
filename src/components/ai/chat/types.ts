@@ -48,6 +48,18 @@ export interface Message {
   }>
   /** v14.8: 本轮 KB 预注入的知识库文件 id（随消息持久化；下轮经 SendOptions.excludeKbFileIds 排除，避免跨 run 重复注入） */
   kbInjectedFileIds?: string[]
+  /** v16: API 逐轮明细（随消息持久化，聊天文件分析用——缓存命中率/耗时/重试可计算） */
+  apiCallDetails?: Array<{
+    iteration: number
+    inputTokens: number
+    outputTokens: number
+    cacheReadTokens: number
+    cacheCreationTokens: number
+    durationMs: number
+    toolCall: boolean
+    model: string
+    finishReason: string
+  }>
 }
 
 export interface Conversation {

@@ -94,13 +94,67 @@ export function getKBPath(): string {
   return path.join(path.dirname(getProjectsBasePath()), 'knowledge_base')
 }
 
-export function safeKBFilePath(file: { name: string }): string {
+export function safeKBFilePath(file: { name: string; folder?: string }): string {
   const filesDir = path.join(getKBPath(), 'files')
-  const filePath = path.join(filesDir, path.basename(file.name))
+  // v16: 三级目录——folder 为相对路径（"一级/二级"，空 = 根目录）。
+  // 归一化防路径穿越：只保留一层/二层纯目录名（不含 .. 与分隔符）
+  const folderParts = String(file.folder || '')
+    .split(/[\\/]+/).map(p => p.trim()).filter(Boolean)
+    .filter(p => p !== '.' && p !== '..')
+    .slice(0, 2)
+  const filePath = path.join(filesDir, ...folderParts, path.basename(file.name))
   if (!filePath.startsWith(filesDir + path.sep) && filePath !== filesDir) {
     throw new Error('非法文件路径')
   }
   return filePath
+}
+
+/** v16: 三级目录——文件夹路径（根/一级/二级），归一化防穿越 */
+export function safeKBFolderPath(folder: string): string {
+  const filesDir = path.join(getKBPath(), 'files')
+  const parts = String(folder || '')
+    .split(/[\\/]+/).map(p => p.trim()).filter(Boolean)
+    .filter(p => p !== '.' && p !== '..')
+    .slice(0, 2)
+  const dirPath = path.join(filesDir, ...parts)
+  if (!dirPath.startsWith(filesDir + path.sep) && dirPath !== filesDir) {
+    throw new Error('非法文件夹路径')
+  }
+  return dirPath
+}
+
+/** v16: 目录名清洗（去非法字符，去路径分隔符） */
+export function sanitizeFolderName(name: string): string {
+  return sanitizeFileName(name.replace(/[\\/]/g, '_'))
+}
+
+/** v16: 列出知识库文件目录树（三级）——每项含 dir + 子项 dirs/files */
+export async function listKBFolderTree(): Promise<
+  Array<{
+    dir: string
+    subdirs: string[]
+    files: Array<{ id: string; name: string }>
+  }>
+> {
+  const filesDir = path.join(getKBPath(), 'files')
+  const tree: Array<{ dir: string; subdirs: string[]; files: Array<{ id: string; name: string }> }> = []
+  try {
+    const level1 = await fs.readdir(filesDir, { withFileTypes: true })
+    for (const d1 of level1) {
+      if (!d1.isDirectory() || d1.name.startsWith('.')) continue
+      const l1Path = path.join(filesDir, d1.name)
+      const entry = { dir: d1.name, subdirs: [] as string[], files: [] as Array<{ id: string; name: string }> }
+      try {
+        const level2 = await fs.readdir(l1Path, { withFileTypes: true })
+        for (const d2 of level2) {
+          if (!d2.isDirectory() || d2.name.startsWith('.')) continue
+          entry.subdirs.push(d2.name)
+        }
+      } catch { /* 忽略子目录读取失败 */ }
+      tree.push(entry)
+    }
+  } catch { /* files 目录不存在 → 空树 */ }
+  return tree
 }
 
 export async function loadIndex(): Promise<KnowledgeIndex> {
@@ -215,13 +269,18 @@ export function sanitizeFileName(name: string): string {
 /** Ensure a filename is unique in the KB files directory; appends _1, _2 if needed */
 export async function getUniqueFileName(baseName: string): Promise<string> {
   const filesDir = path.join(getKBPath(), 'files')
+  return getUniqueFileNameInDir(filesDir, baseName)
+}
+
+/** v16: 带目标目录的唯一文件名（三级目录内重名 → _1, _2） */
+export async function getUniqueFileNameInDir(dir: string, baseName: string): Promise<string> {
   const ext = path.extname(baseName)
   const stem = path.basename(baseName, ext)
   let candidate = baseName
   let counter = 1
   while (true) {
     try {
-      await fs.access(path.join(filesDir, candidate))
+      await fs.access(path.join(dir, candidate))
       // File exists — try next counter
       candidate = `${stem}_${counter}${ext}`
       counter++
@@ -233,7 +292,7 @@ export async function getUniqueFileName(baseName: string): Promise<string> {
 
 // ====================== Upload Helper ======================
 
-export async function saveKBFile(filePath: string, activeProjectId: string): Promise<KnowledgeFile> {
+export async function saveKBFile(filePath: string, activeProjectId: string, folder?: string): Promise<KnowledgeFile> {
   const stat = await fs.stat(filePath)
   if (stat.size > 50 * 1024 * 1024) {
     throw new Error(`文件 ${path.basename(filePath)} 超过50MB限制`)
@@ -241,14 +300,21 @@ export async function saveKBFile(filePath: string, activeProjectId: string): Pro
   const ext = path.extname(filePath).toLowerCase().replace('.', '')
   const type = (['txt', 'md', 'pdf', 'docx'].includes(ext) ? ext : 'txt') as KnowledgeFile['type']
   const id = `kb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await fs.mkdir(path.join(getKBPath(), 'files'), { recursive: true })
-  const safeName = await getUniqueFileName(sanitizeFileName(path.basename(filePath)))
-  await fs.copyFile(filePath, path.join(getKBPath(), 'files', safeName))
+  // v16: 三级目录——folder 归一化后写入对应子目录
+  const safeFolder = folder
+    ? String(folder).split(/[\\/]+/).map(p => p.trim()).filter(Boolean).filter(p => p !== '.' && p !== '..').slice(0, 2).join('/')
+    : ''
+  const filesDir = path.join(getKBPath(), 'files')
+  const targetDir = safeFolder ? path.join(filesDir, ...safeFolder.split('/')) : filesDir
+  await fs.mkdir(targetDir, { recursive: true })
+  const safeName = await getUniqueFileNameInDir(targetDir, sanitizeFileName(path.basename(filePath)))
+  await fs.copyFile(filePath, path.join(targetDir, safeName))
   const file: KnowledgeFile = {
     id, name: safeName, originalName: path.basename(filePath),
     type, size: stat.size, chunkCount: 0,
     projects: activeProjectId ? [activeProjectId] : [],
     source: 'upload', uploadedAt: new Date().toISOString(),
+    folder: safeFolder || undefined,
   }
   const meta = await loadMetadata()
   meta.files.push(file)

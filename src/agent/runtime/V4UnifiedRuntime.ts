@@ -359,6 +359,8 @@ export class V4UnifiedRuntime {
     let totalCacheHitTokens = 0  // v11.5.1: track cache read hits
     let totalCacheCreationTokens = 0  // v11.7.0: track cache creation (still charged)
     let totalCost = 0            // v11.5.1: track cost
+    // v16: API 逐轮明细（分析用）——每次调用记 input/output/cache_read/cache_creation/耗时/工具轮
+    const apiCallDetails: NonNullable<V4AgentRunResult['apiCallDetails']> = []
     let toolCallsCount = 0
     let collectedText = ''
     let collectedReasoning = ''  // v14.6.1: 本轮推理链累计（UI 思考过程面板数据源）
@@ -554,6 +556,9 @@ export class V4UnifiedRuntime {
         ? Math.min(creativeTemp, toolCap)
         : creativeTemp
 
+      // v16: 逐轮明细——本次迭代的调用起始时间（retry 循环外声明，成功/失败共用；
+      // 重试更新，最终记录以最后一次尝试为准）
+      let callStartMs = Date.now()
       for (let retry = 0; retry <= 1; retry++) {
         if (this.config.abortSignal.aborted) break
         // v14.5.1: 每次调用独立 AbortController——超时或用户中止时真正取消底层流。
@@ -563,6 +568,7 @@ export class V4UnifiedRuntime {
         const onAbort = () => callController.abort()
         this.config.abortSignal.addEventListener('abort', onAbort, { once: true })
         const timeoutId = setTimeout(() => callController.abort(), API_TIMEOUT)
+        callStartMs = Date.now()
         try {
           response = await this.adapter.callModel({
             messages: this.messagesForApi,
@@ -607,6 +613,18 @@ export class V4UnifiedRuntime {
       totalCacheHitTokens += response.usage.cacheHitTokens || 0
       totalCacheCreationTokens += (response.usage as any).cacheCreationTokens || 0
       totalCost += response.usage.cost || 0
+      // v16: 逐轮明细——每次成功调用记一条（缓存命中率/耗时/工具轮从原始数据可算）
+      apiCallDetails.push({
+        iteration,
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        cacheReadTokens: response.usage.cacheHitTokens || 0,
+        cacheCreationTokens: (response.usage as any).cacheCreationTokens || 0,
+        durationMs: Math.max(0, Date.now() - callStartMs),
+        toolCall: response.toolCalls.length > 0,
+        model: this.config.model || '',
+        finishReason: response.finishReason || 'end_turn',
+      })
       // Token 累计由 UI 层（AIChatWindow）统一管理，避免双重计数
       if (!isolated) diagnosticLogger.recordApiCallEnd(response.usage.totalTokens, response.toolCalls.length > 0)
       // v14 批处理: 审计接线 — 会话统计（readSessionStats）由此获得 api:call 的 cost/model
@@ -1234,6 +1252,8 @@ export class V4UnifiedRuntime {
       cacheHitTokens: totalCacheHitTokens,
       cacheCreationTokens: totalCacheCreationTokens,
       cost: totalCost,
+      // v16: API 逐轮明细（分析用）——同 run 内多次调用的缓存/耗时/工具轮
+      apiCallDetails,
       phase: this.config.abortSignal.aborted ? 'ABORTED' : 'DONE',
       toolsUsed: this.toolsUsed,
       toolCallSteps: this.toolCallSteps,

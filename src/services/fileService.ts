@@ -220,7 +220,7 @@ export const kbService = {
   list: () => e().kb.list(),
   read: (fileId: string) => e().kb.read(fileId),
   selectFiles: () => e().kb.selectFiles(),
-  uploadFiles: (filePaths: string[], activeProjectId: string) => e().kb.uploadFiles(filePaths, activeProjectId),
+  uploadFiles: (filePaths: string[], activeProjectId: string, folder?: string) => e().kb.uploadFiles(filePaths, activeProjectId, folder),
   delete: (fileId: string) => e().kb.delete(fileId),
   write: (fileId: string, content: string, configId?: string) => e().kb.write(fileId, content, configId),
   index: (fileId: string, configId: string) =>
@@ -232,12 +232,18 @@ export const kbService = {
   getEmbedding: (text: string, configId: string) =>
     e().kb.getEmbedding(text, configId),
   estimate: (filePath: string) => e().kb.estimate(filePath),
-  create: (name: string, content: string, projectId?: string) =>
-    e().kb.create(name, content, projectId),
+  create: (name: string, content: string, projectId?: string, folder?: string) =>
+    e().kb.create(name, content, projectId, folder),
   append: (fileId: string, content: string, configId?: string) => e().kb.append(fileId, content, configId),
   rename: (fileId: string, newName: string) => e().kb.rename(fileId, newName),
   download: (fileId: string) => e().kb.download(fileId),
   webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]) => e().kb.webSearch(query, maxResults, safeSearch, prioritySites),
+  // v16: 三级目录
+  listFolders: () => e().kb.listFolders(),
+  createFolder: (name: string, parent?: string) => e().kb.createFolder(name, parent),
+  renameFolder: (folder: string, newName: string) => e().kb.renameFolder(folder, newName),
+  deleteFolder: (folder: string) => e().kb.deleteFolder(folder),
+  moveFile: (fileId: string, folder: string) => e().kb.moveFile(fileId, folder),
 }
 
 export const dialogService = {

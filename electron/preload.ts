@@ -168,8 +168,8 @@ const api = {
     list: (): Promise<KnowledgeMetadata> => ipcRenderer.invoke('kb:list'),
     read: (fileId: string): Promise<{ file: KnowledgeFile; content: string }> => ipcRenderer.invoke('kb:read', fileId),
     selectFiles: (): Promise<string[]> => ipcRenderer.invoke('kb:selectFiles'),
-    uploadFiles: (filePaths: string[], activeProjectId: string): Promise<KnowledgeFile[]> =>
-      ipcRenderer.invoke('kb:uploadFiles', filePaths, activeProjectId),
+    uploadFiles: (filePaths: string[], activeProjectId: string, folder?: string): Promise<KnowledgeFile[]> =>
+      ipcRenderer.invoke('kb:uploadFiles', filePaths, activeProjectId, folder),
     delete: (fileId: string): Promise<void> => ipcRenderer.invoke('kb:delete', fileId),
     write: (fileId: string, content: string, configId?: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content, configId),
     index: (fileId: string, configId: string): Promise<{ chunkCount: number }> =>
@@ -186,10 +186,21 @@ const api = {
     getEmbedding: (text: string, configId: string): Promise<number[]> =>
       ipcRenderer.invoke('kb:getEmbedding', text, configId),
     estimate: (filePath: string): Promise<KBFileEstimate> => ipcRenderer.invoke('kb:estimate', filePath),
-    create: (name: string, content: string, projectId?: string): Promise<{ id: string; name: string }> =>
-      ipcRenderer.invoke('kb:create', name, content, projectId),
+    create: (name: string, content: string, projectId?: string, folder?: string): Promise<{ id: string; name: string }> =>
+      ipcRenderer.invoke('kb:create', name, content, projectId, folder),
     append: (fileId: string, content: string, configId?: string): Promise<void> =>
       ipcRenderer.invoke('kb:append', fileId, content, configId),
+    // v16: 三级目录
+    listFolders: (): Promise<Array<{ dir: string; subdirs: string[]; files: Array<{ id: string; name: string }> }>> =>
+      ipcRenderer.invoke('kb:listFolders'),
+    createFolder: (name: string, parent?: string): Promise<{ name: string }> =>
+      ipcRenderer.invoke('kb:createFolder', name, parent),
+    renameFolder: (folder: string, newName: string): Promise<boolean> =>
+      ipcRenderer.invoke('kb:renameFolder', folder, newName),
+    deleteFolder: (folder: string): Promise<boolean> =>
+      ipcRenderer.invoke('kb:deleteFolder', folder),
+    moveFile: (fileId: string, folder: string): Promise<boolean> =>
+      ipcRenderer.invoke('kb:moveFile', fileId, folder),
     webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]): Promise<KBWebSearchResult[]> =>
       ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5, safeSearch ?? 'moderate', prioritySites ?? []),
   },

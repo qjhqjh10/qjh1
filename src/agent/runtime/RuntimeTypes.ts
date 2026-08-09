@@ -67,6 +67,27 @@ export interface V4AgentRunResult {
   cacheHitTokens: number
   /** v11.7.0: Cache creation tokens (first round — still charged, at creation price) */
   cacheCreationTokens: number
+  /** v16: 每次 API 调用的逐轮明细（分析用——缓存命中率/耗时/重试可从原始数据计算） */
+  apiCallDetails?: Array<{
+    /** 轮次（iteration 从 1 开始） */
+    iteration: number
+    /** 未命中输入 tokens（DeepSeek Anthropic 互斥语义：不含 cache_read） */
+    inputTokens: number
+    /** 输出 tokens */
+    outputTokens: number
+    /** 缓存命中 tokens（cache_read） */
+    cacheReadTokens: number
+    /** 缓存新建 tokens（cache_creation，全额计费） */
+    cacheCreationTokens: number
+    /** 本次调用耗时 ms（0 = 未知） */
+    durationMs: number
+    /** 是否调用了工具（true = 工具轮） */
+    toolCall: boolean
+    /** 模型名 */
+    model: string
+    /** 结束原因（end_turn / tool_use / max_tokens / aborted / error） */
+    finishReason: string
+  }>
   /** v11.5.1: Total cost in USD/CNY */
   cost: number
   phase: AgentPhase

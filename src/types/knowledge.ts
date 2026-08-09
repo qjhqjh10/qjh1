@@ -8,6 +8,9 @@ export interface KnowledgeFile {
   projects: string[]
   source: 'upload' | 'project' | 'review' | 'ai'
   uploadedAt: string
+  /** v16: 三级目录归属（相对 knowledge_base/files/ 的路径，如 "玄幻/东方玄幻"；空/缺省 = 根目录）。
+   * 根目录 → 一级子目录 → 二级子目录（共三层，含根） */
+  folder?: string
 }
 
 export interface KnowledgeChunk {

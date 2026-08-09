@@ -5,7 +5,7 @@ import * as path from 'path';
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logTokenUsage } from '../statsHandlers'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName } from './helpers';
+import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -40,12 +40,98 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Upload files given paths (after estimate confirmed)
-  ipcMain.handle('kb:uploadFiles', async (_event, filePaths: string[], activeProjectId: string) => {
+  // v16: 第 3 参 folder——三级目录（"一级/二级"，空 = 根目录）
+  ipcMain.handle('kb:uploadFiles', async (_event, filePaths: string[], activeProjectId: string, folder?: string) => {
     const uploaded: KnowledgeFile[] = []
     for (const filePath of filePaths) {
-      uploaded.push(await saveKBFile(filePath, activeProjectId))
+      uploaded.push(await saveKBFile(filePath, activeProjectId, folder))
     }
     return uploaded
+  })
+
+  // ── v16: 三级目录管理 ──
+  // 目录树（根/一级/二级）
+  ipcMain.handle('kb:listFolders', async () => {
+    return await listKBFolderTree()
+  })
+
+  // 新建子目录（level: 0 = 根下新建一级目录；1 = 指定一级目录下新建二级目录）
+  ipcMain.handle('kb:createFolder', async (_event, name: string, parent: string = '') => {
+    const clean = sanitizeFolderName(name)
+    if (!clean) throw new Error('文件夹名不能为空')
+    const parentDir = safeKBFolderPath(parent)
+    const folderPath = path.join(parentDir, clean)
+    if (parent && parent.split(/[\\/]+/).filter(Boolean).length >= 2) {
+      throw new Error('最多支持两级子目录（根目录下可建两级）')
+    }
+    await fs.mkdir(folderPath, { recursive: true })
+    return { name: clean }
+  })
+
+  // 重命名子目录（只改目录名，不移动其下文件）
+  ipcMain.handle('kb:renameFolder', async (_event, folder: string, newName: string) => {
+    const clean = sanitizeFolderName(newName)
+    if (!clean) throw new Error('文件夹名不能为空')
+    const dirPath = safeKBFolderPath(folder)
+    const parent = path.dirname(dirPath)
+    const newPath = path.join(parent, clean)
+    if (dirPath === path.join(getKBPath(), 'files')) throw new Error('不能重命名根目录')
+    if (dirPath === newPath) return true
+    try { await fs.rename(dirPath, newPath) } catch (e: any) {
+      if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST') throw new Error(`目标目录已存在: ${clean}`)
+      throw e
+    }
+    // 同步 metadata 中该目录下文件的 folder 归属（前缀替换）
+    const meta = await loadMetadata()
+    let changed = false
+    for (const f of meta.files) {
+      if (f.folder === folder) { f.folder = newName; changed = true }
+      else if (f.folder?.startsWith(folder + '/')) { f.folder = newName + f.folder.slice(folder.length); changed = true }
+    }
+    if (changed) await saveMetadata(meta)
+    return true
+  })
+
+  // 删除空子目录（非空返回错误提示）
+  ipcMain.handle('kb:deleteFolder', async (_event, folder: string) => {
+    const dirPath = safeKBFolderPath(folder)
+    if (dirPath === path.join(getKBPath(), 'files')) throw new Error('不能删除根目录')
+    const entries = await fs.readdir(dirPath).catch(() => [] as string[])
+    if (entries.length > 0) {
+      throw new Error('目录非空，请先移出或删除其中的文件')
+    }
+    await fs.rmdir(dirPath)
+    const meta = await loadMetadata()
+    const folderKey = (folder || '').split(/[\\/]+/).map(p => p.trim()).filter(Boolean).join('/')
+    const orphan = meta.files.filter(f => f.folder === folderKey)
+    if (orphan.length > 0) {  // 目录空了但 metadata 残留（异常态）→ 清理归属
+      for (const f of orphan) delete f.folder
+      await saveMetadata(meta)
+    }
+    return true
+  })
+
+  // 移动文件到其他目录（folder 为相对路径，空 = 根目录）
+  ipcMain.handle('kb:moveFile', async (_event, fileId: string, folder: string) => {
+    const meta = await loadMetadata()
+    const file = meta.files.find(f => f.id === fileId)
+    if (!file) throw new Error('File not found')
+    const oldPath = safeKBFilePath(file)
+    // 归一化 folder（最多两级）
+    const folderParts = String(folder || '')
+      .split(/[\\/]+/).map(p => p.trim()).filter(Boolean).filter(p => p !== '.' && p !== '..').slice(0, 2)
+    const newFolder = folderParts.join('/')
+    const targetDir = path.join(getKBPath(), 'files', ...folderParts)
+    await fs.mkdir(targetDir, { recursive: true })
+    const uniqueName = await getUniqueFileNameInDir(targetDir, path.basename(file.name))
+    const newPath = path.join(targetDir, uniqueName)
+    if (oldPath !== newPath) {
+      await fs.rename(oldPath, newPath)
+      file.name = uniqueName
+    }
+    file.folder = newFolder || undefined
+    await saveMetadata(meta)
+    return true
   })
 
   // Delete a file
@@ -100,13 +186,18 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   })
 
   // Create a new KB file
-  ipcMain.handle('kb:create', async (_event, name: string, content: string, projectId?: string) => {
+  // v16: 第 4 参 folder——三级目录（"一级/二级"，空 = 根目录）
+  ipcMain.handle('kb:create', async (_event, name: string, content: string, projectId?: string, folder?: string) => {
     const meta = await loadMetadata()
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
     const userFileName = name.endsWith('.md') ? name : `${name}.md`
-    const safeName = await getUniqueFileName(sanitizeFileName(userFileName))
-    const filePath = path.join(getKBPath(), 'files', safeName)
-    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    const folderParts = String(folder || '')
+      .split(/[\\/]+/).map(p => p.trim()).filter(Boolean).filter(p => p !== '.' && p !== '..').slice(0, 2)
+    const safeFolder = folderParts.join('/')
+    const targetDir = path.join(getKBPath(), 'files', ...folderParts)
+    const safeName = await getUniqueFileNameInDir(targetDir, sanitizeFileName(userFileName))
+    const filePath = path.join(targetDir, safeName)
+    await fs.mkdir(targetDir, { recursive: true })
     await fs.writeFile(filePath, content, 'utf-8')
 
     const newFile: KnowledgeFile = {
@@ -115,6 +206,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       projects: projectId ? [projectId] : [],
       source: 'ai',
       uploadedAt: new Date().toISOString(),
+      folder: safeFolder || undefined,
     }
     meta.files.push(newFile)
     await saveMetadata(meta)
@@ -290,13 +382,14 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     if (!file) throw new Error('File not found')
 
     // Rename physical file on disk to match the new display name
+    // v16: 重命名保持所在三级目录不变（safeKBFilePath 已按 file.folder 定位）
     const oldExt = path.extname(file.name)
     const newSanitized = sanitizeFileName(
       newName.endsWith(oldExt) ? newName : `${newName}${oldExt}`
     )
     if (newSanitized !== file.name) {
       const oldPath = safeKBFilePath(file)
-      const uniqueName = await getUniqueFileName(newSanitized)
+      const uniqueName = await getUniqueFileNameInDir(path.dirname(oldPath), newSanitized)
       const newPath = path.join(path.dirname(oldPath), uniqueName)
       await fs.rename(oldPath, newPath)
       file.name = uniqueName
