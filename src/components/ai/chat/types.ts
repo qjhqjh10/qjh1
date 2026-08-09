@@ -48,6 +48,9 @@ export interface Message {
   }>
   /** v14.8: 本轮 KB 预注入的知识库文件 id（随消息持久化；下轮经 SendOptions.excludeKbFileIds 排除，避免跨 run 重复注入） */
   kbInjectedFileIds?: string[]
+  /** v16.0.1(审计 M11): 本轮工具结果（tool 名+参数+实际注入内容）——跨 run 去重重建数据源；
+   * 生产 UI 不持久化 tool_calls，buildHistoryMessages 据此还原真实 role:'tool' 消息 */
+  _toolResults?: Array<{ tool: string; args: Record<string, unknown>; content: string }>
   /** v16: API 逐轮明细（随消息持久化，聊天文件分析用——缓存命中率/耗时/重试可计算） */
   apiCallDetails?: Array<{
     iteration: number

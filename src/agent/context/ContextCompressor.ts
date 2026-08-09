@@ -131,6 +131,18 @@ export class ContextCompressor {
         if (found >= protectRounds) return i
       }
     }
+    // v16.0.1(审计 M3): 单 user 消息（或 user 不足 protectRounds）时原返回 0 = 全部保护 →
+    // strip_detail 恒不生效，压缩空转到 95% 才 collapse。改按"最近 N 条 tool 消息"计数保护：
+    // 截断更早的 tool detail，最近 N 条工具结果仍完整（strip 只截 detail 不删消息，无孤儿风险）
+    if (found > 0) {
+      let toolFound = 0
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'tool') {
+          toolFound++
+          if (toolFound >= protectRounds) return i
+        }
+      }
+    }
     return found === 0 ? messages.length : 0
   }
 
@@ -254,8 +266,10 @@ export class ContextCompressor {
     if (toCollapse.length === 0) return messages
 
     // Build summary of collapsed content
+    // v16.0.1(审计 M2): 首条 user 保留 400 字——折叠区第一条 user 常是用户原始请求，
+    // 压成 80 字 → run 中途永久丢失核心需求（单 user run 的折叠区恰是用户请求全文）
     const userMsgs = toCollapse.filter(m => m.role === 'user').slice(-3)
-    const summaries = userMsgs.map(m => String(m.content || '').slice(0, 80)).join(' | ')
+    const summaries = userMsgs.map((m, i) => String(m.content || '').slice(0, i === 0 ? 400 : 80)).join(' | ')
 
     const collapseMsg: Message = {
       role: 'system',

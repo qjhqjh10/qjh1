@@ -5,7 +5,7 @@ import * as path from 'path';
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logTokenUsage } from '../statsHandlers'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir } from './helpers';
+import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir, embedChunks } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -250,7 +250,10 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
   // Shared helper: index a file (used by kb:index, kb:write, kb:append)
   // v14.9: 返回片段数（kb:index 处理器透传给 kb_index_file 工具显示）
-  async function indexFile(file: KnowledgeFile, configId: string): Promise<number> {
+  // v16.0.1(审计 S3): 返回 {chunkCount, failedCount}——embedding 失败的 chunk 不入 index，
+  // 失败数如实上报（原空向量 chunk 入 index 后 kb_search 用 embedding.length>0 过滤 → 永搜不到
+  // 的"假成功"：工具报"索引完成"实际零检索结果）
+  async function indexFile(file: KnowledgeFile, configId: string): Promise<{ chunkCount: number; failedCount: number }> {
     const store = await getConfigStore()
     const configs = store.get('configs', []) as StoredConfig[]
     const config = configs.find(c => c.id === configId)
@@ -267,33 +270,40 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const index = await loadIndex()
     index.chunks = index.chunks.filter(c => c.fileId !== file.id)
 
-    let totalEmbedTokens = 0
-    for (let i = 0; i < chunks.length; i++) {
-      const c = chunks[i]
-      let embedding: number[] = []
-      try {
-        const res = await getEmbedding(c.content, apiUrl, apiKey, embeddingModel)
-        embedding = res.embedding
-        totalEmbedTokens += res.promptTokens
-      } catch (err) { logError(`Embedding 失败 (chunk ${i})`, err) }
+    // v16.0.1(审计 S3): 批量嵌入提取为纯函数 embedChunks（可单测）——
+    // 失败的 chunk 返回 null 不入 index（原空向量入 index = 假成功）
+    const { embeddings, totalPromptTokens, failedCount } = await embedChunks(
+      chunks.map(c => ({ charStart: c.charStart, content: c.content })),
+      async (text) => {
+        try {
+          return await getEmbedding(text, apiUrl, apiKey, embeddingModel)
+        } catch (err) {
+          logError(`Embedding 失败`, err)
+          throw err
+        }
+      },
+    )
+    chunks.forEach((c, i) => {
+      const embedding = embeddings[i]
+      if (!embedding) return  // 失败 chunk 跳过（不入 index）
       index.chunks.push({
         id: `${file.id}_chunk_${c.charStart}`, fileId: file.id, fileName: file.originalName,
         content: c.content, embedding, charStart: c.charStart, charEnd: c.charEnd,
       })
-    }
+    })
     // v14 批处理: 按文件合并记 1 条 embedding token（500 字/chunk 逐条记会爆量）
     try {
-      if (totalEmbedTokens > 0) {
-        await logTokenUsage({ timestamp: new Date().toISOString(), ...buildEmbeddingUsageEntry(config, file, embeddingModel, totalEmbedTokens) })
+      if (totalPromptTokens > 0) {
+        await logTokenUsage({ timestamp: new Date().toISOString(), ...buildEmbeddingUsageEntry(config, file, embeddingModel, totalPromptTokens) })
       }
     } catch (err) { logError('Embedding 用量记录失败', err) }
 
     await saveIndex(index)
     const meta = await loadMetadata()
     const f = meta.files.find(x => x.id === file.id)
-    if (f) f.chunkCount = chunks.length
+    if (f) f.chunkCount = chunks.length - failedCount
     await saveMetadata(meta)
-    return chunks.length
+    return { chunkCount: chunks.length - failedCount, failedCount }
   }
 
   // Index a file (chunk + embed)
@@ -303,7 +313,8 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     if (!file) throw new Error('File not found')
     // v14.9(审计): 返回片段数——electron.d.ts 已声明 Promise<{chunkCount}> 但处理器未返回
     // → kb_index_file 工具 summary 恒显示 "undefined 个片段"
-    return { chunkCount: await indexFile(file, configId) }
+    // v16.0.1(S3): 返回 {chunkCount, failedCount}（失败 chunk 不入 index）
+    return await indexFile(file, configId)
   })
 
   // Semantic search

@@ -253,3 +253,27 @@ describe('角色模板设定文件（worldKbFileIds + scenarioKbFileIds）', () 
     expect(systemMessages.some(s => s.content.includes('[世界观设定文件]') || s.content.includes('[场景对话设定文件]'))).toBe(false)
   })
 })
+
+describe('v16.0.1(M4) — @引用不受 KB 开关门控', () => {
+  it('kbEnabled=false 但 selectedKbFileIds 非空 → 仍触发检索（显式引用优先于开关）', async () => {
+    searchMock.mockResolvedValue([{ fileId: 'kf1', fileName: '世界观设定.md', content: '相关片段', score: 0.9 }])
+    const builder = new BridgeContextBuilder({
+      projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false,
+      selectedKbFileIds: ['kf1'],
+    })
+    const { searchContext } = await builder.buildContext('关于世界观的问题', [], null, CORE)
+    // 原缺陷：kbActive = kbEnabled || tplKbFileIds.length>0（不含 selectedKbFileIds）
+    // → kbEnabled=false 时整个检索块跳过 → @引用静默失效
+    expect(searchMock).toHaveBeenCalled()
+    expect(searchContext).toContain('相关片段')
+  })
+
+  it('kbEnabled=false 且 selectedKbFileIds 为空 → 不检索（保持原语义）', async () => {
+    searchMock.mockResolvedValue([])
+    const builder = new BridgeContextBuilder({
+      projectId: null, configId: 'cfg1', kbEnabled: false, webSearchEnabled: false,
+    })
+    await builder.buildContext('你好', [], null, CORE)
+    expect(searchMock).not.toHaveBeenCalled()
+  })
+})

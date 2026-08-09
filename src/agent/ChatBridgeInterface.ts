@@ -59,6 +59,8 @@ export interface BridgeSendResult {
   subagentSummaries?: V4AgentRunResult['subagentSummaries']
   /** v14.8: 本轮 KB 预注入文件 id（UI 持久化到 assistant 消息，下轮经 excludeKbFileIds 排除） */
   kbInjectedFileIds?: string[]
+  /** v16.0.1(审计 M11): 本轮工具结果（跨 run 去重重建数据源，UI 持久化到 assistant 消息） */
+  toolResults?: V4AgentRunResult['toolResults']
 }
 
 /** 两个 Bridge 实现都满足的接口 */

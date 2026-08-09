@@ -94,6 +94,10 @@ const PER_TOOL_TIMEOUT_MS: Record<string, number> = {
   kb_analyze: 300_000,        // v14.8: 知识库深度分析（多次检索 + 全文阅读，需更长预算）
   analyze_text_style: 180_000, // AI 分析较长内容时 120s 偏紧
 }
+// v16.0.1(审计 S4): 超时表可注入（单测缩短超时用）——运行时默认查表，测试可覆盖
+export function setPerToolTimeoutForTest(overrides: Record<string, number>): void {
+  Object.assign(PER_TOOL_TIMEOUT_MS, overrides)
+}
 
 /** v14.3: 子代理快照 detail 收集截断上限（防 IndexedDB 膨胀；注入时还会再截） */
 const SUBAGENT_SUMMARY_DETAIL_CHARS = 1500
@@ -114,6 +118,10 @@ export interface ToolExecContext {
   injectedKbFileIds?: string[]
   /** v14.3: 子代理执行快照收集器（主 runtime 持有数组，run 结束随结果返回） */
   subagentSummaries: SubagentSummary[]
+  /** v16.0.1(审计 M11): 工具结果收集器（主 runtime 持有——跨 run 去重重建的数据源：
+   * 生产 UI 不持久化 tool_calls，ReadResultTracker.rebuildFromHistory 需要真实 tool 内容
+   * 才能重建 read/write 记录。{tool, args, content} content = 实际注入的最终 JSON） */
+  toolResults?: Array<{ tool: string; args: Record<string, unknown>; content: string }>
   /** v15.6: read_file 去重层（同 run 内同文件同范围重复读 → 不重发全文） */
   readTracker?: ReadResultTracker
   /** v9.5.5: Store for tool progress tracking */
@@ -284,6 +292,16 @@ export async function executeSingleTool(
   // Filter result for API context (ContractExecutor: strip verbose detail)
   const { resultForApi, note } = ContractExecutor.filterForContext(tc.name, result)
   let finalResult = note ? { ...resultForApi, note } : resultForApi
+  // v16.0.1(审计 S4): 超时落败 → 提示模型操作可能已在后台提交——
+  // 非子代理工具（edit_file/create_file 等）超时后底层 IPC 请求仍在途执行，模型以为失败
+  // 直接重试可能双写/错改；先 read_file 确认现状再决定重试
+  if (timedOut) {
+    finalResult = {
+      ...finalResult,
+      note: ((finalResult as { note?: string }).note ? (finalResult as { note: string }).note + ' ' : '')
+        + '工具执行超时，操作可能已在后台完成——重试前请先 read_file 确认文件当前状态。',
+    } as unknown as ToolResult
+  }
 
   // v15.6: read_file 去重层（版本感知）——
   //   同 run 内同文件同范围重复 read → 'dup'：发"已读取过"提示，不重发全文
@@ -318,7 +336,9 @@ export async function executeSingleTool(
 
   // v15.6: 写工具成功后记录文件变更（用于 read 去重的 'changed' 判定）
   // 摘要统一走 tracker.writeSummary（单一实现，与 rebuildFromHistory 共用，防漂移）
-  if (tracker && result.status === 'success' && WRITE_TOOLS.has(tc.name)) {
+  // v16.0.1(审计 N2): 补 SUBAGENT_WRITE_TOOLS（edit_file_task）——原 WRITE_TOOLS 不含子代理写工具，
+  // 子代理修改后重读提示 dup 而非 changed（审计轻微项）
+  if (tracker && result.status === 'success' && (WRITE_TOOLS.has(tc.name) || SUBAGENT_WRITE_TOOLS.has(tc.name))) {
     const fp = normalizeReadPath(extractFilePath(args))
     if (fp) {
       tracker.recordWrite(fp, ctx.iteration, tracker.writeSummary(tc.name, args))
@@ -327,4 +347,11 @@ export async function executeSingleTool(
 
   ctx.messagesForApi.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(finalResult) })
 
+  // v16.0.1(审计 M11): 收集工具结果供跨 run 重建（只读+写工具都收集——重建 readRecords 与
+  // writeRecords 都需要；JSON 解析失败的工具轮无有效内容，args 为空对象无碍）
+  ctx.toolResults?.push({
+    tool: tc.name,
+    args,
+    content: JSON.stringify(finalResult),
+  })
 }

@@ -98,6 +98,10 @@ export class ReadResultTracker {
     // 建立 tool_call_id → 工具名/参数映射（assistant 消息的 tool_calls）
     const callInfo = new Map<string, { name: string; args: Record<string, unknown>; turnSeq: number }>()
     let turn = 0
+    // v16.0.2(F2): hist_ id 全局递增序号——与 buildHistoryMessages 的还原序列严格同序
+    //（两者都按历史顺序遍历，每还原一个 tool 结果 +1）。原 hist_${tool}_${idx} 在多条同名
+    // 工具消息时碰撞（callInfo 覆盖，早轮记录丢失）。
+    let histSeq = 0
     for (const m of history) {
       if (m.role === 'user') turn++
       if (m.role === 'assistant' && Array.isArray((m as any).tool_calls)) {
@@ -111,8 +115,21 @@ export class ReadResultTracker {
           if (tc.id && name) callInfo.set(tc.id, { name, args, turnSeq: turn })
         }
       }
+      // v16.0.1(审计 M11): 新数据流（无 tool_calls）——assistant 消息携带 _toolResults
+      // （buildHistoryMessages 还原的 tool 消息带 'hist_' 前缀 tool_call_id），
+      // 按序号建立 id → 工具名/参数映射（与 tool_calls 分支同语义）
+      const toolResults = (m as any)._toolResults as Array<{ tool: string; args: Record<string, unknown>; content: string }> | undefined
+      if (m.role === 'assistant' && Array.isArray(toolResults) && toolResults.length > 0) {
+        toolResults.forEach((tr) => {
+          const args = tr && typeof tr.args === 'object' && tr.args !== null ? tr.args : {}
+          callInfo.set(`hist_${histSeq}_${tr.tool}`, { name: tr.tool, args, turnSeq: turn })
+          histSeq++
+        })
+      }
     }
     // 扫描 tool 消息：read_file → readRecords；写工具 → writeRecords
+    // v16.0.2(F2): 还原的 tool 消息 tool_call_id 为 `hist_${seq}_${tool}`（seq 全局递增），
+    // 与 _toolResults 映射 id 同序对齐
     for (const m of history) {
       if (m.role !== 'tool' || !m.tool_call_id) continue
       const info = callInfo.get(m.tool_call_id)
@@ -240,6 +257,9 @@ export class ReadResultTracker {
     const force = dupN >= 3
 
     if (writes.length > 0) {
+      // v16.0.1(轻微项): changed 随重读重置——模型已重读新版本（本次读到的内容已是最新），
+      // 清空 writeRecords 使后续读判 dup 而非持续提示"旧版本已过时"（原实现永远提示 changed）
+      this.writeRecords.delete(key)
       return { status: 'changed', writes: writes.slice(-3), stillInContext: inCtx, forceReturnFull: force }
     }
     return { status: 'dup', record: rec, stillInContext: inCtx, forceReturnFull: force }

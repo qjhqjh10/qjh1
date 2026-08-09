@@ -214,6 +214,54 @@ export async function getEmbeddingVector(text: string, apiUrl: string, apiKey: s
   return embedding
 }
 
+// ====================== 批量嵌入（v16.0.1 审计 S3 提取，供 indexFile 与单测复用） ======================
+
+export interface ChunkInput {
+  charStart: number
+  content: string
+}
+
+export interface EmbedChunksResult {
+  /** 每个 chunk 的 embedding（失败的 chunk 为 null——调用方跳过不入 index） */
+  embeddings: Array<number[] | null>
+  /** 成功 embedding 的总 promptTokens（记账用） */
+  totalPromptTokens: number
+  /** 失败 chunk 数 */
+  failedCount: number
+}
+
+/**
+ * v16.0.1(审计 S3): 逐 chunk 批量嵌入——embedding 失败的 chunk 返回 null（不入 index），
+ * 失败数如实累计。原实现失败时 push 空向量 → 假成功（kb_search 按 embedding.length>0
+ * 过滤 → 空向量 chunk 永远搜不到，但工具报"索引完成"）。
+ * 纯函数便于单测（embedFn 可注入 mock）。
+ */
+export async function embedChunks(
+  chunks: ChunkInput[],
+  embedFn: (text: string) => Promise<EmbeddingResult>,
+): Promise<EmbedChunksResult> {
+  const embeddings: Array<number[] | null> = []
+  let totalPromptTokens = 0
+  let failedCount = 0
+  for (const c of chunks) {
+    try {
+      const res = await embedFn(c.content)
+      if (res.embedding.length > 0) {
+        embeddings.push(res.embedding)
+        totalPromptTokens += res.promptTokens || 0
+      } else {
+        // 端点返回空向量（罕见）——同样视为失败（空向量无法检索）
+        embeddings.push(null)
+        failedCount++
+      }
+    } catch {
+      embeddings.push(null)
+      failedCount++
+    }
+  }
+  return { embeddings, totalPromptTokens, failedCount }
+}
+
 /**
  * v14 批处理: 构造 embedding 记账条目（source='embedding'，供 logTokenUsage）。
  * projectId 兜底 file.projects[0]（kb:index 无 projectId 参数，metadata 含归属）→ '__global__'。

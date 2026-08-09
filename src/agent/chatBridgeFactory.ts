@@ -119,6 +119,9 @@ export abstract class BaseChatBridge {
         contextWindow: this.contextWindow,
         temperature: creativeTemp,
         toolTemperature: toolTemp,
+        // v16.0.1(审计 M15): 统一 runId——runtime 不再自生成，store.startRun 与 teardown
+        // 守卫用同一 id（原两处各自生成 → 旧 run teardown 可能晚于新 run startRun 清空 UI 状态）
+        runId: this.runId,
         // v15.3.1: 主 agent 压缩策略——85% 才自动压缩，达到 85% 链式一次到底（Claude Code 式回退 ~15%）
         compressConfig: {
           thresholds: { strip: 0.85, summarize: 0.9, collapse: 0.95 },
@@ -203,13 +206,23 @@ export abstract class BaseChatBridge {
         toolsEnabled: options.toolsEnabled,
       })
 
-      store.setIsStreaming(false)
+      // v16.0.1(审计 M15): setIsStreaming(false)/setPeakPromptTokens 同样守卫——
+      // 旧 run 的这两处若晚于新 run startRun，会误清新 run 的流式指示（响应流被新 run 接管后仍显示加载态）
+      if (useAgentStore.getState().run.runId === this.runId) {
+        useAgentStore.getState().setIsStreaming(false)
+        useAgentStore.getState().setPeakPromptTokens(result.promptTokens)
+      }
       options.onComplete?.(result)
-      store.setPeakPromptTokens(result.promptTokens)
-      store.endRun()
-      // v14.9(A3): endRun 会把 phase 重置为 IDLE——补回最终 phase，让「完成/错误/已中止」
-      // 状态标签在运行结束后可见（原恒显示"就绪"，DONE/ERROR/ABORTED 标签从不出现）
-      store.setPhase(result.phase)
+      // v16.0.1(审计 M15): teardown 守卫——仅当 store 中仍是本 run 才 endRun/setPhase。
+      // 旧 run 的这三处若晚于新 run 的 startRun，会清空新 run 的 UI 状态（闪烁 IDLE）。
+      // 注意：必须实时读 useAgentStore.getState()——sendMessage 开头捕获的 store 引用
+      // 在新 run startRun 的 set() 后已 stale（run.runId 是旧值），用旧引用守卫恒失败
+      if (useAgentStore.getState().run.runId === this.runId) {
+        useAgentStore.getState().endRun()
+        // v14.9(A3): endRun 会把 phase 重置为 IDLE——补回最终 phase，让「完成/错误/已中止」
+        // 状态标签在运行结束后可见（原恒显示"就绪"，DONE/ERROR/ABORTED 标签从不出现）
+        useAgentStore.getState().setPhase(result.phase)
+      }
       // 会话结束时持久化审计数据到磁盘
       this.auditTrail.persist().catch(() => {})
 
@@ -236,12 +249,18 @@ export abstract class BaseChatBridge {
         subagentSummaries: result.subagentSummaries,
         // v14.8: 本轮 KB 预注入文件 id（UI 持久化，下轮排除避免跨 run 重复注入）
         kbInjectedFileIds: result.kbInjectedFileIds,
+        // v16.0.1(审计 M11): 本轮工具结果（UI 持久化到 assistant 消息，跨 run 去重重建数据源）
+        toolResults: result.toolResults,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
       store.setLastError(errMsg)
-      store.endRun()
-      store.setPhase('ERROR')  // v14.9(A3): 同正常路径——错误结束也保留 ERROR 标签
+      // v16.0.1(审计 M15): 同正常路径——守卫 runId 防旧 run catch 晚于新 run startRun
+      //（实时读 getState——store 快照在新 run startRun 后 stale）
+      if (useAgentStore.getState().run.runId === this.runId) {
+        useAgentStore.getState().endRun()
+        useAgentStore.getState().setPhase('ERROR')  // v14.9(A3): 同正常路径——错误结束也保留 ERROR 标签
+      }
       this.auditTrail.persist().catch(() => {})
       return { success: false, text: `错误: ${errMsg}`, toolCalls: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, phase: 'ERROR', toolsUsed: [], iterationCount: 0, toolCallSteps: [] }
     } finally {

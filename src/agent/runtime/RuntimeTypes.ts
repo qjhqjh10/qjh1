@@ -44,6 +44,10 @@ export interface V4AgentConfig {
   auditTrail?: AuditTrail
   /** v14 批处理: 当前模型名（审计 api:call 事件记录用） */
   model?: string
+  /** v16.0.1(审计 M15): 外部 runId（bridge 传入，统一 store.startRun 的 id——
+   * 原 bridge 与 runtime 各自生成 → endRun 竞态：旧 run teardown 可能晚于新 run startRun
+   * 清空新 run 的 UI 状态。不传时 runtime 自生成（向后兼容）） */
+  runId?: string
 }
 
 export interface V4AgentRunInput {
@@ -125,6 +129,9 @@ export interface V4AgentRunResult {
   /** v14.8: 本轮预注入的知识库文件 id（跨 run 去重——随 assistant 消息持久化，
    * 下轮经 SendOptions.excludeKbFileIds 排除，避免同一文件跨 run 反复注入） */
   kbInjectedFileIds?: string[]
+  /** v16.0.1(审计 M11): 本轮工具结果（tool 名+参数+实际注入内容）——生产 UI 不持久化 tool_calls，
+   * ReadResultTracker.rebuildFromHistory 依赖真实 tool 内容做跨 run 去重重建 */
+  toolResults?: Array<{ tool: string; args: Record<string, unknown>; content: string }>
 }
 
 // ── v14.3: 子代理执行结果快照（跨 run 复用） ──

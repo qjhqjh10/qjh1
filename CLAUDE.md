@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v16.0.0
+# AI写作软件—青剑 v16.0.2
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,24 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v16.0.0)
+## 当前架构 (v16.0.2)
+
+### v16.0.2 系统性审查回归修复（2026-08-09）
+- **F1（P1，v16.0.1 M11 回归）**：跨 run 还原的 hist_ tool 消息（无前置 assistant.tool_calls）在 Anthropic/OpenAI 协议路径成孤儿 tool_result → 400。修复：AnthropicAdapter.messagesToAnthropic 孤儿转 **text 块**（不 400 且内容保留供 ReadResultTracker 指纹）；aiHandlers 双路径同样转纯文本；实测 CA11 多轮工具+子代理全程无 400
+- **F2（P2）**：hist_ id 全局递增（buildHistoryMessages 与 rebuildFromHistory 共享计数序列）——原 per-message 下标碰撞致早轮记录丢失
+- **D-1（P1，v16.0.1 回归）**：NEG_DONE_RE 收窄为 `都(?:还|仍|未)(?:没)?`——"都完成了"正面收尾语不再被当否定拦截（原组合爆炸致 30 轮 nudge 空转）
+- **A-2（P1，v16.0.1 回归）**：CONTINUATION_RE 重写为 `(?<!不)(?:接着|还要|再)\s*(?:做|写|改|创建|生成|填充|处理)`——"接着写第2部分"匹配（原 lookbehind 恒真 + 只收"做"）
+- **A-1（P2）**：REFUSAL 出口两处加问句守卫（清单 :748 / 无清单 :893）——带问号的 50+ 字文本不被当困难任务收尾
+- **D-3（P2）**：toolResultsCollected per-run 重置；**P3**：recordToolCall 接线（脱敏 args 进审计）
+- 测试 775 passed + 15 skipped（+4：F1 孤儿过滤 2 + T28/D-1 1 + M13 精确断言 + 不再做）；tsc 0；check-consistency 31/31；真实 API CA11（517s 通过，无 400）+ CA1（277s，93.1% 缓存）
+
+### v16.0.1 审计修复批次（2026-08-09）
+- **严重问题全修**：S1 停止生成释放发送锁（abortToolLoop 补 sendLockRef=false）；S3 kb 索引失败 chunk 不入 index + 如实报告 failedCount（embedChunks 纯函数）；S4 写工具超时孤儿执行提示（note 引导先 read_file 确认现状）；S5 GLOBAL_DONE_RE 否定排除（NEG_DONE_RE：还没都完成/没搞定等）+ PARTIAL 补「这/那/剩下 N项都完成」形态；S6 自愈出口可达（「说完成但没写」补 _nudgeCount++ + 清单/无清单双路径 REFUSAL 出口）
+- **中等问题**：M2 深度压缩首条 user 保护 400 字；M3 单 user 压缩空转修复（按最近 N 条 tool 消息保护）；M4 @引用不受 KB 开关门控；M5 pipeline usage 补 cached_tokens；M6 会话记录导出指纹变更检测；M7 关窗 inFlight 保存不丢弃；M10 KB 排除窗口 3→5；M11 跨 run 去重真正生效（持久化 _toolResults → 还原 tool 消息 → rebuildFromHistory 真实指纹）；M12 重试正则补瞬态错误；M13 CONTINUATION_RE 增补（接着/还要/再做/然后继续）；M14 自愈阶梯前几轮补 pushRoundText；M15 endRun 竞态守卫（统一 runId）；M16 OpenAI 协议 abort 补记 tokens
+- **轻微项**：changed 随重读重置 / retry backoff 响应 abort / lastSnapshotInjectedIdRef 随会话切换重置 / anthropicHandlers 中止补记 cache_read / kbTools 指纹 16→40 字
+- **审阅新增**：N1 [验收提示] 进 AnthropicAdapter 易变前缀名单；N2 edit_file_task 的 recordWrite 遗漏（重读提示 changed）
+- **确认不修（迁移自审计报告）**：S2 闭包陈旧=设计语义（测试脚本 test-ai-agent.mjs 注释自证）；M8 per-request abort 链路已完整；M1 [当前任务] 缓存 v16 断点判定已处理；M9 OpenAI 端命中率需实测；updateTaskProgressFromText 单调置位=设计；清单提问 break 不置 interrupted=设计；进度条三处近似可接受
+- 审计报告 agent-audit-2026-08-09.md 已完成使命删除；测试 771 passed + 15 skipped；tsc 0；check-consistency 31/31
 
 ### v16.0.0 知识库三级目录 + UI 重设计 + 测试时间预算 + 会话记录 (2026-08-09)
 - **知识库三级目录**: KnowledgeFile.folder 字段（根/一级/二级）+ kb:listFolders/createFolder/renameFolder/deleteFolder/moveFile 5 个 IPC + KbFolderTree 目录树组件；知识库页面重设计（目录树+文件列表双区/面包屑/文件夹操作/字体放大/Toast）；AI 工具层自动同步 metadata 归属
@@ -16,7 +33,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 - **提示词强化**: 大文件双重判断（字数+用户意图）+ 模糊描述定位策略 + search_content 机制说明；子代理位置意识 + 指令模糊收敛
 - **缓存断点修复**: AnthropicAdapter 末块易变才前移断点（角色模板场景核心规则全缓存）
 - **mock 对齐**: read_file 50 万截断/edit_file 匹配策略/search_content 参数/fetch AbortController
-- 审计: .aiharness/design/agent-audit-2026-08-09.md（S1-S6 严重 + M1-M16 中等，待修复）
+- 审计: v16.0.1 批次已全修（S1-S6 + M2-M16 确认项 + 轻微项 + N1-N3），确认不修结论见「当前架构 v16.0.1」段；审计报告文件已删除
 
 ### v15.6.0 read_file 去重层 + 大文件精准修改 (2026-08-09)
 - **ReadResultTracker 去重层**（src/agent/context/ReadResultTracker.ts 新建）：解决"同一文件多次讨论修改，旧版本信息重复上传"核心痛点（对齐 Claude Code FileRead 去重层）——同 run 内同文件同范围重复 read → 'dup'（发"已读取过，见前文第 N 轮"提示，不重发全文）；文件被写工具修改过 → 'changed'（发"已修改+位置"提示，引导 search_content 定位或 offset/limit 精确读）；FNV-1a 内容指纹确认前文仍完整在上下文（被压缩清理则放弃去重）；防呆计数器（连续 dup≥2 第 3 次强制完整回传）；写工具（含子代理 edit_file_task）成功后失效；per-run 生命周期 + rebuildFromHistory 历史重建（覆盖跨 run）；writeSummary 单一实现（ToolExecutor 与 rebuildFromHistory 共用）
@@ -201,7 +218,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v14.8.0) |
+| 版本历史 | `src/data/version_history.json` (当前 v16.0.2) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
@@ -211,8 +228,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (740 passed + 15 skipped，共 755) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (283 passed + 14 skipped，共 297) |
+| `npx vitest run` | 全量单元测试 (775 passed + 15 skipped，共 790) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (303 passed + 14 skipped，共 317) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
 

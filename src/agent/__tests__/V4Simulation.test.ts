@@ -819,3 +819,103 @@ describe('read_file 去重层（v15.6）', () => {
     expect(String(changedMsg.detail)).not.toContain('校园日常')  // 不重发全文
   })
 })
+
+// ═══════════════════════════════════════════════════════
+// v16.0.1: 无清单路径完成判定加固（M13 继续性词 / S5 否定句 / S6 自愈出口）
+// ═══════════════════════════════════════════════════════
+
+describe('v16.0.1 完成判定加固（无清单路径）', () => {
+  it('M13: "已完成第1部分，接着写第2部分" → 不提前 break，注入继续性 nudge（v16.0.2 精确断言）', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      // 工具轮（无文本）——写完第1部分
+      { text: '', toolCalls: [{ id: 'w1', name: 'create_file', arguments: JSON.stringify({ file_path: 'test-project/outline/p1.md', content: '第一部分' }) }] },
+      // 独立文本轮："已完成第1部分，接着写第2部分"——原缺陷（(?<!不) 恒真 + 只收"做"）：
+      // "接着写"不匹配 → completionDeclared && !CONTINUATION → _fileWriteDone=true → 直接 break
+      { text: '已完成第1部分，接着写第2部分' },
+      // 完成轮：继续性 nudge 后模型完成剩余工作
+      { text: '第二部分也写好了' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 5)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    // 注：userMessage 必须含任务关键词（"帮我写"）→ _userRequestedFileOp=true →
+    // :947 继续性 nudge 条件 (fileOp || taskList) 成立；裸"写"不在 TASK_KEYWORDS
+    const result = await rt.run({ userMessage: '帮我写两个部分的文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    // v16.0.2(A-2): 精确断言——第 2 轮（"已完成第1部分，接着写第2部分"文本轮）判定后注入
+    // 继续性 nudge → 该 nudge 出现在**第 3 次 API 调用**（callLog[2]）的输入 messages 中
+    //（"接着写"匹配新 CONTINUATION_RE → 不 break → 注入 nudge → continue → 第 3 次调用）
+    const nudgeCall = callLog[2]
+    expect(nudgeCall).toBeDefined()
+    expect(nudgeCall.messages.some(m =>
+      typeof m.content === 'string' && m.content.includes('剩余工作请直接调用'))).toBe(true)
+    // 3 次调用：工具轮 → 文本轮（判定 nudge）→ 完成轮
+    expect(callLog.length).toBe(3)
+  })
+
+  it('M13/A-2: "不再做了" 不命中继续性（lookbehind 前置修复）→ 写过后正常收尾', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      { text: '写文件', toolCalls: [{ id: 'w1', name: 'create_file', arguments: JSON.stringify({ file_path: 'test-project/outline/p1.md', content: 'x' }) }] },
+      { text: '不再做了，就到这里' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 5)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const result = await rt.run({ userMessage: '写个文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    // "不再做了"（原缺陷：`(?:接着|还要|再)做(?<!不)` 匹配 → 被当继续性 → nudge 死循环）→
+    // 修复后不命中 → 写过后普通文本收尾 → 仅 2 次调用
+    expect(callLog.length).toBe(2)
+  })
+
+  it('S5: 无清单路径 "还没搞定" 不视为完成声明 → 进入自愈而非收尾', async () => {
+    const { service, callLog } = makeSimulatedAIService([
+      // 工具轮 create_file 成功（_fileWriteDone=true）——"还没搞定"被 NEG 排除后
+      // completionDeclared=false，写过后无继续语 → 第 2 轮收尾 break（正确行为，非提前收尾）
+      { text: '写文件', toolCalls: [{ id: 'w1', name: 'create_file', arguments: JSON.stringify({ file_path: 'test-project/outline/p1.md', content: 'x' }) }] },
+      { text: '还没搞定，再试试' },
+    ])
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 5)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const result = await rt.run({ userMessage: '写个文件', attachments: [] })
+
+    expect(result.success).toBe(true)
+    // v16.0.2(C-5 修正): 正确语义——"还没搞定"（原命中 DONE_PHRASE `搞定`）被 NEG 排除后
+    // completionDeclared=false → **不会**被当作"完成声明"走收尾 break（:822 需要 completionDeclared）
+    // 但 _fileWriteDone=true 且无继续语 → 写过后普通文本收尾（第 2 轮 break，正确）
+    // 关键锁定：修复前（NEG 缺失）completionDeclared=true → :822 的 `(fileWriteDone || !fileOp)` 成立
+    // → 同样 break——两路径轮数相同，无法用轮数区分。改用 NEG 语义断言：
+    // 第 2 轮 messages 中**不含**"说完成但没写"nudge（若被当完成声明且未写才会注入）
+    expect(callLog.length).toBe(2)  // 工具轮 + 文本轮收尾
+    const secondCall = callLog[1]
+    expect(secondCall?.messages.some(m =>
+      typeof m.content === 'string' && m.content.includes('没有实际写入任何文件'))).toBe(false)
+  })
+
+  it('S6: 反复说"完成"但没写 → 8 轮后 REFUSAL 出口触发收尾（不再空转到 maxIterations）', async () => {
+    // 8 轮"完成"声明（无写工具）——S6 补 _nudgeCount++ 使 REFUSAL 出口（>=8 且带原因）可达
+    const responses = Array.from({ length: 8 }, () => ({ text: '完成。' }))
+    // 第 9 轮：REFUSAL_RE 命中（"因为…不存在/无权限"）+ 文本 >50 字（出口条件要求）
+    responses.push({ text: '因为目标文件所在的目录已被删除且无法恢复，同时我没有权限重新创建该目录结构，所以这个任务确实无法完成。' })
+    const { service } = makeSimulatedAIService(responses)
+    const adapter = new OpenAIAdapter(service)
+    const rt = makeRuntime(adapter, 30)
+    const { executor } = makeRealToolExecutor()
+    rt.setToolExecutor(executor); rt.setTools(toolRegistry.getAllSchemas())
+
+    const result = await rt.run({ userMessage: '帮我创建一个不存在的文件并写入', attachments: [] })
+
+    expect(result.success).toBe(true)
+    // 不应空转到 30 轮——REFUSAL 出口在第 9 轮左右收尾
+    expect(result.iterationCount).toBeLessThan(12)
+  })
+})

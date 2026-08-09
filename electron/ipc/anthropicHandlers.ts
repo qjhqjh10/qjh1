@@ -132,6 +132,8 @@ export function registerAnthropicHandlers(
       let fullText = ''
       // v14.9(B5): 中止时补记已消耗的 input tokens（声明在 try 外——catch 作用域不可见 try 内 let）
       let abortedInputTokens = 0
+      // v16.0.1(轻微项): cache_read 同步提升到 try 外（message_start 已记录；中止补记需要）
+      let abortedCacheReadTokens = 0
       try {
         // 3. 构建 Anthropic 请求体
         // v11.7.0: 将 system 统一为 content block 格式，透传 cache_control
@@ -289,6 +291,7 @@ export function registerAnthropicHandlers(
                 cacheCreationTokens = usage.cache_creation_input_tokens || 0
                 cacheReadTokens = usage.cache_read_input_tokens || 0
                 abortedInputTokens = usage.input_tokens || 0  // v14.9(B5): 同步到 try 外变量
+                abortedCacheReadTokens = usage.cache_read_input_tokens || 0  // v16.0.1: 同 B5 同步
               }
               break
             }
@@ -514,6 +517,8 @@ export function registerAnthropicHandlers(
         if (err instanceof Error && err.name === 'AbortError') {
           // v14.9(B5): 中止时补记已消耗的 input tokens（message_start 已含输入量；
           // 原中止路径完全不记 → 月度成本低估。输出侧无数据，只记输入）
+          // v16.0.1(轻微项): cache_read 一并补记（message_start 已记录 cacheReadTokens，
+          // 原只记 input → 命中部分成本仍低估，量小但口径对齐）
           if (abortedInputTokens > 0) {
             logTokenUsage({
               timestamp: localISOString(),
@@ -523,8 +528,8 @@ export function registerAnthropicHandlers(
               model: config.model,
               inputTokens: abortedInputTokens,
               outputTokens: 0,
-              cacheHitTokens: 0,
-              cost: calculateCost(abortedInputTokens, 0, 0, config),
+              cacheHitTokens: abortedCacheReadTokens,
+              cost: calculateCost(abortedInputTokens, 0, abortedCacheReadTokens, config),
               source: params.source || 'main',
             }).catch(() => {})
           }

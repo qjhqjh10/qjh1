@@ -188,6 +188,92 @@ describe('rebuildFromHistory — 跨 run 重建', () => {
     const r = t.checkRead('Chapters/Chapter3.txt', 'full', hash, history, 5)
     expect(r.status).toBe('changed')
   })
+
+  it('v16.0.1(M11): _toolResults 型历史（无 tool_calls）→ 重建 read/write 记录', () => {
+    // 生产 UI 数据流：assistant 消息不带 tool_calls，改带 _toolResults；
+    // buildHistoryMessages 还原为 hist_ 前缀 tool_call_id 的 tool 消息
+    const history: Message[] = [
+      { role: 'user', content: '读一下第3章' },
+      {
+        role: 'assistant', content: '',
+        _toolResults: [
+          { tool: 'read_file', args: { file_path: 'chapters/chapter3.txt' }, content: JSON.stringify({ status: 'success', summary: '500 字符', detail: '第三章全文内容' }) },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'hist_0_read_file', content: JSON.stringify({ status: 'success', summary: '500 字符', detail: '第三章全文内容' }) },
+      { role: 'user', content: '改一下' },
+      {
+        role: 'assistant', content: '',
+        _toolResults: [
+          { tool: 'edit_file', args: { file_path: 'chapters/chapter3.txt', old_string: '第二段', new_string: '新第二段' }, content: JSON.stringify({ status: 'success', summary: '已修改' }) },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'hist_1_edit_file', content: JSON.stringify({ status: 'success', summary: '已修改' }) },
+    ]
+    const t = ReadResultTracker.rebuildFromHistory(history)
+
+    // 读后改 → 重读判 changed（writeRecords 已重建）
+    const content = '第三章新内容'
+    const hash = hashStr(JSON.stringify({ status: 'success', summary: '500 字符', detail: content }))
+    const r = t.checkRead('chapters/chapter3.txt', 'full', hash, history, 5)
+    expect(r.status).toBe('changed')
+    if (r.status === 'changed') {
+      expect(r.writes.some(w => w.changeSummary.includes('第二段'))).toBe(true)
+    }
+  })
+
+  it('v16.0.1(M11): _toolResults 无写入时跨 run 重建 → dup（内容在上下文中）', () => {
+    const history: Message[] = [
+      { role: 'user', content: '读一下' },
+      {
+        role: 'assistant', content: '',
+        _toolResults: [
+          { tool: 'read_file', args: { file_path: 'a.txt' }, content: JSON.stringify({ status: 'success', summary: '500 字符', detail: 'AAA' }) },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'hist_0_read_file', content: JSON.stringify({ status: 'success', summary: '500 字符', detail: 'AAA' }) },
+    ]
+    const t = ReadResultTracker.rebuildFromHistory(history)
+
+    const hash = hashStr(JSON.stringify({ status: 'success', summary: '500 字符', detail: 'AAA' }))
+    const r = t.checkRead('a.txt', 'full', hash, history, 2)
+    expect(r.status).toBe('dup')
+    if (r.status === 'dup') {
+      expect(r.stillInContext).toBe(true)  // 还原的 tool 消息内容指纹匹配 → 去重生效
+      expect(r.forceReturnFull).toBe(false)
+    }
+  })
+
+  it('v16.0.1(N2): edit_file_task 写后重读 → changed（子代理写工具 recordWrite 生效）', () => {
+    const t = new ReadResultTracker()
+    const msgs: Message[] = []
+    const content = '旧内容'.repeat(100)
+    const hash = hashStr(JSON.stringify({ status: 'success', summary: '500 字符', detail: content }))
+    t.recordRead('chapters/1.md', 'full', 1, hash)
+    msgs.push(makeReadToolMsg('c1', content))
+    // 子代理写工具（原 ToolExecutor WRITE_TOOLS 不含 → 从不记录 → 重读判 dup）
+    t.recordWrite('chapters/1.md', 2, '"旧" → "新"')
+
+    const r = t.checkRead('chapters/1.md', 'full', hash, msgs, 3)
+    expect(r.status).toBe('changed')
+  })
+
+  it('v16.0.1(轻微项): changed 随重读重置——写后重读一次，后续读判 dup 而非持续 changed', () => {
+    const t = new ReadResultTracker()
+    const msgs: Message[] = []
+    const content = '新内容'.repeat(100)
+    const hash = hashStr(JSON.stringify({ status: 'success', summary: '500 字符', detail: content }))
+    t.recordRead('chapters/1.md', 'full', 1, hash)
+    t.recordWrite('chapters/1.md', 2, '修改')
+    msgs.push(makeReadToolMsg('c1', content))
+
+    // 第一次重读 → changed（带着修改提示）
+    const r1 = t.checkRead('chapters/1.md', 'full', hash, msgs, 3)
+    expect(r1.status).toBe('changed')
+    // 第二次重读（已拿到新版本）→ dup（writeRecords 已清）
+    const r2 = t.checkRead('chapters/1.md', 'full', hash, msgs, 4)
+    expect(r2.status).toBe('dup')
+  })
 })
 
 describe('文案构建', () => {

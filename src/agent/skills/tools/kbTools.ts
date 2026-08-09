@@ -114,7 +114,7 @@ export const kbTools: ToolDefinition[] = [
           configId: ctx.configId,
           userMessage: taskMessage,
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::kb::kb-analyze::${query.slice(0, 16).replace(/\s+/g, '_') || 'empty'}`,
+          sessionKey: `${ctx.projectId ?? 'global'}::kb::kb-analyze::${query.slice(0, 40).replace(/\s+/g, '_') || 'empty'}`,
         })
 
         return {
@@ -178,7 +178,23 @@ export const kbTools: ToolDefinition[] = [
         const { kbService } = await import('@/services/fileService')
         const fileId = String(args.file_id || '')
         const result = await kbService.index(fileId, ctx.configId)
-        return { status: 'success', summary: `索引完成: ${result.chunkCount} 个片段` }
+        // v16.0.1(审计 S3): 如实报告——embedding 部分失败不再报"索引完成"假成功
+        // v16.0.2(D-3): 全失败（failed === chunkCount，含 chunkCount=0 空文件）→ status:'error'
+        // ——原实现全失败仍报 success（"索引完成 0 个片段，N 个失败"），模型会认为索引成功
+        const failed = (result as { failedCount?: number })?.failedCount || 0
+        const chunkCount = (result as { chunkCount?: number })?.chunkCount ?? 0
+        if (failed > 0 && chunkCount === 0) {
+          return {
+            status: 'error',
+            summary: `索引失败: ${failed} 个片段全部 embedding 失败（请检查模型配置/网络后重新索引）`,
+          }
+        }
+        return {
+          status: 'success',
+          summary: failed > 0
+            ? `索引完成 ${chunkCount} 个片段，${failed} 个失败（embedding 失败，请检查模型配置/网络后重新索引）`
+            : `索引完成: ${chunkCount} 个片段`,
+        }
       } catch (e) {
         return { status: 'error', summary: `索引失败: ${e instanceof Error ? e.message : '未知错误'}` }
       }

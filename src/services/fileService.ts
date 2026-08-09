@@ -91,10 +91,12 @@ export const aiService = {
     try {
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed.text === 'string') {
-        return { text: parsed.text as string, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
+        // v16.0.2(A-1): 类型补 cached_tokens——aiHandlers 已下发该字段（M5），
+        // 原类型声明遗漏使 pipeline 调用方拿不到缓存命中统计
+        return { text: parsed.text as string, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cached_tokens?: number } | undefined }
       }
       if (parsed && parsed.usage) {
-        return { text: raw, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | undefined }
+        return { text: raw, usage: parsed.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cached_tokens?: number } | undefined }
       }
     } catch (err) { logError('解析 AI 回复 JSON 失败 (chatWithUsage)', err) }
     return { text: raw, usage: undefined }

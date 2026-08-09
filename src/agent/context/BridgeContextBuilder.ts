@@ -68,7 +68,11 @@ export class BridgeContextBuilder {
     // ── 2. KB search + Web search（动态内容）──
     // v13.x: 知识库检索不再要求项目内 — 未指定项目时检索全部文件
     let searchContext = ''
+    // v16.0.1(审计 M4): kbActive 补 selectedKbFileIds——原仅 kbEnabled || 模板设定文件，
+    // 用户 @引用（selectedKbFileIds）在 KB 开关关闭时整个检索块被跳过（静默失效），
+    // 与 UI 注释"显式引用优先于 kbEnabled 开关"矛盾
     const kbActive = this.opts.kbEnabled || tplKbFileIds.length > 0
+      || (this.opts.selectedKbFileIds?.length ?? 0) > 0
     // v15.3.1: 角色设定文件名映射（仅勾选设定文件时查一次，轻量元数据 IPC）——
     // 提示词点名文件名，AI 才能直接 read_file("../knowledge_base/files/xxx.md") 定位读取
     let kbIdNameMap = new Map<string, string>()

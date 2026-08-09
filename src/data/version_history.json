@@ -1,7 +1,46 @@
 {
-  "currentVersion": "16.0.0",
+  "currentVersion": "16.0.2",
   "currentDate": "2026-08-09",
   "history": [
+    {
+      "version": "16.0.2",
+      "date": "2026-08-09",
+      "features": [
+        "跨 run 工具结果孤儿 400 修复（F1）: AnthropicAdapter.messagesToAnthropic 对孤儿 tool 消息（无前置 assistant.tool_calls 配对，如 M11 跨 run 还原的 hist_ 消息）转 text 块而非 tool_result——严格 Anthropic 端点不再 400 且内容保留（供 ReadResultTracker 指纹匹配）；OpenAI 协议双路径（ai:chat-with-tools + responses 降级）同样转纯文本——v16.0.1 M11 引入的回归修复，实测 CA11 多轮工具+子代理全程无 400"
+      ],
+      "fixes": [
+        "hist_ id 全局递增（F2）: buildHistoryMessages 与 ReadResultTracker.rebuildFromHistory 共享同一计数序列（hist_${seq}_${tool}）——原 per-message 数组下标在多条同名工具消息时碰撞（callInfo 覆盖，早轮 read 记录丢失）",
+        "NEG_DONE_RE 收窄（D-1）: 第二备选 `都(?:还|仍|未)?(?:没)?` 组合爆炸——'都完成了/都做完了/所有任务都完成了'（无否定修饰）被当否定句拦截 → markAllDone 被拒 → 30 轮 nudge 空转。收窄为 `都(?:还|仍|未)(?:没)?`（要求必有否定修饰），实证：都完成了→NEG=0，都没完成/都还没完成→NEG=1",
+        "CONTINUATION_RE 重写（A-2）: 原 `(?:接着|还要|再)做(?<!不)` lookbehind 恒真（'不再做了'也匹配）+ 只收'做'不收'写/改/创建'——'接着写第2部分'不匹配 → 无清单路径提前 break。改为 `(?<!不)(?:接着|还要|再)\s*(?:做|写|改|创建|生成|填充|处理)`（lookbehind 前置整个词表）",
+        "REFUSAL 出口问句守卫（A-1）: 清单（:748）与无清单（:893）两处有界出口加 `!/[？?]/` 条件——'带问号的 50+ 字文本'（向用户提问等回答）不被当困难任务收尾",
+        "toolResultsCollected per-run 重置（D-3）: run() reset 区补 `this.toolResultsCollected = []`——原跨 run 累积（注释'本轮'与实现不符，rebuild 数据源含上轮记录）",
+        "recordToolCall 接线（P3）: toolExecutorFactory 执行段补 `auditTrail.recordToolCall(ctx.toolName, args)`（脱敏：content→长度、query→100 字截断）——原方法定义后无调用方，事后审计看不到工具入参"
+      ]
+    },
+    {
+      "version": "16.0.1",
+      "date": "2026-08-09",
+      "features": [
+        "跨 run 去重真正生效（M11）: 生产 UI 持久化最近工具轮真实 tool 结果（_toolResults，tool 名+参数+实际注入内容）→ buildHistoryMessages 还原为 role:'tool' 消息 → ReadResultTracker.rebuildFromHistory 拿到真实内容指纹 → 跨 run 的 dup/changed 提示生效（原标记 hash 方案为功能性 no-op 已弃）——v15.6 核心功能意图达成",
+        "kb 索引失败如实报告（S3）: embedding 失败的 chunk 不入 index（原空向量入 index → 永搜不到假成功），批量嵌入提取为纯函数 embedChunks 可单测；kb_index_file 工具 summary 报「索引完成 X 个片段，Y 个失败」",
+        "清单门控否定排除（S5）: GLOBAL_DONE_RE 的 `都.*完成` 加 NEG_DONE_RE 否定排除（还没都完成/没搞定/尚未完成等不再被当完成声明）；PARTIAL_DONE_RE 补「这/那/剩下 N项都完成」形态——清单门控不再被确定性绕过",
+        "自愈出口可达（S6/N3）: 「说完成但没写」两条分支补 _nudgeCount++，且无清单与清单路径都复用 REFUSAL 出口（≥8 轮 + 带原因的明确拒绝 → 收尾）——不再空转至 maxIterations 烧 token",
+        "完成判定继续性词增补（M13）: CONTINUATION_RE 加 接着/还要/再做（防\"不再做\"）/然后(继续|完成)——无清单路径\"已完成第1部分，接着写第2部分\"不再被当全部完成"
+      ],
+      "fixes": [
+        "S1 停止生成释放发送锁（abortToolLoop 补 sendLockRef=false）",
+        "S4 写工具超时孤儿执行提示（timedOut 结果带 note 引导先 read_file 确认现状，防双写/错改）",
+        "M2 深度压缩保护首条 user 请求（折叠摘要 80→400 字）",
+        "M3 单 user 压缩空转修复（getRecentBoundary 按最近 N 条 tool 消息保护）",
+        "M4 @引用不受 KB 开关门控（kbActive 补 selectedKbFileIds 分支）",
+        "M5/M16 pipeline usage 补 cached_tokens（ai:chat/ai:chat-stream/anthropicService 三处）+ OpenAI 协议 abort 补记输入 tokens（estimateTokens 估算）",
+        "M6 会话记录导出按指纹变更检测（只导出变更会话）；M7 关窗 inFlight 保存不再丢弃（flushPendingSave 等待在途）",
+        "M10 KB 跨 run 排除窗口 3→5 条；M12 重试 transient 正则补 ECONNRESET/socket hang up/408/504/5xx；M14 自愈阶梯前几轮分支补 pushRoundText；M15 endRun 竞态守卫（统一 runId + runtime/bridge teardown 双端校验）",
+        "轻微项: changed 随重读重置（写后重读一次后续判 dup）、retry backoff 响应 abort（Promise.race）、lastSnapshotInjectedIdRef 随会话切换重置、anthropicHandlers 中止补记 cache_read、kbTools 查询指纹 16→40 字",
+        "审阅新增: N1 [验收提示] 进 AnthropicAdapter 易变前缀名单（缓存断点修复）；N2 edit_file_task 的 recordWrite 遗漏（重读提示 changed 而非 dup）",
+        "审计报告 agent-audit-2026-08-09.md 已完成使命删除；确认不修结论（S2 闭包陈旧=设计语义、M8 per-request abort 已完整、updateTaskProgressFromText 单调置位=设计、[验收提示] 断点 v16 已修等）迁移入 CLAUDE.md 版本记录"
+      ]
+    },
     {
       "version": "16.0.0",
       "date": "2026-08-09",

@@ -216,7 +216,7 @@ export interface KBAPI {
   uploadFiles: (filePaths: string[], activeProjectId: string, folder?: string) => Promise<KnowledgeFile[]>
   delete: (fileId: string) => Promise<void>
   write: (fileId: string, content: string, configId?: string) => Promise<void>
-  index: (fileId: string, configId: string) => Promise<{ chunkCount: number }>
+  index: (fileId: string, configId: string) => Promise<{ chunkCount: number; failedCount?: number }>
   search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]) => Promise<KBSearchResult[]>
   assignProject: (fileId: string, projectId: string, assigned: boolean) => Promise<void>
   rename: (fileId: string, newName: string) => Promise<void>

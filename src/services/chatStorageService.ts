@@ -105,6 +105,16 @@ let pendingSave: Conversation[] | null = null
 let inFlight: Promise<void> | null = null
 let saveWaiters: Array<(ok: { idbOk: boolean }) => void> = []
 
+// v16.0.1(审计 M6): 会话记录导出变更检测——每次保存全量导出所有会话（每 800ms 防抖写 4 个文件/会话）
+// 长会话下全量 IO 累积。按会话指纹（title + 消息数 + totalTokens + 末条消息 id/timestamp——
+// Conversation 无 updatedAt 字段）只导出变更会话。
+const _exportedFingerprints = new Map<string, string>()
+
+function conversationFingerprint(c: Conversation): string {
+  const last = c.messages[c.messages.length - 1]
+  return `${c.title}|${c.messages.length}|${c.totalTokens || 0}|${last?.id || ''}|${last?.timestamp || 0}`
+}
+
 /** 底层保存（原 saveConversations 函数体）——写前备份→IDB→文件镜像 */
 async function doSave(conversations: Conversation[]): Promise<{ idbOk: boolean }> {
   const dir = await getStorageDir()
@@ -195,10 +205,22 @@ async function doSave(conversations: Conversation[]): Promise<{ idbOk: boolean }
   }
   // v16: 会话记录导出（每个会话 → .appdata/chat-records/<会话名>/ 独立文件夹，
   // 含 conversation.json / api-calls.jsonl / tools.jsonl / summary.json——供分析方直接读取）
+  // v16.0.1(审计 M6): 按指纹只导出变更会话——原每次防抖保存全量导出所有会话
   try {
     const { exportConversationRecord } = await import('./chatRecordService')
-    await Promise.all(conversations.map(c => exportConversationRecord(c).catch(() => null)))
+    const changed = conversations.filter(c => {
+      const fp = conversationFingerprint(c)
+      if (_exportedFingerprints.get(c.id) === fp) return false
+      _exportedFingerprints.set(c.id, fp)
+      return true
+    })
+    await Promise.all(changed.map(c => exportConversationRecord(c).catch(() => null)))
   } catch { /* 导出失败不影响主保存 */ }
+  // 清理已删除会话的指纹（防止 Map 无限增长）
+  const liveIds = new Set(conversations.map(c => c.id))
+  for (const id of [..._exportedFingerprints.keys()]) {
+    if (!liveIds.has(id)) _exportedFingerprints.delete(id)
+  }
   return { idbOk }
 }
 
@@ -239,10 +261,15 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 /**
  * v14.9(A7): 退出前冲刷挂起保存——尾随防抖期间关窗/刷新会丢最后 800ms 内的消息。
  * pagehide/beforeunload 无法 await IndexedDB，此处 fire-and-forget 尽力落盘（文件镜像同步执行）。
+ * v16.0.1(审计 M7): inFlight 时等待其完成后再冲刷——原 `if (pendingSave && !inFlight)` 在
+ * inFlight 进行中关窗会丢弃挂起保存（注释声称"尽力落盘"实为丢弃窗口）
  */
-export function flushPendingSave(): void {
+export async function flushPendingSave(): Promise<void> {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-  if (pendingSave && !inFlight) {
+  if (inFlight) {
+    try { await inFlight } catch { /* 在途保存失败不阻断冲刷 */ }
+  }
+  if (pendingSave) {
     const data = pendingSave
     pendingSave = null
     inFlight = doSave(data).then(ok => {
@@ -258,6 +285,7 @@ export function flushPendingSave(): void {
       inFlight = null
       if (pendingSave) saveConversations(pendingSave)
     })
+    await inFlight
   }
 }
 

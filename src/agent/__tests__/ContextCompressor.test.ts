@@ -274,3 +274,64 @@ describe('ContextCompressor v15.3.1（参数化阈值 + compressDeep）', () => 
     expect(c.compressDeep(msgs, 500)).toBe(msgs)
   })
 })
+
+// ── v16.0.1: 审计修复（M2 首条 user 保护 / M3 单 user strip 生效）──
+describe('ContextCompressor v16.0.1（M2/M3）', () => {
+  it('M2: collapseEarly 首条 user 保留 400 字（原截断 80 字丢核心需求）', () => {
+    const c = new ContextCompressor(1000, { deepAt: 0.85 })
+    const longRequest = '用户原始长请求' + '这是核心需求内容'.repeat(60)  // >400 字
+    const msgs: Message[] = [
+      { role: 'system', content: '核心规则' },
+      // 前面 3 轮短对话（会被折叠掉）
+      { role: 'user', content: '早期问题1' },
+      { role: 'assistant', content: '早期回答1' },
+      { role: 'user', content: '早期问题2' },
+      { role: 'assistant', content: '早期回答2' },
+      { role: 'user', content: '早期问题3' },
+      { role: 'assistant', content: '早期回答3' },
+      // 长请求（折叠区的最后一条 user——摘要取折叠区末 3 条 user）
+      { role: 'user', content: longRequest },
+      { role: 'assistant', content: '回答' },
+      // 后续轮次（受 keepLast=5 保护不折叠）
+      { role: 'user', content: '后续问题1' },
+      { role: 'assistant', content: '后续回答1' },
+      { role: 'user', content: '后续问题2' },
+      { role: 'assistant', content: '后续回答2' },
+    ]
+    const result = c.compressDeep(msgs, 900)
+    const summary = result.find(m => m.role === 'system' && String(m.content).startsWith('[上下文已压缩]'))
+    expect(summary).toBeDefined()
+    // v16.0.2(C-1 修正): 实测折叠区 = [早期3轮(摘要system), 长请求user, 回答assistant] 折叠前结构
+    //（strip/summarize 先执行）→ userMsgs.slice(-3) 取到最后 2 条 user = [长请求, 后续问题1]
+    // → 摘要含 400 字截断的长请求（原注释声称"末 3 条 = [早期3, 长请求, 后续1]"与真实语义错位）
+    // 原实现截 80 字只到"用户原始长请求这是核心需求内容这是核心需求内容这是核心…"（80 字）
+    // 400 字截断 → 摘要显著更长且含完整开头
+    expect(String(summary!.content)).toContain('用户原始长请求')
+    expect(String(summary!.content).length).toBeGreaterThan(200)
+    // 长请求完整开头保留（400 字截断包含"这是核心需求内容"重复段）
+    expect(String(summary!.content)).toContain('这是核心需求内容'.repeat(3))
+  })
+
+  it('M3: 单 user 多工具轮 → strip_detail 仍生效（原 getRecentBoundary 返回 0 全保护空转）', () => {
+    const c = new ContextCompressor(1000)
+    const LONG = 'X'.repeat(1000)
+    const msgs: Message[] = [
+      { role: 'user', content: '读文件' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'success', summary: '读取', detail: LONG }) },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c2', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c2', content: JSON.stringify({ status: 'success', summary: '读取2', detail: LONG }) },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c3', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c3', content: JSON.stringify({ status: 'success', summary: '读取3', detail: LONG }) },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c4', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c4', content: JSON.stringify({ status: 'success', summary: '读取4', detail: LONG }) },
+    ]
+    const result = c.compress(msgs, 750)  // 75% → strip_detail
+    const details = result.filter(m => m.role === 'tool').map(m => JSON.parse(String(m.content)).detail as string | undefined)
+    // 最近 2 条 tool detail 保留（protectRounds=2，>200 字不截断），更早的截断到 200 字
+    expect(details[0]!.length).toBeLessThanOrEqual(201)  // c1 被截（原：boundary=0 全保护 → 1000 字完整）
+    expect(details[1]!.length).toBeLessThanOrEqual(201)  // c2 被截
+    expect(details[2]).toBe(LONG)       // c3 完整
+    expect(details[3]).toBe(LONG)       // c4 完整
+  })
+})

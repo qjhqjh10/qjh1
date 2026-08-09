@@ -112,3 +112,32 @@ describe('buildHistoryMessages — 早期折叠', () => {
     expect(out.filter(m => m.role === 'user').length).toBe(20)
   })
 })
+
+describe('buildHistoryMessages — v16.0.1(M11) _toolResults 还原', () => {
+  it('toolCallSteps 型 assistant 携带 _toolResults → 还原为真实 tool 消息（hist_ 前缀 id）', () => {
+    const msgs: M[] = [
+      user('u1', '读文件'),
+      {
+        id: 'a1', role: 'assistant', content: '',
+        toolCallSteps: [{ tool: 'read_file', status: 'success', summary: '读取成功', arguments: '{"file_path":"chapters/1.md"}' }],
+        _toolResults: [
+          { tool: 'read_file', args: { file_path: 'chapters/1.md' }, content: JSON.stringify({ status: 'success', summary: '500 字符', detail: '全文内容' }) },
+        ],
+      },
+    ]
+    const out = buildHistoryMessages(msgs)
+    const tools = out.filter(m => m.role === 'tool')
+    expect(tools).toHaveLength(1)
+    expect(tools[0].tool_call_id).toBe('hist_0_read_file')  // 与 ReadResultTracker.rebuildFromHistory 映射一致
+    expect(JSON.parse(String(tools[0].content)).detail).toBe('全文内容')
+  })
+
+  it('无 _toolResults 的 assistant（纯文本/旧数据）→ 不产生 tool 消息', () => {
+    const msgs: M[] = [
+      user('u1', '你好'),
+      assistant('a1', '你好！'),
+    ]
+    const out = buildHistoryMessages(msgs)
+    expect(out.filter(m => m.role === 'tool')).toHaveLength(0)
+  })
+})

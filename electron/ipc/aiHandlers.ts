@@ -140,13 +140,17 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
       const choice = completion.choices[0]
       const result = choice?.message?.content || (choice ? '' : '[AI] 模型返回了空结果（可能被内容策略拦截）')
+      // v16.0.1(审计 M5): usage 返回补 cached_tokens——pipeline 通道此前不返回，缓存命中费用按全价计
+      // （日志侧已正确提取，返回 JSON 侧缺失 → 调用方拿不到缓存命中统计）
+      const cachedTokens = (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0
       return JSON.stringify({
         text: result,
         usage: usage ? {
           prompt_tokens: usage.prompt_tokens || 0,
           completion_tokens: usage.completion_tokens || 0,
           total_tokens: usage.total_tokens || 0,
-          cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, (usage.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens || 0, config),
+          cached_tokens: cachedTokens,
+          cost: calculateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0, cachedTokens, config),
         } : undefined,
       })
     } catch (err) {
@@ -256,6 +260,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           prompt_tokens: usageInfo.prompt_tokens,
           completion_tokens: usageInfo.completion_tokens,
           total_tokens: usageInfo.total_tokens,
+          // v16.0.1(审计 M5): 补 cached_tokens（同 ai:chat）
+          cached_tokens: usageInfo.cached_tokens,
           cost: calculateCost(usageInfo.prompt_tokens, usageInfo.completion_tokens, usageInfo.cached_tokens || 0, config),
         } : undefined,
       })
@@ -430,7 +436,21 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         if (toolChatAbortHandlers.get(wcId) === onAbort) toolChatAbortHandlers.delete(wcId)
       })
 
-      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: string } }> = messages.map((m, i) => {
+      const apiMessages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string; cache_control?: { type: string } }> = messages
+        // v16.0.2(F1): 孤儿 tool 消息（tool_call_id 无前置 assistant.tool_calls 配对，如 M11 跨 run
+        // 还原的 hist_ 消息）转纯文本 user 消息——不能丢弃（ReadResultTracker.stillInContext 依赖
+        // 其在 messagesForApi 做内容指纹），也不能保留 tool_call_id（chat/completions 对孤儿 tool 400）
+        .flatMap(m => {
+          if (m.role === 'tool' && m.tool_call_id) {
+            const hasOwner = messages.some(am => am.role === 'assistant' && Array.isArray(am.tool_calls)
+              && (am.tool_calls as Array<{ id?: string }>).some(tc => tc?.id === m.tool_call_id))
+            if (!hasOwner) {
+              return [{ role: 'user' as const, content: `[历史工具结果]\n${String(m.content || '').slice(0, 500)}` }]
+            }
+          }
+          return [m]
+        })
+        .map((m, i) => {
           const msg: Record<string, unknown> = {
             role: validateRole(m.role),
             content: m.content,
@@ -522,10 +542,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           // v3.1: Log cache hit info (DeepSeek reports cached tokens in usage)
           const cachedInput = usage.prompt_cache_hit_tokens || usage.cache_read_input_tokens || 0
           const cacheMiss = usage.prompt_cache_miss_tokens || 0
-          if (cachedInput > 0) {
-            // v14.9(清理): 文案修正——缓存折扣由可配置的 cacheHitPricePerM 决定，非恒 90%
-            console.log(`[Cache] ✅ ${cachedInput.toLocaleString()} cached input tokens (按缓存价计费)`)
-          }
+          // v16.0.2(清理): 原 console.log 调试日志删除——缓存信息由 logTokenUsage 记账
+          //（usage.jsonl 含 cacheHitTokens）+ anthropicHandlers 同类日志已并入诊断通道
           logTokenUsage({
             timestamp: localISOString(),
             projectId: projectId || '__global__',
@@ -564,6 +582,27 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       } catch (err) {
         if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null }
         if (err instanceof Error && err.name === 'AbortError') {
+          // v16.0.1(审计 M16): 中止时补记已消耗的输入 tokens——OpenAI 协议无 message_start 事件
+          // 拿不到真实输入量，用 estimateTokens 估算（方向正确：原中止路径完全不记 → 成本低估）
+          // 对齐 anthropicHandlers 中止分支的补记语义
+          try {
+            const { estimateTokens } = await import('../../src/agent/utils/tokenEstimation')
+            const estInput = apiMessages.reduce((s, m) => s + estimateTokens(String(m.content || '')), 0)
+            if (estInput > 0) {
+              logTokenUsage({
+                timestamp: localISOString(),
+                projectId: projectId || '__global__',
+                configId: config.id,
+                configName: config.name,
+                model: config.model,
+                inputTokens: estInput,  // estimated（OpenAI 协议中止无 usage 事件，按消息估算）
+                outputTokens: 0,
+                cacheHitTokens: 0,
+                cost: calculateCost(estInput, 0, 0, config),
+                source: source || 'main',
+              }).catch(() => {})
+            }
+          } catch { /* 估算失败不影响中止路径 */ }
           return JSON.stringify({ text: '', tool_calls: null, finish_reason: 'stop', aborted: true })
         }
         throw new Error(categorizeError(err))
@@ -669,7 +708,20 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
           const msg = err instanceof Error ? err.message : ''
           const lower = msg.toLowerCase()
           if (lower.includes('unsupported') || lower.includes('not support') || lower.includes('not found') || lower.includes('404') || lower.includes('does not exist')) {
-            const apiMessages = (messages as Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>).map((m, i) => {
+            const apiMessages = (messages as Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>)
+              // v16.0.2(F1): 孤儿 tool 消息转纯文本（同 ai:chat-with-tools——降级路径同样会 400）
+              .flatMap(m => {
+                if (m.role === 'tool' && m.tool_call_id) {
+                  const owners = messages as Array<{ role: string; tool_calls?: unknown[] }>
+                  const hasOwner = owners.some(am => am.role === 'assistant' && Array.isArray(am.tool_calls)
+                    && (am.tool_calls as Array<{ id?: string }>).some(tc => tc?.id === m.tool_call_id))
+                  if (!hasOwner) {
+                    return [{ role: 'user' as const, content: `[历史工具结果]\n${String(m.content || '').slice(0, 500)}` }]
+                  }
+                }
+                return [m]
+              })
+              .map((m, i) => {
               const mm: Record<string, unknown> = { role: m.role, content: m.content }
               if (m.tool_calls) mm.tool_calls = m.tool_calls
               if (m.tool_call_id) mm.tool_call_id = m.tool_call_id

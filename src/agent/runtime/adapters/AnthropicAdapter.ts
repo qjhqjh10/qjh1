@@ -65,6 +65,18 @@ function toAnthropicTools(openaiTools: unknown[]): AnthropicToolDef[] {
 function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: AnthropicContentBlock[] }> {
   const result: Array<{ role: string; content: AnthropicContentBlock[] }> = []
 
+  // v16.0.2(F1): 建立已知 tool_use id 集——孤儿 tool_result（无前置 assistant.tool_calls 配对）
+  // 必须丢弃，否则严格 Anthropic 端点 400。来源：M11 跨 run 还原的 hist_ tool 消息
+  //（toolCallSteps 型历史无 tool_calls，还原的 tool 消息天然孤儿）；对齐 responsesConverter:87。
+  const knownToolUseIds = new Set<string>()
+  for (const m of msgs) {
+    if (m.role === 'assistant' && Array.isArray((m as any).tool_calls)) {
+      for (const tc of (m as any).tool_calls as Array<{ id?: string }>) {
+        if (tc?.id) knownToolUseIds.add(tc.id)
+      }
+    }
+  }
+
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
     if (m.role === 'system') continue // system as top-level parameter
@@ -78,6 +90,24 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
       while (j < msgs.length && msgs[j].role === 'tool') {
         const tm = msgs[j]
         const contentStr = typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content)
+        const toolUseId = (tm as any).tool_call_id || ''
+        // v16.0.2(F1): 孤儿 tool_result（id 不在已知集 → 无前置 tool_use）转为 text 块——
+        // 不能丢弃（ReadResultTracker.stillInContext 依赖其在 messagesForApi 做内容指纹），
+        // 也不能作为 tool_result 发送（严格 Anthropic 端点 400）。文本块保内容可见。
+        if (!toolUseId || !knownToolUseIds.has(toolUseId)) {
+          // 内容如 "[历史工具结果: 读取成功] ..."——保留 status/summary/detail 供模型参考
+          try {
+            const parsed = JSON.parse(contentStr)
+            const summary = parsed.summary || ''
+            const detail = parsed.detail || ''
+            const snippet = `[历史工具结果${summary ? ` ${summary}` : ''}]\n${typeof detail === 'string' ? detail.slice(0, 500) : ''}`
+            toolResultBlocks.push({ type: 'text', text: snippet })
+          } catch {
+            toolResultBlocks.push({ type: 'text', text: `[历史工具结果]\n${contentStr.slice(0, 500)}` })
+          }
+          j++
+          continue
+        }
         let isError = false
         try {
           const parsed = JSON.parse(contentStr)
@@ -85,7 +115,7 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
         } catch { /* not valid JSON, keep isError=false */ }
         toolResultBlocks.push({
           type: 'tool_result',
-          tool_use_id: (tm as any).tool_call_id || '',
+          tool_use_id: toolUseId,
           content: contentStr,
           ...(isError ? { is_error: true } : {}),
         })
@@ -222,7 +252,11 @@ export class AnthropicAdapter implements ProtocolAdapter {
     if (systemBlocks.length > 0) {
       const last = systemBlocks[systemBlocks.length - 1]
       const lastStr = typeof last === 'string' ? last : ''
-      const lastVolatile = lastStr.startsWith('[当前任务]') || lastStr.startsWith('[系统提醒]') || lastStr.startsWith('[任务边界]')
+      // v16.0.1(审计 N1): 易变前缀名单补 [验收提示]——验收提示（V4UnifiedRuntime 清单完成时
+    // 以 system push）在 [当前任务] 之后成为末块 → 原名单不含 → lastVolatile=false → 断点留在
+    // 末块 → [当前任务] 重新进入缓存前缀，后续轮次全前缀重编码（缓存失效）
+    const lastVolatile = lastStr.startsWith('[当前任务]') || lastStr.startsWith('[系统提醒]')
+      || lastStr.startsWith('[任务边界]') || lastStr.startsWith('[验收提示]')
       const idx = systemBlocks.length > 1 && lastVolatile ? systemBlocks.length - 2 : systemBlocks.length - 1
       const target = systemBlocks[idx]
       systemBlocks[idx] = typeof target === 'string'

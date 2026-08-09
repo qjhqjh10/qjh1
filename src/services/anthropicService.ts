@@ -122,7 +122,7 @@ export const anthropicService = {
     messages: Array<{ role: string; content: string }>
     configId: string
     system?: string
-  }): Promise<{ text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } }> => {
+  }): Promise<{ text: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number } }> => {
     const result = await anthropicService.chatAnthropicStream({
       system: params.system ? [params.system] : [],
       messages: params.messages.map(m => ({
@@ -135,7 +135,8 @@ export const anthropicService = {
     const usage = result.usage
     return {
       text: result.text || '',
-      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0 } : undefined,
+      // v16.0.1(审计 M5): 补 cacheHitTokens——Anthropic pipeline 同类缺口（原丢弃缓存命中信息）
+      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0, cacheHitTokens: usage.cache_read_input_tokens || 0 } : undefined,
     }
   },
 

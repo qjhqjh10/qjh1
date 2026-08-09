@@ -51,13 +51,22 @@ const TRUST_DONE_RE = /(?:全部|都)?(?:做完了|搞定了|处理完了)/
 // 这类部分声明会命中，导致清单门控被确定性绕过；部分声明改由 PARTIAL_DONE_RE 在判定处排除。
 // v14.9(审计): `任务完成` 加负向排除（同 DONE_PHRASE_RE）
 const GLOBAL_DONE_RE = /[Tt]ask\s*[Cc]omplete|全部完成|所有.*已完成|任务完成(?!情况|进度|汇报)|操作完毕|验证通过|最终.*完成|没有.*遗漏|都.*完成|已处理(?:完毕|完成)|上述.*完成|综上[^。！]*完成[。！]|(?:做完了|处理完了)/
+// v16.0.1(审计 S5): 否定/未完成排除——"还没都完成""尚未完成""都没完成""没全部完成"等
+// 命中 GLOBAL_DONE_RE 的 `都.*完成`/`已(?:经)?完成` 会被误当全局完成声明（清单门控被确定性绕过）。
+// 必须含 `搞定|处理好`——"没搞定"命中 DONE_PHRASE 的 `搞定[！。]?` 漏网。
+// v16.0.2(D-1 修正): 第二备选 `都(?:还|仍|未)?(?:没)?` 组合爆炸——"都完成了/都做完了"
+// （无否定修饰）也被排除，模型高频正面收尾语被误拦 → 30 轮 nudge 空转。收窄为
+// `都(?:还|仍|未)(?:没)?`（要求必有否定修饰），实证：都完成了→NEG=0，都没完成/都还没完成/都仍未完成→NEG=1。
+const NEG_DONE_RE = /(?:还没|尚未|没|未|差|剩)\s*.{0,4}?都?\s*(?:完成|搞定|处理好)|都(?:还|仍|未)(?:没)?\s*(?:完成|做完|搞定)/
 // v14.5.0: 部分进度声明检测（与 updateTaskProgressFromText 语义对齐）——
 // "第N项(…12字内)完成" / "任务X/Y" / "已完成N/N" / "已完成N项"。
 // 清单模式完成判定中，部分声明命中即排除全局声明（宁可多提示一轮，不漏放）。
 // v14.6.1: 补汉字数字与 章/篇/部分/部 量词——"第2章都完成了""前三项都完成了"此前不命中
 // PARTIAL（GLOBAL 的 `都.*完成` 命中 → 清单门控被确定性绕过，与 v14.5.0 修复的"部分声明"同族）
 // v14.9(审计): 补"前N项"形态——"前三项都完成了""前面两步都完成了"（v14.6.1 只覆盖了 第N 形态）
-const PARTIAL_DONE_RE = /第\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)(?!情况|了[吗么]|没有)|前\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|章|篇|部分)/
+// v16.0.1(审计 S5): 补"这/那/剩下 N项都完成"形态——"这2项都完成了""那三章都搞定了"
+// 此前命中 GLOBAL `都.*完成` 且不命中 PARTIAL → 清单门控被确定性绕过（与 v14.5.0 部分声明同族）
+const PARTIAL_DONE_RE = /第\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)(?!情况|了[吗么]|没有)|前\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)|(?:这|那|剩(?:下)?)\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*(?:都)?\s*(?:完成|搞定|做完|处理好)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|章|篇|部分)/
 // v14.9(审计): 自愈出口的"合理拒绝"检测——必须带原因（为什么做不到），且仅在尝试 ≥8 轮后生效
 const REFUSAL_RE = /无法(?:完成|继续|进行|做到|实现)|不能完成|做不到|不可完成|因为[^。！\n]{2,40}(?:失败|不存在|缺失|被删除|无权限|不支持)/
 // v14.9(C3): 文件写工具子集——完成闸门"说完成但没写"只认文件写证据。
@@ -69,7 +78,14 @@ const FILE_WRITE_TOOLS = new Set([
 ])
 // 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
 // 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
-const CONTINUATION_RE = /接下来|下一步|下面|继续|我先|剩余|还有.{0,8}(?:任务|项|要做|需要做)/
+// v16.0.1(审计 M13): 增补继续性词——"已完成第1部分，接着写第2部分"此前"接着/再做/还要"
+// 不在继续性词表 → 被当全部完成提前 break（无清单路径）。限定双词防 v12.13.0 裸"然后"教训。
+// v16.0.2(A-2 修正): 原 `(?:接着|还要|再)做(?<!不)` 的 lookbehind 恒真（"不再做了"也匹配，
+// 因 "再" 前是 "不" 时先整体不匹配）且只收"做"不收"写/改/创建"——"接着写第2部分"不匹配。
+// 改为 `(?<!不(?:要|会|再)?)(?:接着|还要|再)\s*(?:做|写|改|创建|生成|填充|处理)`（lookbehind
+// 前置整个词表，并覆盖"不要/不会/不再"组合——原 `(?<!不)` 只挡紧邻单字"不"，"不要再写了"
+// "不要接着写"仍误命中；实证：接着写→true，不再做/不要再写→false，还要写吗？→true 问句分支先 break 安全）。
+const CONTINUATION_RE = /接下来|下一步|下面|继续|我先|剩余|还有.{0,8}(?:任务|项|要做|需要做)|(?<!不(?:要|会|再)?)(?:接着|还要|再)\s*(?:做|写|改|创建|生成|填充|处理)|然后(?:继续|完成)/
 // H1: 工具结果消息（role:'tool'）经 ContractExecutor 按契约过滤后只剩 status/summary/detail，
 // 无 toolName 字段——从 assistant 消息的 tool_calls 建立 id → 工具名映射判断。
 // 查不到映射（如历史被压缩/裁剪）时安全降级为不压缩。
@@ -165,6 +181,8 @@ export class V4UnifiedRuntime {
   private _dupReadHintInjected = false        // v14.6.1: 重复读取提醒每 run 只注入一次（原每工具轮重复注入）
   private kbInjectedFileIds: string[] = []    // v14.8: 本轮 KB 预注入文件 id（execCtx → kb_search 排除 + run 结果跨 run 持久化）
   private readTracker: ReadResultTracker | null = null  // v15.6: read_file 去重层（per-run 生命周期，历史重建覆盖跨 run）
+  // v16.0.1(审计 M11): 本轮工具结果收集器（跨 run 去重重建数据源；上限防消息膨胀）
+  private toolResultsCollected: Array<{ tool: string; args: Record<string, unknown>; content: string }> = []
 
   constructor(config: V4AgentConfig, adapter: ProtocolAdapter) {
     this.config = config
@@ -313,7 +331,9 @@ export class V4UnifiedRuntime {
     // v15: 子 agent 无头运行 — 不触碰共享 store（隔离 UI 状态与熔断器）
     const isolated = !!this.config.isolatedStore
     const store = isolated ? null : useAgentStore.getState()
-    const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    // v16.0.1(审计 M15): 统一 runId——bridge 传入（config.runId）优先，否则自生成。
+    // store.startRun(runId) 在 run() 内由本 runId 驱动；bridge 侧 teardown 也用同一 id 校验
+    const runId = this.config.runId || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const runStartTime = Date.now()
     // v14.6.1: 工具开关 — 关闭时本轮 tools 传空（模型只能纯文本对话）
     if (input.toolsEnabled === false) {
@@ -367,6 +387,11 @@ export class V4UnifiedRuntime {
     this.toolsUsed = []
     this.toolCallSteps = []
     this._nudgeCount = 0      // reset per run
+    // v16.0.2(D-3): toolResultsCollected per-run 重置——原跨 run 累积（注释"本轮"与实现不符），
+    // 导致 run 2 的 toolResults 含 run 1 的工具结果（UI 持久化 → rebuildFromHistory 重建
+    // 上上轮文件状态）。必须在 contextAssembler 之前重置（run 结果持久化在 assistant 消息，
+    // 由 UI 侧跨 run 传递，实例字段重置不影响）
+    this.toolResultsCollected = []
     this._verifyHintInjected = false  // v14.2.1: reset per run
     this.subagentSummaries = []  // v14.3: reset per run
     this._verifyFailed = false   // v14.3: reset per run
@@ -470,6 +495,9 @@ export class V4UnifiedRuntime {
     // 旧持久化数据（assistant 带 tool_calls 但无对应 tool 结果）会 400。必须在 removeIncompleteToolTurn
     // 定义之后调用（const TDZ）。
     removeIncompleteToolTurn()
+    // 注(v16.0.2 F1): 孤儿 tool 消息（M11 还原的 hist_ 消息，无前置 tool_calls）**不在此处删除**——
+    // ReadResultTracker.stillInContext 依赖它们在 messagesForApi 中做内容指纹匹配（跨 run 去重）；
+    // 协议层（AnthropicAdapter/aiHandlers）发送前转为文本块，既保内容可见又避免 400。
 
     while (iteration < this.config.maxIterations) {
       if (this.config.abortSignal.aborted) {
@@ -585,9 +613,14 @@ export class V4UnifiedRuntime {
           clearTimeout(timeoutId)
           this.config.abortSignal.removeEventListener('abort', onAbort)
           lastApiErr = apiErr instanceof Error ? apiErr : new Error('API 调用失败')
-          const isTransient = /超时|timeout|network|ECONNREFUSED|ETIMEDOUT|429|503|502/.test(lastApiErr.message)
+          const isTransient = /超时|timeout|network|ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EPIPE|ETIMEDOUT|socket hang up|429|503|502|408|504|5\d\d/.test(lastApiErr.message)
           if (retry < 1 && isTransient) {
-            await new Promise(r => setTimeout(r, 2000 * (retry + 1)))
+            // v16.0.1(轻微项): backoff 响应 abort——原固定 2s 睡眠不监听 abortSignal，
+            // 用户停止生成最多延迟 2s 才退出；Promise.race 让 abort 立即穿透
+            const delay = new Promise<void>(r => setTimeout(r, 2000 * (retry + 1)))
+            const abort = new Promise<void>(r => this.config.abortSignal.addEventListener('abort', () => r(), { once: true }))
+            await Promise.race([delay, abort])
+            if (this.config.abortSignal.aborted) break
             continue
           }
           break
@@ -677,7 +710,9 @@ export class V4UnifiedRuntime {
         // ── Done detection (v11.5.1 ~ v14.1.0: 完成判定) ──
         // v12.16.2: 必须实际执行了写工具才接受"完成"声明
         // v14.1.0: 有任务清单时完成判定对照清单（未清空绝不接受）；无清单保留原正则逻辑
-        const completionDeclared = DONE_PHRASE_RE.test(collectedText) || TRUST_DONE_RE.test(collectedText)
+        // v16.0.1(审计 S5): 否定排除——"还没都完成/没搞定/尚未完成"等不视为完成声明
+        const completionDeclared = (DONE_PHRASE_RE.test(collectedText) || TRUST_DONE_RE.test(collectedText))
+          && !NEG_DONE_RE.test(collectedText)
 
         // ── v14.3: 验收失败督促闸门（有界：最多注入 MAX_VERIFY_FAIL_ROUNDS 次督促后放行）──
         // 防"验收未通过却被'完成'声明放行"：产物不合格时强制修复→复验闭环。
@@ -698,11 +733,34 @@ export class V4UnifiedRuntime {
           this.updateTaskProgressFromText(collectedText)
           // 严格全局完成声明 + 写过文件 → 信任全局完成（部分声明"已完成N项"不触发）
           // v14.5.0: PARTIAL_DONE_RE 排除"第N项完成/任务X/Y完成"等部分声明形态
-          if (GLOBAL_DONE_RE.test(collectedText) && !PARTIAL_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
+          // v16.0.1(审计 S5): NEG_DONE_RE 排除"还没都完成/没全部完成"等否定句式
+          if (GLOBAL_DONE_RE.test(collectedText) && !PARTIAL_DONE_RE.test(collectedText)
+              && !NEG_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
           if (this.allTasksDone()) {
             // 说了"完成"但没写 → 不通过，进入自愈恢复（v14.9(C3): 证据 = 文件写成功，非"尝试过"）
+            // v16.0.1(审计 S6): 补 _nudgeCount++——原分支不计数，REFUSAL 出口永不触发，
+            // 模型口头声明完成空转至 maxIterations 烧 token
             if (this._userRequestedFileOp && !this._fileWriteDone) {
+              // v16.0.1(审计 N3): 清单路径有界出口——S6 只让无清单路径的 REFUSAL 出口可达，
+              // 清单路径此循环原持续到 maxIterations（30 轮全量上下文 API 调用）。
+              // 与无清单路径 :815-827 同构：尝试 ≥8 轮且模型明确说明"无法完成"（带原因）→ 接受收尾
+              // v16.0.2(A-1): 加问句守卫——"带问号的 50+ 字文本"（如"需要先确认路径，请问创建在哪里？"）
+              // 是向用户提问等回答的合法场景，不能被当困难任务收尾（问句分支在本分支之后）
+              if (this._nudgeCount >= 8 && collectedText.length > 50
+                  && !/[？?]/.test(collectedText) && REFUSAL_RE.test(collectedText)) {
+                this.emitter.emit('hook:blocked', {
+                  hookName: '任务困难',
+                  feedback: '清单模式下多轮尝试后模型判定任务无法完成（已向用户说明原因）',
+                  timestamp: Date.now(),
+                })
+                this._cleanExit = true
+                this.emitter.emit('response:streaming', {
+                  text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+                })
+                break
+              }
               this.pushRoundText(collectedText)
+              this._nudgeCount++
               this.messagesForApi.push({
                 role: 'user',
                 content: '你说"完成"了，但工具调用记录显示没有实际写入任何文件。任务未完成——请用 create_file / edit_file / batch_replace 实际执行写入。',
@@ -770,8 +828,10 @@ export class V4UnifiedRuntime {
           break
         }
         // 说了"完成"但没写 → 不通过，进入自愈恢复（v14.9(C3): 证据 = 文件写成功）
+        // v16.0.1(审计 S6): 补 _nudgeCount++（同清单分支——原不计数致 REFUSAL 出口永不触发）
         if (completionDeclared && this._userRequestedFileOp && !this._fileWriteDone) {
           this.pushRoundText(collectedText)
+          this._nudgeCount++
           this.messagesForApi.push({
             role: 'user',
             content: '你说"完成"了，但工具调用记录显示没有实际写入任何文件。任务未完成——请用 create_file / edit_file / batch_replace 实际执行写入。',
@@ -800,6 +860,24 @@ export class V4UnifiedRuntime {
         }
         if (this.toolsUsed.length === 0 && this._userRequestedFileOp) {
           // 用户要求了文件操作但模型完全没调工具 → 推入自愈恢复
+          // v16.0.1(审计 S6 修正): 本分支有界出口——原 REFUSAL 出口在下方 :857 但被本分支
+          // 前置 continue 拦截（纯文本轮永远走不到），"模型坚持口头声明完成/解释原因"的场景
+          // 空转至 maxIterations 烧 token。此处复用同一判定（≥8 轮 + 带原因的明确拒绝）
+          // v16.0.2(A-1 修正): 补问句守卫——同族出口（:890）已加，此处遗漏；带问号的
+          // 50+ 字 REFUSAL 文本（"文件被删，您是否需要恢复？"）是向用户提问等回答的合法场景
+          if (this._nudgeCount >= 8 && collectedText.length > 50
+              && !/[？?]/.test(collectedText) && REFUSAL_RE.test(collectedText)) {
+            this.emitter.emit('hook:blocked', {
+              hookName: '任务困难',
+              feedback: '多轮尝试后模型判定任务无法完成（已向用户说明原因）',
+              timestamp: Date.now(),
+            })
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
           this.pushRoundText(collectedText)
           this.messagesForApi.push({
             role: 'user',
@@ -812,8 +890,9 @@ export class V4UnifiedRuntime {
         // ── v14.9(审计): 自愈出口——尝试 ≥8 轮后模型明确说明"无法完成"（带原因）→ 接受收尾。
         // 原无出口：客观不可完成的任务（依赖文件被删等）解释性文本被下方长文本闸门无限 nudge
         // 至迭代触顶（30 轮 token 全烧 + truncated 标记让用户反复续跑同一失败任务）。
+        // v16.0.2(A-1): 加问句守卫——"带问号的 50+ 字文本"（向用户提问等回答）不能被当困难任务收尾
         if (this._nudgeCount >= 8 && this._userRequestedFileOp && !this._fileWriteDone
-            && collectedText.length > 50 && REFUSAL_RE.test(collectedText)) {
+            && collectedText.length > 50 && !/[？?]/.test(collectedText) && REFUSAL_RE.test(collectedText)) {
           this.emitter.emit('hook:blocked', {
             hookName: '任务困难',
             feedback: '多轮尝试后模型判定任务无法完成（已向用户说明原因）',
@@ -940,6 +1019,9 @@ export class V4UnifiedRuntime {
 请分析当前状态：哪些成功了？哪些失败了？换一种方法继续推进。不要重复已经失败的操作。`
         } else {
           // 前几轮: 不干预，让 System Prompt 的自我恢复逻辑工作
+          // v16.0.1(审计 M14): 补 pushRoundText——原分支不回写，模型下轮看不到自己刚说的话
+          // （重复道歉/重复说同一件事）
+          this.pushRoundText(collectedText)
           continue
         }
 
@@ -1008,6 +1090,8 @@ export class V4UnifiedRuntime {
         injectedKbFileIds: this.kbInjectedFileIds,
         // v14.3: 子代理执行快照收集器（ToolExecutor 在委托成功后 push）
         subagentSummaries: this.subagentSummaries,
+        // v16.0.1(审计 M11): 工具结果收集器（跨 run 去重重建数据源）
+        toolResults: this.toolResultsCollected,
         store: {
           addToolExecution: (id: string, name: string) => store?.addToolExecution(id, name),
           completeTool: (id: string, status: 'success' | 'error', summary: string, detail?: string) =>
@@ -1212,8 +1296,16 @@ export class V4UnifiedRuntime {
     }
 
     // ── ③ Done ──
-    store?.setIsStreaming(false)
-    store?.endRun()
+    // v16.0.1(审计 M15): endRun 竞态守卫——仅当 store 中仍是自己的 runId 才清理 UI 状态。
+    // 快速连发两条消息时旧 run teardown 可能晚于新 run startRun → 新 run 的 UI 状态被清空后写回
+    //（闪烁 IDLE）。setIsStreaming(false) 同样要守卫：新 run 的 response:streaming 会
+    // setStreaming(true)，旧 run 误清会使流式文本指示丢失。
+    // 注意：必须实时读 useAgentStore.getState()——run 开始捕获的 store 引用在 startRun
+    // 的 set() 后已 stale（run.runId 仍是旧值），用旧引用守卫恒失败
+    if (!isolated && useAgentStore.getState().run.runId === runId) {
+      useAgentStore.getState().setIsStreaming(false)
+      useAgentStore.getState().endRun()
+    }
 
     // v13.2.0: 估算下一次 API 请求的上下文 token 数（进度条用）
     const estimatedContextTokens = this.compressor.estimateMessages(this.messagesForApi)
@@ -1279,6 +1371,9 @@ export class V4UnifiedRuntime {
       ...(collectedReasoning ? { reasoningContent: collectedReasoning } : {}),
       // v14.8: 本轮 KB 预注入文件 id（跨 run 去重持久化；上限 20 防消息膨胀）
       ...(this.kbInjectedFileIds.length > 0 ? { kbInjectedFileIds: this.kbInjectedFileIds.slice(0, 20) } : {}),
+      // v16.0.1(审计 M11): 本轮工具结果（跨 run 去重重建；上限 50 防消息膨胀，
+      // buildHistoryMessages 保留模式再按 5 工具轮截断）
+      ...(this.toolResultsCollected.length > 0 ? { toolResults: this.toolResultsCollected.slice(-50) } : {}),
     }
   }
 }

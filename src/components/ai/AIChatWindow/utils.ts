@@ -261,6 +261,11 @@ export function buildHistoryMessages(msgs: Message[]) {
     : 0
 
   const result: Array<{ role: string; content: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>; tool_call_id?: string; thinkingBlocks?: Array<{ thinking: string; signature: string }>; reasoning_content?: string }> = []
+  // v16.0.2(F2): hist_ id 全局递增序号（跨所有消息）——原 per-message 数组下标在多条同名
+  // 工具消息时碰撞（ReadResultTracker.rebuildFromHistory callInfo 覆盖，早轮记录丢失）。
+  // 与 ReadResultTracker.rebuildFromHistory 的 _toolResults 分支共享同一计数序列
+  // （两处都按历史顺序遍历，每还原一个 tool 结果 +1，id 严格同序）。
+  let histSeq = 0
   // v14.3.1: 早期轮次折叠摘要（system 消息，置于历史最前）
   if (earlySummary) {
     result.push({ role: 'system', content: earlySummary })
@@ -297,6 +302,31 @@ export function buildHistoryMessages(msgs: Message[]) {
             })
           }
         }
+        continue
+      }
+      if (m.role === 'assistant' && (m as any)._toolResults && (m as any)._toolResults.length > 0) {
+        // v16.0.1(审计 M11): 新数据流（toolCallSteps 型，无 tool_calls）→ 用持久化的 _toolResults
+        // 还原真实 role:'tool' 消息（tool_call_id 顺序生成）——ReadResultTracker.rebuildFromHistory
+        // 依赖真实 tool 内容做跨 run 去重重建；content 原样回传（含 status/summary/detail/note）
+        const reasoningContent = (m as any).reasoning_content ?? (m as any).reasoningContent
+        result.push({
+          role: 'assistant',
+          content: m.content || '',
+          thinkingBlocks: (m as any).thinkingBlocks,
+          reasoning_content: reasoningContent,
+        })
+        const toolResults = (m as any)._toolResults as Array<{ tool: string; args: Record<string, unknown>; content: string }>
+        toolResults.forEach((tr) => {
+          result.push({
+            role: 'tool',
+            // v16.0.2(F2): id 用全局递增序号（histSeq），与 ReadResultTracker.rebuildFromHistory
+            // 的 _toolResults 分支同序（两者都按历史顺序遍历）；原 hist_${tool}_${idx} 在多条
+            // 同名工具消息时碰撞
+            tool_call_id: `hist_${histSeq}_${tr.tool}`,
+            content: tr.content || '{}',
+          })
+          histSeq++
+        })
         continue
       }
       if (m.role === 'assistant') {

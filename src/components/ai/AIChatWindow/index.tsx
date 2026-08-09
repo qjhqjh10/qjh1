@@ -485,6 +485,9 @@ export default function AIChatWindow() {
 
   const abortToolLoop = () => {
     bridgeRef.current?.abort(); aiService.abortStream(); setLoading(false)
+    // v16.0.1(审计 S1): 释放发送锁——原不复位，abort 路径若跳过 handleSend 的 finally
+    //（bridge.abort 后异常/竞态），sendLockRef 永久 true → 发送按钮锁死
+    sendLockRef.current = false
     // v14.9(审计): 审批弹窗期间停止生成 → 拒绝在途审批并关闭弹窗（原仅靠 60s 超时兜底——
     // 60s 内发新消息并再次触发审批会覆盖 approvalResolveRef，旧 run 的审批 promise 永挂起、
     // 订阅清理永不执行 → 泄漏）
@@ -492,10 +495,10 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
-  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
-  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
+  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
 
   // Dismiss context menu on click outside
@@ -743,10 +746,12 @@ export default function AIChatWindow() {
         // 避免同一知识库文件跨 run 反复注入（内容已在历史中，模型可按需 kb_search/read_file 深入）
         // v14.9(B2): 排除集取最近 3 条 assistant 的并集——原只取最后一条，任何一轮无 KB 预注入
         // （数组为空）后链即断，更早 run 注入过的文件可被重新注入
+        // v16.0.1(审计 M10): 窗口 3→5 条——与 buildHistoryMessages PRESERVE_TOOL_TURNS=5 对齐，
+        // 连续 4+ 轮注入为空后更早注入过的文件不再被重新注入
         excludeKbFileIds: [...new Set(
           [...messages].reverse()
             .filter(m => m.role === 'assistant' && (m.kbInjectedFileIds?.length ?? 0) > 0)
-            .slice(0, 3)
+            .slice(0, 5)
             .flatMap(m => m.kbInjectedFileIds || []),
         )],
         resumeTaskProgress: lastProgressMsg?.taskProgress,
@@ -828,6 +833,12 @@ export default function AIChatWindow() {
             subagentSummaries: (runResult as any).subagentSummaries?.slice(-5),
             // v14.6.1: 推理链持久化（"思考过程"折叠面板数据源——原从未写入，面板恒不显示）
             reasoningContent: (runResult as any).reasoningContent,
+            // v16.0.1(审计 M11): 持久化最近工具轮的 tool 结果（tool 名+参数+实际注入内容）——
+            // 生产 UI 不持久化 tool_calls，ReadResultTracker.rebuildFromHistory 跨 run 重建
+            // 依赖真实 tool 内容（标记 hash 不可用：内容指纹不匹配 → 去重不生效）。
+            // buildHistoryMessages 保留模式把 _toolResults 还原为真实 role:'tool' 消息，
+            // 跨 run 去重与 changed 提示才真正生效。
+            _toolResults: (runResult as any).toolResults?.slice(-50),
             // v14.8: 本轮 KB 预注入文件 id 随消息持久化（下轮 sendMessage 读回做跨 run 排除）
             kbInjectedFileIds: (runResult as any).kbInjectedFileIds?.slice(-20),
             // v14.9(接线): 「执行计划」卡片数据源——从实际工具执行记录回溯生成

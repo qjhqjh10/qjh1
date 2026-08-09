@@ -21,6 +21,9 @@ export interface Message {
   /** v15.5: 服务端工具块（server_tool_use / web_search_tool_result）——
    * DeepSeek Anthropic 端点原生联网多轮回传必需 */
   serverToolBlocks?: Array<Record<string, unknown>>
+  /** v16.0.1(审计 M11): 工具结果（跨 run 去重重建数据源）——生产 UI 不持久化 tool_calls，
+   * buildHistoryMessages 还原为 role:'tool' 消息，ReadResultTracker.rebuildFromHistory 据此重建 */
+  _toolResults?: Array<{ tool: string; args: Record<string, unknown>; content: string }>
 }
 
 // ── Tool Calls ──

@@ -70,6 +70,10 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
     }
 
     // Execute
+    // v16.0.2(P3): recordToolCall 接线——审计工具入参（脱敏：content→长度、query→100 字截断，
+    // 见 AuditTrail.recordToolCall）。原方法定义后无调用方，事后审计只能看结果 summary 看不到
+    // "agent 实际请求了什么参数"。放在执行前（"调用"=实际执行）；失败/拒绝路径不记录调用
+    auditTrail.recordToolCall(ctx.toolName, args)
     const result = await toolRegistry.execute(ctx.toolName, args, ctx)
     auditTrail.recordToolResult(ctx.toolName, result.status, result.summary)
 

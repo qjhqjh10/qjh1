@@ -330,6 +330,31 @@ describe('API Error Handling', () => {
     expect(svc.chatWithTools).toHaveBeenCalledTimes(2) // original + 1 retry
   })
 
+  it('v16.0.1(M12): retries on newly-added transient errors (ECONNRESET/socket hang up/504)', async () => {
+    // 逐一验证新加入的瞬态错误都被重试（原正则缺这些 → 直接中断）。
+    // 注意：每个 case 含 2s backoff → 3 个 case 约 6s，测试超时放宽
+    const cases = ['ECONNRESET', 'socket hang up', '504 Gateway Timeout']
+    for (const msg of cases) {
+      let callCount = 0
+      const svc: AIService = {
+        chatWithTools: vi.fn(async () => {
+          callCount++
+          if (callCount === 1) throw new Error(msg)
+          return { text: `重试成功(${msg})`, toolCalls: null, finishReason: 'stop', usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 } }
+        }),
+        abortStream: vi.fn(),
+      }
+      const adapter = new OpenAIAdapter(svc)
+      const runtime = makeRuntime(adapter, { maxIterations: 5 })
+      runtime.setToolExecutor(makeTrackedExecutor().executor)
+      runtime.setTools([])
+
+      const result = await runtime.run({ userMessage: `测试重试 ${msg}`, attachments: [] })
+      expect(result.success).toBe(true)
+      expect(svc.chatWithTools).toHaveBeenCalledTimes(2)  // original + 1 retry（原缺陷：直接中断）
+    }
+  }, 30_000)
+
   it('does NOT retry on auth errors (401/403)', async () => {
     const svc: AIService = {
       chatWithTools: vi.fn(async () => {

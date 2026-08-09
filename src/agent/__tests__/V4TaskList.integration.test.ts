@@ -600,6 +600,78 @@ describe('Task List: 跨 run 续跑 (taskProgress 快照)', () => {
     expect(result.taskProgress?.allDone).toBe(true)
     expect(calls.length).toBeGreaterThanOrEqual(3)
   })
+
+  it('T26 v16.0.1(S5) 否定完成句排除: "还没都完成" 不触发全局完成，继续执行', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '任务还没都完成，继续。' },  // 原缺陷: GLOBAL `都.*完成` 命中 → markAllDone
+      { text: '', toolCalls: [CREATE('2')] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡',
+      attachments: [],
+    })
+
+    expect(callCount()).toBe(2)  // 否定句轮未提前收尾
+    expect(result.taskProgress?.allDone).toBe(true)
+    expect(calls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('T27 v16.0.1(S5) 这N项形态: "这2项都完成了" 不触发全局完成，继续执行', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '这2项都完成了，继续做剩下的。' },  // 原缺陷: PARTIAL 无"这N项"形态 → GLOBAL 命中 → markAllDone
+      { text: '', toolCalls: [CREATE('2')] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章',
+      attachments: [],
+    })
+
+    expect(callCount()).toBe(2)  // 部分声明轮未提前收尾
+    expect(result.taskProgress?.allDone).toBe(true)
+  })
+
+  it('T28 v16.0.2(D-1): "都完成了" 正面收尾语不被 NEG 误拦 → 正常 markAllDone 收尾', async () => {
+    const { svc, calls } = makeMockAI([
+      { text: '', toolCalls: [CREATE('1')] },
+      { text: '都完成了。' },  // 原缺陷：NEG 第二备选 `都(?:还|仍|未)?(?:没)?` 组合爆炸 →
+      // "都完成了"（无否定修饰）被当否定句 → markAllDone 被拒 → 落入剩余任务 nudge
+      { text: '完成。' },  // 验收提示轮后模型确认完成 → break（修复后流程）
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1. 写完整大纲 2. 创建角色卡 3. 生成第一章 4. 创建笔记',
+      attachments: [],
+    })
+
+    // "都完成了"（写过后 + GLOBAL 命中 + NEG=0）→ markAllDone → allTasksDone
+    // → 验收提示（一次）→ 模型确认完成 → break
+    // 原缺陷：被 NEG 拦截 → markAllDone 不置位 → 剩余任务 nudge → 反复 nudge 至 maxIterations
+    expect(callCount()).toBe(1)  // CREATE('1') 后即收尾（第 2 条 CREATE('2') 不存在于 mock）
+    expect(result.taskProgress?.allDone).toBe(true)
+    expect(result.success).toBe(true)
+    expect(calls.length).toBeGreaterThanOrEqual(3)  // 工具轮 + 都完成了轮 + 确认轮
+  })
 })
 
 // ══════════════════════════════════════════════════════════════
