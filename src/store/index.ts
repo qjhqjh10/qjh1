@@ -324,10 +324,11 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'novel-writer-settings',
-      version: 9,
+      version: 10,  // v16.2.0: visionTemplate 字段 + image* → secondary* 迁移
       partialize: (state) => ({
         ...state,
-        configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', embeddingApiKey: '' })),
+        // 密钥权威源在 electron-store（明文）；imageApiKey 保留为旧磁盘数据兼容（v16.2.0 已迁移到 secondaryApiKey）
+        configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', secondaryApiKey: '', embeddingApiKey: '' })),
       }),
       migrate: migrateSettings,
     }
@@ -499,6 +500,46 @@ export function migrateSettings(persisted: unknown, version: number): Record<str
       if (typeof updatedAi.activeRoleTemplateId !== 'string') (updatedAi as any).activeRoleTemplateId = ''
       p = { ...p, aiSettings: updatedAi }
     }
+  }
+
+  if (version < 10) {
+    // v10 (v16.2.0): 副模型多模态 — aiSettings 补 visionTemplate 默认；configs 的旧 image* 字段搬到 secondary*
+    const ai = (p.aiSettings && typeof p.aiSettings === 'object' ? p.aiSettings : {}) as Record<string, unknown>
+    const aiSettings = {
+      ...ai,
+      visionTemplate: typeof ai.visionTemplate === 'string' ? ai.visionTemplate : 'standard',
+    }
+    const configs = Array.isArray(p.configs) ? (p.configs as Record<string, unknown>[]) : []
+    const migratedConfigs = configs.map(c => {
+      const oldImage = {
+        imageModel: String(c.imageModel ?? ''),
+        imageProvider: String(c.imageProvider ?? ''),
+        imageApiUrl: String(c.imageApiUrl ?? ''),
+        imageApiKey: String(c.imageApiKey ?? ''),
+        imageInputPricePerM: typeof c.imageInputPricePerM === 'number' ? c.imageInputPricePerM : 0,
+        imageOutputPricePerM: typeof c.imageOutputPricePerM === 'number' ? c.imageOutputPricePerM : 0,
+      }
+      const hasOld = oldImage.imageModel || oldImage.imageProvider || oldImage.imageApiUrl || oldImage.imageApiKey
+      if (!hasOld && typeof c.secondaryModel === 'string') return c
+      const next = { ...c }
+      if (hasOld) {
+        if (typeof next.secondaryModel !== 'string' || !next.secondaryModel) next.secondaryModel = oldImage.imageModel
+        if (typeof next.secondaryProvider !== 'string' || !next.secondaryProvider) next.secondaryProvider = oldImage.imageProvider
+        if (typeof next.secondaryApiUrl !== 'string' || !next.secondaryApiUrl) next.secondaryApiUrl = oldImage.imageApiUrl
+        if (typeof next.secondaryApiKey !== 'string' || !next.secondaryApiKey) next.secondaryApiKey = oldImage.imageApiKey
+        if (typeof next.secondaryInputPricePerM !== 'number' || next.secondaryInputPricePerM <= 0) next.secondaryInputPricePerM = oldImage.imageInputPricePerM
+        if (typeof next.secondaryOutputPricePerM !== 'number' || next.secondaryOutputPricePerM <= 0) next.secondaryOutputPricePerM = oldImage.imageOutputPricePerM
+        // v16.2.0(审查修复 B1): 搬移后删除旧键（与 configMigration 对齐，防 electron-store 残留）
+        delete next.imageModel
+        delete next.imageProvider
+        delete next.imageApiUrl
+        delete next.imageApiKey
+        delete next.imageInputPricePerM
+        delete next.imageOutputPricePerM
+      }
+      return next
+    })
+    p = { ...p, aiSettings, configs: migratedConfigs }
   }
 
   return p

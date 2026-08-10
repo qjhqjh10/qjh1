@@ -24,6 +24,7 @@ export const CORE_TOOL_NAMES = new Set([
 // v14.3: +subagent_ask（子代理会话追问，多轮对话中高频，避免 tool_search 往返）
 // v14.8: +kb_analyze（知识库深度分析，常驻避免 tool_search 往返）
 // v16.1.0: +editor_rewrite（章节协作改写——关联模式核心工具，常驻避免 tool_search 往返）
+// v16.2.0: +analyze_image（副模型多模态看图——用户上传图片后 AI 需在后续轮主动看图，常驻避免 tool_search 往返）
 export const SUBSEQUENT_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   'find_files',
@@ -36,6 +37,7 @@ export const SUBSEQUENT_TOOL_NAMES = new Set([
   'verify_task',
   'subagent_ask',
   'editor_rewrite',
+  'analyze_image',
 ])
 
 export const toolSearchTools: ToolDefinition[] = [{

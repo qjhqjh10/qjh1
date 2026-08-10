@@ -1,7 +1,25 @@
 {
-  "currentVersion": "16.1.0",
+  "currentVersion": "16.2.0",
   "currentDate": "2026-08-10",
   "history": [
+    {
+      "version": "16.2.0",
+      "date": "2026-08-10",
+      "features": [
+        "副模型多模态（Secondary Model）：模型设置「Image 图片模型」彻底改造为「Secondary 副模型」（image* 6 字段 → secondary*，旧配置自动迁移）——主模型保持 DeepSeek 文本写作，副模型（OpenAI 兼容，如 MiniMax-M3 / qwen-vl-plus）提供图片理解能力",
+        "上传图片自动分析：AI 写作助手聊天窗上传/拖拽图片 → 主进程读图 + nativeImage 缩放 → OpenAI content parts（image_url base64）→ 副模型看图 → 结构化描述注入主模型上下文（📷 图片已分析），主模型基于描述写作；历史只存描述文本（行业 vision-bridge 惯例，base64 不进对话）",
+        "analyze_image 工具（第 34 工具）：AI 写作中可主动看图（项目 images/ 目录、知识库图片等），描述回灌主上下文；未配置副模型时返回引导错误",
+        "图片处理策略三档模板（设置页下拉，默认标准）：标准 1568px/800 token / 精细 2048px/1500 token / 经济 768px/300 token——控制图片缩放与描述长度，不设硬限制",
+        "generate_image 工具改用副模型配置（需服务商支持 OpenAI Images 端点）；token 统计新增 source='vision' 独立记账（按副模型输入价 + API 实际 usage 实算）",
+        "图片处理策略提示词：analyze_image 支持带 question 定向提问（如\"她穿什么衣服\"）"
+      ],
+      "fixes": [
+        "副模型密钥进 KEY_FIELDS（mergeConfigKeys 防掩码占位符覆写）+ store partialize 脱敏（secondaryApiKey）",
+        "handleDrop 与 handleSend 图片目录统一为 uploads/images/（原 handleDrop 写 uploads/ 根目录，AI read_file 路径混乱）",
+        "图片自动分析失败回退旧占位符 + 错误摘要，不阻塞发送；副模型未配置时提示“图片仅保存”",
+        "configMigration + store migrateSettings v10 双通道迁移：旧 image* 有值搬入 secondary*，已配置 secondary* 不被覆盖，价格为 0 视为未配置"
+      ]
+    },
     {
       "version": "16.1.0",
       "date": "2026-08-10",

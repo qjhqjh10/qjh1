@@ -102,4 +102,66 @@ export const imageTools: ToolDefinition[] = [
       }
     },
   },
+
+  // ── v16.2.0: analyze_image — AI 主动看图（副模型多模态）──
+  // 主模型写作中需要"看图"时主动调用（项目 images/ 目录、知识库图片、用户提及的图片文件）。
+  // 与上传图片自动分析共用 ai:vision-chat IPC；主进程读文件→缩放→副模型→描述回灌。
+  {
+    schema: {
+      name: 'analyze_image',
+      description:
+        '调用副模型（多模态，OpenAI 兼容）分析图片文件并返回结构化描述。' +
+        '副模型独立看图，描述文本回灌你的上下文（图片数据不进入对话）。' +
+        '适用于：用户提及图片文件需要理解内容、查看项目 images/ 目录或知识库中的图片、比对参考图等。' +
+        '注意：需在设置→模型设置→副模型配置支持图片理解的模型（如 MiniMax-M3 / qwen-vl-plus）；未配置时返回错误。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string', description: '图片文件路径（相对路径，支持项目 images/、uploads/ 等目录）' },
+          question: { type: 'string', description: '分析问题（可选，如"她穿什么衣服""这是什么场景"，不传则输出通用描述）' },
+        },
+        required: ['file_path'],
+      },
+    },
+    permission: 'AUTO',
+    category: 'image',
+    executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
+      const filePath = String(args.file_path || '').trim()
+      if (!filePath) return { status: 'error', summary: 'file_path 为空' }
+      const question = String(args.question || '').trim()
+      try {
+        const { aiService } = await import('@/services/fileService')
+        const { useSettingsStore } = await import('@/store')
+        const cfg = useSettingsStore.getState().configs.find(c => c.id === ctx.configId)
+        if (!cfg?.secondaryModel) {
+          return {
+            status: 'error',
+            summary: '未配置副模型，无法分析图片',
+            detail: '请在 设置→模型设置→副模型 填写支持图片理解的模型（如 MiniMax-M3 / qwen-vl-plus）后重试。',
+          }
+        }
+        const template = useSettingsStore.getState().aiSettings?.visionTemplate || 'standard'
+        // v16.2.0(审查修复 E1): 复用共享提示词常量（原内联同语义文案 + TOOL_VISION_PROMPT 死导出）
+        const { TOOL_VISION_PROMPT } = await import('@/utils/visionAnalyzer')
+        const prompt = question
+          ? `请仔细观察这张图片，回答分析问题：${question}。若图片中能找到相关依据请具体说明，找不到则如实说明。用中文，条理清晰。`
+          : TOOL_VISION_PROMPT
+        const result = await aiService.visionChat({
+          configId: ctx.configId,
+          projectId: ctx.projectId || undefined,
+          prompt,
+          images: [{ path: filePath }],
+          template,
+        })
+        return {
+          status: 'success',
+          summary: `图片分析完成: ${filePath}（花费 $${(result.cost || 0).toFixed(4)}）`,
+          detail: `图片: ${filePath}\n\n${(result.text || '').slice(0, 8000)}`,
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { status: 'error', summary: `图片分析失败: ${msg}` }
+      }
+    },
+  },
 ]

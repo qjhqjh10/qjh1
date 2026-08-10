@@ -1,6 +1,6 @@
 /**
- * 模型配置 — 一个配置包含 Main 模型 + Image 图片模型 + Embedding 嵌入模型
- * AI写作助手使用 Main 模型进行对话和工具调用
+ * 模型配置 — 一个配置包含 Main 模型 + Secondary 副模型 + Embedding 嵌入模型
+ * AI写作助手使用 Main 模型进行对话和工具调用；副模型（OpenAI 兼容）提供图片理解/生成
  */
 export interface ModelConfig {
   id: string
@@ -30,14 +30,15 @@ export interface ModelConfig {
   cacheHitPricePerM: number         // 输入（缓存命中）折扣价
   mainCurrency?: 'USD' | 'CNY'
 
-  // ── 🎨 Image 图片模型 ──
-  imageModel: string              // 图片生成模型 (如 dall-e-3, 留空=禁用)
-  imageProvider: string
-  imageApiUrl: string
-  imageApiKey: string
-  imageEncrypted?: boolean
-  imageInputPricePerM: number     // DALL-E按图计费，填每张价格
-  imageOutputPricePerM: number
+  // ── 🖼️ Secondary 副模型（v16.2.0: 原 image* 字段彻底改造，OpenAI 兼容协议）──
+  // 多模态（图片理解/生成）：上传图片自动分析 → 描述注入主模型；generate_image 工具；AI 可调 analyze_image 主动看图
+  secondaryModel: string          // 副模型名 (如 MiniMax-M3 / qwen-vl-plus，留空=禁用)
+  secondaryProvider: string
+  secondaryApiUrl: string
+  secondaryApiKey: string
+  secondaryEncrypted?: boolean
+  secondaryInputPricePerM: number // 输入价格（元或美元/百万 tokens）
+  secondaryOutputPricePerM: number
 
   // ── 📚 知识库 Embedding (不调用 API，本地计算) ──
   embeddingModel: string
@@ -76,13 +77,13 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   inputPricePerM: 1,               // v15.2.1: 默认 CNY 定价 = DeepSeek V4-Flash 官方价（v15.1 曾映射错位为 0.02/1/2）
   outputPricePerM: 2,              //   输入（缓存未命中）1 / 输出 2 / 输入（缓存命中）0.02 元每百万 tokens
   cacheHitPricePerM: 0.02,
-  // Image
-  imageModel: '',
-  imageProvider: '',
-  imageApiUrl: '',
-  imageApiKey: '',
-  imageInputPricePerM: 0,
-  imageOutputPricePerM: 0,
+  // Secondary
+  secondaryModel: '',
+  secondaryProvider: '',
+  secondaryApiUrl: '',
+  secondaryApiKey: '',
+  secondaryInputPricePerM: 0,
+  secondaryOutputPricePerM: 0,
   // Embedding
   embeddingModel: 'text-embedding-3-small',
   currency: 'CNY',                 // v15.1: 默认人民币
@@ -306,6 +307,8 @@ export interface AIAssistantSettings {
   roleTemplates: RoleTemplate[]               // 角色模板列表
   activeRoleTemplateId: string                // 当前激活的角色模板ID
   kbSettings: KBSettings                       // v13.x: 知识库设置
+  // v16.2.0: 副模型图片处理策略（standard=标准 / detail=精细 / eco=经济）——控制缩放上限与描述长度
+  visionTemplate: 'standard' | 'detail' | 'eco'
 }
 
 export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
@@ -336,6 +339,7 @@ export const DEFAULT_AI_SETTINGS: AIAssistantSettings = {
   roleTemplates: [],
   activeRoleTemplateId: '',
   kbSettings: { ...DEFAULT_KB_SETTINGS },
+  visionTemplate: 'standard',
 }
 
 export type ThemeId = 'warm-purple' | 'cyberpunk' | 'steampunk' | 'british' | 'ink-wash' | 'neon-dark'
@@ -366,12 +370,16 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
 ]
 
-/** 图片模型专用服务商 — 仅列出支持 OpenAI Images API（/v1/images/generations）的服务商 */
-export const IMAGE_PROVIDER_PRESETS: ProviderPreset[] = [
-  { name: 'openai', label: 'OpenAI（DALL-E 2/3）', apiUrl: 'https://api.openai.com/v1' },
-  { name: 'azure', label: 'Azure OpenAI（DALL-E）', apiUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
-  { name: 'siliconflow', label: '硅基流动（FLUX / SD）', apiUrl: 'https://api.siliconflow.cn/v1' },
-  { name: 'together', label: 'Together AI（FLUX / SDXL）', apiUrl: 'https://api.together.xyz/v1' },
+/** 副模型专用服务商 — 多模态视觉理解 + OpenAI Images API 文生图（v16.2.0 由 IMAGE_PROVIDER_PRESETS 改造） */
+export const SECONDARY_PROVIDER_PRESETS: ProviderPreset[] = [
+  { name: 'minimax', label: 'MiniMax（M3 多模态）', apiUrl: 'https://api.minimax.chat/v1' },
+  { name: 'qwen', label: '通义千问（Qwen-VL）', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { name: 'openai', label: 'OpenAI（GPT-4o / DALL-E）', apiUrl: 'https://api.openai.com/v1' },
+  { name: 'azure', label: 'Azure OpenAI（GPT-4o / DALL-E）', apiUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
+  { name: 'siliconflow', label: '硅基流动（FLUX / SD / 视觉）', apiUrl: 'https://api.siliconflow.cn/v1' },
+  { name: 'zhipu', label: '智谱AI（GLM-4V）', apiUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  { name: 'moonshot', label: 'Moonshot（Kimi）', apiUrl: 'https://api.moonshot.cn/v1' },
+  { name: 'gemini', label: 'Google Gemini（gemini-pro-vision）', apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
 ]
 
 export const DEFAULT_PROMPTS: PromptTemplate[] = [

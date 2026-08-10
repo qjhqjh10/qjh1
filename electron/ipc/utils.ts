@@ -10,8 +10,9 @@ import { logError } from './logger'
 
 export const MASKED_KEY = '••••••••'
 
-/** 密钥字段清单（与 ModelConfig 的 apiKey/mainApiKey/imageApiKey/embeddingApiKey 一致） */
-export const KEY_FIELDS = ['apiKey', 'mainApiKey', 'imageApiKey', 'embeddingApiKey'] as const
+/** 密钥字段清单（与 ModelConfig 的 apiKey/mainApiKey/imageApiKey/secondaryApiKey/embeddingApiKey 一致）。
+ * imageApiKey 刻意保留：兼容旧磁盘数据（v16.2.0 迁移后仍可能有旧字段，mergeConfigKeys 需防掩码覆写）。 */
+export const KEY_FIELDS = ['apiKey', 'mainApiKey', 'imageApiKey', 'secondaryApiKey', 'embeddingApiKey'] as const
 
 /**
  * H5: 合并密钥字段（三态规则），防止掩码占位符字面量覆写真实密钥：

@@ -24,6 +24,7 @@ import { WELCOME_MSG, STORAGE_KEY, WINDOW_KEY } from '@/components/ai/chatConsta
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
 import { loadAvatar } from '@/utils/imageCompress'
+import { analyzeImage, hasSecondaryModel, DEFAULT_VISION_PROMPT } from '@/utils/visionAnalyzer'
 
 import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination, hasResumeIntent, buildThinkingPlanFromRun, buildToolHintText } from "./utils";
 import { useWindowDrag } from "./hooks/useWindowDrag";
@@ -379,6 +380,8 @@ export default function AIChatWindow() {
   // （原每轮重复注入同一条快照直到新委托替换，浪费 token + 上下文膨胀）
   const lastSnapshotInjectedIdRef = useRef<string | null>(null)
   const [attachment, setAttachment] = useState<{ type: 'file' | 'image'; name: string; content: string; previewUrl?: string } | null>(null)
+  // v16.2.0: 副模型视觉分析中（上传图片发送时的同步等待状态，按钮提示）
+  const [visionAnalyzing, setVisionAnalyzing] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [pendingApproval, setPendingApproval] = useState<DangerousTool[] | null>(null)
   const approvalResolveRef = useRef<((approved: boolean) => void) | null>(null)
@@ -536,26 +539,33 @@ export default function AIChatWindow() {
   //   attachment.content → prepended to user message (发给 API)
   //   attachment.name   → preserved in message history summary only
   //   发送后 setAttachment(null) 清空
+  // v16.2.0(审查修复 C1): 提取公共 handleImageFile——原拖拽/按钮两处 FileReader 逻辑逐行重复，
+  // 且按钮入口漏改目录（写 uploads/ 根 → handleSend 从 uploads/images/ 读 → 双写+孤儿文件）。
+  // 现三处入口（拖拽/按钮）统一走此函数，目录统一 uploads/images/。
+  const handleImageFile = async (file: File): Promise<void> => {
+    const r = new FileReader()
+    r.onload = async () => {
+      const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
+      const uploadsDir = `${base}/uploads/images`
+      try {
+        await fileService.ensureDir(uploadsDir)
+        const base64 = (r.result as string).split(',')[1] || r.result as string
+        const ext = file.name.includes('.') ? file.name.split('.').pop()! : 'png'
+        const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`
+        await fileService.writeBinary(`${uploadsDir}/${fn}`, base64)
+        setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string })
+      } catch (e) { console.error('上传图片失败', e) }
+    }
+    r.readAsDataURL(file)
+  }
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
     if (!file) return
     if (file.type.startsWith('image/')) {
-      const r = new FileReader()
-      r.onload = async () => {
-        const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, '')
-        const uploadsDir = `${base}/uploads`
-        try {
-          await fileService.ensureDir(uploadsDir)
-          const base64 = (r.result as string).split(',')[1] || r.result as string
-          const ext = file.name.includes('.') ? file.name.split('.').pop()! : 'png'
-          const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`
-          await fileService.writeBinary(`${uploadsDir}/${fn}`, base64)
-          setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string })
-        } catch (e) { console.error('上传图片失败', e) }
-      }
-      r.readAsDataURL(file)
+      await handleImageFile(file)
     } else {
       // Text file — store in attachment only, write once in handleSend
       const r = new FileReader()
@@ -654,7 +664,33 @@ export default function AIChatWindow() {
           const imgData = preview.startsWith('data:') ? preview.split(',')[1] : ''
           if (imgData) {
             await fileService.writeBinary(imgPath, imgData)
-            attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
+            // v16.2.0: 副模型多模态 — 上传图片自动分析（同步等待，描述注入主模型上下文）
+            // 副模型未配置 → 回退旧占位符；分析失败 → 附错误摘要不阻塞发送
+            const cfg = useSettingsStore.getState().configs.find(c => c.id === activeConfigId)
+            if (hasSecondaryModel(cfg)) {
+              setVisionAnalyzing(true)
+              try {
+                const visionTemplate = useSettingsStore.getState().aiSettings?.visionTemplate || 'standard'
+                const vision = await analyzeImage({
+                  configId: activeConfigId!,
+                  projectId: useStore.getState().activeProjectId || undefined,
+                  prompt: DEFAULT_VISION_PROMPT,
+                  // v16.2.0(打包优化): 传 path 而非 base64——图片已写盘，避免整图 base64 经 IPC
+                  // 序列化膨胀 33% + 双倍内存（大图在低配电脑卡顿）；主进程 safeResolveArg 解析
+                  images: [{ path: imgPath }],
+                  template: visionTemplate,
+                })
+                if (vision.ok) {
+                  attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。\n📷 图片已分析：${vision.text}`
+                } else {
+                  attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。\n(图片自动分析失败：${(vision.error || '').slice(0, 200)})`
+                }
+              } finally {
+                setVisionAnalyzing(false)
+              }
+            } else {
+              attachText = `[上传图片: ${attachment.name}]\n图片已保存到 uploads/images/${attachment.name}。`
+            }
           } else {
             attachText = attachment.content
           }
@@ -1227,8 +1263,8 @@ export default function AIChatWindow() {
             ) : null}
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
-            {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const base = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); const uploadsDir = `${base}/uploads`; try { await fileService.ensureDir(uploadsDir); const base64 = (r.result as string).split(',')[1] || r.result as string; const ext = f.name.includes('.') ? f.name.split('.').pop()! : 'png'; const fn = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}.${ext}`; await fileService.writeBinary(`${uploadsDir}/${fn}`, base64); setAttachment({ type: 'image', name: fn, content: `[上传图片: ${fn}]`, previewUrl: r.result as string }) } catch (e) { console.error('上传图片失败', e) } }; r.readAsDataURL(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
+            {/* 上传入口③：按钮 → 图片。v16.2.0: 统一走 handleImageFile（目录 uploads/images/） */}
+            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; await handleImageFile(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
             {/* Model switcher */}
             {/* v14.9(设计决策注释): 对话开始后禁止切换模型——设计如此，非缺陷：
                ① bridge 的 configId 在首次 sendMessage 时经 init 锁定（chatBridgeFactory.ts），
@@ -1916,7 +1952,10 @@ export default function AIChatWindow() {
               })()}
               <span style={{ fontSize: 10, color: '#9b8e84' }}>{selectedToolHints.length > 0 ? '随下一条消息发送' : ''}</span>
               <div style={{ flex: 1 }} />
-              <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading}
+              {visionAnalyzing && (
+                <span style={{ fontSize: 10, color: '#7c3aed', marginRight: 8 }}>🔍 分析图片中…</span>
+              )}
+              <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading || visionAnalyzing}
                 title="发送 (Enter)"
                 style={{
                   width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,

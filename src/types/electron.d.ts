@@ -62,6 +62,10 @@ export interface AIAPI {
   /** v15.2.1: 联网获取模型实时价格（OpenRouter 公开目录，免密钥，USD 价） */
   fetchModelPricing: () => Promise<{ models: Record<string, ModelPricePreset>; source: string; fetchedAt: number }>
   generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string) => Promise<{ path: string; url: string; cost: number; prompt: string }>
+  /** v16.2.0: 副模型多模态图片理解（上传自动分析 / analyze_image 工具共用） */
+  visionChat: (opts: { configId: string; projectId?: string; prompt: string; images: Array<{ base64?: string; path?: string }>; template?: string }) => Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }>
+  /** v16.2.0: 中止在途视觉分析 */
+  abortVision: () => void
   chatWithTools: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>
   /** v14.8: DeepSeek Responses API（原生联网搜索通道）— 模型配置勾选原生联网时由 ResponsesAdapter 路由 */
   responsesChat: (messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[], configId: string, projectId?: string, tools?: unknown[], temperature?: number, source?: string, requestId?: string) => Promise<string>

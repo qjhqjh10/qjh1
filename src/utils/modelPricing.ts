@@ -79,6 +79,14 @@ export const MODEL_PRICE_PRESETS: PriceTableEntry[] = [
   { keys: ['moonshot-v1-8k'], preset: { currency: 'CNY', input: 2, output: 10, cacheHit: 2, contextWindow: 8000, source: 'Moonshot 2026-04' } },
   { keys: ['moonshot-v1-32k'], preset: { currency: 'CNY', input: 5, output: 20, cacheHit: 5, contextWindow: 32000, source: 'Moonshot 2026-04' } },
   { keys: ['moonshot-v1-128k'], preset: { currency: 'CNY', input: 10, output: 30, cacheHit: 10, contextWindow: 128000, source: 'Moonshot 2026-04' } },
+
+  // ── v16.2.0: 副模型多模态视觉（OpenAI 兼容端点；价格 2026-08 联网核实，波动以联网查价为准）──
+  { keys: ['minimax-m3'], preset: { currency: 'CNY', input: 2, output: 8, cacheHit: 2, contextWindow: 1000000, source: 'MiniMax 2026-08（多模态 1M 上下文，官方按量价）' } },
+  { keys: ['minimax-vl'], preset: { currency: 'CNY', input: 2, output: 8, cacheHit: 2, source: 'MiniMax 2026-08（视觉模型）' } },
+  { keys: ['qwen-vl-max'], preset: { currency: 'CNY', input: 20, output: 20, cacheHit: 20, source: '阿里云 2026-04（0-32K 档价）' } },
+  { keys: ['qwen2.5-vl'], preset: { currency: 'CNY', input: 6, output: 6, cacheHit: 6, source: '阿里云 2026-04（视觉档）' } },
+  { keys: ['qwen-vl-plus'], preset: { currency: 'CNY', input: 6, output: 6, cacheHit: 6, source: '阿里云 2026-04（视觉档）' } },
+  { keys: ['glm-4v'], preset: { currency: 'CNY', input: 5, output: 5, cacheHit: 5, source: '智谱 2026-04（视觉档）' } },
 ]
 
 // 索引：按 key 长度降序 → 前缀匹配时最长 key 优先（gpt-4.1-mini 不会命中 gpt-4.1/gpt-4o）

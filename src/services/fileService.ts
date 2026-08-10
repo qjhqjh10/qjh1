@@ -205,6 +205,10 @@ export const aiService = {
   generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> => {
     return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number; prompt: string }>
   },
+  // v16.2.0: 副模型多模态图片理解
+  visionChat: async (opts: { configId: string; projectId?: string; prompt: string; images: Array<{ base64?: string; path?: string }>; template?: string }): Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }> => {
+    return e().ai.visionChat(opts) as Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }>
+  },
   // v14.6.1: requestId 可选——无 id = 中止该 webContents 全部在途请求（用户停止语义）
   abortStream: (requestId?: string) => { e().ai.abortStream(requestId) },
 }

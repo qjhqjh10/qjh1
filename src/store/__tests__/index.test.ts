@@ -74,12 +74,12 @@ describe('useSettingsStore', () => {
   it('adds and removes model configs', () => {
     useSettingsStore.getState().addConfig({
       id: 'cfg1', name: 'GPT-4o', provider: 'openai', apiUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test', model: 'gpt-4o', imageModel: '',
-      imageProvider: '', imageApiUrl: '', imageApiKey: '',
+      apiKey: 'sk-test', model: 'gpt-4o', secondaryModel: '',
+      secondaryProvider: '', secondaryApiUrl: '', secondaryApiKey: '',
       embeddingModel: 'text-embedding-3-small',
       temperature: 0.8, maxTokens: 0,
       inputPricePerM: 2.5, outputPricePerM: 10, cacheHitPricePerM: 1.25,
-      imageInputPricePerM: 0, imageOutputPricePerM: 0,
+      secondaryInputPricePerM: 0, secondaryOutputPricePerM: 0,
       currency: 'USD' as const,
     })
     expect(useSettingsStore.getState().configs).toHaveLength(1)

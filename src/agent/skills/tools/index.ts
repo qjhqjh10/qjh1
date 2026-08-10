@@ -22,12 +22,13 @@ import type { ToolDefinition } from '../types'
 // v14.1.1: +analyze_file/edit_file_task → 29；v14.2.0: +verify_task → 30；v14.3.0: +subagent_ask → 31；
 // v14.8.0: +kb_analyze → 32（v14.8 审查修复：注释同步）
 // v16.1.0: +editor_rewrite → 33（章节协作改写渲染层驱动工具）
+// v16.2.0: +analyze_image → 34（副模型多模态：主模型主动看图）
 export const CORE_TOOLS_COUNT = CORE_TOOL_NAMES.size
 export const ALL_TOOLS: ToolDefinition[] = [
   ...fileTools,      // 9 tools
   ...kbTools,        // 4 tools: kb_search / kb_analyze / kb_append_file / kb_index_file
   ...noteTools,      // 1 tool
-  ...imageTools,     // 2 tools
+  ...imageTools,     // v16.2.0: 3 tools: search_images / generate_image / analyze_image
   ...templateTools,  // 1 tool
   ...projectTools,   // 2 tools
   ...promptTools,    // 3 tools

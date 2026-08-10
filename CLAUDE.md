@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v16.1.0
+# AI写作软件—青剑 v16.2.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,15 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v16.1.0)
+## 当前架构 (v16.2.0)
+
+### v16.2.0 副模型多模态（2026-08-10）
+- **副模型（Secondary）**：模型设置「Image 图片模型」彻底改造为「Secondary 副模型」——image* 6 字段 → secondary*（secondaryModel/Provider/ApiUrl/ApiKey/InputPrice/OutputPrice），configMigration + store migrateSettings v10 双通道迁移旧配置
+- **上传图片自动分析**：聊天窗上传/拖拽图片 → 主进程 ai:vision-chat（读图→nativeImage 缩放→base64→OpenAI content parts）→ 副模型看图 → 描述文本注入主模型上下文（📷 图片已分析）——主链路 Message 结构零改动，历史只存描述（vision-bridge 行业惯例）
+- **analyze_image 工具（第 34 工具）**：AI 写作中主动看图（项目 images/、知识库图片），支持 question 定向提问；未配置副模型返回引导错误
+- **图片处理策略三档模板**（aiSettings.visionTemplate，默认 standard）：标准 1568px/800 token / 精细 2048px/1500 / 经济 768px/300——缩放上限+描述长度控制，token 按副模型输入价实记（source='vision' 独立记账）
+- **generate_image 改用副模型配置**（需支持 OpenAI Images 端点）；副模型密钥进 KEY_FIELDS + partialize 脱敏
+- **测试**: 826 passed + 15 skipped；tsc 0；check-consistency 31/31
 
 ### v16.1.0 章节协作改写（2026-08-10，双路审查：UX 人类视角 + agent 破坏性逻辑审查）
 - **章节创作界面 × AI 写作助手 协作改写**: 选中段落 → 右键「发送到 AI 写作助手」→ 建立 chapterCollab 关联（锚=段落首尾20字，text=编辑器内存态权威源）→ 用户提要求 → AI 调新工具 **editor_rewrite(anchor,newText)**（第 33 工具）→ 渲染层消费一次性 action → 编辑器**特效改写**（旧文字淡出→打字机原位逐字→单次 transaction 提交，Ctrl+Z 单步撤销）→ 不落盘，切章/退出自动保存
@@ -236,11 +244,11 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 项目结构 & 数据格式 | `.aiharness/rules/project-structure.md` |
 | 金规则 | `.aiharness/rules/golden-rules.md` |
 | Harness 配置 | `.aiharness/aiharness.json` |
-| Agent 工具列表 | `src/agent/skills/tools/index.ts` (33 工具) |
+| Agent 工具列表 | `src/agent/skills/tools/index.ts` (34 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v16.1.0) |
+| 版本历史 | `src/data/version_history.json` (当前 v16.2.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
@@ -250,7 +258,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (816 passed + 15 skipped，共 831) |
+| `npx vitest run` | 全量单元测试 (826 passed + 15 skipped，共 841) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (303 passed + 14 skipped，共 317) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

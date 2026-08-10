@@ -15,7 +15,8 @@ export function VersionTab() {
 
   const currentVersion = versionData.currentVersion
   const currentDate = versionData.currentDate
-  const versionHistory = versionData.history
+  // v16.2.0: UI 只显示最近 10 个版本（去冗长）；完整历史保留在 version_history.json
+  const versionHistory = versionData.history.slice(0, 10)
 
   const openUpdateDoc = () => {
     window.open(UPDATE_DOC_URL, '_blank', 'noopener')

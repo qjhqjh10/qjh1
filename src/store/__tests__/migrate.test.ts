@@ -135,10 +135,18 @@ describe('migrateSettings (H2)', () => {
     expect((out.aiSettings as AnyRecord).chapterGen).toBeDefined()
   })
 
-  it('version=9（当前版本）返回原状态', () => {
+  it('version=10（当前版本）返回原状态', () => {
+    const state = makeV4State()
+    const out = migrateSettings(state, 10)
+    expect(out).toEqual(state)
+  })
+
+  it('version=9 应用 v10（aiSettings 补 visionTemplate，无 image* 字段的 configs 不动）', () => {
     const state = makeV4State()
     const out = migrateSettings(state, 9)
-    expect(out).toEqual(state)
+    expect((out.aiSettings as AnyRecord).visionTemplate).toBe('standard')
+    // configs 无 image* 字段 → 保持原样（不新增 secondary 字段）
+    expect(out.configs).toEqual([{ id: 'c1', name: 'deepseek' }])
   })
 
   it('非对象持久化（undefined/null）安全降级', () => {

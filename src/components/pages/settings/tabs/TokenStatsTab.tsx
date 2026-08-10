@@ -78,7 +78,7 @@ export function TokenStatsTab() {
         {/* v14.2.1: 按调用来源筛选 — 区分主 agent / 子代理 / 独立流水线 / 图片生成 / 知识库嵌入 */}
         <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="focus-ring" style={miniSelect}>
           <option value="">全部来源</option>
-          {(['main', 'subagent', 'pipeline', 'image', 'embedding'] as const).map(s => (
+          {(['main', 'subagent', 'pipeline', 'image', 'embedding', 'vision'] as const).map(s => (
             <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
           ))}
         </select>
@@ -463,9 +463,9 @@ const miniSelect: React.CSSProperties = {
   outline: 'none', background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: '#4a3f38',
 }
 
-// v14.2.1: 调用来源显示名（main/subagent/pipeline/image）；v14 批处理: +embedding
+// v14.2.1: 调用来源显示名（main/subagent/pipeline/image）；v14 批处理: +embedding；v16.2.0: +vision（副模型图片理解）
 const SOURCE_LABELS: Record<string, string> = {
-  main: '主 agent', subagent: '子代理', pipeline: '独立流水线', image: '图片生成', embedding: '知识库嵌入',
+  main: '主 agent', subagent: '子代理', pipeline: '独立流水线', image: '图片生成', embedding: '知识库嵌入', vision: '副模型看图',
 }
 
 // ════════════════════════════════════════════════════════════

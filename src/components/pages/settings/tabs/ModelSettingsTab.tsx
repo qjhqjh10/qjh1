@@ -7,7 +7,7 @@ import ConfirmModal from '@/components/common/ConfirmModal'
 import ScrollArea from '@/components/common/ScrollArea'
 import { PlusIcon, TrashIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import type { ModelConfig } from '@/types/settings'
-import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS, IMAGE_PROVIDER_PRESETS } from '@/types/settings'
+import { DEFAULT_MODEL_CONFIG, PROVIDER_PRESETS, SECONDARY_PROVIDER_PRESETS } from '@/types/settings'
 import type { ProviderPreset } from '@/types/settings'
 import { FormField } from '../shared'
 import { logError } from '@/utils/logger'
@@ -344,6 +344,7 @@ export function ModelSettingsTab() {
   const updateConfig = useSettingsStore(s => s.updateConfig)
   const removeConfig = useSettingsStore(s => s.removeConfig)
   const setActiveConfig = useSettingsStore(s => s.setActiveConfig)
+  const setAISettings = useSettingsStore(s => s.setAISettings)
   const [savedAt, setSavedAt] = useState(0)
   const [loadingMainModels, setLoadingMainModels] = useState(false)
   const [loadingImageModels, setLoadingImageModels] = useState(false)
@@ -490,7 +491,7 @@ export function ModelSettingsTab() {
                 }}>
                   <div>{config.name}</div>
                   <div style={{ fontSize: 10, color: '#9b8e84', marginTop: 3, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span>💪{config.model}{config.imageModel ? ` 🎨${config.imageModel}` : ''}</span>
+                    <span>💪{config.model}{config.secondaryModel ? ` 🖼️${config.secondaryModel}` : ''}</span>
                     <span style={{
                       display: 'inline-block', padding: '0 5px', borderRadius: 4, fontSize: 9, fontWeight: 700,
                       background: (config as any).protocol === 'anthropic' ? 'rgba(22,163,74,0.1)' : 'rgba(59,130,246,0.08)',
@@ -587,32 +588,58 @@ export function ModelSettingsTab() {
               </div>
             </ModelCard>
 
-            {/* ── 🎨 Image ── */}
+            {/* ── 🖼️ Secondary 副模型（v16.2.0: 原 Image 卡片改造）── */}
             <ModelCard
-              icon="🎨" title="Image 图片模型" desc="图片生成。留空模型名则禁用；若图片与 Main 提供商不同，请填写独立 API 地址和密钥。"
-              modelValue={activeConfig.imageModel} onModelChange={v => u({ imageModel: v })}
-              placeholder="留空 = 禁用（如 dall-e-3）"
+              icon="🖼️" title="Secondary 副模型" desc="副模型为 AI 写作助手提供多模态能力：上传图片自动分析（描述注入主模型）、analyze_image 工具主动看图、generate_image 文生图。OpenAI 兼容协议；留空模型名则禁用。"
+              modelValue={activeConfig.secondaryModel} onModelChange={v => {
+                u({ secondaryModel: v })
+                const preset = lookupModelPrice(v)
+                if (preset) {
+                  u({ secondaryInputPricePerM: preset.input, secondaryOutputPricePerM: preset.output })
+                }
+              }}
+              placeholder="留空 = 禁用（如 MiniMax-M3 / qwen-vl-plus）"
               tempValue={0} onTempChange={() => {}} tempDisabled
               maxTokValue={0} onMaxTokChange={() => {}}
-              inPrice={safe(activeConfig.imageInputPricePerM)} onInPrice={v => u({ imageInputPricePerM: v })}
-              outPrice={safe(activeConfig.imageOutputPricePerM)} onOutPrice={v => u({ imageOutputPricePerM: v })}
+              inPrice={safe(activeConfig.secondaryInputPricePerM)} onInPrice={v => u({ secondaryInputPricePerM: v })}
+              outPrice={safe(activeConfig.secondaryOutputPricePerM)} onOutPrice={v => u({ secondaryOutputPricePerM: v })}
               cachePrice={0}
               currency={activeConfig.mainCurrency || activeConfig.currency}
-              apiUrl={activeConfig.imageApiUrl || activeConfig.apiUrl} onApiUrl={v => u({ imageApiUrl: v })}
-              apiKey={activeConfig.imageApiKey || ''} onApiKey={v => u({ imageApiKey: v })}
-              provider={activeConfig.imageProvider || activeConfig.provider}
-              onProvider={v => u({ imageProvider: v })}
-              apiUrlHint="图片 API 地址（DALL-E / FLUX / SD — 需支持 OpenAI Images 端点）"
-              providerPresets={IMAGE_PROVIDER_PRESETS}
+              apiUrl={activeConfig.secondaryApiUrl || activeConfig.apiUrl} onApiUrl={v => u({ secondaryApiUrl: v })}
+              apiKey={activeConfig.secondaryApiKey || ''} onApiKey={v => u({ secondaryApiKey: v })}
+              provider={activeConfig.secondaryProvider || activeConfig.provider}
+              onProvider={v => u({ secondaryProvider: v })}
+              apiUrlHint="副模型 API 地址（MiniMax / 通义千问 / OpenAI — 需支持 OpenAI 兼容协议）"
+              providerPresets={SECONDARY_PROVIDER_PRESETS}
               showMainFields={true}
               configId={activeConfig.id} onRefreshModels={() => handleRefreshModels('image')} loadingModels={loadingImageModels}
               modelList={imageModelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
             >
               <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', fontSize: 10, color: '#6b5e54', lineHeight: 1.5 }}>
-                💡 定价说明：DALL-E 等专用图片模型按 <b>每张图</b> 计费（填入单价如 0.04），GPT-4o 等多模态模型按 <b>token</b> 计费（结合 Main 模型价格）。<br />
-                ⚠️ 未填写独立 API 密钥时，图片生成将共用 Main 模型的 API 连接。
+                💡 用途：① 上传图片到 AI 写作助手自动看图 ② AI 可调 analyze_image 主动看图 ③ generate_image 文生图（需服务商支持 OpenAI Images 端点）。<br />
+                ⚠️ 未填写独立 API 密钥时，图片分析/生成将共用 Main 模型的 API 连接。图片理解按副模型输入价计费（token 按 API 实际返回记账）。
               </div>
             </ModelCard>
+
+            {/* ── v16.2.0: 图片处理策略（副模型看图参数模板）── */}
+            <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(0,0,0,0.06)' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#2d2520', marginBottom: 4 }}>🖼️ 图片处理策略</div>
+              <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 10, lineHeight: 1.5 }}>
+                控制副模型看图时的图片缩放上限与描述长度（图片 token 按副模型输入价实记，不设硬限制）。
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <select
+                  value={useSettingsStore.getState().aiSettings?.visionTemplate || 'standard'}
+                  onChange={e => { const v = e.target.value as 'standard' | 'detail' | 'eco'; setAISettings({ visionTemplate: v }) }}
+                  style={{ ...inputBase, maxWidth: 220, cursor: 'pointer' }}
+                >
+                  <option value="standard">标准 — 缩放 1568px / 描述 ≤800 token（推荐）</option>
+                  <option value="detail">精细 — 缩放 2048px / 描述 ≤1500 token（细节多，更贵）</option>
+                  <option value="eco">经济 — 缩放 768px / 描述 ≤300 token（省 token，描述简短）</option>
+                </select>
+                <span style={{ fontSize: 10, color: '#9b8e84' }}>对所有图片分析生效（上传自动分析 / analyze_image 工具）</span>
+              </div>
+            </div>
 
             {/* ── 📚 Embedding ── */}
             <div style={cardInner}>

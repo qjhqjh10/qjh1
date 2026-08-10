@@ -459,6 +459,29 @@
   {
     "type": "function",
     "function": {
+      "name": "analyze_image",
+      "description": "调用副模型（多模态，OpenAI 兼容）分析图片文件并返回结构化描述。副模型独立看图，描述文本回灌你的上下文（图片数据不进入对话）。适用于：用户提及图片文件需要理解内容、查看项目 images/ 目录或知识库中的图片、比对参考图等。注意：需在设置→模型设置→副模型配置支持图片理解的模型（如 MiniMax-M3 / qwen-vl-plus）；未配置时返回错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "图片文件路径（相对路径，支持项目 images/、uploads/ 等目录）"
+          },
+          "question": {
+            "type": "string",
+            "description": "分析问题（可选，如\"她穿什么衣服\"\"这是什么场景\"，不传则输出通用描述）"
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "analyze_text_style",
       "description": "调用风格工坊的分析引擎分析文本写作风格。传入原文内容和维度列表，返回结构化维度分析。内部使用 buildStyleAnalyzePrompt + parseStyleAnalysisReply，与风格工坊/仿写使用完全相同的分析引擎。",
       "parameters": {

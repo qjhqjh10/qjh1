@@ -39,6 +39,9 @@ coverage/
 .aiharness/audit/
 .stats/
 
+# Local backups (pre-change snapshots, not for commit)
+backups/
+
 # Style/scene/rewrite templates (user-generated)
 style_templates/
 scene_templates/

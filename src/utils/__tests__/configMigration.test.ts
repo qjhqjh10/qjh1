@@ -138,3 +138,71 @@ describe('migrateDefaultConfigs (v15.1)', () => {
     expect(configs[0].cacheHitPricePerM).toBe(2)
   })
 })
+
+describe('migrateDefaultConfigs (v16.2.0 image* → secondary*)', () => {
+  const OLD_IMAGE = {
+    ...OLD_TEMPLATE,
+    id: 'c-img',
+    imageModel: 'qwen-vl-plus',
+    imageProvider: 'qwen',
+    imageApiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    imageApiKey: 'sk-vl-test',
+    imageInputPricePerM: 6,
+    imageOutputPricePerM: 6,
+  }
+
+  it('旧 image* 六字段有值 → 搬入 secondary*（用户自定义不丢）', () => {
+    const { configs, changed } = migrateDefaultConfigs([OLD_IMAGE as any])
+    expect(changed).toBe(true)
+    const c = configs[0] as any
+    expect(c.secondaryModel).toBe('qwen-vl-plus')
+    expect(c.secondaryProvider).toBe('qwen')
+    expect(c.secondaryApiUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+    expect(c.secondaryApiKey).toBe('sk-vl-test')
+    expect(c.secondaryInputPricePerM).toBe(6)
+    expect(c.secondaryOutputPricePerM).toBe(6)
+  })
+
+  it('新配置（无 image* 字段）→ 不动 secondary*（保持空）', () => {
+    // fresh 已是新默认（无 image* 字段、非旧默认值）→ 迁移不应触发
+    const fresh = {
+      ...OLD_TEMPLATE,
+      id: 'c-fresh',
+      provider: 'deepseek',
+      apiUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      protocol: 'anthropic' as const,
+      nativeWebSearch: true,
+      currency: 'CNY' as const,
+      mainCurrency: 'CNY' as const,
+      inputPricePerM: 1,
+      outputPricePerM: 2,
+      cacheHitPricePerM: 0.02,
+    } as any
+    const { configs, changed } = migrateDefaultConfigs([fresh])
+    expect(changed).toBe(false)
+    expect((configs[0] as any).secondaryModel ?? '').toBe('')
+  })
+
+  it('已配置 secondary* 的配置不被旧 image* 覆盖', () => {
+    const both = {
+      ...OLD_IMAGE,
+      id: 'c-both',
+      secondaryModel: 'minimax-m3',
+      secondaryApiKey: 'sk-m3-test',
+    } as any
+    const { configs } = migrateDefaultConfigs([both])
+    const c = configs[0] as any
+    expect(c.secondaryModel).toBe('minimax-m3')          // 已配置 → 保留
+    expect(c.secondaryApiKey).toBe('sk-m3-test')          // 已配置 → 保留
+    expect(c.secondaryProvider).toBe('qwen')              // 未配置 → 从 image 搬入
+  })
+
+  it('价格：旧 image 价格为 0 时不覆盖新值（0 视为未配置）', () => {
+    const zeroPrice = { ...OLD_IMAGE, id: 'c-zero', imageInputPricePerM: 0, imageOutputPricePerM: 0, secondaryInputPricePerM: 3 } as any
+    const { configs } = migrateDefaultConfigs([zeroPrice])
+    const c = configs[0] as any
+    expect(c.secondaryInputPricePerM).toBe(3)   // 新值保留
+    expect(c.secondaryOutputPricePerM ?? 0).toBe(0)  // 旧值 0 → 保持 0
+  })
+})

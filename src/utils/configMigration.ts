@@ -4,6 +4,7 @@
 // 策略：字段级迁移——仅当某字段仍等于 v15.0.0 旧默认值时才更新为新默认值；
 // 用户手动改过的字段保持不变（不覆盖自定义）。
 // v15.2.1：v15.1.0 定价字段映射错位（输入 0.02/输出 1/缓存 2），本文件一并修正为新默认 1/2/0.02。
+// v16.2.0：image* 六字段彻底改造为 secondary*（副模型多模态）。旧 image* 有值的搬入 secondary*（用户自定义不丢）。
 import type { ModelConfig } from '@/types/settings'
 
 // v15.0.0 旧默认值（迁移源，仅识别"未自定义"字段）
@@ -60,6 +61,34 @@ export function migrateDefaultConfigs(configs: ModelConfig[]): { configs: ModelC
       && c.outputPricePerM === WRONG_PRICE_TRIPLE.outputPricePerM
       && c.cacheHitPricePerM === WRONG_PRICE_TRIPLE.cacheHitPricePerM) {
       Object.assign(patch, CORRECT_PRICE_TRIPLE)
+      changed = true
+    }
+    // v16.2.0: image* → secondary* 搬移——旧配置中 image 字段有值的搬到副模型字段（用户自定义不丢）；
+    // 旧字段以 any 读取（旧持久化数据可能不含新字段），不触发类型错误
+    const anyC = c as unknown as Record<string, unknown>
+    const oldImage = {
+      imageModel: String(anyC.imageModel ?? ''),
+      imageProvider: String(anyC.imageProvider ?? ''),
+      imageApiUrl: String(anyC.imageApiUrl ?? ''),
+      imageApiKey: String(anyC.imageApiKey ?? ''),
+      imageInputPricePerM: typeof anyC.imageInputPricePerM === 'number' ? anyC.imageInputPricePerM : 0,
+      imageOutputPricePerM: typeof anyC.imageOutputPricePerM === 'number' ? anyC.imageOutputPricePerM : 0,
+    }
+    if (oldImage.imageModel || oldImage.imageProvider || oldImage.imageApiUrl || oldImage.imageApiKey) {
+      if (!c.secondaryModel) { patch.secondaryModel = oldImage.imageModel; changed = true }
+      if (!c.secondaryProvider) { patch.secondaryProvider = oldImage.imageProvider; changed = true }
+      if (!c.secondaryApiUrl) { patch.secondaryApiUrl = oldImage.imageApiUrl; changed = true }
+      if (!c.secondaryApiKey) { patch.secondaryApiKey = oldImage.imageApiKey; changed = true }
+      if (oldImage.imageInputPricePerM > 0 && !c.secondaryInputPricePerM) { patch.secondaryInputPricePerM = oldImage.imageInputPricePerM; changed = true }
+      if (oldImage.imageOutputPricePerM > 0 && !c.secondaryOutputPricePerM) { patch.secondaryOutputPricePerM = oldImage.imageOutputPricePerM; changed = true }
+      // v16.2.0(审查修复 B1): 搬移后清除旧键（patch 置 undefined → 展开覆盖 c 旧键；
+      // JSON 序列化丢弃 undefined 字段 → electron-store 不残留）
+      ;(patch as unknown as Record<string, unknown>).imageModel = undefined
+      ;(patch as unknown as Record<string, unknown>).imageProvider = undefined
+      ;(patch as unknown as Record<string, unknown>).imageApiUrl = undefined
+      ;(patch as unknown as Record<string, unknown>).imageApiKey = undefined
+      ;(patch as unknown as Record<string, unknown>).imageInputPricePerM = undefined
+      ;(patch as unknown as Record<string, unknown>).imageOutputPricePerM = undefined
       changed = true
     }
     return Object.keys(patch).length > 0 ? { ...c, ...patch } : c
