@@ -148,29 +148,43 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
       }
       // v15.5: 服务端工具块（server_tool_use / web_search_tool_result）原样回传——
       // DeepSeek Anthropic 端点要求多轮保留（否则 400）。runtime 把 server_tool_use 也归入
-      // tool_calls，此处按 serverToolBlocks 标记还原；存在服务端块时跳过普通 tool_use
-      // 转换（防双份重复回传——server_tool_use 与 tool_use 同块双发会 400）
+      // tool_calls，此处按 serverToolBlocks 标记还原。
+      // v16.0.3(审查修复): 混合轮修复——serverToolBlocks 存在时不再跳过本地 tool_calls 转换。
+      // 原实现整块跳过：同轮模型既调 web_search（服务端）又调本地工具时，本地 tool_use 被丢弃，
+      // 但本地工具结果 tool 消息仍正常 push → 下轮发送无前置 tool_use 的 tool_result → 400。
+      // 现改为：server_tool_use 块只回传 type 为 server_tool_use / web_search_tool_result 的块，
+      // 本地 tool_calls 单独转换（二者 id 不同名不冲突，Anthropic 允许同一 assistant 消息
+      // 同时含 tool_use 与 server_tool_use 块）。
       const serverBlocks = (m as any).serverToolBlocks
+      const serverToolUseIds = new Set<string>()
       if (serverBlocks && Array.isArray(serverBlocks)) {
         for (const sb of serverBlocks) {
-          if (sb?.type) content.push({ ...sb } as any)
+          // 只回传服务端块（server_tool_use 及其结果 web_search_tool_result）；不做本地工具转换
+          if (sb?.type === 'server_tool_use') {
+            if (sb.id) serverToolUseIds.add(String(sb.id))
+            content.push({ ...sb } as any)
+          } else if (sb?.type) {
+            content.push({ ...sb } as any)
+          }
         }
-        // 服务端块已覆盖（server_tool_use + web_search_tool_result），跳过 tool_calls 转换
-      } else {
-        for (const tc of (m as any).tool_calls) {
-          let input: Record<string, unknown> = {}
-          try {
-            input = typeof tc.function?.arguments === 'string'
-              ? JSON.parse(tc.function.arguments)
-              : (tc.function?.arguments || {})
-          } catch { /* keep empty */ }
-          content.push({
-            type: 'tool_use',
-            id: tc.id,
-            name: tc.function?.name || tc.name,
-            input,
-          })
-        }
+      }
+      // 本地工具调用：与 server_tool_use 块并存转换（不跳过）
+      for (const tc of (m as any).tool_calls ?? []) {
+        const tcName = tc.function?.name ?? tc.name ?? ''
+        // 跳过已由服务端块覆盖的 web_search 调用（防双份重复回传）
+        if (tcName === 'web_search' || (tc.id && serverToolUseIds.has(String(tc.id)))) continue
+        let input: Record<string, unknown> = {}
+        try {
+          input = typeof tc.function?.arguments === 'string'
+            ? JSON.parse(tc.function.arguments)
+            : (tc.function?.arguments || {})
+        } catch { /* keep empty */ }
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tcName,
+          input,
+        })
       }
       result.push({ role: 'assistant', content })
     } else {
@@ -279,7 +293,13 @@ export class AnthropicAdapter implements ProtocolAdapter {
       const { useSettingsStore } = await import('@/store')
       const cfg = useSettingsStore.getState().configs.find(c => c.id === params.configId)
       const apiUrl = ((cfg as any)?.apiUrl || '').toLowerCase()
-      if ((cfg as any)?.nativeWebSearch && apiUrl.includes('deepseek.com')) {
+      // v16.0.3(审查修复): 注入条件与 BridgeContextBuilder.deepSeekAnthropicNative 对齐——
+      // 原只查 apiUrl，不查模型名：非 deepseek 命名模型挂 DeepSeek 端点 + 原生联网时
+      // 服务端 web_search 注入 + 软件内置 DDG 搜索同时执行（双通道联网，结果冲突/冗余计费）。
+      // 统一判定：DeepSeek 官方端点 + deepseek 模型 + anthropic 协议 + 原生联网。
+      const modelName = String((cfg as any)?.model || '').toLowerCase()
+      if ((cfg as any)?.nativeWebSearch && apiUrl.includes('deepseek.com')
+          && /deepseek/i.test(modelName) && (cfg as any)?.protocol === 'anthropic') {
         anthropicTools.push({
           name: 'web_search',
           description: '搜索互联网获取最新信息。当用户的问题需要实时/网络信息时调用。',
@@ -358,8 +378,10 @@ export class AnthropicAdapter implements ProtocolAdapter {
         // v15.6: Anthropic 协议 usage 为互斥语义——input_tokens 不含 cache_read。
         // totalTokens 必须加上命中部分（= API 实际处理的总输入），否则 billedTokens
         // （total − cacheHit）低估、token 统计虚低
+        // v16.0.3: 补 cache_creation——创建缓存同样占输入（全额计费），漏计使 token 统计偏低
         totalTokens: (streamResult.usage?.input_tokens || 0)
           + (streamResult.usage?.cache_read_input_tokens || 0)
+          + (streamResult.usage?.cache_creation_input_tokens || 0)
           + (streamResult.usage?.output_tokens || 0),
         // v11.7.0: 分开记录 creation 和 read。display 只扣 read（首轮 creation 是实际输入）
         cacheHitTokens: cacheRead,

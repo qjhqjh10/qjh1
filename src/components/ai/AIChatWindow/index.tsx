@@ -733,7 +733,12 @@ export default function AIChatWindow() {
       let collectedText = ''
       // v14.5.0: 跨 run 续跑 — 只取**最后一条** assistant 消息的中断快照（v14.5.0 审查修复：
       // 原向前扫描会复活已完成 run 之前的陈旧中断快照，导致模型重复执行已完成的剩余任务）
-      const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')
+      // v16.0.3(审查修复): 回扫到最后一条携带中断快照的 assistant——原只取最后一条 assistant，
+      // 若最后一条是纯聊天回复（无 taskProgress）而更早一条有中断快照，续跑恢复会 miss
+      //（链断裂）。回扫策略与 maybeInjectSubagentSummaries 一致（反向找最后携带者）。
+      const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant'
+        && m.taskProgress?.interrupted && !m.taskProgress?.allDone)
+        || [...messages].reverse().find(m => m.role === 'assistant')
       // v14.9(审计): 续跑快照仅在用户消息含继续意图时恢复——原无差别恢复旧清单，
       // 中断后问无关问题会被旧清单门控劫持（nudge 拽回旧任务）；判定与 maybeInjectResume 共用
       const lastProgressMsg = (lastAssistantMsg?.taskProgress?.interrupted && !lastAssistantMsg?.taskProgress?.allDone
@@ -759,6 +764,9 @@ export default function AIChatWindow() {
         toolsEnabled: toolInvokeEnabled,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
+          // v16.0.3(审查修复): 工具计数接线——原 conversationToolNames 全仓无写入点（死计数器），
+          // 工具条「调用工具 · N」恒为 0。填入本轮实际用过的工具。
+          for (const t of runResult.toolsUsed || []) conversationToolNames.current.add(t)
           // Parse popup commands from AI response (【打开草稿】, 【生成本章】, etc.)
           const popupResult = parsePopupCommand(collectedText)
           if (popupResult?.genTrigger) {
@@ -774,8 +782,12 @@ export default function AIChatWindow() {
 
           // v14.5.0: 用户主动停止生成 → 显示"已停止"而非误导性失败文案
           // （runtime 中止时返回 phase:'ABORTED'，此前被 fallbackText 误显示为 API 超时）
+          // v16.0.3(审查修复): ABORTED 且有工具执行 → 如实说明已执行的部分并提示可续，
+          // 不再用"请说'继续'获取回复"误导（该文案暗示有回复可等——主动停止时没有）
           const fallbackText = runResult.phase === 'ABORTED'
-            ? '已停止生成。'
+            ? (runResult.toolsUsed.length > 0
+              ? `已停止生成。已执行 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），任务可能未完成。可发送"继续"让 AI 接着执行剩余部分。`
+              : '已停止生成。')
             : (runResult.toolsUsed.length > 0
               ? `已完成 ${runResult.toolsUsed.length} 个工具操作（${runResult.toolsUsed.join('、')}），但 AI 未生成文字回复。请说"继续"获取回复。`
               : `AI 未生成回复（可能 API 超时或模型未响应）。请重试或说"继续"。`)

@@ -183,7 +183,12 @@ export function registerAnthropicHandlers(
         if (isDeepSeekV4Model) {
           body.thinking = thinkingEnabled ? { type: 'enabled' } : { type: 'disabled' }
           if (thinkingEnabled) {
-            body.output_config = { effort: (config as any).reasoningEffort || 'max' }
+            // v16.0.3(审查修复): effort 归一化——OpenAI 路径有 normalizeEffort（残留值落回 max），
+            // Responses 有 max→high 映射，唯 Anthropic 路径裸传配置值：历史残留 'medium' 等
+            // 非法值会使 DeepSeek Anthropic 端点 400。官方取值 low/high/max，三档归一。
+            const rawEffort = String((config as any).reasoningEffort || 'max')
+            const effort = ['low', 'high', 'max'].includes(rawEffort) ? rawEffort : 'max'
+            body.output_config = { effort }
           }
         }
         // v12.5.1: 阶段感知温度 — runtime 传入时使用，否则回退到 config.temperature
@@ -457,7 +462,11 @@ export function registerAnthropicHandlers(
         // （Anthropic 的总输入 = input + cache_read + cache_creation），再传给 calculateCost
         // 让 effectiveInput = (input+read) − read = input，恢复正确的未命中计费。
         const cacheHitTotal = cacheReadTokens
-        const anthropicTotalInput = inputTokens + cacheReadTokens  // 互斥语义 → 合并回包含语义
+        // v16.0.3(审查修复): 补 cache_creation——注释写明"总输入 = input + cache_read + cache_creation"
+        // 但代码漏 creation（缓存创建 token 全额按输入价计费，漏计导致首轮成本系统性低估）。
+        // 合并后 calculateCost 的 effectiveInput = (input+read+creation) − read = input + creation，
+        // 创建部分正确按输入价档计费。
+        const anthropicTotalInput = inputTokens + cacheReadTokens + cacheCreationTokens
         if (inputTokens > 0 || outputTokens > 0) {
           logTokenUsage({
             timestamp: localISOString(),
@@ -506,7 +515,8 @@ export function registerAnthropicHandlers(
             cache_read_input_tokens: cacheReadTokens,
             // v13.x: 补 cost——此前渲染层 chatWithUsage/chatStream 的 cost 恒为 0
             // v15.6: 同上互斥语义修正——总输入 = input + cache_read（见 logTokenUsage 处注释）
-            cost: calculateCost(anthropicTotalInput, outputTokens, cacheHitTotal, config),
+            // v16.0.3: 补 cache_creation（同 logTokenUsage 修正）
+            cost: calculateCost(inputTokens + cacheReadTokens + cacheCreationTokens, outputTokens, cacheHitTotal, config),
           },
         })
 

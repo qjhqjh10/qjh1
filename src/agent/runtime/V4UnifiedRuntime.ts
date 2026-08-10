@@ -613,7 +613,16 @@ export class V4UnifiedRuntime {
           clearTimeout(timeoutId)
           this.config.abortSignal.removeEventListener('abort', onAbort)
           lastApiErr = apiErr instanceof Error ? apiErr : new Error('API 调用失败')
-          const isTransient = /超时|timeout|network|ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EPIPE|ETIMEDOUT|socket hang up|429|503|502|408|504|5\d\d/.test(lastApiErr.message)
+          // v16.0.3(审查修复): 瞬态错误判定补 cause 链——DeepSeek 服务端间歇断连（SocketError:
+          // other side closed）的 fetch failed 错误消息不含瞬态词，原判定 false → 不重试，
+          // 一次断连直接失败。递归检查 cause 链（Node fetch 错误把底层错误放 err.cause）。
+          let errMsg = lastApiErr.message
+          let cause = (lastApiErr as any)?.cause
+          for (let depth = 0; depth < 3 && cause; depth++) {
+            errMsg += ' ' + (cause.message || '')
+            cause = cause.cause
+          }
+          const isTransient = /超时|timeout|network|ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EPIPE|ETIMEDOUT|socket hang up|429|503|502|408|504|5\d\d|fetch failed|socket/i.test(errMsg)
           if (retry < 1 && isTransient) {
             // v16.0.1(轻微项): backoff 响应 abort——原固定 2s 睡眠不监听 abortSignal，
             // 用户停止生成最多延迟 2s 才退出；Promise.race 让 abort 立即穿透

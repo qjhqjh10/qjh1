@@ -78,6 +78,21 @@ function buildTaskMessage(
   return lines.join('\n')
 }
 
+/**
+ * v16.0.3(审查修复): 会话 key 路径归一化——原直接拼原始 filePath，
+ * 主 agent 一次传 "Chapters/1.md" 另一次传 "chapters/1.md"（大小写/反斜杠差异）
+ * → 会话复用失败静默退化为全新分析（重复读取大文件、多付一次费用）。
+ * 归一化规则与 ReadResultTracker.normalizeReadPath 对齐：反斜杠→斜杠、去 ../、小写。
+ */
+function normalizeSessionPath(p: string): string {
+  return String(p || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\.\.\//, '')
+    .replace(/\/$/, '')
+    .toLowerCase()
+}
+
 export const subagentTools: ToolDefinition[] = [
   {
     schema: {
@@ -119,7 +134,8 @@ export const subagentTools: ToolDefinition[] = [
           configId,
           userMessage: taskMessage,
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::${filePath}`,
+          // v16.0.3: sessionKey 路径归一化（见 normalizeSessionPath）——大小写/斜杠差异不再破坏会话复用
+          sessionKey: `${ctx.projectId ?? 'global'}::${normalizeSessionPath(filePath)}`,
         })
 
         return {
@@ -176,7 +192,7 @@ export const subagentTools: ToolDefinition[] = [
           configId,
           userMessage: taskMessage,
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::edit::${filePath}`,
+          sessionKey: `${ctx.projectId ?? 'global'}::edit::${normalizeSessionPath(filePath)}`,
         })
 
         return {
@@ -243,7 +259,7 @@ export const subagentTools: ToolDefinition[] = [
           configId,
           userMessage: lines.join('\n'),
           signal: ctx.signal,
-          sessionKey: `${ctx.projectId ?? 'global'}::verify::${filePaths[0] ?? ''}`,
+          sessionKey: `${ctx.projectId ?? 'global'}::verify::${normalizeSessionPath(filePaths[0] ?? '')}`,
         })
 
         // 尝试解析 JSON 验收报告 → 结构化 detail（主 agent 可直接读 passed/items）
@@ -262,7 +278,16 @@ export const subagentTools: ToolDefinition[] = [
               if (parsed && typeof parsed.passed === 'boolean') {
                 passed = parsed.passed
                 failedCount = (parsed.items || []).filter((i: { passed?: boolean }) => i.passed === false).length
-                detail = JSON.stringify({ passed: parsed.passed, items: (parsed.items || []).slice(0, 20) })
+                // v16.0.3(审查修复): 结构化替换后未再截断——20 条 × 长 reason 可超 8000 字符
+                // 回灌主上下文。重截：detail 上限 8000，items 文本超限时截断 reason。
+                const itemsJson = JSON.stringify({ passed: parsed.passed, items: (parsed.items || []).slice(0, 20) })
+                detail = itemsJson.length > MAX_DETAIL_CHARS.verify_task
+                  ? JSON.stringify({ passed: parsed.passed, items: (parsed.items || []).slice(0, 20).map((i: { criterion?: string; passed?: boolean; reason?: string }) => ({
+                      criterion: String(i.criterion || '').slice(0, 60),
+                      passed: i.passed,
+                      reason: String(i.reason || '').slice(0, 200),
+                    })) })
+                  : itemsJson
               }
             } catch { /* 坏 JSON → 走关键词降级 */ }
           }
@@ -329,7 +354,8 @@ export const subagentTools: ToolDefinition[] = [
         const configId = useSettingsStore.getState().activeConfigId
         if (!configId) return { status: 'error', summary: '未配置AI' }
 
-        const sessionKey = `${ctx.projectId ?? 'global'}::${filePath}`
+        // v16.0.3: sessionKey 归一化——与 analyze_file 的会话 key 严格同构才能复用（追问语义）
+        const sessionKey = `${ctx.projectId ?? 'global'}::${normalizeSessionPath(filePath)}`
         // v14.9(E): 文案如实——会话是否复用取决于会话池状态（首次追问/过期/角色不符 = 全新分析），
         // 原无条件声称"基于该文件的之前分析"，模型被告知不存在的上下文可能跳过读取；
         // 统一中性表述：有则结合、无则先读，reusedSession 字段透传结果供上层知情

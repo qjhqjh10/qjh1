@@ -1125,9 +1125,21 @@ export async function executeFileTool(
         for (let i = 0; i < replacements.length; i++) {
           const { old_string, new_string } = replacements[i]
           if (old_string === '__FULL_REPLACE__') {
+            // v16.0.3(审查修复): 全量替换出现在列表中间时，后续替换项会静默丢失
+            // （原 break + summary"已执行 1/N"误导模型以为全部完成）。
+            // 全量替换是"整个文件换成 new_string"的终极操作——之后任何替换都无意义且结果
+            // 不可预期。改为：全量替换必须单独调用（作为最后一项）；混在中间时如实报错，
+            // 让模型把 full-replace 拆成单独调用（或改用 edit_file(__FULL_REPLACE__)）。
+            if (i < replacements.length - 1) {
+              return {
+                callId, toolName, status: 'error',
+                summary: `第 ${i + 1}/${replacements.length} 个替换是 __FULL_REPLACE__ 全量覆盖，但它不是最后一项`,
+                detail: `全量替换会把整个文件替换为 new_string，其后还有 ${replacements.length - i - 1} 个替换项会被忽略。请将 __FULL_REPLACE__ 单独作为唯一替换项调用（或改用 edit_file(old_string="__FULL_REPLACE__")）。`,
+              }
+            }
             modified = new_string
             applied++
-            break // 全量替换后忽略后续替换
+            break // 全量替换（最后一项）后忽略后续替换
           }
           // v14.5.1: 空 old_string 拒绝（防 insert 打乱文件）
           if (old_string === '') {

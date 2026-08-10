@@ -60,8 +60,9 @@ export async function invalidateAfterTool(
     if (absFp && absFp !== p) invalidateFile(absFp)
   }
 
-  if (toolName === 'edit_file' || toolName === 'batch_replace') {
-    // Content edit → invalidate ONLY that file
+  if (toolName === 'edit_file' || toolName === 'batch_replace' || toolName === 'edit_file_task') {
+    // Content edit → invalidate ONLY that file（v16.0.3: +edit_file_task——子代理修改大文件后
+    // GUI 缓存同样必须失效，否则章节/大纲页面显示陈旧内容）
     invalidateBoth(fp)
   } else if (toolName === 'create_file' || toolName === 'delete_file') {
     // Structural change → invalidate index + directory cache
@@ -88,7 +89,8 @@ export async function invalidateAfterTool(
   // Notify GUI of file changes
   // v14.6.1: 通知用绝对路径——GUI 组件（ChapterWritingPage/OutlinePopup 等）以
   // `${projectsBasePath}/项目名/...` 精确比较，原相对路径恒不匹配 → AI 改文件后页面永不刷新
-  if (/^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file)$/.test(toolName)) {
+  // v16.0.3: +edit_file_task——子代理修改文件同样通知 GUI（与 edit_file 同语义）
+  if (/^(create_file|edit_file|batch_replace|delete_file|rename_file|create_project|delete_project|kb_append_file|edit_file_task)$/.test(toolName)) {
     callbacks.onFileChanged(absFp || fp)
   }
 }

@@ -5,7 +5,9 @@
 // 实测约束（2026-08-02 真实 API 冒烟）：
 // - function_call_output.call_id 必须匹配对应 function_call item 的 call_id（不是 item id）
 // - 历史轮次用全量 items 回传（previous_response_id 不被 DeepSeek 支持）
-// - 无对应 function_call 的孤儿 tool 消息必须丢弃（否则 400）
+// - 无对应 function_call 的孤儿 tool 消息（M11 跨 run 还原的 hist_ 消息）转文本 user 保内容可见
+//   （v16.0.3 起；不能作为 function_call_output 发送——Responses 对孤儿 function_call_output 400，
+//    也不能丢弃——与 Anthropic 路径 F1 行为对齐，模型跨 run 续跑时能看到历史工具结果）
 // - 历史 reasoning 不回传（每轮重新生成；thinking 输入无增益）
 // - chat/completions 工具定义里的 cache_control 需剥离（responses 无此字段）
 
@@ -37,7 +39,7 @@ function toTextItem(role: 'system' | 'user', text: string): ResponseItem {
  * 1. system/user → message item（input_text）
  * 2. assistant 纯文本 → message item；带 tool_calls → message + 每条 function_call item
  *    （call_id = 原 tc.id，function_call_output 同 id 回传）
- * 3. tool 消息 → function_call_output（call_id = tool_call_id；孤儿丢弃）
+ * 3. tool 消息 → function_call_output（call_id = tool_call_id；孤儿转文本 user 保内容可见）
  * 4. 连续同角色 user/system 消息不合并（Responses 对相邻同角色容忍度高于 chat completions，
  *    实测可直接发送；若遇 400 再在 converter 内合并）
  */
@@ -84,7 +86,22 @@ export function convertMessages(messages: ConverterMessage[]): ResponseItem[] {
       }
       // 历史 reasoning 不回传（每轮重新生成）
     } else if (m.role === 'tool') {
-      if (!m.tool_call_id || !knownCallIds.has(m.tool_call_id)) continue  // 孤儿丢弃
+      if (!m.tool_call_id || !knownCallIds.has(m.tool_call_id)) {
+        // v16.0.3(审查修复): 孤儿 tool 消息（M11 跨 run 还原的 hist_ 消息，无前置 assistant.tool_calls
+        // 配对）——不能丢弃：Anthropic 路径已转 text 块保内容可见（F1），此处对齐。
+        // 转 user 消息保内容可见（丢弃会让模型看不到历史工具结果，协议间行为不对称）。
+        // 不能作为 function_call_output 发送（Responses 对孤儿 function_call_output 400）。
+        const text = typeof m.content === 'string' ? m.content : ''
+        let snippet = text
+        try {
+          const parsed = JSON.parse(text)
+          const summary = parsed.summary || ''
+          const detail = parsed.detail || ''
+          snippet = `[历史工具结果${summary ? ` ${summary}` : ''}]\n${typeof detail === 'string' ? detail.slice(0, 500) : ''}`
+        } catch { /* 非 JSON，保留原文 */ }
+        if (snippet) items.push({ type: 'message', role: 'user', content: [{ type: 'input_text', text: snippet.slice(0, 500) }] })
+        continue
+      }
       items.push({ type: 'function_call_output', call_id: m.tool_call_id, output: content })
     }
   }

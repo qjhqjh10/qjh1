@@ -520,6 +520,9 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
   // ── Notes (Scratchpad) Semantic Search ──
   ipcMain.handle('notes:search', async (_event, query: string, configId: string, topK = 3) => {
     try {
+      // v16.0.3(审查修复): 主进程 topK 兜底钳制 1-10——渲染层工具已有钳制，但主进程
+      // 是最终防线（未来其他调用方/模型直传大值会逐 chunk 打 embedding，费用/耗时失控）
+      topK = Math.min(Math.max(Math.floor(Number(topK) || 3), 1), 10)
       const notesDir = path.join(path.dirname(pBasePath), 'notes')
       const files = await fs.readdir(notesDir).catch(() => [] as string[])
       const mdFiles = files.filter(f => f.endsWith('.md'))

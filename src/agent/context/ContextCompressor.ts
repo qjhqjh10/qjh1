@@ -201,8 +201,12 @@ export class ContextCompressor {
     // Build single compressed summary message.
     // 摘要取段内最后一个非空 assistant 正文（跳过 tool_calls 空 content 消息）；
     // 段内无 assistant 文本时回退到 user 内容；再空则省略该行。
-    const pairSummaries = toCompress.map(seg => {
-      const userText = String(messages[seg.start].content || '').slice(0, 80)
+    // v16.0.3(审查修复): 首段 user（原始任务描述）保留 400 字——与 collapseEarly 的
+    // v16.0.1 修复同族：原压成 80 字 → 压缩后模型丢失核心需求（单 user run 的折叠区
+    // 恰是用户请求全文）。仅首段（索引 0）享受长保护，其余段维持 80 字。
+    const pairSummaries = toCompress.map((seg, segIdx) => {
+      const userFull = String(messages[seg.start].content || '')
+      const userText = segIdx === 0 ? userFull.slice(0, 400) : userFull.slice(0, 80)
       let asstText = ''
       for (let k = seg.end; k > seg.start; k--) {
         const m = messages[k]

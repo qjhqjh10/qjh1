@@ -1,7 +1,33 @@
 {
-  "currentVersion": "16.0.2",
-  "currentDate": "2026-08-09",
+  "currentVersion": "16.0.3",
+  "currentDate": "2026-08-10",
   "history": [
+    {
+      "version": "16.0.3",
+      "date": "2026-08-10",
+      "features": [
+        "Anthropic 混合轮 tool_use 修复（P1）: serverToolBlocks 存在时不再跳过本地 tool_calls 转换——同轮模型既调 web_search（服务端）又调本地工具时，本地 tool_use 被丢弃导致下轮孤儿 tool_result 400。现 server_tool_use / web_search_tool_result 与本地 tool_use 并存回传，单元验证 PASS",
+        "网络瞬态重试补 cause 链（P1）: DeepSeek 服务端间歇断连（SocketError: other side closed）的 fetch failed 错误真实原因在 err.cause——递归检查 3 层 cause 链 + 正则补 fetch failed/socket，断连现在触发瞬态重试（1 次 + 2s backoff），实测 CA11 全程零断连失败"
+      ],
+      "fixes": [
+        "Responses 孤儿 tool 消息转文本（P2）: convertMessages 对无对应 function_call 的孤儿 tool 消息（M11 跨 run 还原的 hist_ 消息）转文本 user 保内容可见——对齐 Anthropic F1 行为（原丢弃 → 跨 run 续跑时模型看不到历史工具结果，协议间行为不对称）",
+        "edit_file_task 缓存失效+GUI 通知（P2）: CacheInvalidator 的 edit_file/batch_replace 分支与通知正则补 edit_file_task——子代理（大文件修改主路径）改完文件后章节/大纲页面不再显示陈旧内容",
+        "changed 后重读指向旧版本（P2）: ToolExecutor 的 changed 分支无论 stillInContext 与否都 recordRead 覆盖记录——原只更新旧版本被压缩的场景，writeRecords 清空后同 range 重读判 dup 指向被标记过时的旧版本（'修改已生效'误判）",
+        "cache_creation 成本漏算（P2）: anthropicHandlers 的 anthropicTotalInput 与 AnthropicAdapter.totalTokens 补 cache_creation_input_tokens——注释写明'总输入 = input + read + creation'但代码漏 creation，缓存创建 token 按 0 元计费（首轮成本系统性低估）",
+        "Anthropic effort 归一化（P3）: output_config.effort 三档校验（low/high/max，残留值落回 max）——历史配置残留 'medium' 等非法值会使 DeepSeek Anthropic 端点 400（OpenAI/Responses 路径已有归一化，Anthropic 缺失）",
+        "web_search 注入条件对齐（P3）: AnthropicAdapter 补 deepseek 模型名 + anthropic 协议判定——原只查 apiUrl（deepseek.com 端点 + 自定义模型名时服务端 web_search 与内置 DDG 双通道联网冲突）",
+        "batch_replace 全量替换丢项（P2）: __FULL_REPLACE__ 非末项时如实报错引导拆分——原 break 后后续替换项静默丢失，summary '已执行 1/N' 误导模型以为全部完成",
+        "verify_task detail 重截断（P3）: 结构化 JSON 替换后未再 slice——20 条 × 长 reason 可超 8000 字符回灌主上下文，补 items 字段级截断",
+        "会话 key 路径归一化（P3）: subagentTools 的 sessionKey 补 normalizeSessionPath（反斜杠→斜杠/去 ..//小写）——大小写/斜杠差异不再破坏 subagent_ask 会话复用（静默退化为全新分析多付一次费用）",
+        "search_content 结果截断（P3）: ContractExecutor 补 search_content 分支（50K 上限）——500 条 × 200 列 ≈ 10 万字符直灌上下文",
+        "summarizePairs 首段任务描述 400 字保护（P3）: 与 collapseEarly 的 v16.0.1 修复对齐——首段 user（原始任务描述）压成 80 字导致压缩后丢核心需求",
+        "FNV-1a 用 Math.imul（P3）: h * 0x01000193 超出 JS 安全整数（2^53）被舍入——改用 32 位整数乘法与标准实现一致（碰撞概率修正）",
+        "dup 防呆计数重置（P3）: force 触发后计数清零——原第 3 次起该文件该 range 永久强制全文回传（合法周期轮询时去重层永久失效）",
+        "子代理失败会话失效（P3）: 复用会话但本次失败/截断 → 删除旧会话——原保留失败前的文件旧版本内容（文件可能已修改导致失败），下次追问基于过期内容",
+        "UI 接线修复（P3）: 工具计数 conversationToolNames 接线（原死计数器恒 0）/ 中止后 '请说继续' 死消息文案如实化（ABORTED 且无工具时不再误导）/ 续跑快照回扫（最后一条纯聊天不再断链）/ kb_analyze 输出长度指令统一（2500 字）/ notes topK 主进程兜底钳制 1-10",
+        "测试脚本断言修复: CA4 首轮完成全部任务视为通过（allowComplete——flash 模型 6 轮内可完成 5 项，不再期望必然中断）/ CA9 fileContains 与 fileAbsent 同一路径矛盾（改 hasTool create_file 证明曾创建）/ callDeepSeekAnthropic 加网络瞬态重试（对齐生产语义）"
+      ]
+    },
     {
       "version": "16.0.2",
       "date": "2026-08-09",
@@ -11,7 +37,7 @@
       "fixes": [
         "hist_ id 全局递增（F2）: buildHistoryMessages 与 ReadResultTracker.rebuildFromHistory 共享同一计数序列（hist_${seq}_${tool}）——原 per-message 数组下标在多条同名工具消息时碰撞（callInfo 覆盖，早轮 read 记录丢失）",
         "NEG_DONE_RE 收窄（D-1）: 第二备选 `都(?:还|仍|未)?(?:没)?` 组合爆炸——'都完成了/都做完了/所有任务都完成了'（无否定修饰）被当否定句拦截 → markAllDone 被拒 → 30 轮 nudge 空转。收窄为 `都(?:还|仍|未)(?:没)?`（要求必有否定修饰），实证：都完成了→NEG=0，都没完成/都还没完成→NEG=1",
-        "CONTINUATION_RE 重写（A-2）: 原 `(?:接着|还要|再)做(?<!不)` lookbehind 恒真（'不再做了'也匹配）+ 只收'做'不收'写/改/创建'——'接着写第2部分'不匹配 → 无清单路径提前 break。改为 `(?<!不)(?:接着|还要|再)\s*(?:做|写|改|创建|生成|填充|处理)`（lookbehind 前置整个词表）",
+        "CONTINUATION_RE 重写（A-2）: 原 `(?:接着|还要|再)做(?<!不)` lookbehind 恒真（'不再做了'也匹配）+ 只收'做'不收'写/改/创建'——'接着写第2部分'不匹配 → 无清单路径提前 break。改为 `(?<!不)(?:接着|还要|再)\\s*(?:做|写|改|创建|生成|填充|处理)`（lookbehind 前置整个词表）",
         "REFUSAL 出口问句守卫（A-1）: 清单（:748）与无清单（:893）两处有界出口加 `!/[？?]/` 条件——'带问号的 50+ 字文本'（向用户提问等回答）不被当困难任务收尾",
         "toolResultsCollected per-run 重置（D-3）: run() reset 区补 `this.toolResultsCollected = []`——原跨 run 累积（注释'本轮'与实现不符，rebuild 数据源含上轮记录）",
         "recordToolCall 接线（P3）: toolExecutorFactory 执行段补 `auditTrail.recordToolCall(ctx.toolName, args)`（脱敏：content→长度、query→100 字截断）——原方法定义后无调用方，事后审计看不到工具入参"

@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v16.0.2
+# AI写作软件—青剑 v16.0.3
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,16 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v16.0.2)
+## 当前架构 (v16.0.3)
+
+### v16.0.3 审查修复批次（2026-08-10）
+- **P1 Anthropic 混合轮 tool_use 修复**: serverToolBlocks 存在时不再跳过本地 tool_calls 转换——同轮模型既调 web_search（服务端）又调本地工具时本地 tool_use 被丢弃 → 下轮孤儿 tool_result 400。现 server_tool_use/web_search_tool_result 与本地 tool_use 并存回传（web_search 跳过防双份），单元验证 PASS
+- **P1 网络瞬态重试补 cause 链**: V4UnifiedRuntime isTransient 递归检查 3 层 cause 链 + 正则补 fetch failed/socket——DeepSeek 服务端间歇断连（SocketError: other side closed）的 fetch failed 错误真实原因在 err.cause，原判定 false 不重试一次断连直接失败；测试脚本同款重试
+- **P2**: Responses 孤儿 tool 转文本 user（对齐 Anthropic F1，测试断言同步）/ edit_file_task 缓存失效+GUI 通知（CacheInvalidator 两处补）/ changed 后重读无条件 recordRead（不再指向旧版本）/ batch_replace __FULL_REPLACE__ 非末项报错（原静默丢项）/ cache_creation 成本漏算（anthropicHandlers+AnthropicAdapter 两处补）
+- **P3 批**: Anthropic effort 三档归一化（残留 medium 400）/ web_search 注入条件对齐（防双通道联网）/ verify_task detail 重截断 / 会话 key 路径归一化（normalizeSessionPath）/ search_content 结果 50K 截断 / summarizePairs 首段 400 字保护 / FNV-1a Math.imul / dup 防呆计数重置 / 子代理失败会话失效 / UI 接线（工具计数/ABORTED 文案/续跑快照回扫/kb_analyze 长度统一/notes topK 兜底）
+- **测试脚本**: CA4 allowComplete + CA9 断言矛盾修复 + callDeepSeekAnthropic 网络重试
+- **version_history.json 非法 JSON 修复**: 16.0.2 条目 `\s` 未转义（设置页版本界面 JSON.parse 崩溃风险）
+- 测试 775 passed + 15 skipped；tsc 0；check-consistency 31/31；真实 API 全场景 10/10 通过（CA11 473.5s 全程零断连失败，缓存 77-93%）
 
 ### v16.0.2 系统性审查回归修复（2026-08-09）
 - **F1（P1，v16.0.1 M11 回归）**：跨 run 还原的 hist_ tool 消息（无前置 assistant.tool_calls）在 Anthropic/OpenAI 协议路径成孤儿 tool_result → 400。修复：AnthropicAdapter.messagesToAnthropic 孤儿转 **text 块**（不 400 且内容保留供 ReadResultTracker 指纹）；aiHandlers 双路径同样转纯文本；实测 CA11 多轮工具+子代理全程无 400
@@ -218,7 +227,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v16.0.2) |
+| 版本历史 | `src/data/version_history.json` (当前 v16.0.3) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |

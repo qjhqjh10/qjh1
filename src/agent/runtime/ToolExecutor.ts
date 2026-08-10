@@ -326,8 +326,12 @@ export async function executeSingleTool(
         if (check.stillInContext) {
           finalResult = { ...finalResult, detail: buildChangedDetail(check.writes, String(result.summary || '')) }
         }
+        // v16.0.3(审查修复): changed 分支无论 stillInContext 与否都 recordRead 覆盖记录——
+        // 原 only-stillInContext=false 时更新，而 writeRecords 已被 checkRead 清空 → 模型用
+        // 相同 range 重读验证时记录仍持旧 hash 判 dup，提示"见前文第 N 轮"指向旧版本内容
+        // （"修改已生效"误判）。本次读到的即最新内容，覆盖后同 range 重读判 dup 指向新版本。
+        tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
         // 前文旧版本已被压缩 → 完整回传（模型需要内容，历史里已没有）
-        if (!check.stillInContext) tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
       } else {
         tracker.recordRead(ra.filePath, ra.rangeKey, ctx.iteration, contentHash)
       }

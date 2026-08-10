@@ -133,6 +133,8 @@ export class ContractExecutor {
     const { filtered, stripped } = ContractExecutor.filterResult(result, contract)
     // v14.5.0: HTTP/浏览器工具响应体保留但截断（原剥离 → 模型拿不到内容）
     // v14.6.1: read_file 同样截断（原 50 万字符无上限直灌）
+    // v16.0.3: search_content 补截断——500 条 × 200 列 ≈ 10 万字符直灌上下文
+    // （结果已含截断提示，上限取 read_file 同档）
     let finalFiltered = filtered
     if (HTTP_BROWSER_TOOLS.has(toolName)
         && typeof filtered.detail === 'string' && filtered.detail.length > HTTP_DETAIL_MAX_CHARS) {
@@ -140,6 +142,9 @@ export class ContractExecutor {
     } else if (toolName === 'read_file'
         && typeof filtered.detail === 'string' && filtered.detail.length > READ_FILE_DETAIL_MAX_CHARS) {
       finalFiltered = { ...filtered, detail: filtered.detail.slice(0, READ_FILE_DETAIL_MAX_CHARS) + `\n…(内容过长已截断至 ${READ_FILE_DETAIL_MAX_CHARS} 字符，可用 offset/limit 参数继续读取剩余部分)` }
+    } else if (toolName === 'search_content'
+        && typeof filtered.detail === 'string' && filtered.detail.length > READ_FILE_DETAIL_MAX_CHARS) {
+      finalFiltered = { ...filtered, detail: filtered.detail.slice(0, READ_FILE_DETAIL_MAX_CHARS) + `\n…(搜索结果过多已截断至 ${READ_FILE_DETAIL_MAX_CHARS} 字符，可加 file_pattern/max_results 参数缩小范围)` }
     }
     if (stripped.length > 0) {
       return {

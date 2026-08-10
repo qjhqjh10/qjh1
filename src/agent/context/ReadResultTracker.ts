@@ -28,11 +28,14 @@ export function normalizeReadPath(raw: string): string {
 }
 
 // ── FNV-1a 32bit hash（无依赖，内容指纹） ──
+// v16.0.3(审查修复): h * 0x01000193 超出 JS 安全整数（2^53）被舍入 → 碰撞概率高于标准
+// FNV-1a。改用 Math.imul（32 位整数乘法，与标准实现一致）。
 export function hashStr(s: string): string {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)
-    h = (h * 0x01000193) >>> 0
+    h = Math.imul(h, 0x01000193)
+    h = h >>> 0
   }
   return h.toString(16)
 }
@@ -252,13 +255,19 @@ export class ReadResultTracker {
     const inCtx = this.stillInContext(rec.contentHash, messagesForApi)
 
     // 防呆：同一文件连续 dup ≥ 2 次 → 强制完整回传
+    // v16.0.3(审查修复): force 触发后计数清零——原计数不重置，第 3 次起该文件该 range
+    // 永久强制全文回传（模型合法周期轮询同一文件时去重层永久失效）。重置后模型若真的
+    // 绕圈（dup→dup→dup）会再次累积触发，防呆语义不变。
     const dupN = (this.dupCounters.get(key) || 0) + 1
-    this.dupCounters.set(key, dupN)
     const force = dupN >= 3
+    if (force) this.dupCounters.set(key, 0)
+    else this.dupCounters.set(key, dupN)
 
     if (writes.length > 0) {
       // v16.0.1(轻微项): changed 随重读重置——模型已重读新版本（本次读到的内容已是最新），
       // 清空 writeRecords 使后续读判 dup 而非持续提示"旧版本已过时"（原实现永远提示 changed）
+      // v16.0.3(审查修复): 调用方 ToolExecutor 在 changed 分支必须同步 recordRead 更新为本次
+      // hash——否则 writeRecords 清空后同 range 重读判 dup 指向旧版本（见 ToolExecutor 注释）。
       this.writeRecords.delete(key)
       return { status: 'changed', writes: writes.slice(-3), stillInContext: inCtx, forceReturnFull: force }
     }

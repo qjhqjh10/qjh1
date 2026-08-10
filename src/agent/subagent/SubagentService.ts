@@ -267,6 +267,11 @@ export async function runSubagent(opts: SubagentOptions): Promise<SubagentResult
     // v14.3.1: +truncated 判定（迭代耗尽/超时中断 = 部分完成，不保存不完整快照）
     if (sessionKey && result.success && !result.truncated) {
       saveSubagentSession(sessionKey, role, runtime.getMessagesForApi())
+    } else if (sessionKey && sessionUsed) {
+      // v16.0.3(审查修复): 复用会话但本次失败/截断 → 删除旧会话——原保留旧版本会话，
+      // 下次 subagent_ask 仍复用失败前的文件旧版本内容（文件可能已修改导致失败），
+      // 模型基于过期内容追问。失败即视为"旧上下文不可信"，后续重建全新分析。
+      subagentSessions.delete(sessionKey)
     }
   } catch (err) {
     // 注(v14.9 B4): 传输层异常（run reject）时 usage 归零——此前迭代的真实 token/费用

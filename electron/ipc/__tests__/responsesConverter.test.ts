@@ -37,14 +37,19 @@ describe('convertMessages', () => {
     expect(items[1]).toMatchObject({ type: 'function_call', call_id: 'call_1', name: 'list_directory', arguments: '{"dir_path":""}' })
   })
 
-  it('tool 消息 → function_call_output；孤儿 tool（无对应 function_call）丢弃', () => {
+  it('tool 消息 → function_call_output；孤儿 tool（无对应 function_call）转文本 user 保内容可见', () => {
+    // v16.0.3(审查修复): 孤儿 tool 从"丢弃"改为"转文本 user 消息"——与 Anthropic 路径的
+    // F1 行为对齐（模型看到历史工具结果，跨 run 续跑上下文不丢）；不能作为
+    // function_call_output 发送（Responses 对孤儿 function_call_output 400）
     const items = convertMessages([
       { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] } as unknown as ConverterMessage,
       { role: 'tool', tool_call_id: 'call_1', content: '{"status":"success"}' },
-      { role: 'tool', tool_call_id: 'orphan_9', content: '{"status":"error"}' },
+      { role: 'tool', tool_call_id: 'orphan_9', content: '{"status":"error","summary":"文件不存在"}' },
     ] as ConverterMessage[])
-    expect(items).toHaveLength(2)  // function_call + function_call_output；孤儿被丢
+    expect(items).toHaveLength(3)  // function_call + function_call_output + 孤儿转文本
     expect(items[1]).toMatchObject({ type: 'function_call_output', call_id: 'call_1', output: '{"status":"success"}' })
+    expect(items[2]).toMatchObject({ type: 'message', role: 'user' })
+    expect(String((items[2].content as Array<Record<string, unknown>>)[0]?.text || '')).toContain('文件不存在')
   })
 
   it('历史 reasoning 不回传（每轮重新生成）', () => {
