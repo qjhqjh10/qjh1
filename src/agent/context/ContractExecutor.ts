@@ -63,6 +63,8 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   // ── Project tools ──
   create_project: ['status', 'summary'],
   delete_project: ['status', 'summary'],
+  // ── v16.1.0: 章节协作改写（渲染层驱动，detail 剥离——改写内容在编辑器，不回灌上下文）──
+  editor_rewrite: ['status', 'summary'],
   // ── Harness tools ──
   // v14.6.1: think 工具已删除（v12.6.0）——死契约条目移除
   list_rules:     ['status', 'summary', 'detail'],

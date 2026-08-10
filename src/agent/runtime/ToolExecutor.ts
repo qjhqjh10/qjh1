@@ -32,6 +32,9 @@ export const WRITE_TOOLS = new Set([
   'kb_append_file','kb_index_file',  // v14.9(审计): +kb_index_file——同轮 create_file(新建KB文件)+索引 时
   // 索引必须等文件落盘后执行（原归只读段 → 文件尚不存在 → "索引失败: File not found"白费一轮）
   'generate_image','http_get','http_fetch','browser_open','browser_search',
+  // v16.1.0(审查修复): +editor_rewrite——归入串行写工具，防同轮多次调用并行 dispatchRewrite
+  // 到单槽 pendingAction 后写覆盖前写（竞态丢失改写）
+  'editor_rewrite',
 ])
 
 /**
@@ -258,13 +261,18 @@ export async function executeSingleTool(
   if (!ctx.skipOpHistory) {
     try {
       const { useOpHistoryStore } = await import('@/store/operationHistoryStore')
+      // v16.1.0(审查修复 A3): editor_rewrite 参数脱敏（anchor→100字 / newText→长度）——
+      // 与 AuditTrail.recordToolCall 同款，防改写全文明文持久化到 localStorage 操作历史
+      const safeArgs = tc.name === 'editor_rewrite' && args
+        ? { ...args, anchor: String(args.anchor || '').slice(0, 100), newText: `(${String(args.newText || '').length} chars)` }
+        : args
       useOpHistoryStore.getState().addEntry({
         id: nanoid(8),
         timestamp: new Date().toISOString(),
         conversationId: ctx.projectId || 'global',
         toolName: tc.name,
         filePath: extractFilePath(args),
-        args,
+        args: safeArgs,
         status: result.status === 'success' ? 'success' : 'error',
         summary: result.summary || '',
         detail: result.detail || '',

@@ -7,7 +7,49 @@ import { V4SecurityFence } from '../V4SecurityFence'
 import { AuditTrail } from '../audit/AuditTrail'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { invalidateAfterTool } from '../context/CacheInvalidator'
+import { normalizeReadPath } from '../context/ReadResultTracker'
 import type { ToolExecutorFn } from '../runtime/RuntimeTypes'
+
+/**
+ * v16.1.0: 协作只读围栏——关联模式(chapterCollab.active)下禁止写当前章节文件。
+ * 主/子代理统一生效(子代理绕过=漏洞,与"允许读本章、禁止写本章文件"决策冲突)。
+ */
+const FENCE_WRITE_TOOLS = new Set([
+  'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
+  'edit_file_task', 'kb_append_file', 'kb_index_file',
+])
+
+function chapterLabel(chapterId: string): string {
+  const m = String(chapterId || '').match(/(\d+)/)
+  return m ? `第${m[1]}章` : chapterId
+}
+
+/** 返回拦截 reason(null = 放行)。动态读 store(用户可随时取消 chip 关联)。 */
+async function checkCollabFence(toolName: string, args: Record<string, unknown>): Promise<string | null> {
+  if (!FENCE_WRITE_TOOLS.has(toolName)) return null
+  let collab: { active: boolean; chapterId: string | null }
+  try {
+    const { useChapterCollabStore } = await import('@/store/chapterCollabStore')
+    collab = useChapterCollabStore.getState()
+  } catch { return null }
+  if (!collab.active || !collab.chapterId) return null
+
+  // 提取目标路径(覆盖各写工具的参数键)
+  const fp = String(args.file_path || args.path || args.filePath || args.new_path || args.targetPath || '')
+  if (!fp) return null
+  const target = normalizeReadPath(fp)
+  // v16.1.0(审查修复 C11): 限定 "/chapters/{id}.txt" 形态——原 endsWith(chapterFile) 裸文件名
+  // 容错会误拦 backups/chapters/x.txt、imitation_projects/其他项目/chapters/x.txt 等同名路径。
+  // 归一化后: 项目内相对路径 "proj/chapters/x.txt" 与绝对路径均以 "/chapters/x.txt" 结尾。
+  const chapterPath = `/chapters/${collab.chapterId}.txt`
+  const isChapter = target === chapterPath.replace(/^\//, '')
+    || target.endsWith(chapterPath)
+  if (!isChapter) return null
+
+  return `[协作只读] 当前与「${chapterLabel(collab.chapterId)}」建立 AI 协作关联，本章文件处于只读保护。` +
+    `本章内容的修改请用 editor_rewrite 工具（直接应用到编辑器，不经文件系统，用户可直接看到特效改写）。` +
+    `若需直接修改本章文件，请先在聊天窗点击「已关联 ✕」取消关联后再试。其他文件不受此限制。`
+}
 
 export interface ToolExecutorFactoryOptions {
   securityFence: V4SecurityFence
@@ -31,6 +73,14 @@ export function createToolExecutor(opts: ToolExecutorFactoryOptions): ToolExecut
       // v14 批处理: 审计权限决策（会话统计的 permissionDenied 计数来源）
       auditTrail.recordPermissionDecision(ctx.toolName, 'deny', secCheck.reason || '安全围栏拦截')
       return { status: 'error', summary: secCheck.reason || '操作被安全围栏拦截' }
+    }
+
+    // v16.1.0: Layer 5 — 协作只读围栏（关联模式下禁写当前章文件；主/子代理统一生效）
+    const fenceReason = await checkCollabFence(ctx.toolName, args)
+    if (fenceReason) {
+      auditTrail.recordToolResult(ctx.toolName, 'blocked', fenceReason)
+      auditTrail.recordPermissionDecision(ctx.toolName, 'deny', fenceReason)
+      return { status: 'error', summary: fenceReason }
     }
 
     // Approval: dangerous tools or external paths

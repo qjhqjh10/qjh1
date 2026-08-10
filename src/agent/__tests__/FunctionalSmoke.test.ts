@@ -131,9 +131,9 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 32个工具 (v14.8: +kb_analyze 知识库深度分析)', () => {
+  it('工具注册: 33个工具 (v14.8: +kb_analyze; v16.1.0: +editor_rewrite)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBe(32)
+    expect(names.length).toBe(33)
     expect(names).toContain('analyze_text_style')
     expect(names).toContain('generate_image')
     expect(names).toContain('kb_analyze')
@@ -144,6 +144,7 @@ describe('功能冒烟测试 (项目"1")', () => {
     expect(names).toContain('edit_file_task')
     expect(names).toContain('verify_task')
     expect(names).toContain('subagent_ask')
+    expect(names).toContain('editor_rewrite')
   })
 
   // ── 6. 系统提示词 (v10.2.0: Skill-First) ──

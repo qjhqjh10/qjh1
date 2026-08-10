@@ -20,6 +20,8 @@ export interface ContextBuilderOptions {
   /** v14.8: 跨 run 排除 — 历史 run 已注入过的知识库文件 id（来自上一条 assistant 消息的 kbInjectedFileIds），
    * 与本轮实例内已注入 id 并集后传给 kbService.search，避免同一文件跨 run 反复注入 */
   excludeKbFileIds?: string[]
+  /** v16.1.0(审查修复 B6): 章节协作——本轮是否注入全文。false 只注入锚点+版本（成本优化） */
+  chapterFullText?: boolean
 }
 
 export interface ContextBuilderResult {
@@ -140,6 +142,37 @@ export class BridgeContextBuilder {
       } catch { /* unavailable */ }
     }
 
+    // ── 3. 章节协作改写上下文（v16.1.0 关联模式激活时注入；走 user 消息管道，system 前缀稳定）──
+    // 权威源 = 编辑器内存态(collab.text，随 onChange 实时同步)；磁盘文件可能落后于编辑器。
+    // 取消关联(collab.active=false) → 整块消失，不背 tokens。
+    let chapterTokens = 0
+    if (!searchContext.startsWith('[章节协作]')) {
+      try {
+        const { useChapterCollabStore } = await import('@/store/chapterCollabStore')
+        const collab = useChapterCollabStore.getState()
+        if (collab.active && collab.chapterId && collab.text) {
+          const chapterNum = String(collab.chapterId).match(/(\d+)/)?.[1] || collab.chapterId
+          const anchor = collab.anchorStack[0] || collab.selectionAnchor || ''
+          const chapterBlock =
+            `\n[章节协作]\n` +
+            `当前关联: 第${chapterNum}章（编辑器内存态，权威源）\n` +
+            `锚点: ${anchor}\n` +
+            `锚点版本: ${collab.anchorStack.length}/3（最新在前，改写成功后自动更新）\n` +
+            `已改写次数: ${collab.chapterVersion}\n` +
+            `只读规则: 本章文件只读，禁止 create_file/edit_file/batch_replace/delete_file/rename_file 写入本章路径（系统会拦截）；改写请用 editor_rewrite 工具。\n` +
+            `⚠️ 磁盘文件可能落后于编辑器（自动保存有延迟）：不要用 read_file 读取本章文件获取内容——一律以本注入块的本章全文为准。锚点定位也以本全文为准。\n` +
+            `其他文件不受此限制，可正常读写。\n` +
+            // v16.1.0(审查修复 B6): 未变化轮不注入全文（成本优化）——历史 user 消息中已有全文，
+            // 模型按需参考；章节内容变更后下一轮才会重新注入
+            (this.opts.chapterFullText !== false
+              ? `本章全文:\n${collab.text}`
+              : `本章全文已在之前的参考信息中给出（内容未变），直接基于已有内容工作；如需最新全文请说明「重载章节」。`)
+          searchContext += chapterBlock
+          chapterTokens = estimateTokens(chapterBlock)
+        }
+      } catch { /* store 不可用(测试)时跳过 */ }
+    }
+
     // ── 6. Token estimation (仅动态内容，核心提示词延后到项目信息注入后计算) ──
     const searchTokens = searchContext ? estimateTokens(searchContext) : 0
     const historyTokens = hist.reduce(
@@ -241,7 +274,8 @@ export class BridgeContextBuilder {
     const breakdown: Array<{ domain: string; tokens: number }> = [
       { domain: '核心规则(全量)', tokens: coreTokens - projectTokens },
       ...(projectTokens > 0 ? [{ domain: '项目信息', tokens: projectTokens }] : []),
-      ...(searchContext ? [{ domain: '知识库/网络搜索', tokens: searchTokens }] : []),
+      ...(searchContext ? [{ domain: '知识库/网络搜索/章节协作', tokens: searchTokens }] : []),
+      ...(chapterTokens > 0 ? [{ domain: '章节协作', tokens: chapterTokens }] : []),
       { domain: '对话历史', tokens: historyTokens },
       { domain: '当前消息', tokens: estimateTokens(msg) },
     ].filter(b => b.tokens > 0)

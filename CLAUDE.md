@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v16.0.3
+# AI写作软件—青剑 v16.1.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,20 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v16.0.3)
+## 当前架构 (v16.1.0)
+
+### v16.1.0 章节协作改写（2026-08-10，双路审查：UX 人类视角 + agent 破坏性逻辑审查）
+- **章节创作界面 × AI 写作助手 协作改写**: 选中段落 → 右键「发送到 AI 写作助手」→ 建立 chapterCollab 关联（锚=段落首尾20字，text=编辑器内存态权威源）→ 用户提要求 → AI 调新工具 **editor_rewrite(anchor,newText)**（第 33 工具）→ 渲染层消费一次性 action → 编辑器**特效改写**（旧文字淡出→打字机原位逐字→单次 transaction 提交，Ctrl+Z 单步撤销）→ 不落盘，切章/退出自动保存
+- **「加载本章/刷新本章」按钮**: 一键让 AI 了解本章（无需选中文字）；AI 直接改文件后手动同步编辑器（needsReload 橙色高亮+圆点提示）
+- **上下文注入开关**: 聊天窗 chip「AI 已加载本章全文 ✕」可取消（完全不注入不背 tokens）；取消后可一键重新关联；编辑器 badge「AI 协作中·第N章」+ 特效遮罩取消按钮
+- **权威源 = 编辑器内存态**（chapterCollabStore.text 随 onChange 实时同步）；注入块明示「磁盘可能落后，不要 read_file 获取本章内容」
+- **全文注入走 user 消息参考信息块**（分段缓存命中）+ **变更才注入+5 轮心跳**成本优化（未变轮只注入锚点+版本）
+- **协作只读围栏**（toolExecutorFactory Layer 5）: 关联模式拦写当前章文件（主/子代理统一生效），其他文件照常可写；路径 `/chapters/{id}.txt` 形态比对；返回引导「请用 editor_rewrite」
+- **完成判定接线**: FILE_WRITE_TOOLS + _hasWriteCall 双置位 editor_rewrite；协作模式 nudge 引导 editor_rewrite；detectHallucination 补 editor_rewrite；AuditTrail+OpHistory 双处脱敏（anchor 100 字/newText 长度）
+- **锚点降级匹配链**: 精确→首尾20字→单首20字→失败引导 search_content 重试；锚点栈 3 版防漂移；改写成功后自动更新
+- **特效状态机**（rewriteEffect.ts）: 淡出 400ms → 打字机 12ms/字（>5000 字跳过）→ 单次 transaction；isAborted 中断通道；特效期间禁编辑；DOM 零 dispatch 不触发 onContentChange 循环
+- **双路审查修复批**: 切章失配自动 detach / cancelRewrite 真 abort 通道 / ✅确认消息真实结果驱动（lastRewriteApplied）/ 返回+beforeunload 过守卫 / 守卫弹窗瘦身（取消(留在本章)/放弃改写并离开）/ 同轮双 editor_rewrite 竞态（WRITE_TOOLS 串行化）/ 幻觉误报 / _hasWriteCall 接线 / 围栏路径误拦收紧 / 子代理提示词补围栏说明 / 打字机原位消除跳动 / 选中过短 toast / 右键菜单副标题 / attach 即时 toast
+- **测试**: 816 passed + 15 skipped（含真实 TipTap 集成测试 7 例：提交+撤销/禁编辑/原位打字/abort 取消/超长/越界/回调顺序）；tsc 0；check-consistency 31/31
 
 ### v16.0.3 审查修复批次（2026-08-10）
 - **P1 Anthropic 混合轮 tool_use 修复**: serverToolBlocks 存在时不再跳过本地 tool_calls 转换——同轮模型既调 web_search（服务端）又调本地工具时本地 tool_use 被丢弃 → 下轮孤儿 tool_result 400。现 server_tool_use/web_search_tool_result 与本地 tool_use 并存回传（web_search 跳过防双份），单元验证 PASS
@@ -223,11 +236,11 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 项目结构 & 数据格式 | `.aiharness/rules/project-structure.md` |
 | 金规则 | `.aiharness/rules/golden-rules.md` |
 | Harness 配置 | `.aiharness/aiharness.json` |
-| Agent 工具列表 | `src/agent/skills/tools/index.ts` (32 工具) |
+| Agent 工具列表 | `src/agent/skills/tools/index.ts` (33 工具) |
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v16.0.3) |
+| 版本历史 | `src/data/version_history.json` (当前 v16.1.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
@@ -237,7 +250,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (775 passed + 15 skipped，共 790) |
+| `npx vitest run` | 全量单元测试 (816 passed + 15 skipped，共 831) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (303 passed + 14 skipped，共 317) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

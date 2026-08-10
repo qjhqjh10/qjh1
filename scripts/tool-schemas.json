@@ -819,5 +819,29 @@
         ]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "editor_rewrite",
+      "description": "改写当前关联章节中锚点对应的段落——直接应用到你正在编辑的编辑器（特效动画），不经文件系统。仅当聊天窗「已关联:第N章」激活时可用。用法：anchor 必须是章节协作参考块中标明的锚点（原样引用，不得增删字）；newText 为改写后的完整段落。若在注入的章节全文中找不到该锚点（内容已变化），先用 search_content 在项目 chapters/ 中定位当前文本，再以定位结果作为 anchor 调用。改写后锚点自动更新，后续轮次使用新锚点。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "anchor",
+          "newText"
+        ],
+        "properties": {
+          "anchor": {
+            "type": "string",
+            "description": "关联锚点文本（在注入的章节全文末尾标注）——必须原样引用，不得改动"
+          },
+          "newText": {
+            "type": "string",
+            "description": "替换后的新段落文本（≤5000 字符）"
+          }
+        }
+      }
+    }
   }
 ]

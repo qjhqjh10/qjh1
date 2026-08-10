@@ -50,6 +50,9 @@ export class AuditTrail {
     if (safeArgs.content) safeArgs.content = `(${String(safeArgs.content).length} chars)`
     if (safeArgs.search_query) safeArgs.search_query = String(safeArgs.search_query).slice(0, 100)
     if (safeArgs.query) safeArgs.query = String(safeArgs.query).slice(0, 100)
+    // v16.1.0: editor_rewrite 长参数脱敏——anchor 截前 100 字，newText 记长度
+    if (safeArgs.anchor) safeArgs.anchor = String(safeArgs.anchor).slice(0, 100)
+    if (safeArgs.newText) safeArgs.newText = `(${String(safeArgs.newText).length} chars)`
     this.record('tool:call', { toolName, args: safeArgs })
   }
 

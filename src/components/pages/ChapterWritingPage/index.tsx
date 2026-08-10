@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore, useSettingsStore } from '@/store'
 import { fileService, aiService } from '@/services/fileService'
@@ -7,10 +7,14 @@ import { loadCharacters } from '@/services/characterService'
 import { sceneService } from '@/services/sceneService'
 import type { ChapterSceneConfig } from '@/types/story'
 import RichTextEditor from '@/components/common/RichTextEditor'
+import type { RichTextEditorHandle } from '@/components/common/RichTextEditor'
 import ScrollArea from '@/components/common/ScrollArea'
 import Button from '@/components/common/Button'
 import EmptyState from '@/components/common/EmptyState'
 import Modal from '@/components/common/Modal'
+import { useChapterCollabStore } from '@/store/chapterCollabStore'
+import { makeAnchor } from '@/utils/anchorMatch'
+import { useToast } from '@/components/common/Toast'
 import ChapterGenerationModal from '@/components/common/ChapterGenerationModal'
 import type { VersionRecord } from '@/components/common/ChapterGenerationModal'
 import { VersionHistoryModal } from '@/components/common/VersionHistoryModal'
@@ -28,6 +32,8 @@ import {
   ClipboardDocumentCheckIcon,
   ClockIcon,
   DocumentTextIcon,
+  LinkIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline'
 import ChapterSummaryPanel from '@/components/chapterWriting/ChapterSummaryPanel/ChapterSummaryPanel'
 import type { DetailedChapter } from '@/types/chapter'
@@ -88,6 +94,14 @@ export default function ChapterWritingPage() {
   const [chapterSceneConfig, setChapterSceneConfig] = useState<ChapterSceneConfig | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [selectedSummaryTemplate, setSelectedSummaryTemplate] = useState('')
+  // v16.1.0: 章节协作改写（编辑器 ref + 一次性 action 消费 + 切章守卫）
+  const editorRef = useRef<RichTextEditorHandle>(null)
+  const collabPendingAction = useChapterCollabStore(s => s.pendingAction)
+  const collabActive = useChapterCollabStore(s => s.active)
+  const needsReload = useChapterCollabStore(s => s.needsReload)
+  const [collabGuard, setCollabGuard] = useState<{ type: 'navigate'; target?: string } | null>(null)
+  const collabGuardRef = useRef<{ type: 'navigate'; target?: string } | null>(null)
+  const { toast } = useToast()
 
   // Generation overlay state
   const [genOverlay, setGenOverlay] = useState(false)
@@ -108,6 +122,13 @@ export default function ChapterWritingPage() {
   // Load chapter content
   useEffect(() => {
     if (!activeProjectId || !chapterId || !projectsBasePath) return
+    // v16.1.0(审查修复 A1-1): 切章后关联状态失配——collab 还挂着旧章节,
+    // onChange 会把新章内容覆写进 collab.text → AI 上下文注入"第3章+第5章全文"混合体。
+    // 切到不同章节时自动解除关联(用户需重新右键选中建立新关联)。
+    const collab = useChapterCollabStore.getState()
+    if (collab.active && collab.chapterId !== chapterId) {
+      useChapterCollabStore.getState().detach()
+    }
     const pp = `${projectsBasePath}/${activeProjectId}`
     setProjectPath(pp)
     setActivePage('chapter')
@@ -211,8 +232,17 @@ export default function ChapterWritingPage() {
         fileService.write(`${projectPath}/chapters/${chapterId}.txt`, contentRef.current).catch(() => {})
       }
     }
-    window.addEventListener('beforeunload', save)
-    return () => window.removeEventListener('beforeunload', save)
+    // v16.1.0(审查修复 A3-3): 特效进行中退出 → 提示用户（浏览器原生确认框兜底）
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (useChapterCollabStore.getState().streaming) {
+        e.preventDefault()
+        e.returnValue = ''
+        return
+      }
+      save()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [projectPath, chapterId])
 
   // Handle replace action from AI assistant (apply to editor + save)
@@ -222,6 +252,102 @@ export default function ChapterWritingPage() {
     handleSave(replaceAction.content).catch(err => logError('replaceAction自动保存失败', err))
     setReplaceAction(null)
   }, [replaceAction])
+
+  // ── v16.1.0: 消费 editor_rewrite 一次性 action → 编辑器特效改写 ──
+  useEffect(() => {
+    if (!collabPendingAction || collabPendingAction.chapterId !== chapterId) return
+    const action = useChapterCollabStore.getState().consumeAction()
+    if (!action) return
+    editorRef.current?.applyRewrite(action.anchor, action.newText).then(ok => {
+      if (ok) {
+        // 真实应用结果驱动确认消息（AIChatWindow 读取后显示 ✅）
+        useChapterCollabStore.getState().setLastRewriteApplied(true)
+        toast('✅ AI 改写已应用到编辑器（Ctrl+Z 可撤销）')
+      } else {
+        useChapterCollabStore.getState().setLastRewriteApplied(false)
+        toast('⚠️ AI 改写未应用：那段文字在编辑器里已经变了，已引导 AI 重新定位')
+      }
+    })
+  }, [collabPendingAction, chapterId])
+
+  // ── v16.1.0: 右键「发送到 AI」→ 建立章节协作关联 + 打开聊天窗 ──
+  const handleSendToAICollab = useCallback((text: string) => {
+    if (!chapterId) return
+    // 权威源快照（编辑器内存态，纯文本）
+    const plain = stripHtml(contentRef.current)
+    useChapterCollabStore.getState().attach(chapterId, text, plain)
+    // 建立关联的即时反馈（v16.1.0 审查修复 A1-2: 原无任何确认）
+    const num = String(chapterId).match(/(\d+)/)?.[1] || chapterId
+    toast(`🔗 已关联第${num}章，AI 已加载本章全文`)
+    useStore.getState().setPendingMessage(`【章节协作改写】以下是我选中的段落（已加载本章全文，请基于本章内容处理）：\n\n${text}`)
+    useStore.getState().setAIChatOpen(true)
+  }, [chapterId])
+
+  // ── v16.2.0: 「加载本章」按钮——让 AI 写作助手了解本章（无需选中文字）──
+  const handleLoadChapterToAI = useCallback(() => {
+    if (!chapterId) return
+    const plain = stripHtml(contentRef.current)
+    const collab = useChapterCollabStore.getState()
+    if (collab.active && collab.chapterId === chapterId) {
+      // 已关联 → 重新加载最新内容 + 打开聊天窗
+      collab.setText(plain)
+      const num = String(chapterId).match(/(\d+)/)?.[1] || chapterId
+      toast(`🔗 已重新加载第${num}章最新内容`)
+      useStore.getState().setAIChatOpen(true)
+      return
+    }
+    // 未关联 → 建立关联（锚用全文首句兜底）
+    useChapterCollabStore.getState().attach(chapterId, plain.slice(0, 40), plain)
+    const num = String(chapterId).match(/(\d+)/)?.[1] || chapterId
+    toast(`🔗 已加载第${num}章，AI 写作助手已了解本章`)
+    useStore.getState().setPendingMessage(`【章节协作改写】我已将本章全文加载给你（共 ${plain.length} 字）。请基于本章内容，我可以帮你改写段落、润色文字或讨论剧情。`)
+    useStore.getState().setAIChatOpen(true)
+  }, [chapterId])
+
+  // ── v16.2.0: 「刷新本章」按钮——从磁盘重读本章文件，同步编辑器内容 ──
+  const handleRefreshChapter = useCallback(async () => {
+    if (!projectPath || !chapterId) return
+    try {
+      const diskContent = await fileService.read(`${projectPath}/chapters/${chapterId}.txt`)
+      if (diskContent !== contentRef.current) {
+        setContent(diskContent)
+        await handleSave(diskContent)
+        // 刷新后权威源同步 + 清除提示
+        if (useChapterCollabStore.getState().active) {
+          useChapterCollabStore.getState().setText(stripHtml(diskContent))
+        }
+        useChapterCollabStore.getState().setNeedsReload(false)
+        toast('✅ 已从磁盘刷新本章内容')
+      } else {
+        useChapterCollabStore.getState().setNeedsReload(false)
+        toast('本章文件与编辑器内容一致，无需刷新')
+      }
+    } catch (err) {
+      logError('刷新本章失败', err)
+      toast('⚠️ 读取本章文件失败，请重试')
+    }
+  }, [projectPath, chapterId])
+
+  // ── v16.1.0: 切章守卫（特效未完成时弹窗）──
+  const saveAndNavigate = async (targetChapterId: string) => {
+    if (useChapterCollabStore.getState().streaming) {
+      collabGuardRef.current = { type: 'navigate', target: targetChapterId }
+      setCollabGuard({ type: 'navigate', target: targetChapterId })
+      return
+    }
+    await doSaveAndNavigate(targetChapterId)
+  }
+
+  const doSaveAndNavigate = async (targetChapterId: string) => {
+    await handleSave()
+    if (projectPath && chapterId && summaryRef.current !== summaryLoadedRef.current) {
+      await saveSummary(projectPath, chapterId, summaryRef.current).catch(err => logError('导航前摘要保存失败', err))
+      summaryLoadedRef.current = summaryRef.current
+    }
+    setActivePage('chapter')
+    setCurrentChapterId(targetChapterId)
+    navigate(`/chapter/${targetChapterId}`)
+  }
 
   // AI triggered chapter generation via 【生成本章】command
   useEffect(() => {
@@ -239,11 +365,23 @@ export default function ChapterWritingPage() {
     const expectedPath = `${projectPath}/chapters/${chapterId}.txt`.replace(/\\/g, '/').toLowerCase()
     const notifyPath = fileEditNotify.filePath.replace(/\\/g, '/').toLowerCase()
     if (notifyPath === expectedPath) {
+      // v16.2.0: AI 直接改文件 → 自动重载编辑器内容（此时磁盘=权威源，编辑器同步）
       fileService.read(expectedPath).then(c => {
         setContent(c)
         handleSave(c).catch(err => logError('fileEditNotify自动保存失败', err))
+        // 同步协作权威源（编辑器内容已变）+ 清除刷新提示
+        if (useChapterCollabStore.getState().active) {
+          useChapterCollabStore.getState().setText(stripHtml(c))
+        }
+        useChapterCollabStore.getState().setNeedsReload(false)
+        toast('📄 AI 已直接修改本章文件，编辑器已同步')
       }).catch(() => {})
       setFileEditNotify(null)
+    } else {
+      // v16.2.0: 其他文件被 AI 修改（非本章）→ 不自动重载；若修改的是本章相关文件，提示可手动刷新
+      if (useChapterCollabStore.getState().active && notifyPath.includes('/chapters/')) {
+        useChapterCollabStore.getState().setNeedsReload(true)
+      }
     }
   }, [fileEditNotify, chapterId, projectPath])
 
@@ -291,17 +429,7 @@ export default function ChapterWritingPage() {
     return () => clearTimeout(timer)
   }, [summaryContent])
 
-  // Save then navigate
-  const saveAndNavigate = async (targetChapterId: string) => {
-    await handleSave()
-    if (projectPath && chapterId && summaryRef.current !== summaryLoadedRef.current) {
-      await saveSummary(projectPath, chapterId, summaryRef.current).catch(err => logError('导航前摘要保存失败', err))
-      summaryLoadedRef.current = summaryRef.current
-    }
-    setActivePage('chapter')
-    setCurrentChapterId(targetChapterId)
-    navigate(`/chapter/${targetChapterId}`)
-  }
+  // Save then navigate（v16.1.0: 已上移至守卫版，此旧版删除）
 
   const handleAIExtract = async () => {
     if (!activeConfigId || !detailedChapter || !content.trim()) return
@@ -537,7 +665,15 @@ export default function ChapterWritingPage() {
           padding: '12px 24px', background: 'rgba(255,255,255,0.6)', borderBottom: '1px solid rgba(0,0,0,0.05)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/detailed-outline')} icon={<ArrowLeftIcon style={{ width: 16, height: 16 }} />}>
+            <Button variant="ghost" size="sm" onClick={() => {
+              // v16.1.0(审查修复 A3-3): 「返回」同样过特效守卫（原直接 navigate 绕过）
+              if (useChapterCollabStore.getState().streaming) {
+                collabGuardRef.current = { type: 'navigate', target: undefined }
+                setCollabGuard({ type: 'navigate', target: undefined })
+              } else {
+                navigate('/detailed-outline')
+              }
+            }} icon={<ArrowLeftIcon style={{ width: 16, height: 16 }} />}>
               返回
             </Button>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: '#2d2520' }}>
@@ -547,6 +683,33 @@ export default function ChapterWritingPage() {
               <Button size="sm" onClick={() => setShowAIGen(true)} icon={<SparklesIcon style={{ width: 14, height: 14 }} />}>
                 AI生成
               </Button>
+              {/* v16.2.0: 加载本章——让 AI 写作助手了解本章（建立协作关联，无需先选中文字） */}
+              <button onClick={handleLoadChapterToAI} title="将本章全文加载给 AI 写作助手（建立协作关联，之后可直接在聊天窗要求改写/润色/讨论本章）"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8,
+                  border: collabActive
+                    ? '1px solid rgba(124,58,237,0.35)'
+                    : '1px solid rgba(124,58,237,0.2)',
+                  background: collabActive ? 'rgba(124,58,237,0.1)' : 'rgba(124,58,237,0.04)',
+                  color: '#7c3aed', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  whiteSpace: 'nowrap', transition: 'all 0.15s ease',
+                }}>
+                <LinkIcon style={{ width: 13, height: 13 }} />
+                {collabActive ? '已加载本章' : '加载本章'}
+              </button>
+              {/* v16.2.0: 刷新本章——AI 直接改文件后手动同步编辑器内容 */}
+              <button onClick={handleRefreshChapter} title="从磁盘重新读取本章文件，刷新编辑器内容（AI 直接修改文件后使用）"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8,
+                  border: needsReload ? '1px solid rgba(245,158,11,0.45)' : '1px solid rgba(0,0,0,0.1)',
+                  background: needsReload ? 'rgba(245,158,11,0.1)' : 'transparent',
+                  color: needsReload ? '#e67e00' : '#6b5e54', fontSize: 12, fontWeight: needsReload ? 700 : 500,
+                  cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease',
+                }}>
+                <ArrowPathIcon style={{ width: 13, height: 13 }} />
+                刷新本章
+                {needsReload && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />}
+              </button>
               <Button size="sm" variant="secondary" onClick={() => setShowReview(true)} icon={<ClipboardDocumentCheckIcon style={{ width: 14, height: 14 }} />}
                 style={{ borderColor: 'rgba(124,58,237,0.2)', background: 'rgba(124,58,237,0.04)', color: '#7c3aed' }}>
                 AI审稿
@@ -581,10 +744,18 @@ export default function ChapterWritingPage() {
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', padding: '16px 32px' }}>
           <div className="custom-scrollbar writing-paper" style={{ width: '100%', overflowY: 'auto' }}>
             <RichTextEditor
+              ref={editorRef}
               content={content}
-              onContentChange={setContent}
+              onContentChange={(html) => {
+                setContent(html)
+                // v16.1.0: 权威源实时同步（仅关联模式）
+                if (useChapterCollabStore.getState().active) {
+                  useChapterCollabStore.getState().setText(stripHtml(html))
+                }
+              }}
               projectPath={projectPath}
               chapterId={chapterId}
+              onSendToAI={handleSendToAICollab}
               placeholder={!content.trim() && detailedChapter?.description ? '本章细纲已就绪，点击上方 AI生成 开始写作，或手动输入内容...' : '开始创作你的章节内容...'}
             />
           </div>
@@ -710,6 +881,35 @@ export default function ChapterWritingPage() {
           window.addEventListener("mouseup", onUp);
         }} onCancel={() => { genAbortRef.current?.(); setGenOverlay(false); genAbortRef.current = null; }} />
       )}
+
+      {/* v16.1.0: 切章守卫——AI 改写特效未完成时拦截导航 */}
+      <Modal
+        isOpen={!!collabGuard}
+        onClose={() => setCollabGuard(null)}
+        title="AI 改写尚未完成"
+        width={420}
+      >
+        <p style={{ fontSize: 13, color: '#6b5e54', lineHeight: 1.7, marginBottom: 16 }}>
+          AI 正在将改写结果应用到编辑器（特效播放中）。此时离开会中断改写。
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <Button variant="secondary" size="sm" onClick={() => setCollabGuard(null)}>
+            取消（留在本章）
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => {
+            // 放弃改写并切换：取消特效（真 abort）+ 执行挂起导航（返回/切章）
+            editorRef.current?.cancelRewrite()
+            useChapterCollabStore.getState().setStreaming(false)
+            const g = collabGuardRef.current
+            setCollabGuard(null)
+            collabGuardRef.current = null
+            if (g?.target) doSaveAndNavigate(g.target)
+            else navigate('/detailed-outline')
+          }}>
+            放弃改写并离开
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

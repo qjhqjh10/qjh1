@@ -28,6 +28,10 @@ export interface SendOptions {
   resumeTaskProgress?: V4AgentRunResult['taskProgress']
   /** v14.6.1: 工具开关 — false 时本轮禁用工具调用（纯文本对话） */
   toolsEnabled?: boolean
+  /** v16.1.0(审查修复 B6): 章节协作——本轮是否注入全文。
+   * 成本优化「变更才注入+心跳」由 UI 层判定（chapterVersion/text 变化或 ≥5 轮），
+   * 未变化轮只注入锚点+版本（全文已在历史 user 消息中，模型可参考） */
+  chapterFullText?: boolean
   onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
   onComplete?: (result: V4AgentRunResult) => void
   onToolProgress?: (event: { callId: string; toolName: string; phase: string; progress: number; message: string; timestamp: number }) => void
@@ -84,6 +88,8 @@ export interface IChatBridge {
       resumeTaskProgress?: V4AgentRunResult['taskProgress']
       /** v14.6.1: 工具开关 — false 时本轮禁用工具调用 */
       toolsEnabled?: boolean
+      /** v16.1.0(审查修复 B6): 章节全文注入门控（变更才注入+心跳，未变轮省 token） */
+      chapterFullText?: boolean
       onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
       onComplete?: (result: V4AgentRunResult) => void
       onToolProgress?: (event: {

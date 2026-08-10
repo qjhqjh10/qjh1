@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
+import { useChapterCollabStore } from '@/store/chapterCollabStore'
 import { aiService, kbService, fileService, settingsService } from '@/services/fileService'
 import {
   XMarkIcon, PaperAirplaneIcon, SparklesIcon,
@@ -9,7 +10,7 @@ import {
   PlusIcon, ArrowPathIcon, ListBulletIcon,
   DocumentTextIcon, PhotoIcon,
   TrashIcon, Square2StackIcon, WrenchScrewdriverIcon, FolderOpenIcon,
-  HashtagIcon,
+  HashtagIcon, LinkIcon,
 } from '@heroicons/react/24/outline'
 import { ALL_TOOLS } from '@/agent/skills/tools'
 import { shouldUseResponses } from '@/agent/runtime/adapters/responsesRouter'
@@ -157,6 +158,10 @@ export default function AIChatWindow() {
   const outlineContent = useStore(s => s.outlineContent)
   const detailedChapters = useStore(s => s.detailedChapters)
   const currentChapterId = useStore(s => s.currentChapterId)
+  // v16.1.0: 章节协作关联状态（chip「已关联:第N章」）
+  const chapterCollabActive = useChapterCollabStore(s => s.active)
+  const chapterCollabId = useChapterCollabStore(s => s.chapterId)
+  const chapterCollabVersion = useChapterCollabStore(s => s.chapterVersion)
 
   const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
   const setOutlineContent = useStore(s => s.setOutlineContent)
@@ -495,10 +500,10 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
   const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
-  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; useChapterCollabStore.getState().detach(); if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
 
   // Dismiss context menu on click outside
@@ -578,6 +583,9 @@ export default function AIChatWindow() {
 
   // Double-send guard — prevents race between async checkApiConnection and setLoading
   const sendLockRef = useRef(false)
+  // v16.1.0(审查修复 B6): 章节全文「变更才注入+心跳」——记录上次注入的全文与轮次
+  const lastInjectedHashRef = useRef<string>('')
+  const lastInjectedRoundsRef = useRef(0)
   // v14.5.0: 发起 run 时的会话 id（ref 同步）——onComplete 的 token 状态更新只在仍是该会话时应用，
   // 防止切换会话后旧 run 的 token 累计污染新会话显示
   const activeConvIdRef = useRef(activeConversationId)
@@ -589,6 +597,26 @@ export default function AIChatWindow() {
     autoRetryRef.current = isRetry
     if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
     if (sendLockRef.current || loading) return  // H8: prevent double-send during async gap
+
+    // v16.1.0(审查修复 B6): 章节全文「变更才注入+心跳」——5 轮未注入强制重注入一次
+    // （防上下文压缩后 AI 丢失章节内容）。未变轮只注入锚点+版本（省 token 成本）。
+    const collabNow = useChapterCollabStore.getState()
+    let chapterFullText = undefined
+    if (collabNow.active && collabNow.chapterId) {
+      if (!lastInjectedHashRef.current) {
+        lastInjectedHashRef.current = collabNow.text || ''
+        lastInjectedRoundsRef.current = 0
+        chapterFullText = true
+      } else if (lastInjectedHashRef.current !== collabNow.text) {
+        lastInjectedHashRef.current = collabNow.text || ''
+        lastInjectedRoundsRef.current = 0
+        chapterFullText = true
+      } else {
+        lastInjectedRoundsRef.current++
+        chapterFullText = lastInjectedRoundsRef.current >= 5
+        if (chapterFullText) lastInjectedRoundsRef.current = 0
+      }
+    }
     sendLockRef.current = true
     // v14.5.0: 记录发起会话——onComplete 的 token 更新只在仍是该会话时应用
     const runStartConvId = activeConversationId
@@ -762,11 +790,24 @@ export default function AIChatWindow() {
         resumeTaskProgress: lastProgressMsg?.taskProgress,
         // v14.6.1: 工具开关接通（此前只驱动按钮样式，从未传给 bridge——死开关）
         toolsEnabled: toolInvokeEnabled,
+        // v16.1.0(审查修复 B6): 章节全文注入门控（变更才注入+心跳）
+        chapterFullText,
         onResponse: (chunk) => { collectedText = chunk.accumulated },
         onComplete: (runResult) => {
           // v16.0.3(审查修复): 工具计数接线——原 conversationToolNames 全仓无写入点（死计数器），
           // 工具条「调用工具 · N」恒为 0。填入本轮实际用过的工具。
           for (const t of runResult.toolsUsed || []) conversationToolNames.current.add(t)
+          // v16.1.0(审查修复 D1): 确认注记改为真实应用结果驱动——原只看本轮是否调用过
+          // editor_rewrite（失败也显示 ✅）。现在读渲染层写入的 lastRewriteApplied。
+          const usedRewrite = (runResult.toolsUsed || []).includes('editor_rewrite')
+          const lastApplied = useChapterCollabStore.getState().lastRewriteApplied
+          const rewriteNote = usedRewrite
+            ? (lastApplied === true
+              ? '（✅ 已应用编辑器改写，可在章节编辑器中查看效果，Ctrl+Z 可撤销）'
+              : lastApplied === false
+                ? '（⚠️ 改写未应用：那段文字在编辑器里已经变了，正在重新定位…）'
+                : '（改写已提交编辑器…）')
+            : ''
           // Parse popup commands from AI response (【打开草稿】, 【生成本章】, etc.)
           const popupResult = parsePopupCommand(collectedText)
           if (popupResult?.genTrigger) {
@@ -812,7 +853,7 @@ export default function AIChatWindow() {
           const outputBreakdown: { label: string; tokens: number }[] = []
           outputBreakdown.push({ label: 'AI 输出', tokens: runResult.completionTokens || 0 })
           setMessages(prev => [...prev, {
-            id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: collectedText || runResult.text || fallbackText, timestamp: Date.now(),
+            id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: (collectedText || runResult.text || fallbackText) + rewriteNote, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
             toolCallSteps: (runResult as any).toolCallSteps || [],
             breakdown: inputBreakdown,
@@ -1158,6 +1199,32 @@ export default function AIChatWindow() {
               active={toolInvokeEnabled}
               onClick={() => setToolInvokeEnabled(!toolInvokeEnabled)}
             />
+            {/* v16.1.0: 章节协作关联 chip——右键「发送到 AI」建立；✕ 取消（不再注入本章内容，不背 tokens）
+                审查修复: 文案更直白(D2) + 取消后可一键重新关联(A4) */}
+            {chapterCollabActive && chapterCollabId ? (
+              <span title="AI 已加载本章全文（编辑器内存态），可要求其直接改写/润色段落。点击 ✕ 取消关联。"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                <LinkIcon style={{ width: 11, height: 11 }} />
+                AI 已加载本章全文 · {chapterCollabId.replace(/^chapter/i, '第').replace(/(\d+)$/, '$1章')}
+                {chapterCollabVersion > 0 && <span style={{ fontSize: 9, opacity: 0.7 }}>·{chapterCollabVersion}次改写</span>}
+                <button onClick={() => { useChapterCollabStore.getState().detach(); toast('已取消章节关联，AI 不再读取本章内容') }}
+                  title="取消关联（AI 不再读取本章内容）"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '0 2px', display: 'inline-flex', fontFamily: 'inherit', opacity: 0.8, fontSize: 14, lineHeight: 1 }}>✕</button>
+              </span>
+            ) : currentChapterId ? (
+              <button onClick={() => {
+                // 重新关联当前章节（无需重新选中文字——锚用当前编辑器全文首句兜底）
+                const cc = useChapterCollabStore.getState()
+                const dc = detailedChapters.find(d => d.id === currentChapterId)
+                const plain = cc.text || (dc?.description || '')
+                useChapterCollabStore.getState().attach(currentChapterId, plain.slice(0, 40), plain)
+                toast('已重新关联当前章节')
+              }} title="点击重新关联当前章节（AI 加载本章内容）"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px dashed rgba(0,0,0,0.15)', background: 'rgba(255,255,255,0.7)', color: '#9b8e84', fontSize: 11, fontWeight: 500, fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                <LinkIcon style={{ width: 11, height: 11 }} />
+                未关联章节 · 点击关联
+              </button>
+            ) : null}
             {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
             <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
             {/* 上传入口③：按钮 → 图片。流程同 handleDrop 的图片分支，见上方注释 */}

@@ -1,7 +1,21 @@
 {
-  "currentVersion": "16.0.3",
+  "currentVersion": "16.1.0",
   "currentDate": "2026-08-10",
   "history": [
+    {
+      "version": "16.1.0",
+      "date": "2026-08-10",
+      "features": [
+        "章节创作界面 × AI 写作助手 协作改写增强：选中段落 → 右键「发送到 AI 写作助手」→ 自动建立「已关联:第N章」协作（AI 加载本章全文，权威源=编辑器内存态）；AI 改写经新工具 editor_rewrite 直接应用到编辑器（三阶段特效：旧文字淡出 → 新文字打字机原位逐字出现 → 单次 transaction 提交，Ctrl+Z 单步可撤销）",
+        "「加载本章」按钮：一键让 AI 写作助手了解本章（无需选中文字，已关联时可重新加载最新内容）；「刷新本章」按钮：AI 直接改文件后手动同步编辑器内容（有更新时橙色高亮+圆点提示）",
+        "上下文注入开关：聊天窗 chip「AI 已加载本章全文 ✕」可取消关联（完全不注入，不背 tokens）；取消后可一键重新关联",
+        "章节全文注入优化：全文走 user 消息参考信息块（分段缓存命中）+「变更才注入+5 轮心跳」成本优化（未变化轮只注入锚点+版本）",
+        "协作只读围栏：关联模式下禁止写当前章文件（create/edit/batch_replace/delete/rename/edit_file_task 等，主/子代理统一生效，其他文件照常可写）；完成闸门 nudge 协作模式引导 editor_rewrite"
+      ],
+      "fixes": [
+        "审查修复批次（双路审查：UX 人类视角 + agent 破坏性逻辑审查）：切章后关联状态失配自动 detach / cancelRewrite 死代码修复（真 abort 通道，特效各阶段检查）/ 「✅ 已应用」确认消息改真实结果驱动（lastRewriteApplied）/ 返回按钮与 beforeunload 过特效守卫 / 守卫弹窗三按钮瘦身为「取消(留在本章)+放弃改写并离开」/ 同轮双 editor_rewrite 竞态（加入 WRITE_TOOLS 串行化）/ 幻觉检测误报（checks.tools 补 editor_rewrite）/ _hasWriteCall 未接线（清单/无清单行为分叉）/ OpHistory 明文持久化脱敏（anchor 100 字+newText 长度）/ 围栏路径误拦收紧（/chapters/{id}.txt 形态）/ 子代理提示词补围栏说明 / 选中少于 2 字右键 toast 提示 / 打字机原位打字消除跳动 / 特效期间取消按钮+半透明遮罩 / 右键菜单入口副标题区分 / 编辑器 AI 协作中 badge / attach 即时 toast / chip 文案「AI 已加载本章全文」"
+      ]
+    },
     {
       "version": "16.0.3",
       "date": "2026-08-10",

@@ -56,11 +56,16 @@ export default function ContextMenu({ x, y, onContinue, onRewrite, onSendToAI, o
       {onSendToAI && (
         <>
           <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '2px 8px' }} />
-          <button onClick={onSendToAI} role="menuitem" style={item}
+          <button onClick={onSendToAI} role="menuitem" style={{ ...item, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
             onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#fef3c7'}
             onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
           >
-            <PaperAirplaneIcon style={{ width: 16, height: 16, color: '#d97706' }} /> 发送到 AI 写作助手
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <PaperAirplaneIcon style={{ width: 16, height: 16, color: '#d97706' }} /> 发送到 AI 写作助手
+            </span>
+            <span style={{ fontSize: 10.5, color: '#9b8e84', paddingLeft: 24, lineHeight: 1.4 }}>
+              AI 加载本章全文，可直接在编辑器改写（可撤销）
+            </span>
           </button>
         </>
       )}

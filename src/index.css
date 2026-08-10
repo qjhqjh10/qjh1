@@ -281,6 +281,28 @@ h1, h2, h3, h4, h5, h6 {
   margin-left: 1px;
 }
 
+/* ── AI 协作改写特效 (v16.1.0) ── */
+.rewrite-vanish {
+  animation: rewriteVanish 400ms ease-in forwards;
+  display: inline;
+}
+@keyframes rewriteVanish {
+  from { opacity: 1; filter: blur(0); transform: translateY(0); }
+  to { opacity: 0; filter: blur(2px); transform: translateY(-4px); }
+}
+.rewrite-typewriter {
+  display: inline;
+  color: var(--theme-accent, #3b82f6);
+  font-weight: 500;
+}
+.rewrite-typewriter-caret::after {
+  content: '|';
+  animation: cursorBlink 0.6s ease-in-out infinite;
+  color: var(--theme-accent, #7c3aed);
+  font-weight: 300;
+  margin-left: 1px;
+}
+
 /* Button ripple container */
 .ripple-container {
   position: relative;

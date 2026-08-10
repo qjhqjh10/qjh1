@@ -146,6 +146,8 @@ export abstract class BaseChatBridge {
         selectedKbFileIds: options.selectedKbFileIds,
         // v14.8: 跨 run KB 去重 — 排除历史 run 已注入过的文件
         excludeKbFileIds: options.excludeKbFileIds,
+        // v16.1.0(审查修复 B6): 章节全文注入门控——未变化轮不注入全文(成本优化)
+        chapterFullText: options.chapterFullText,
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {

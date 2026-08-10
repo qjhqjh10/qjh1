@@ -72,9 +72,10 @@ const REFUSAL_RE = /无法(?:完成|继续|进行|做到|实现)|不能完成|�
 // v14.9(C3): 文件写工具子集——完成闸门"说完成但没写"只认文件写证据。
 // 原 _hasWriteCall 含 http/browser/generate_image：模型只抓网页/生图后声明"完成"即可通过
 // 闸门（铁律"口头描述≠操作完成"对文件任务打折）。网络类清单任务不经过该闸门（无文件关键词）。
+// v16.1.0: +editor_rewrite（章节协作改写渲染层驱动——成功应用=改写完成证据）
 const FILE_WRITE_TOOLS = new Set([
   'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
-  'create_project', 'kb_append_file', 'kb_index_file', 'edit_file_task',
+  'create_project', 'kb_append_file', 'kb_index_file', 'edit_file_task', 'editor_rewrite',
 ])
 // 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
 // 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
@@ -841,9 +842,19 @@ export class V4UnifiedRuntime {
         if (completionDeclared && this._userRequestedFileOp && !this._fileWriteDone) {
           this.pushRoundText(collectedText)
           this._nudgeCount++
+          // v16.1.0(审查修复): 协作改写模式下 nudge 引导 editor_rewrite（原只提文件写工具——
+          // 模型改调被围栏拦截的 create_file/edit_file → 死循环）。动态 import 防模块环。
+          let collabNudge = false
+          try {
+            const { useChapterCollabStore } = await import('@/store/chapterCollabStore')
+            const c = useChapterCollabStore.getState()
+            collabNudge = c.active && !!c.chapterId
+          } catch { /* 测试/无 store 环境 */ }
           this.messagesForApi.push({
             role: 'user',
-            content: '你说"完成"了，但工具调用记录显示没有实际写入任何文件。任务未完成——请用 create_file / edit_file / batch_replace 实际执行写入。',
+            content: collabNudge
+              ? '你说"完成"了，但工具调用记录显示没有实际完成改写。任务未完成——请用 editor_rewrite 工具在编辑器上完成改写（本章处于协作模式，文件只读）。'
+              : '你说"完成"了，但工具调用记录显示没有实际写入任何文件。任务未完成——请用 create_file / edit_file / batch_replace 实际执行写入。',
           })
           continue
         }
@@ -1153,6 +1164,11 @@ export class V4UnifiedRuntime {
       // v15: 子 agent 委托完成文件操作（edit_file_task）也视为"已写"（同样要求成功）
       if (serialReads.some(tc => SUBAGENT_WRITE_TOOLS.has(tc.name) &&
         this.toolCallSteps.some(s => s.tool === tc.name && s.iteration === iteration && s.status === 'success'))) {
+        _hasWriteCall = true
+      }
+      // v16.1.0(审查修复 D15): editor_rewrite 成功同样置位——原仅 _fileWriteDone 置位而
+      // _hasWriteCall 未置，清单路径 GLOBAL_DONE_RE 判定不一致（完成被拒却不 nudge，行为分叉）
+      if (this.toolCallSteps.some(s => s.tool === 'editor_rewrite' && s.iteration === iteration && s.status === 'success')) {
         _hasWriteCall = true
       }
       // v14.9(C3): 文件写成功标记（跨轮累积）——完成闸门只认文件写证据
