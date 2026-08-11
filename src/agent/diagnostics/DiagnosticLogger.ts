@@ -41,30 +41,20 @@ export class DiagnosticLogger {
   private currentPhase = 'IDLE'
   private apiCallStart = 0
   private toolCallStarts = new Map<string, number>()
-  private stuckTimer: ReturnType<typeof setInterval> | null = null
-  private stuckThresholdMs = 120000 // 2 min — accommodate DeepSeek reasoning time
+  // v16.3.0(审计 H2 修复): 删除卡死监视器（checkStuck/stuckTimer）——recordPhaseChange 从未接线，
+  // currentPhase 恒 IDLE → checkStuck 恒早退，2 分钟 setInterval 空转；真正的卡死兜底
+  // 由 runtime 轮间超时 + AgentStateBar 实时状态承担
   private logFilePath = 'diagnostic-log.jsonl'
   private writeQueue: string[] = []
   private flushTimer: ReturnType<typeof setTimeout> | null = null
-
-  private stuckDetected = false
-
-  constructor() {
-    this.stuckTimer = setInterval(() => this.checkStuck(), 10000)
-  }
 
   /** Clear stale events — called on new agent run */
   clearRecent(): void {
     this.events = []
     this.toolCallStarts.clear()
-    this.stuckDetected = false
   }
 
   destroy(): void {
-    if (this.stuckTimer) {
-      clearInterval(this.stuckTimer)
-      this.stuckTimer = null
-    }
     if (this.flushTimer) {
       clearTimeout(this.flushTimer)
       this.flushTimer = null
@@ -119,8 +109,8 @@ export class DiagnosticLogger {
 
   recordApiCallEnd(tokens: number, hasToolCalls: boolean): void {
     const duration = Date.now() - this.apiCallStart
-    // v14.6.1: 结束即归零——原实现 apiCallStart 永不重置，首次 API 调用后
-    // checkStuck 的"API 进行中"判断恒真，2 分钟卡死监视器永久失效
+    // v14.6.1: 结束即归零——原实现 apiCallStart 永不重置（v16.3.0: 卡死监视器已删除，归零仍保证
+    // 后续调用的 duration 正确）
     this.apiCallStart = 0
     this.emit({
       type: 'api_call_end',
@@ -232,32 +222,6 @@ export class DiagnosticLogger {
       message,
       severity: 'info',
     })
-  }
-
-  // ── Stuck Detection ──
-
-  private checkStuck(): void {
-    if (this.currentPhase === 'IDLE') return
-    // Skip if API call is active — DeepSeek reasoning can be slow
-    if (this.apiCallStart > 0) return
-
-    const phaseDuration = Date.now() - this.phaseStartTime
-    if (this.stuckDetected) return // already reported
-    if (phaseDuration > this.stuckThresholdMs) {
-      this.stuckDetected = true
-      const pendingTools = [...this.toolCallStarts.entries()]
-        .map(([id, start]) => `${id}: ${Date.now() - start}ms`)
-        .join(', ')
-
-      this.emit({
-        type: 'stuck_detected',
-        phase: this.currentPhase,
-        duration: phaseDuration,
-        message: `⚠️ 疑似卡死: 在 "${this.currentPhase}" 阶段停留 ${(phaseDuration / 1000).toFixed(0)} 秒`,
-        detail: pendingTools ? `进行中的工具: ${pendingTools}` : '无进行中的工具调用',
-        severity: 'error',
-      })
-    }
   }
 
   // ── Internal ──

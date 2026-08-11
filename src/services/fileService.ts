@@ -202,10 +202,7 @@ export const aiService = {
     e().ai.chatStream(messages, configId, projectId)
     return { abort }
   },
-  generateImage: async (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> => {
-    return e().ai.generateImage(prompt, configId, projectId, size, style) as Promise<{ path: string; url: string; cost: number; prompt: string }>
-  },
-  // v16.2.0: 副模型多模态图片理解
+  // v16.2.0: 副模型多模态图片理解（v16.3.0: generateImage 文生图已移除）
   visionChat: async (opts: { configId: string; projectId?: string; prompt: string; images: Array<{ base64?: string; path?: string }>; template?: string }): Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }> => {
     return e().ai.visionChat(opts) as Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }>
   },

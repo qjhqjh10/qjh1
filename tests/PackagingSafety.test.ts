@@ -319,20 +319,21 @@ describe('打包安全验证', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('图片上下文安全 — 图片不入对话上下文', () => {
-  it('ContractExecutor 剥离 generate_image 结果的 base64/数据字段', async () => {
+  it('ContractExecutor 剥离 analyze_image 结果的 base64/数据字段', async () => {
     // M4: 引用真实 ContractExecutor（原测试自造字面量断言恒真）
+    // v16.2.1: generate_image 已移除 → 契约测试改用 analyze_image（副模型看图，detail=文本描述）
     const { ContractExecutor } = await import('../src/agent/context/ContractExecutor')
     const imageResult = {
       status: 'success',
-      summary: '已生成图片',
-      detail: '图片路径: images/ai_001.png\n花费: $0.02',
+      summary: '图片分析完成: images/ai_001.png',
+      detail: '主体人物：古装女子，红衣…',
       // 模拟工具实现泄露敏感字段（真实执行器不应透传）
       base64Data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
       dataUrl: 'data:image/png;base64,xxx',
     }
-    const { resultForApi } = ContractExecutor.filterForContext('generate_image', imageResult as any)
+    const { resultForApi } = ContractExecutor.filterForContext('analyze_image', imageResult as any)
 
-    // generate_image 契约 = status/summary/detail → base64/dataUrl 必须被剥离
+    // analyze_image 契约 = status/summary/detail → base64/dataUrl 必须被剥离
     expect(resultForApi).not.toHaveProperty('base64Data')
     expect(resultForApi).not.toHaveProperty('dataUrl')
     expect(JSON.stringify(resultForApi)).not.toContain('base64')

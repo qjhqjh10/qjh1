@@ -295,27 +295,6 @@ export const FILE_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'generate_image',
-      description:
-        '使用当前配置的 AI 模型生成图片并保存到项目 images/ 目录。\n' +
-        '【何时用】用户要求给角色配图/画形象图、生成章节插图、创建封面图等需要 AI 绘画的场景。\n' +
-        '【何时不用】用户只是找参考图/素材图 — 用 search_images 搜索 Pexels 图库。\n' +
-        '【流程】生成后图片自动保存到 images/ 目录，返回文件路径。给角色配图时需再调用 edit_file 设置 image 字段。\n' +
-        '【注意】使用用户在设置中配置的模型（支持 DALL-E 3 或其他兼容 API）。',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: { type: 'string', description: '图片描述（英文效果更好，详细描述角色外貌/服装/场景/风格）' },
-          size: { type: 'string', description: '尺寸: 1024x1024(方形) | 1792x1024(横版) | 1024x1792(竖版)。默认 1024x1024' },
-          style: { type: 'string', description: '风格: vivid(生动戏剧化) | natural(自然写实)。默认 vivid' },
-        },
-        required: ['prompt'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
       name: 'list_prompts',
       description:
         '列出提示词库中所有提示词模板（id/title/type/enabled/content前80字）。\n' +

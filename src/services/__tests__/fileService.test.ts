@@ -44,7 +44,6 @@ describe('aiService', () => {
     expect(typeof aiService.chatWithTools).toBe('function')
     expect(typeof aiService.executeFileTools).toBe('function')
     expect(typeof aiService.chatStream).toBe('function')
-    expect(typeof aiService.generateImage).toBe('function')
     expect(typeof aiService.abortStream).toBe('function')
     expect(typeof aiService.listModels).toBe('function')
   })

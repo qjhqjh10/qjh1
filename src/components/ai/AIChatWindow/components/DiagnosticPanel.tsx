@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { diagnosticLogger } from '@/agent/diagnostics/DiagnosticLogger'
 import type { DiagnosticEvent } from '@/agent/diagnostics/DiagnosticLogger'
+// v16.3.0(审计 H2 修复): 阶段徽章改读 AgentStore（实时 phase/iteration）——
+// diagnosticLogger.getCurrentPhase() 依赖零接线的 recordPhaseChange，恒 IDLE
+import { useAgentStore } from '@/agent/store/AgentStore'
 
 const SEVERITY_COLORS = {
   info: '#059669',
@@ -21,7 +24,7 @@ const TYPE_ICONS: Record<string, string> = {
   hook_end: '⚡',
   approval_pending: '?',
   approval_resolved: '✓',
-  stuck_detected: '⚠',
+  // v16.3.0(审计 H2 修复): stuck_detected 事件已随卡死监视器删除（runtime 超时兜底）
   error: '✗',
   info: 'ℹ',
 }
@@ -31,7 +34,10 @@ export function DiagnosticPanel() {
   const [expanded, setExpanded] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [stuckWarning, setStuckWarning] = useState<DiagnosticEvent | null>(null)
+  // v16.3.0(审计 H2 修复): 阶段/轮次实时读 store（原 diagnosticLogger.getCurrentPhase 恒 IDLE）
+  const phase = useAgentStore(s => s.run.phase)
+  const iteration = useAgentStore(s => s.run.iteration)
+  const isRunning = useAgentStore(s => s.run.isRunning)
 
   useEffect(() => {
     // Load existing events
@@ -40,13 +46,6 @@ export function DiagnosticPanel() {
     // Subscribe to new events
     const unsub = diagnosticLogger.onEvent((event) => {
       setEvents(prev => [...prev.slice(-199), event])
-
-      // Track stuck warnings
-      if (event.type === 'stuck_detected') {
-        setStuckWarning(event)
-      } else if (event.type === 'phase_change' && event.phase === 'IDLE') {
-        setStuckWarning(null)
-      }
     })
 
     return unsub
@@ -58,8 +57,6 @@ export function DiagnosticPanel() {
     }
   }, [events, autoScroll])
 
-  const currentPhase = diagnosticLogger.getCurrentPhase()
-  const phaseDuration = diagnosticLogger.getPhaseDuration()
   const errorCount = events.filter(e => e.severity === 'error').length
   const recentEvents = events.slice(-50)
 
@@ -73,33 +70,24 @@ export function DiagnosticPanel() {
         onClick={() => setExpanded(!expanded)}
         style={{
           padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-          background: stuckWarning ? 'rgba(220,38,38,0.06)' : 'transparent',
           borderBottom: expanded ? '1px solid rgba(0,0,0,0.06)' : 'none',
         }}
       >
         <span style={{ fontWeight: 600, color: '#4a3f38' }}>诊断面板</span>
 
-        {/* Current phase badge */}
+        {/* Current phase badge — v16.3.0: 实时读 store（含轮次） */}
         <span style={{
           padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 500,
-          background: stuckWarning ? 'rgba(220,38,38,0.1)' : 'rgba(37,99,235,0.08)',
-          color: stuckWarning ? '#dc2626' : '#2563eb',
+          background: phase === 'ERROR' || phase === 'ABORTED' ? 'rgba(220,38,38,0.1)' : 'rgba(37,99,235,0.08)',
+          color: phase === 'ERROR' || phase === 'ABORTED' ? '#dc2626' : '#2563eb',
         }}>
-          {currentPhase}
-          {currentPhase !== 'IDLE' && ` ${(phaseDuration / 1000).toFixed(0)}s`}
+          {phase}{isRunning && iteration > 0 ? ` · 第${iteration}轮` : ''}
         </span>
 
         {/* Error count */}
         {errorCount > 0 && (
           <span style={{ color: '#dc2626', fontSize: 10 }}>
             {errorCount} 个错误
-          </span>
-        )}
-
-        {/* Stuck warning */}
-        {stuckWarning && (
-          <span style={{ color: '#dc2626', fontSize: 10, fontWeight: 600, animation: 'pulse 1.5s infinite' }}>
-            ⚠ 疑似卡死
           </span>
         )}
 
@@ -118,7 +106,7 @@ export function DiagnosticPanel() {
               自动滚动
             </label>
             <button
-              onClick={() => { diagnosticLogger.recordInfo('手动检查: 当前阶段 ' + currentPhase + ', 持续 ' + (phaseDuration / 1000).toFixed(1) + 's') }}
+              onClick={() => { diagnosticLogger.recordInfo(`手动检查: 当前阶段 ${phase}, 第 ${iteration} 轮`) }}
               style={{ background: 'none', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 10, color: '#6b5e54' }}
             >
               手动检查
@@ -141,7 +129,6 @@ export function DiagnosticPanel() {
                 key={event.id}
                 style={{
                   padding: '3px 12px', display: 'flex', alignItems: 'flex-start', gap: 6,
-                  background: event.type === 'stuck_detected' ? 'rgba(220,38,38,0.04)' : 'transparent',
                   borderLeft: event.severity === 'error' ? '2px solid #dc2626' :
                               event.severity === 'warn' ? '2px solid #d97706' : '2px solid transparent',
                 }}

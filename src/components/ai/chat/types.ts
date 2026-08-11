@@ -3,7 +3,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   timestamp?: number
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number; cacheCreationTokens?: number }
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cacheHitTokens?: number; cacheCreationTokens?: number; subAgentUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }
   wordCount?: number
   insertion?: { keyword: string; position: 'before' | 'after'; content: string; mode?: 'insert' | 'rewrite' }
   sources?: { kb: { fileName: string; score: number }[]; web: { title: string; url: string }[] }

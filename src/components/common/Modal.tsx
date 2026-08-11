@@ -90,7 +90,9 @@ export default function Modal({ isOpen, onClose, title, children, width: initial
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 100,
+            // v16.3.0(审计 U2 修复): 100 → 110——KbSelectionModal 等整页弹窗须高于
+            // AI 写作助手浮窗（zIndex 101）；浮窗内模态层（translateZ(0) 包含块）不受影响
+            zIndex: 110,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

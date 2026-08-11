@@ -230,9 +230,12 @@ export class AnthropicAdapter implements ProtocolAdapter {
   private service: AnthropicAIService
   /** v14.6.1: 当前在途请求标识（abortStream 精确指向，不再误杀并行子代理兄弟请求） */
   private currentRequestId = ''
+  /** v16.3.0: 联网会话级覆盖（三态循环）— 'builtin'|'off' 时 web_search 服务端工具不注入 */
+  private nativeOverride?: 'builtin' | 'off' | null
 
-  constructor(service: AnthropicAIService) {
+  constructor(service: AnthropicAIService, nativeOverride?: 'builtin' | 'off' | null) {
     this.service = service
+    this.nativeOverride = nativeOverride
   }
 
   async callModel(params: {
@@ -297,8 +300,10 @@ export class AnthropicAdapter implements ProtocolAdapter {
       // 原只查 apiUrl，不查模型名：非 deepseek 命名模型挂 DeepSeek 端点 + 原生联网时
       // 服务端 web_search 注入 + 软件内置 DDG 搜索同时执行（双通道联网，结果冲突/冗余计费）。
       // 统一判定：DeepSeek 官方端点 + deepseek 模型 + anthropic 协议 + 原生联网。
+      // v16.3.0: 原生判定套会话级覆盖（三态循环切换原生/内置/关闭，不修改模型配置勾选）
+      const { resolveNativeEnabled } = await import('./responsesRouter')
       const modelName = String((cfg as any)?.model || '').toLowerCase()
-      if ((cfg as any)?.nativeWebSearch && apiUrl.includes('deepseek.com')
+      if (resolveNativeEnabled(cfg, this.nativeOverride) && apiUrl.includes('deepseek.com')
           && /deepseek/i.test(modelName) && (cfg as any)?.protocol === 'anthropic') {
         anthropicTools.push({
           name: 'web_search',

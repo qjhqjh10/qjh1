@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { AgentPhase } from '../state/types'
-import type { ToolProgressEvent, ThinkingContext } from '../runtime/AgentEventEmitter'
+// v16.3.0(审计 M10 修复): ToolProgressEvent import 删除（updateToolProgress 已删）
+import type { ThinkingContext } from '../runtime/AgentEventEmitter'
 
 // ── Types ──
 
@@ -39,9 +40,9 @@ export interface AgentStoreState {
 
   // Token tracking
   totalTokensUsed: number
-  peakPromptTokens: number
 
-  // Health（内存态——无 persist 中间件，注释如实说明）
+  // Health（内存态——无 persist 中间件；v16.3.0 审计 M10: setHealth action 已删（零调用），
+  // health 字段保留——熔断器（recordApiFailure/checkCircuit）真实读写）
   health: AgentHealthState
 
   // Actions — Run
@@ -51,7 +52,8 @@ export interface AgentStoreState {
   setIteration: (n: number) => void
   setThinking: (thinking: ThinkingContext | null) => void
   addToolExecution: (callId: string, toolName: string) => void
-  updateToolProgress: (event: ToolProgressEvent) => void
+  // v16.3.0(审计 M10 修复): 删 updateToolProgress/setPeakPromptTokens/setHealth action（零调用）；
+  // health 字段保留——熔断器（recordApiFailure 等）真实读写 s.health
   completeTool: (callId: string, status: 'success' | 'error', summary: string, detail?: string) => void
   setLastError: (error: string | null) => void
   setStreamingText: (text: string) => void
@@ -61,10 +63,6 @@ export interface AgentStoreState {
 
   // Actions — Tokens
   addTokens: (amount: number) => void
-  setPeakPromptTokens: (tokens: number) => void
-
-  // Actions — Health
-  setHealth: (health: Partial<AgentHealthState>) => void
 
   // v9.5.5: 熔断器方法
   /** 记录 API 调用失败，达到阈值时触发熔断 */
@@ -101,8 +99,8 @@ export const useAgentStore = create<AgentStoreState>()(
     },
 
     totalTokensUsed: 0,
-    peakPromptTokens: 0,
 
+    // health 字段保留——熔断器（recordApiFailure/checkCircuit）真实读写；setHealth action 已删
     health: {
       circuitState: 'CLOSED',
       circuitFailures: 0,
@@ -159,14 +157,8 @@ export const useAgentStore = create<AgentStoreState>()(
       s.run.activeTools[callId] = { callId, toolName, status: 'pending', progress: 0, summary: '' }
     }),
 
-    updateToolProgress: (event) => set(s => {
-      const t = s.run.activeTools[event.callId]
-      if (t) {
-        t.status = 'running'
-        t.progress = event.progress ?? t.progress
-        if (event.message) t.summary = event.message
-      }
-    }),
+    // v16.3.0(审计 M10 修复): 删 updateToolProgress（全仓零调用——ToolExecutor 事件只走
+    // completeTool/setLastError，工具实时状态由 AgentStateBar 读 activeTools）
 
     completeTool: (callId, status, summary, detail) => set(s => {
       const t = s.run.activeTools[callId]
@@ -213,13 +205,6 @@ export const useAgentStore = create<AgentStoreState>()(
     // ── Token Actions ──
 
     addTokens: (amount) => set(s => { s.totalTokensUsed += amount }),
-    setPeakPromptTokens: (tokens) => set(s => {
-      if (tokens > s.peakPromptTokens) s.peakPromptTokens = tokens
-    }),
-
-    // ── Health Actions ──
-
-    setHealth: (partial) => set(s => { Object.assign(s.health, partial) }),
 
     // ── v9.5.5: 熔断器方法 ──
     // 配置默认值（对齐 aiharness.json）：

@@ -130,7 +130,7 @@ function ModelCard({
                 </div>
                 <button
                   onClick={() => onProtocol('openai')}
-                  title="图片模型始终使用 OpenAI Images API。无论 Main 协议选什么，图片生成独立工作。如需单模型同时处理文本+图片，请切换到 OpenAI。"
+                  title="副模型（看图）始终使用 OpenAI 兼容协议，与 Main 协议无关。如主模型本身支持多模态（如 gpt-4o），可直接用主模型看图，无需配置副模型。"
                   style={{
                     padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)',
                     background: 'rgba(245,158,11,0.06)', color: '#b45309',
@@ -355,6 +355,8 @@ export function ModelSettingsTab() {
   const [showClearConfigConfirm, setShowClearConfigConfirm] = useState(false)
   // v15.2.1: 联网查价状态（'idle' 未操作 / 'loading' 查询中 / 'ok' 已更新 / 'err' 失败提示）
   const [priceFetch, setPriceFetch] = useState<{ status: 'idle' | 'loading' | 'ok' | 'err'; msg?: string }>({ status: 'idle' })
+  // v16.3.0: 副模型联网查价状态（与 Main 共用 OpenRouter 目录，匹配 secondaryModel）
+  const [secondaryPriceFetch, setSecondaryPriceFetch] = useState<{ status: 'idle' | 'loading' | 'ok' | 'err'; msg?: string }>({ status: 'idle' })
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
@@ -379,8 +381,8 @@ export function ModelSettingsTab() {
     try {
       // 强制立即保存配置，确保 API 密钥已同步到主进程
       await settingsService.saveConfigs(useSettingsStore.getState().configs)
-      // scope='image': 如果用户配置了独立的图片 API，使用图片专用密钥和地址；否则回退到 Main 配置
-      const scope = card === 'image' ? 'image' : undefined
+      // scope='vision': 副模型模型列表（读 secondary* 配置，回退 Main）
+      const scope = card === 'image' ? 'vision' : undefined
       const raw = await aiService.listModels(currentConfigId, scope)
       const list: string[] = Array.isArray(raw) ? raw
         : typeof raw === 'string' ? (() => { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : (p.data || []) } catch { return [] } })()
@@ -457,6 +459,24 @@ export function ModelSettingsTab() {
       }
     } catch (err) {
       setPriceFetch({ status: 'err', msg: err instanceof Error ? err.message : '联网查价失败（可能网络受限），已保留当前价格。' })
+    }
+  }
+
+  // v16.3.0: 副模型联网查价（匹配 secondaryModel，只更新副模型输入/输出价）
+  const handleFetchSecondaryPrice = async () => {
+    setSecondaryPriceFetch({ status: 'loading' })
+    try {
+      const { models, source, fetchedAt } = await aiService.fetchModelPricing()
+      const preset = matchLiveModel(models, activeConfig.secondaryModel)
+      if (preset) {
+        u({ secondaryInputPricePerM: preset.input, secondaryOutputPricePerM: preset.output })
+        const t = new Date(fetchedAt).toLocaleTimeString()
+        setSecondaryPriceFetch({ status: 'ok', msg: `已更新为 ${source} 实时价格（USD）${t} 获取。` })
+      } else {
+        setSecondaryPriceFetch({ status: 'err', msg: `${source} 中未找到「${activeConfig.secondaryModel}」（已收录 ${Object.keys(models).length} 个模型）。请检查副模型名，或使用内置参考价。` })
+      }
+    } catch (err) {
+      setSecondaryPriceFetch({ status: 'err', msg: err instanceof Error ? err.message : '联网查价失败（可能网络受限），已保留当前价格。' })
     }
   }
 
@@ -588,9 +608,9 @@ export function ModelSettingsTab() {
               </div>
             </ModelCard>
 
-            {/* ── 🖼️ Secondary 副模型（v16.2.0: 原 Image 卡片改造）── */}
+              {/* ── 🖼️ Secondary 副模型（v16.3.0: 纯多模态理解，文生图已移除）── */}
             <ModelCard
-              icon="🖼️" title="Secondary 副模型" desc="副模型为 AI 写作助手提供多模态能力：上传图片自动分析（描述注入主模型）、analyze_image 工具主动看图、generate_image 文生图。OpenAI 兼容协议；留空模型名则禁用。"
+              icon="🖼️" title="Secondary 副模型" desc="副模型为 AI 写作助手补充多模态图片理解（主模型通常为纯文本模型）：上传图片自动分析（描述注入主模型）、analyze_image 工具主动看图。OpenAI 兼容协议；留空模型名则禁用。"
               modelValue={activeConfig.secondaryModel} onModelChange={v => {
                 u({ secondaryModel: v })
                 const preset = lookupModelPrice(v)
@@ -599,11 +619,11 @@ export function ModelSettingsTab() {
                 }
               }}
               placeholder="留空 = 禁用（如 MiniMax-M3 / qwen-vl-plus）"
-              tempValue={0} onTempChange={() => {}} tempDisabled
-              maxTokValue={0} onMaxTokChange={() => {}}
+              tempValue={safe(activeConfig.secondaryTemperature, 1.0)} onTempChange={v => u({ secondaryTemperature: v })}
+              maxTokValue={safe(activeConfig.secondaryMaxTokens)} onMaxTokChange={v => u({ secondaryMaxTokens: v })}
               inPrice={safe(activeConfig.secondaryInputPricePerM)} onInPrice={v => u({ secondaryInputPricePerM: v })}
               outPrice={safe(activeConfig.secondaryOutputPricePerM)} onOutPrice={v => u({ secondaryOutputPricePerM: v })}
-              cachePrice={0}
+              cachePrice={safe(activeConfig.secondaryCacheHitPricePerM)} onCachePrice={v => u({ secondaryCacheHitPricePerM: v })}
               currency={activeConfig.mainCurrency || activeConfig.currency}
               apiUrl={activeConfig.secondaryApiUrl || activeConfig.apiUrl} onApiUrl={v => u({ secondaryApiUrl: v })}
               apiKey={activeConfig.secondaryApiKey || ''} onApiKey={v => u({ secondaryApiKey: v })}
@@ -614,10 +634,24 @@ export function ModelSettingsTab() {
               showMainFields={true}
               configId={activeConfig.id} onRefreshModels={() => handleRefreshModels('image')} loadingModels={loadingImageModels}
               modelList={imageModelList} showDropdown={activeDropdown === 'image'} setShowDropdown={(v) => setActiveDropdown(v ? 'image' : null)}
+              priceActions={
+                <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                  <button onClick={handleFetchSecondaryPrice} disabled={secondaryPriceFetch.status === 'loading'}
+                    title="从 OpenRouter 公开目录拉取该副模型当前价格（USD，免密钥），更新副模型输入/输出价。"
+                    style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.06)', color: '#7c3aed', fontSize: 11, fontWeight: 600, cursor: secondaryPriceFetch.status === 'loading' ? 'wait' : 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                    {secondaryPriceFetch.status === 'loading' ? '⏳ 查询中…' : '🔗 联网查价'}
+                  </button>
+                  {secondaryPriceFetch.msg && (
+                    <span style={{ fontSize: 10, lineHeight: 1.5, color: secondaryPriceFetch.status === 'err' ? '#dc2626' : secondaryPriceFetch.status === 'ok' ? '#16a34a' : '#9b8e84' }}>{secondaryPriceFetch.msg}</span>
+                  )}
+                </div>
+              }
             >
               <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', fontSize: 10, color: '#6b5e54', lineHeight: 1.5 }}>
-                💡 用途：① 上传图片到 AI 写作助手自动看图 ② AI 可调 analyze_image 主动看图 ③ generate_image 文生图（需服务商支持 OpenAI Images 端点）。<br />
-                ⚠️ 未填写独立 API 密钥时，图片分析/生成将共用 Main 模型的 API 连接。图片理解按副模型输入价计费（token 按 API 实际返回记账）。
+                💡 用途：① 上传图片到 AI 写作助手自动看图 ② AI 可调 analyze_image 主动看图。<br />
+                ⚠️ 副模型只负责"看图"，不提供文生图（v16.3.0 已取消）。需要图片请用 search_images（Pexels 免费图库）或自行上传。<br />
+                ⚙️ 温度影响看图描述的稳定/发散程度；最大输出 0=跟随上方「图片处理策略」模板上限；缓存命中价 0=沿用主模型价格。<br />
+                ⚠️ 未填写独立 API 密钥时，图片分析将共用 Main 模型的 API 连接。图片 token 按副模型输入价计费（按 API 实际返回记账）。
               </div>
             </ModelCard>
 

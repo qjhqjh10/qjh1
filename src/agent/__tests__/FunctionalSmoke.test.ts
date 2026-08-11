@@ -50,12 +50,12 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 3. 工具裁剪 ──
-  it('工具裁剪: 风格→3核心, 章节→5核心, 图片→2核心', () => {
+  it('工具裁剪: 风格→3核心, 章节→5核心, 图片→2核心 (v16.3.0: -generate_image)', () => {
     const allTools = toolRegistry.getAllSchemas()
     const READ = new Set(['read_file','list_directory','search_content'])
     const TMPL = new Set(['analyze_text_style'])
     const WRITE = new Set(['create_file','edit_file'])
-    const IMG = new Set(['search_images','generate_image'])
+    const IMG = new Set(['search_images','analyze_image'])
 
     const styleCore = allTools.filter((t: any) =>
       new Set(['read_file', ...TMPL]).has(t.function.name))
@@ -131,11 +131,11 @@ describe('功能冒烟测试 (项目"1")', () => {
   })
 
   // ── 5. 工具注册 ──
-  it('工具注册: 34个工具 (v14.8: +kb_analyze; v16.1.0: +editor_rewrite; v16.2.0: +analyze_image)', () => {
+  it('工具注册: 33个工具 (v16.3.0: -generate_image, 文生图移除)', () => {
     const names = toolRegistry.getNames()
-    expect(names.length).toBe(34)
+    expect(names.length).toBe(33)
     expect(names).toContain('analyze_text_style')
-    expect(names).toContain('generate_image')
+    expect(names).toContain('search_images')
     expect(names).toContain('analyze_image')
     expect(names).toContain('read_file')
     expect(names).toContain('edit_file')

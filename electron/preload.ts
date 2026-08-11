@@ -60,15 +60,13 @@ const api = {
       ipcRenderer.invoke('ai:chat', messages, configId, projectId),
     chatStream: (messages: { role: string; content: string }[], configId: string, projectId?: string): Promise<void> =>
       ipcRenderer.invoke('ai:chat-stream', messages, configId, projectId),
-    generateImage: (prompt: string, configId: string, projectId?: string, size?: string, style?: string): Promise<{ path: string; url: string; cost: number; prompt: string }> =>
-      ipcRenderer.invoke('ai:generateImage', prompt, configId, projectId, size, style),
     // v16.2.0: 副模型多模态图片理解（上传图片自动分析 / analyze_image 工具共用）
     visionChat: (opts: { configId: string; projectId?: string; prompt: string; images: Array<{ base64?: string; path?: string }>; template?: string }): Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }> =>
       ipcRenderer.invoke('ai:vision-chat', opts),
-    // v16.2.0: 中止在途视觉分析（对齐 imageAbortControllers 模式）
+    // v16.2.0: 中止在途视觉分析
     abortVision: (): void => { ipcRenderer.send('ai:abort-vision') },
     // v14.6.1: requestId 可选——带 id 精确中止该请求（并行子代理）；不带 = 中止全部在途请求
-    abortStream: (requestId?: string): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat', requestId); ipcRenderer.send('ai:abort-image'); ipcRenderer.send('ai:abort-vision') },
+    abortStream: (requestId?: string): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat', requestId); ipcRenderer.send('ai:abort-vision') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)
       ipcRenderer.on('ai:chat-chunk', handler)

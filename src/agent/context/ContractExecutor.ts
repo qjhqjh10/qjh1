@@ -5,7 +5,6 @@
 // Heavy truncation is deferred to ContextCompressor (threshold-based, Stage 1 at 70%).
 
 import type { ToolResult } from '../state/types'
-import type { ThinkingPlan, ThinkingStep } from '../state/types'
 
 export interface ContractResult {
   filtered: ToolResult
@@ -55,8 +54,9 @@ const DEFAULT_CONTRACTS: Record<string, string[]> = {
   browser_search: ['status', 'summary', 'detail'],
   // ── Image tools ──
   search_images:  ['status', 'summary', 'detail'],
-  generate_image: ['status', 'summary', 'detail'],
-  // ── Prompt tools ──
+  // v16.3.0: 补 analyze_image 契约（v16.2.0 遗留缺失——每调必 warn + 原样直灌）；
+  // 描述文本保留 detail（副模型看图结果，供主模型引用）
+  analyze_image:  ['status', 'summary', 'detail'],
   list_prompts:   ['status', 'summary', 'detail'],
   toggle_prompt:  ['status', 'summary'],
   update_prompt:  ['status', 'summary'],
@@ -110,11 +110,8 @@ export class ContractExecutor {
     }
   }
 
-  static resolveContract(
-    toolName: string,
-    _plan?: ThinkingPlan | null,
-    _planStep?: ThinkingStep,
-  ): string[] | null {
+  // v16.3.0(审计 L6 修复): 删 ThinkingPlan 时代遗留的 _plan/_planStep 形参（恒 undefined，调用方均两参）
+  static resolveContract(toolName: string): string[] | null {
     const contract = DEFAULT_CONTRACTS[toolName]
     if (!contract) {
       console.warn(`[ContractExecutor] 未知工具 "${toolName}" 无结果契约，完整返回原始结果`)
@@ -126,10 +123,8 @@ export class ContractExecutor {
   static filterForContext(
     toolName: string,
     result: ToolResult,
-    _plan?: ThinkingPlan | null,
-    _planStep?: ThinkingStep,
   ): { resultForApi: ToolResult; note?: string } {
-    const contract = ContractExecutor.resolveContract(toolName, _plan, _planStep)
+    const contract = ContractExecutor.resolveContract(toolName)
     if (!contract) return { resultForApi: result }
 
     const { filtered, stripped } = ContractExecutor.filterResult(result, contract)

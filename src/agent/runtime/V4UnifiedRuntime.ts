@@ -1,5 +1,7 @@
 // ── V4 Unified Runtime (v11.0) ──
-// Claude-style: simple read→write loop. No phase machine, no hard blocks.
+// Claude-style: simple read→write loop.
+// v16.3.0(审计 L7 修复): 头注释修正——实际含阶段感知温度、nudge 阶梯、自愈系统、
+// 验收督促、完成证据闸门等大量硬规则（原"No phase machine, no hard blocks"失实）
 // Model has format knowledge embedded in system prompt → just work.
 
 import { AgentEventEmitter } from './AgentEventEmitter'
@@ -70,7 +72,7 @@ const PARTIAL_DONE_RE = /第\s*(?:\d+|[一二三四五六七八九十百千两]+
 // v14.9(审计): 自愈出口的"合理拒绝"检测——必须带原因（为什么做不到），且仅在尝试 ≥8 轮后生效
 const REFUSAL_RE = /无法(?:完成|继续|进行|做到|实现)|不能完成|做不到|不可完成|因为[^。！\n]{2,40}(?:失败|不存在|缺失|被删除|无权限|不支持)/
 // v14.9(C3): 文件写工具子集——完成闸门"说完成但没写"只认文件写证据。
-// 原 _hasWriteCall 含 http/browser/generate_image：模型只抓网页/生图后声明"完成"即可通过
+// 原 _hasWriteCall 含 http/browser（v16.3.0: generate_image 已移除）：模型只抓网页后声明"完成"即可通过
 // 闸门（铁律"口头描述≠操作完成"对文件任务打折）。网络类清单任务不经过该闸门（无文件关键词）。
 // v16.1.0: +editor_rewrite（章节协作改写渲染层驱动——成功应用=改写完成证据）
 const FILE_WRITE_TOOLS = new Set([

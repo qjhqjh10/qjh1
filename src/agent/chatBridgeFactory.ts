@@ -42,6 +42,9 @@ export abstract class BaseChatBridge {
   protected history: Message[] = []
   protected abortController = new AbortController()
   protected runId = ''
+  // v16.3.0: 联网会话级覆盖（三态循环）——sendMessage 暂存，createAdapter/BridgeContextBuilder 消费。
+  // 'builtin'|'off' = 本会话临时不走原生通道；null/undefined = 跟随模型配置（不修改 nativeWebSearch 勾选）
+  protected nativeOverride: 'builtin' | 'off' | null | undefined
 
   /** 协议差异：构造适配器（OpenAI/Anthropic） */
   protected abstract createAdapter(): Promise<ProtocolAdapter>
@@ -83,6 +86,9 @@ export abstract class BaseChatBridge {
 
   async sendMessage(userMessage: string, options: SendOptions = {}): Promise<BridgeSendResult> {
     if (!this.initialized) throw new Error('ChatBridge not initialized')
+
+    // v16.3.0: 会话级联网覆盖暂存（本轮 run 的 adapter 选择与上下文注入消费）
+    this.nativeOverride = options.nativeOverride
 
     // Guard: abort any in-progress run before starting a new one
     if (this.runtime) {
@@ -143,6 +149,8 @@ export abstract class BaseChatBridge {
         configId: this.configId,
         kbEnabled: !!options.kbEnabled,
         webSearchEnabled: !!options.webSearchEnabled,
+        // v16.3.0: 联网会话级覆盖（原生判定用——原生生效时才跳过内置 DDG）
+        nativeOverride: this.nativeOverride,
         selectedKbFileIds: options.selectedKbFileIds,
         // v14.8: 跨 run KB 去重 — 排除历史 run 已注入过的文件
         excludeKbFileIds: options.excludeKbFileIds,
@@ -175,7 +183,8 @@ export abstract class BaseChatBridge {
       unsubscribes.push(emitter.on('tool:started', (data) => { store.addToolExecution(data.callId, data.toolName) }))
       unsubscribes.push(emitter.on('tool:completed', (data) => {
         store.completeTool(data.callId, 'success', data.summary, data.detail)
-        options.onToolProgress?.({ callId: data.callId, toolName: data.toolName, phase: 'done', progress: 1, message: data.summary, timestamp: Date.now() })
+        // v16.3.0(审计 M7 修复): 删除 onToolProgress 回调——全仓无订阅方（AgentStateBar
+        // 已通过 store activeTools 实时显示工具状态），空调用纯浪费
       }))
       unsubscribes.push(emitter.on('tool:failed', (data) => {
         store.completeTool(data.callId, 'error', data.summary, data.detail)
@@ -208,11 +217,11 @@ export abstract class BaseChatBridge {
         toolsEnabled: options.toolsEnabled,
       })
 
-      // v16.0.1(审计 M15): setIsStreaming(false)/setPeakPromptTokens 同样守卫——
-      // 旧 run 的这两处若晚于新 run startRun，会误清新 run 的流式指示（响应流被新 run 接管后仍显示加载态）
+      // v16.0.1(审计 M15): setIsStreaming 同样守卫——
+      // 旧 run 的该处若晚于新 run startRun，会误清新 run 的流式指示（响应流被新 run 接管后仍显示加载态）
+      // v16.3.0(审计 M10 修复): setPeakPromptTokens 已删（死状态——全仓无读取点）
       if (useAgentStore.getState().run.runId === this.runId) {
         useAgentStore.getState().setIsStreaming(false)
-        useAgentStore.getState().setPeakPromptTokens(result.promptTokens)
       }
       options.onComplete?.(result)
       // v16.0.1(审计 M15): teardown 守卫——仅当 store 中仍是本 run 才 endRun/setPhase。
@@ -253,6 +262,11 @@ export abstract class BaseChatBridge {
         kbInjectedFileIds: result.kbInjectedFileIds,
         // v16.0.1(审计 M11): 本轮工具结果（UI 持久化到 assistant 消息，跨 run 去重重建数据源）
         toolResults: result.toolResults,
+        // v16.3.0(审计 H1 修复): 推理链 + API 逐轮明细透传——原缺失导致
+        // 「思考过程」面板恒空（index.tsx 读 runResult.reasoningContent 恒 undefined）、
+        // 会话记录 api-calls.jsonl 恒空（缓存命中率功能失效）
+        reasoningContent: result.reasoningContent,
+        apiCallDetails: result.apiCallDetails,
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error'

@@ -255,7 +255,7 @@ tool_search("关键词") 发现。首条消息全部直接可用。
 网络搜索: browser_search（搜资料）、browser_open（打开网页）。
   搜索结果可直接保存: create_file("../notes/搜索-主题.md") 存为草稿，
   或 create_file("../knowledge_base/files/资料名.md") 存为知识库长期参考。
-图片: search_images（搜参考图）、generate_image（AI 生成）
+图片: search_images（搜参考图；v16.3.0: AI 文生图已取消，图片获取仅此通道）、analyze_image（看图理解）
 效率: batch_replace（同文件多段替换，比多次 edit_file 高效）
 反思: 操作失败不是终点。分析原因 → 学习 → 修正 → 立即重试。
   用 list_directory() 了解目录结构是最高效的诊断手段。

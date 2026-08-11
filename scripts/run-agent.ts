@@ -378,7 +378,6 @@ class NodeFSToolExecutor {
       // 其他简化工具
       case 'search_notes': return { status: 'error', summary: 'search_notes 在 CLI 中不可用，请用 read_note' }
       case 'search_images': return { status: 'error', summary: '图片搜索在 CLI 中不可用' }
-      case 'generate_image': return { status: 'error', summary: '图片生成在 CLI 中不可用' }
       case 'browser_open':
       case 'browser_search': return { status: 'error', summary: '浏览器工具在 CLI 中不可用' }
       case 'shell_exec':

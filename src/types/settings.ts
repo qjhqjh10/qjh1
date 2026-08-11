@@ -30,8 +30,8 @@ export interface ModelConfig {
   cacheHitPricePerM: number         // 输入（缓存命中）折扣价
   mainCurrency?: 'USD' | 'CNY'
 
-  // ── 🖼️ Secondary 副模型（v16.2.0: 原 image* 字段彻底改造，OpenAI 兼容协议）──
-  // 多模态（图片理解/生成）：上传图片自动分析 → 描述注入主模型；generate_image 工具；AI 可调 analyze_image 主动看图
+  // ── 🖼️ Secondary 副模型（v16.2.0 改造；v16.3.0: 纯多模态理解，文生图已移除 + 参数补全对齐 Main）──
+  // 多模态图片理解：上传图片自动分析 → 描述注入主模型；AI 可调 analyze_image 主动看图
   secondaryModel: string          // 副模型名 (如 MiniMax-M3 / qwen-vl-plus，留空=禁用)
   secondaryProvider: string
   secondaryApiUrl: string
@@ -39,6 +39,10 @@ export interface ModelConfig {
   secondaryEncrypted?: boolean
   secondaryInputPricePerM: number // 输入价格（元或美元/百万 tokens）
   secondaryOutputPricePerM: number
+  // v16.3.0: 副模型参数补全（对齐 Main 卡片；看图请求接线于 ai:vision-chat）
+  secondaryTemperature?: number    // 看图请求温度（默认 1.0；描述生成稳定性可调低）
+  secondaryMaxTokens?: number      // 看图最大输出（0=跟随「图片处理策略」模板上限，默认 0）
+  secondaryCacheHitPricePerM?: number // 看图输入缓存命中折扣价（0=沿用主模型 cacheHitPricePerM）
 
   // ── 📚 知识库 Embedding (不调用 API，本地计算) ──
   embeddingModel: string
@@ -84,6 +88,9 @@ export const DEFAULT_MODEL_CONFIG: Omit<ModelConfig, 'id' | 'name'> = {
   secondaryApiKey: '',
   secondaryInputPricePerM: 0,
   secondaryOutputPricePerM: 0,
+  secondaryTemperature: 1.0,       // v16.3.0: 看图温度默认 1.0（对齐 Main）
+  secondaryMaxTokens: 0,           // v16.3.0: 0=跟随图片处理策略模板上限
+  secondaryCacheHitPricePerM: 0,   // v16.3.0: 0=沿用主模型缓存命中价
   // Embedding
   embeddingModel: 'text-embedding-3-small',
   currency: 'CNY',                 // v15.1: 默认人民币
@@ -370,16 +377,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'local', label: '本地模型（Ollama/LocalAI）', apiUrl: 'http://localhost:11434/v1' },
 ]
 
-/** 副模型专用服务商 — 多模态视觉理解 + OpenAI Images API 文生图（v16.2.0 由 IMAGE_PROVIDER_PRESETS 改造） */
+/**
+ * 副模型服务商 — v16.3.0: 与主模型 PROVIDER_PRESETS 完全一致（12 项，含通用 OpenAI 兼容地址），
+ * 另补 2 项主流视觉理解服务商（MiniMax M3 / Google Gemini，主列表未收录）。
+ * 文生图已移除——列表不再围绕图片生成（原 DALL-E/FLUX/SD 标注已去）。
+ */
 export const SECONDARY_PROVIDER_PRESETS: ProviderPreset[] = [
+  ...PROVIDER_PRESETS,
   { name: 'minimax', label: 'MiniMax（M3 多模态）', apiUrl: 'https://api.minimax.chat/v1' },
-  { name: 'qwen', label: '通义千问（Qwen-VL）', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { name: 'openai', label: 'OpenAI（GPT-4o / DALL-E）', apiUrl: 'https://api.openai.com/v1' },
-  { name: 'azure', label: 'Azure OpenAI（GPT-4o / DALL-E）', apiUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
-  { name: 'siliconflow', label: '硅基流动（FLUX / SD / 视觉）', apiUrl: 'https://api.siliconflow.cn/v1' },
-  { name: 'zhipu', label: '智谱AI（GLM-4V）', apiUrl: 'https://open.bigmodel.cn/api/paas/v4' },
-  { name: 'moonshot', label: 'Moonshot（Kimi）', apiUrl: 'https://api.moonshot.cn/v1' },
-  { name: 'gemini', label: 'Google Gemini（gemini-pro-vision）', apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+  { name: 'gemini', label: 'Google Gemini（视觉）', apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
 ]
 
 export const DEFAULT_PROMPTS: PromptTemplate[] = [

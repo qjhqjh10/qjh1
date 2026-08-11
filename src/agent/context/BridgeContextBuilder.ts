@@ -16,6 +16,9 @@ export interface ContextBuilderOptions {
   configId: string
   kbEnabled: boolean
   webSearchEnabled: boolean
+  /** v16.3.0: 联网会话级覆盖 — 'builtin'|'off' = 原生判定强制 false（临时用内置/关闭），
+   * null/undefined = 跟随模型配置。原生不生效时内置 DDG 才注入（单一联网通道）。 */
+  nativeOverride?: 'builtin' | 'off' | null
   selectedKbFileIds?: string[]
   /** v14.8: 跨 run 排除 — 历史 run 已注入过的知识库文件 id（来自上一条 assistant 消息的 kbInjectedFileIds），
    * 与本轮实例内已注入 id 并集后传给 kbService.search，避免同一文件跨 run 反复注入 */
@@ -123,13 +126,15 @@ export class BridgeContextBuilder {
         //   B) DeepSeek 官方端点 + Anthropic 协议 + 原生联网（服务端 web_search 工具）
         // 修复死区：原逻辑仅看 nativeWebSearch 字段——Anthropic 协议或非 deepseek 模型时
         // 原生通道不跑、DDG 又被跳过 → 联网开关形同虚设。
-        const { shouldUseResponses } = await import('@/agent/runtime/adapters/responsesRouter')
+        const { shouldUseResponses, resolveNativeEnabled } = await import('@/agent/runtime/adapters/responsesRouter')
         const activeCfg = useSettingsStore.getState().configs.find(c => c.id === this.opts.configId)
         const model = (activeCfg?.model || '').toLowerCase()
         const apiUrl = (activeCfg?.apiUrl || '').toLowerCase()
-        const deepSeekAnthropicNative = !!activeCfg?.nativeWebSearch && apiUrl.includes('deepseek.com')
-          && /deepseek/i.test(model) && activeCfg.protocol === 'anthropic'
-        if (!shouldUseResponses(activeCfg) && !deepSeekAnthropicNative) {
+        // v16.3.0: 原生判定套会话级覆盖（聊天窗三态循环不再修改模型配置勾选）
+        const nativeOn = resolveNativeEnabled(activeCfg, this.opts.nativeOverride)
+        const deepSeekAnthropicNative = nativeOn && apiUrl.includes('deepseek.com')
+          && /deepseek/i.test(model) && activeCfg?.protocol === 'anthropic'
+        if (!shouldUseResponses({ ...activeCfg, nativeWebSearch: nativeOn }) && !deepSeekAnthropicNative) {
           const { kbService } = await import('@/services/fileService')
           const aiSettings = useSettingsStore.getState().aiSettings
           const count = Math.min(10, Math.max(1, aiSettings.searchResultCount || 5))

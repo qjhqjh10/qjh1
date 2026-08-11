@@ -1,7 +1,8 @@
 // ── Dangerous Tool Confirmation Modal ──
 // Replaces window.confirm() with a proper React UI.
 // Shows tool name, truncated args, and Allow/Deny buttons.
-// Auto-denies after 180s timeout (same as previous Promise.race timeout).
+// v16.3.0(审计 M13 修复): 注释修正——审批超时 v14.5.0 已从 180s 调至 60s（< 工具超时 120s，防"审批晚于工具超时"孤儿执行）
+// Auto-denies after 60s timeout (v14.5.0: 180s→60s).
 
 import React, { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'

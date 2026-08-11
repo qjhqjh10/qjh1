@@ -47,6 +47,12 @@ export function useDraggableResizable(opts: DraggableResizableOptions) {
         if (s) {
           const parsed = JSON.parse(s) as { left?: number; top?: number; right?: number; bottom?: number }
           if (typeof parsed.right === 'number' || typeof parsed.left === 'number') {
+            // v16.3.0(审计 L9 修复): 读回钳制——分辨率/缩放变更后窗口可能整块离屏；
+            // right/bottom 非负且不超过视口（留最小可见边距）
+            if (typeof parsed.right === 'number') parsed.right = Math.max(0, Math.min(window.innerWidth - 80, parsed.right))
+            if (typeof parsed.bottom === 'number') parsed.bottom = Math.max(0, Math.min(window.innerHeight - 80, parsed.bottom))
+            if (typeof parsed.left === 'number') parsed.left = Math.max(0, Math.min(window.innerWidth - 80, parsed.left))
+            if (typeof parsed.top === 'number') parsed.top = Math.max(0, Math.min(window.innerHeight - 80, parsed.top))
             return parsed
           }
         }

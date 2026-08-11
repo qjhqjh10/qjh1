@@ -279,7 +279,7 @@ export class ReadResultTracker {
 const WRITE_TOOL_NAMES = new Set([
   'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
   'create_project', 'delete_project', 'kb_append_file', 'kb_index_file',
-  'generate_image', 'http_get', 'http_fetch', 'browser_open', 'browser_search',
+  'http_get', 'http_fetch', 'browser_open', 'browser_search',
   'edit_file_task',
 ])
 

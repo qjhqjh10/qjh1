@@ -1,6 +1,7 @@
 // ── Image Tools (2 tools) ──
 // Self-contained for skill system. Uses aiService from @/services/fileService
-// for Pexels image search and AI image generation.
+// for Pexels image search and secondary-model vision analysis.
+// v16.3.0: generate_image 文生图已移除——副模型定位纯多模态理解，图片获取仅 search_images。
 
 import type { ToolDefinition, ToolResult, ToolExecutionContext } from '../types'
 
@@ -51,61 +52,10 @@ export const imageTools: ToolDefinition[] = [
     },
   },
 
-  {
-    schema: {
-      name: 'generate_image',
-      description: '使用 AI 模型生成图片并保存到项目 images/ 目录。',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: { type: 'string', description: '图片描述（英文效果更好）' },
-          size: { type: 'string', description: '尺寸: 1024x1024 | 1792x1024 | 1024x1792' },
-          style: { type: 'string', description: '风格: vivid | natural' },
-        },
-        required: ['prompt'],
-      },
-    },
-    permission: 'AUTO',
-    category: 'image',
-    executor: async (args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
-      const prompt = String(args.prompt ?? '').trim().slice(0, 1000)
-      if (!prompt) return { status: 'error', summary: '图片描述不能为空' }
-      try {
-        const { aiService } = await import('@/services/fileService')
-        const result = await aiService.generateImage(
-          prompt,
-          ctx.configId,
-          ctx.projectId || undefined,
-          String(args.size || '1024x1024'),
-          String(args.style || 'vivid'),
-        )
-        return {
-          status: 'success',
-          summary: `已生成图片: ${result.path}（花费 $${result.cost.toFixed(2)}）`,
-          detail: `图片已保存到项目 images/ 目录。\n路径: ${result.path}\n原始URL: ${result.url}\n提示词: ${result.prompt}`,
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : '未知错误'
-        if (msg.includes('[UNSUPPORTED_OPERATION]') || msg.includes('不支持')) {
-          return {
-            status: 'error',
-            summary: '当前模型不支持图片生成',
-            detail:
-              '该 AI 模型（如 DeepSeek）仅支持文本生成，无法创建图片。\n' +
-              '替代方案：\n' +
-              '1. 使用 search_images 工具从 Pexels 搜索现有图片\n' +
-              '2. 在设置中切换到支持图片生成的模型（如 OpenAI dall-e-3）\n' +
-              '3. 手动上传图片到角色档案或章节中',
-          }
-        }
-        return { status: 'error', summary: `图片生成失败: ${msg}` }
-      }
-    },
-  },
-
   // ── v16.2.0: analyze_image — AI 主动看图（副模型多模态）──
   // 主模型写作中需要"看图"时主动调用（项目 images/ 目录、知识库图片、用户提及的图片文件）。
   // 与上传图片自动分析共用 ai:vision-chat IPC；主进程读文件→缩放→副模型→描述回灌。
+  // v16.3.0: 原 generate_image 工具已移除（副模型纯多模态，文生图功能取消）。
   {
     schema: {
       name: 'analyze_image',

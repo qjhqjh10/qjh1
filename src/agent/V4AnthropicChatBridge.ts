@@ -10,6 +10,7 @@ import type { ProtocolAdapter } from './runtime/adapters/ProtocolAdapter'
 export class V4AnthropicChatBridge extends BaseChatBridge {
   protected async createAdapter(): Promise<ProtocolAdapter> {
     const { anthropicService } = await import('@/services/anthropicService')
+    // v16.3.0: 联网会话级覆盖透传（AnthropicAdapter 注入 web_search 服务端工具的判定）
     return new AnthropicAdapter({
       chatAnthropicStream: async (params) => {
         const result = await anthropicService.chatAnthropicStream(params)
@@ -18,7 +19,7 @@ export class V4AnthropicChatBridge extends BaseChatBridge {
       // v14.9(审计): 透传 requestId——原丢弃参数 → 主 agent 请求超时（180s）中止时误杀该
       // webContents 全部 Anthropic 在途流（含并行子代理）；与 createSubagentAdapter.ts 对齐
       abortStream: (requestId) => anthropicService.abortAnthropicStream(requestId),
-    })
+    }, this.nativeOverride)
   }
 
   protected abortStream(): void {

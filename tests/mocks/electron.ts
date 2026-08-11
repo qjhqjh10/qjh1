@@ -34,8 +34,7 @@ export function createMockElectronBridge() {
       chatWithTools: vi.fn().mockResolvedValue('{"text":"mock","tool_calls":[]}'),
       chatWithUsage: vi.fn().mockResolvedValue({ text: 'mock', usage: undefined }),
       listModels: vi.fn().mockResolvedValue([]),
-      generateImage: vi.fn().mockResolvedValue({ path: '', url: '', cost: 0 }),
-      // v16.2.0: 副模型多模态图片理解（上传自动分析 / analyze_image 工具）
+      // v16.2.0: 副模型多模态图片理解（上传自动分析 / analyze_image 工具；v16.2.1: generateImage 已移除）
       visionChat: vi.fn().mockResolvedValue({ text: 'mock vision description', usage: { prompt_tokens: 100, completion_tokens: 50 }, cost: 0 }),
       abortVision: vi.fn(),
       abortStream: vi.fn(),

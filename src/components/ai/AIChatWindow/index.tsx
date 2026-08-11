@@ -8,13 +8,12 @@ import {
   BookOpenIcon, GlobeAltIcon, BoltIcon,
   MagnifyingGlassIcon, ClipboardIcon, ArrowRightIcon,
   PlusIcon, ArrowPathIcon, ListBulletIcon,
-  DocumentTextIcon, PhotoIcon,
+  DocumentTextIcon, PhotoIcon, PencilSquareIcon,
   TrashIcon, Square2StackIcon, WrenchScrewdriverIcon, FolderOpenIcon,
   HashtagIcon, LinkIcon,
 } from '@heroicons/react/24/outline'
 import { ALL_TOOLS } from '@/agent/skills/tools'
 import { shouldUseResponses } from '@/agent/runtime/adapters/responsesRouter'
-import { DEFAULT_AI_SETTINGS } from '@/types/settings'
 import { logError } from '@/utils/logger'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
@@ -23,7 +22,6 @@ import { useToast } from '@/components/common/Toast'
 import { WELCOME_MSG, STORAGE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
 import ImageLightbox from '@/components/common/ImageLightbox'
-import { loadAvatar } from '@/utils/imageCompress'
 import { analyzeImage, hasSecondaryModel, DEFAULT_VISION_PROMPT } from '@/utils/visionAnalyzer'
 
 import { makeConversation, parsePopupCommand, maybeInjectResume, maybeInjectSubagentSummaries, buildHistoryMessages, detectHallucination, hasResumeIntent, buildThinkingPlanFromRun, buildToolHintText } from "./utils";
@@ -40,8 +38,13 @@ import { DangerousToolModal, type DangerousTool } from './components/DangerousTo
 import { StreamingMessage } from './components/StreamingMessage'
 import { VirtualMessageList } from './components/VirtualMessageList'
 import { KbSelectionModal } from './components/KbSelectionModal'
+// v16.3.0(UI 优化 V2): 设计 Token（颜色/字号/圆角/间距/阴影统一；v16.3.0 审计 M6: SP 死导出已删）
+import { C, F, R, SH, CARD } from './designTokens'
 
 // ── Module-level utilities (M12: moved out of render to avoid re-creation) ──
+
+// v16.3.0(审计 L5 修复): 主 agent 最大轮次单一定义——原 bridge init 与 AgentStateBar 双处硬编码 30
+const MAX_ITERATIONS = 30
 
 function fmtTime(ts: number): string {
   const d = new Date(ts)
@@ -91,6 +94,103 @@ const TOOL_PICKER_LIST: { name: string; desc: string }[] = ALL_TOOLS
   .sort((a, b) => a.name.localeCompare(b.name))
 
 interface FileRef { path: string; tool: string }
+
+// ── v16.3.0(UI 优化 V2): 消息元信息条——usage/工具/文件收纳为一行摘要，点击展开明细。
+// 默认只显示一行（tokens·花费·工具数·文件数），消除信息平铺噪音；知识库/网络来源不在此列（保留显式）。
+interface MetaBarProps {
+  usage: Message['usage'] | null | undefined
+  tools: string[]
+  refs: FileRef[]
+  currency?: 'USD' | 'CNY'
+  expanded: boolean
+  onToggle: () => void
+  onOpenFile: (path: string) => void
+  onOpenFileMenu: (x: number, y: number, path: string) => void
+}
+function MetaBar({ usage, tools, refs, currency, expanded, onToggle, onOpenFile, onOpenFileMenu }: MetaBarProps) {
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n)
+  const totalTokens = usage?.total_tokens || 0
+  const cost = usage?.cost || 0
+  const parts: string[] = []
+  if (totalTokens > 0) parts.push(`tokens ${fmt(totalTokens)}`)
+  if (cost > 0) parts.push(`${currency === 'CNY' ? '¥' : '$'}${cost.toFixed(4)}`)
+  if (tools.length > 0) parts.push(`${tools.length} 工具`)
+  if (refs.length > 0) parts.push(`${refs.length} 文件`)
+  if (parts.length === 0) return null
+  // v16.3.0(审计 L3 修复): 明确优先级括号（&& 优先于 ||，原写法可读性差）
+  const hasDetail = (!!usage && (!!usage.cacheCreationTokens || !!usage.cacheHitTokens || !!usage.subAgentUsage?.totalTokens))
+    || tools.length > 0 || refs.length > 0
+  return (
+    <div style={{ marginLeft: 36, marginTop: 3, marginBottom: 3 }}>
+      <button onClick={onToggle} title={hasDetail ? '展开/收起明细' : ''} disabled={!hasDetail}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 999,
+          border: '1px solid rgba(0,0,0,0.05)', background: 'transparent',
+          color: '#9b8e84', fontSize: 10, fontWeight: 500, cursor: hasDetail ? 'pointer' : 'default',
+          fontFamily: 'inherit', transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={e => { if (hasDetail) (e.currentTarget as HTMLElement).style.color = '#7c3aed' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#9b8e84' }}
+      >
+        📊 {parts.join(' · ')}
+        {hasDetail && <span style={{ fontSize: 8 }}>{expanded ? '▾' : '▸'}</span>}
+      </button>
+      {expanded && hasDetail && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 10px', marginTop: 3, borderRadius: 10, background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.04)' }}>
+          {usage && ((usage.cacheCreationTokens || 0) > 0 || (usage.cacheHitTokens || 0) > 0 || !!usage.subAgentUsage?.totalTokens) && (
+            <div style={{ display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>入 {fmt(usage.prompt_tokens || 0)} | 出 {fmt(usage.completion_tokens || 0)}</span>
+              {(usage.cacheCreationTokens || 0) > 0 && (
+                <span style={{ color: '#d97706', fontWeight: 600 }}>📥 已缓存 {fmt(usage.cacheCreationTokens || 0)}</span>
+              )}
+              {(usage.cacheHitTokens || 0) > 0 && (
+                <span style={{ color: '#16a34a', fontWeight: 600 }}>📦 缓存命中 {fmt(usage.cacheHitTokens || 0)}</span>
+              )}
+              {!!usage.subAgentUsage?.totalTokens && (
+                <span style={{ color: '#7c3aed', fontWeight: 600 }}>
+                  子代理 入 {fmt(usage.subAgentUsage.promptTokens || 0)} | 出 {fmt(usage.subAgentUsage.completionTokens || 0)} | 合计 {fmt(usage.subAgentUsage.totalTokens)}
+                </span>
+              )}
+            </div>
+          )}
+          {tools.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontSize: 9, color: '#9b8e84', marginRight: 2 }}>使用:</span>
+              {tools.map(name => (
+                <span key={name} style={{
+                  padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
+                  background: 'rgba(124,58,237,0.06)', color: '#7c3aed',
+                  border: '1px solid rgba(124,58,237,0.1)',
+                }}>{name}</span>
+              ))}
+            </div>
+          )}
+          {refs.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontSize: 9, color: '#9b8e84', marginRight: 2 }}>文件:</span>
+              {refs.map(r => (
+                <span
+                  key={r.path}
+                  onClick={(e) => { e.stopPropagation(); onOpenFile(r.path) }}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onOpenFileMenu(e.clientX, e.clientY, r.path) }}
+                  title={`${r.path}\n左键打开文件 · 右键打开文件夹`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10,
+                    fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    background: 'rgba(22,163,74,0.06)', color: '#16a34a',
+                    border: '1px solid rgba(22,163,74,0.15)',
+                  }}
+                >
+                  📄 {r.path.split('/').pop()}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function extractFileRefs(
   msg: { toolCallSteps?: any[] },
@@ -171,8 +271,8 @@ export default function AIChatWindow() {
   const activeConfig = configs.find(c => c.id === activeConfigId)
 
   // Agent runtime state
-  const agentStreamingText = useAgentStore(s => s.run.streamingText)
-  const agentIsStreaming = useAgentStore(s => s.run.isStreaming)
+  // v16.3.0(审计 M1 修复): streamingText/isStreaming 订阅已下沉至 StreamingMessage 内部
+  // （原顶层订阅使流式期间整窗 20 次/秒重渲染）
   const agentHookFeedback = useAgentStore(s => s.run.hookFeedback)
 
   // Search toggles
@@ -182,6 +282,9 @@ export default function AIChatWindow() {
   const aiSettings = useSettingsStore(s => s.aiSettings)
   const [kbEnabled, setKbEnabled] = useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(aiSettings.webSearchDefault)
+  // v16.3.0(审查修复): 联网会话级三态覆盖——null=跟随模型配置（原生勾选生效）；
+  // 'builtin'=临时内置（模型设置勾选**不变**）；'off'=关闭。循环：原生→内置→关闭→原生。
+  const [nativeOverride, setNativeOverride] = useState<'builtin' | 'off' | null>(null)
   const [toolInvokeEnabled, setToolInvokeEnabled] = useState(true)
   const [apiError, setApiError] = useState<string | null>(null)
   const lastApiCheck = useRef(0)
@@ -189,18 +292,23 @@ export default function AIChatWindow() {
   useEffect(() => { setWebSearchEnabled(aiSettings.webSearchDefault) }, [aiSettings.webSearchDefault])
 
   // Pre-flight API connectivity check (cached for 30 seconds)
+  // v16.3.0(审计 M8 修复): 缓存判定改用 ref 存结果——原闭包读旧 apiError（effect 捕获当次渲染值），
+  // 失败后 30s 内重开聊天窗误判连接正常
+  const lastApiOkRef = useRef<boolean | null>(null)
   const checkApiConnection = async (): Promise<boolean> => {
     if (!activeConfigId) return false
     const now = Date.now()
-    if (now - lastApiCheck.current < 30000) return apiError === null  // use cached result
+    if (now - lastApiCheck.current < 30000) return lastApiOkRef.current !== false  // use cached result
     lastApiCheck.current = now
     try {
       await aiService.listModels(activeConfigId)
       setApiError(null)
+      lastApiOkRef.current = true
       return true
     } catch {
       debugApiError(activeConversationId, 'NETWORK', 'API 连接失败')
       setApiError('[NETWORK] API 连接失败 — 请检查网络或模型配置后重试')
+      lastApiOkRef.current = false
       return false
     }
   }
@@ -221,8 +329,8 @@ export default function AIChatWindow() {
   // KB file selector
   // v16: 知识库文件勾选大弹窗（替代原 dropdown）——showKBFilePicker 控制弹窗显隐
   const [showKBFilePicker, setShowKBFilePicker] = useState(false)
+  // v16.3.0(审计 M9 修复): kbLoadError 死状态已删（零渲染）
   const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
-  const [kbLoadError, setKbLoadError] = useState(false)  // M3: distinguish error from empty
   const currentSelections = aiSettings.kbFileSelections || {}
   const selectedFileIds: string[] = currentSelections[activePage] || []
   // v14.8: 选中态三态语义 — [] = 全部；['__none__'] = 不使用；其余 = 勾选的具体文件。
@@ -230,32 +338,30 @@ export default function AIChatWindow() {
   const isKbNone = selectedFileIds.length === 1 && selectedFileIds[0] === '__none__'
   const isKbAll = selectedFileIds.length === 0
   const hasKbFileSelection = selectedFileIds.length > 0 && !isKbNone
-  // v16: 弹窗用三态模式（全部/不使用/自定义）
-  const kbPickerMode: 'all' | 'none' | 'custom' = isKbAll ? 'all' : isKbNone ? 'none' : 'custom'
-  const kbPickerSelected = isKbAll ? [] : isKbNone ? [] : selectedFileIds.filter(id => id !== '__none__')
+  // v16.3.0: 弹窗纯勾选模式——'all'（旧数据 [] 语义：视觉全勾，首次勾选自动展开为显式列表）
+  // 或 'custom'（勾选文件；一个不勾 = 不使用知识库 ['__none__']）
+  const kbPickerMode: 'all' | 'custom' = isKbAll ? 'all' : 'custom'
+  const kbPickerSelected = isKbNone ? [] : selectedFileIds.filter(id => id !== '__none__')
 
   const loadKBFileList = async () => {
+    // v16.3.0(审计 M9 修复): 删 kbLoadError 死状态（三处写入零渲染——弹窗内自带 loading/空态）
     try {
-      setKbLoadError(false)
       const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
       // v13.x: 显示全部知识库文件，无需在项目内
       if (Array.isArray(meta?.files)) {
         setKbFiles(meta.files.map(f => ({ id: f.id, originalName: f.originalName })))
       } else { setKbFiles([]) }
-    } catch (e) { logError('加载知识库文件列表失败', e); setKbLoadError(true); setKbFiles([]) }
+    } catch (e) { logError('加载知识库文件列表失败', e); setKbFiles([]) }
   }
 
   // Action mode now works without a project (global notes, templates, KB)
 
-  const toggleKBFile = (fileId: string) => {
-    // v14.8: '不使用' 状态下勾选文件 → 从空集开始（此前残留 '__none__' 会传入 kb:search 使检索恒为空）
-    const cur = (currentSelections[activePage] || []).filter(id => id !== '__none__')
-    const next = cur.includes(fileId) ? cur.filter(id => id !== fileId) : [...cur, fileId]
-    useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: next } })
-  }
-
-  const selectAllKBFiles = () => {
-    useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: [] } })
+  // v16.3.0: 弹窗整体替换勾选（纯勾选模式）——空数组 = 不使用知识库（对齐 ['__none__'] 旧语义）
+  // （原 toggleKBFile/selectAllKBFiles 死代码已随三态按钮移除删除）
+  const setKBFileIds = (ids: string[]) => {
+    useSettingsStore.getState().setAISettings({
+      kbFileSelections: { ...currentSelections, [activePage]: ids.length > 0 ? ids : ['__none__'] },
+    })
   }
 
   // Window position + size
@@ -270,6 +376,9 @@ export default function AIChatWindow() {
   // v15.3.1: 上下文用量提醒（50%/70% 各弹窗一次，不自动压缩；85% 由 runtime 自动链式压缩）
   const [pctReminder, setPctReminder] = useState<number | null>(null)
   const remindedPctRef = useRef(new Set<number>())
+  // v16.3.0(UI 优化 V2): 消息元信息条（usage/工具/文件）展开集合 + hover 消息 id（操作栏）
+  const [expandedMeta, setExpandedMeta] = useState<Set<string>>(new Set())
+  const [hoverMsgId, setHoverMsgId] = useState<string | null>(null)
 
   useEffect(() => {
     const ctxWindow = activeConfig?.contextWindow ?? 1000000
@@ -284,7 +393,8 @@ export default function AIChatWindow() {
     }
   }, [currentContextTokens, activeConfig?.contextWindow])
 
-  const { winSize, setWinSize, winPos, setWinPos, handleResizeStart, handleDragStart, winStyle } = useWindowDrag(WINDOW_KEY);
+  // v16.3.0(审计 M1 修复): useWindowDrag 已删未使用返回值（setWinSize/setWinPos/winStyle）
+  const { winSize, winPos, handleResizeStart, handleDragStart } = useWindowDrag(WINDOW_KEY);
 
   // v15.5: 点击外部关闭 #工具 / effort popover
   useEffect(() => {
@@ -346,9 +456,10 @@ export default function AIChatWindow() {
       const { saveConversations, saveLastActiveId } = await import('@/services/chatStorageService')
       const { idbOk } = await saveConversations(convs)
       // v14.5.0: IndexedDB 写入失败 → 每会话至多一次提示（文件镜像仍在写，数据不丢）
+      // v16.3.0(审计 L10 修复): 原生 alert → toast（全项目提示体系一致，非阻塞）
       if (!idbOk && !idbFailNotifiedRef.current) {
         idbFailNotifiedRef.current = true
-        alert('对话已保存到本地镜像文件，但 IndexedDB 写入失败（存储配额可能已满）。对话不会丢失，但请在设置中清理空间。')
+        toast('对话已保存到本地镜像文件，但 IndexedDB 写入失败（存储配额可能已满）。对话不会丢失，但请在设置中清理空间。', 'warning', 6000)
       }
       await saveLastActiveId(activeConversationId)
     } catch (e) { logError('保存对话历史失败', e) }
@@ -406,10 +517,12 @@ export default function AIChatWindow() {
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number } | null>(null)
   const [breakdownModal, setBreakdownModal] = useState<{ inputBreakdown: { label: string; chars: number }[]; outputBreakdown: { label: string; tokens: number }[]; totalPromptTokens?: number; totalCompletionTokens?: number; totalTokens?: number; cacheHitTokens?: number; cacheCreationTokens?: number } | null>(null)
-  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary: string; durationMs: number; iteration: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; totalIterations?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
+  const [toolDetailPanel, setToolDetailPanel] = useState<{ toolsUsed: string[]; toolCallSteps?: Array<{ tool: string; status: string; summary?: string; durationMs?: number; iteration?: number }>; breakdown?: { label: string; chars: number }[]; outputBreakdown?: { label: string; tokens: number }[]; iterationCount?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } } | null>(null)
   // 消息文件图标右键菜单（打开文件夹 / 打开文件）
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number; path: string } | null>(null)
-  const [charAvatarMap, setCharAvatarMap] = useState<Record<string, string>>({})
+  // v16.3.0(审计 F1): 会话重命名——内联编辑（列表项 ✏️ → 输入框 → Enter 保存）
+  const [renameConvId, setRenameConvId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [compressing, setCompressing] = useState(false)
   // H3: Stable callback references for React.memo optimization
   const toggleExpand = useCallback((id: string) => setExpandedMsgs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }), [])
@@ -467,14 +580,9 @@ export default function AIChatWindow() {
   const activeConversation = conversations.find(c => c.id === activeConversationId) || conversations[0]
   const messages = activeConversation.messages
 
-  // v13.0: 预加载角色头像
-  useEffect(() => {
-    const tplId = activeConversation.roleTemplateId || useSettingsStore.getState().aiSettings.activeRoleTemplateId
-    const tpl = tplId ? useSettingsStore.getState().aiSettings.roleTemplates?.find(t => t.id === tplId) : undefined
-    if (!tpl) { setCharAvatarMap({}); return }
-    const map: Record<string, string> = {}
-    Promise.all(tpl.characters.map(async (c) => { if (c.avatar) try { map[c.id] = await loadAvatar(c.avatar) } catch { map[c.id] = "" } })).then(() => setCharAvatarMap({ ...map }))
-  }, [activeConversation.roleTemplateId, useSettingsStore.getState().aiSettings.activeRoleTemplateId])
+  // v16.3.0(审计 H3 修复): 删除角色头像预加载 effect——charAvatarMap 只写不读（死状态），
+  // 渲染头像走 aiSettings.userAvatar/assistantAvatar；原逻辑每次切换角色模板
+  // 对每个角色发起 loadAvatar IPC 读取，结果全部丢弃（纯浪费）
 
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
     setConversations(prev => prev.map(c => {
@@ -503,11 +611,21 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false) }
-  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null) }
+  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedMsgIds(new Set()); setContextMenu(null); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
   const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; useChapterCollabStore.getState().detach(); if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
+
+  // v16.3.0(审计 F1): 会话重命名——内联输入保存（Enter 提交 / Esc 或失焦取消；空名不保存）
+  const handleRenameConversation = (convId: string) => {
+    const name = renameValue.trim().slice(0, 50)
+    setRenameConvId(null)
+    if (!name) return
+    const next = conversations.map(c => c.id === convId ? { ...c, title: name } : c)
+    setConversations(next)
+    persistConversations(next)
+  }
 
   // Dismiss context menu on click outside
   useEffect(() => {
@@ -566,7 +684,7 @@ export default function AIChatWindow() {
     if (!file) return
     if (file.type.startsWith('image/')) {
       await handleImageFile(file)
-    } else {
+    } else if (/\.(txt|md|text)$/i.test(file.name) || file.type.startsWith('text/')) {
       // Text file — store in attachment only, write once in handleSend
       const r = new FileReader()
       r.onload = () => {
@@ -575,6 +693,12 @@ export default function AIChatWindow() {
         setAttachment({ type: 'file', name: file.name, content: text })
       }
       r.readAsText(file, 'UTF-8')
+    } else {
+      // v16.3.0(审查修复): 拒绝二进制/其他文件——原 readAsText 会把视频/音频/压缩包等
+      // 解码成乱码文本直接注入主模型上下文（污染上下文 + 副模型不可处理）。
+      // 支持范围 = 图片（副模型多模态看图）+ 文本（.txt/.md/.text）。
+      console.warn(`[AIChatWindow] 拒绝不支持的文件类型: ${file.name} (${file.type || '未知类型'})`)
+      toast(`不支持的文件类型「${file.name}」——支持图片或文本（.txt/.md/.text）`, 'warning')
     }
   }
 
@@ -767,7 +891,9 @@ export default function AIChatWindow() {
       const latestKbEnabled = kbEnabled
       const latestWebSearch = webSearchEnabled
       // v14.9(接线): @引用文件 id 并入 KB 预注入——显式引用优先于 kbEnabled 开关（用户 @ 了就该让模型看到）
-      const latestFileIds = [...(latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []) : []), ...selectedRefs.map(r => r.id)]
+      // v16.3.0(审计 L12 修复): 过滤 '__none__' 哨兵（KB 开+不使用态）——原样传入会泄漏进
+      // kb:search fileIds 契约；@引用文件时真实 id 补齐后检索范围仍正确
+      const latestFileIds = [...(latestKbEnabled ? (currentSelections[useStore.getState().activePage] || []).filter(id => id !== '__none__') : []), ...selectedRefs.map(r => r.id)]
 
       // ── Agent Runtime (工厂创建：OpenAI 旧方案 or Anthropic 新方案) ──
       // v14.2.0: 跨 run 续跑 — 构建历史后检测上一条 assistant 消息的 taskProgress
@@ -789,7 +915,7 @@ export default function AIChatWindow() {
       // （switchConversation/handleNewConversation 会 destroy 重建 bridge）。
       if (!bridgeRef.current) {
         bridgeRef.current = await createChatBridge(latestProjectId)
-        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: 30, historyMessages: resumeHistory, contextWindow: activeConfig?.contextWindow ?? 1000000 })
+        bridgeRef.current.init({ configId: latestConfigId!, projectId: latestProjectId, maxIterations: MAX_ITERATIONS, historyMessages: resumeHistory, contextWindow: activeConfig?.contextWindow ?? 1000000 })
       } else {
         bridgeRef.current.updateProject(latestProjectId)
         bridgeRef.current.updateHistory(resumeHistory)
@@ -811,6 +937,8 @@ export default function AIChatWindow() {
         : undefined
       const result = await bridgeRef.current.sendMessage(fullContent, {
         kbEnabled: latestKbEnabled, webSearchEnabled: latestWebSearch, selectedKbFileIds: latestFileIds,
+        // v16.3.0: 联网会话级三态覆盖（原生→内置→关闭→原生；不修改模型配置勾选）
+        nativeOverride,
         // v14.8: 跨 run KB 去重 — 上一条 assistant 消息持久化的已注入文件 id 传给 buildContext 排除，
         // 避免同一知识库文件跨 run 反复注入（内容已在历史中，模型可按需 kb_search/read_file 深入）
         // v14.9(B2): 排除集取最近 3 条 assistant 的并集——原只取最后一条，任何一轮无 KB 预注入
@@ -891,7 +1019,7 @@ export default function AIChatWindow() {
           setMessages(prev => [...prev, {
             id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_r`, role: 'assistant', content: (collectedText || runResult.text || fallbackText) + rewriteNote, timestamp: Date.now(),
             toolsUsed: runResult.toolsUsed,
-            toolCallSteps: (runResult as any).toolCallSteps || [],
+            toolCallSteps: runResult.toolCallSteps || [],
             breakdown: inputBreakdown,
             outputBreakdown,
             iterationCount: runResult.iterationCount || 1,
@@ -902,9 +1030,9 @@ export default function AIChatWindow() {
               total_tokens: runResult.totalTokens,
               cost: runResult.cost || 0,
               cacheHitTokens: runResult.cacheHitTokens || 0,
-              cacheCreationTokens: (runResult as any).cacheCreationTokens || 0,
+              cacheCreationTokens: runResult.cacheCreationTokens || 0,
               // v15: 子 agent 委托用量（主/子分开统计）
-              subAgentUsage: (runResult as any).subAgentUsage,
+              subAgentUsage: runResult.subAgentUsage,
             } : undefined,
             totalIterations: runResult.iterationCount || 1,
             // v14.5.0: 幻觉检测接线（此前 detectHallucination 无调用点——banner/重试按钮是死代码）：
@@ -915,26 +1043,26 @@ export default function AIChatWindow() {
               : (detectHallucination(collectedText || runResult.text || '', new Set(runResult.toolsUsed)) || undefined),
             // v14.2.0: 跨 run 续跑 — 任务清单进度快照随消息持久化（IndexedDB），
             // 中断未完成时下一条消息注入 [续跑] 提示
-            taskProgress: (runResult as any).taskProgress,
+            taskProgress: runResult.taskProgress,
             // v14.3: 子代理执行快照随消息持久化（chatStorageService 全量 JSON 序列化，自动生效）；
             // 下轮 maybeInjectSubagentSummaries 注入 [子代理快照] 供跨 run 复用。
             // 持久化截断：只保留最近 5 条（防 IndexedDB/镜像膨胀）
-            subagentSummaries: (runResult as any).subagentSummaries?.slice(-5),
-            // v14.6.1: 推理链持久化（"思考过程"折叠面板数据源——原从未写入，面板恒不显示）
-            reasoningContent: (runResult as any).reasoningContent,
+            subagentSummaries: runResult.subagentSummaries?.slice(-5),
+            // v14.6.1: 推理链持久化（"思考过程"折叠面板数据源——v16.3.0 H1 修复后 bridge 已透传）
+            reasoningContent: runResult.reasoningContent,
             // v16.0.1(审计 M11): 持久化最近工具轮的 tool 结果（tool 名+参数+实际注入内容）——
             // 生产 UI 不持久化 tool_calls，ReadResultTracker.rebuildFromHistory 跨 run 重建
             // 依赖真实 tool 内容（标记 hash 不可用：内容指纹不匹配 → 去重不生效）。
             // buildHistoryMessages 保留模式把 _toolResults 还原为真实 role:'tool' 消息，
             // 跨 run 去重与 changed 提示才真正生效。
-            _toolResults: (runResult as any).toolResults?.slice(-50),
+            _toolResults: runResult.toolResults?.slice(-50),
             // v14.8: 本轮 KB 预注入文件 id 随消息持久化（下轮 sendMessage 读回做跨 run 排除）
-            kbInjectedFileIds: (runResult as any).kbInjectedFileIds?.slice(-20),
+            kbInjectedFileIds: runResult.kbInjectedFileIds?.slice(-20),
             // v14.9(接线): 「执行计划」卡片数据源——从实际工具执行记录回溯生成
             // （此前无写入点，面板是死 UI；纯聊天/无工具调用返回 undefined 不显示）
-            thinkingPlan: buildThinkingPlanFromRun(runResult as any, fullContent),
+            thinkingPlan: buildThinkingPlanFromRun(runResult, fullContent),
             // v16: API 逐轮明细随消息持久化（聊天文件分析用——缓存命中率/耗时/重试可算）
-            apiCallDetails: (runResult as any).apiCallDetails,
+            apiCallDetails: runResult.apiCallDetails,
           }])
         },
         onApprovalRequired: async (tools) => {
@@ -960,6 +1088,11 @@ export default function AIChatWindow() {
       useAgentStore.getState().addTokens(billedTokens)
     } catch (err) {
       setMessages(prev => [...prev, { id: `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_e`, role: 'assistant', content: `错误: ${err instanceof Error ? err.message : 'Unknown'}`, timestamp: Date.now() }])
+      // v16.3.0(审计 L8 修复): 异常路径关审批弹窗并解析挂起的 promise——原实现靠 60s 超时兜底，
+      // 错误后审批弹窗最长滞留 60s（abortToolLoop 已有关闭逻辑，此处补 sendMessage 抛错路径）
+      approvalResolveRef.current?.(false)
+      approvalResolveRef.current = null
+      setPendingApproval(null)
     } finally {
       setLoading(false)
       sendLockRef.current = false
@@ -968,9 +1101,7 @@ export default function AIChatWindow() {
     }
   }
 
-  // @ reference handling
-
-  // @ reference handling
+  // @ reference handling（v16.3.0 审计 L2: 原重复两遍的注释已清理）
   const handleInputChange = async (value: string) => {
     setInput(value)
     // v15.3.1: 自动增高（仿 DeepSeek 网页版）——内容超出当前高度时增高，不收缩（保留手动拖拽高度）
@@ -1091,21 +1222,43 @@ export default function AIChatWindow() {
                   }}
                 >
                   {[...conversations].reverse().map(conv => (
-                    <div key={conv.id} onClick={(e) => { e.stopPropagation(); switchConversation(conv.id) }} style={{
+                    <div key={conv.id} onClick={(e) => { if (renameConvId === conv.id) return; e.stopPropagation(); switchConversation(conv.id) }} style={{
                       display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
                       cursor: 'pointer', fontSize: 11, color: conv.id === activeConversationId ? '#7c3aed' : '#2d2520',
                       background: conv.id === activeConversationId ? 'rgba(124,58,237,0.04)' : 'transparent',
                       borderBottom: '1px solid rgba(0,0,0,0.03)',
                     }}>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conv.title}</span>
-                      <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{conv.messages.length}条</span>
-                      {conversations.length > 1 && (
-                        <button onClick={(e) => { e.stopPropagation(); setConvToDelete(conv.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0, display: 'flex' }} title="删除对话"
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#d4ccc4' }}
-                        >
-                          <XMarkIcon style={{ width: 12, height: 12 }} />
-                        </button>
+                      {renameConvId === conv.id ? (
+                        // v16.3.0(审计 F1): 内联重命名输入
+                        <input autoFocus value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.stopPropagation(); handleRenameConversation(conv.id) }
+                            if (e.key === 'Escape') { e.stopPropagation(); setRenameConvId(null) }
+                          }}
+                          onBlur={() => handleRenameConversation(conv.id)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ flex: 1, fontSize: 11, padding: '2px 6px', borderRadius: 6, border: '1px solid rgba(124,58,237,0.4)', outline: 'none', fontFamily: 'inherit' }}
+                        />
+                      ) : (
+                        <>
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conv.title}</span>
+                          <span style={{ fontSize: 9, color: '#9b8e84', flexShrink: 0 }}>{conv.messages.length}条</span>
+                          <button onClick={(e) => { e.stopPropagation(); setRenameConvId(conv.id); setRenameValue(conv.title) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0, display: 'flex', opacity: 0.5 }} title="重命名对话"
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = '#7c3aed' }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0.5'; (e.currentTarget as HTMLElement).style.color = '#d4ccc4' }}
+                          >
+                            <PencilSquareIcon style={{ width: 11, height: 11 }} />
+                          </button>
+                          {conversations.length > 1 && (
+                            <button onClick={(e) => { e.stopPropagation(); setConvToDelete(conv.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d4ccc4', padding: 0, display: 'flex' }} title="删除对话"
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#d4ccc4' }}
+                            >
+                              <XMarkIcon style={{ width: 12, height: 12 }} />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   ))}
@@ -1172,6 +1325,8 @@ export default function AIChatWindow() {
             {/* v14.9(A2): 原生联网走 Responses 原生工具，依赖「调用工具」开启——工具关闭时按钮如实变灰
                 （原恒显示激活态，实际联网彻底不可用，开关与真实行为不一致）
                 v15.1: 原生联网不再锁定——点击直接切换模型配置的 nativeWebSearch 并持久化。
+                v16.3.0(审查修复): 改为**会话级三态循环**——不再修改模型配置的 nativeWebSearch 勾选
+                （原实现点击即取消勾选且聊天窗无法恢复原生）。状态：原生 → 内置 → 关闭 → 原生（配置态）。
                 v15.5: 原生联网真通道判定——三条：
                   A) DeepSeek V4 + OpenAI 协议 + 原生联网 → Responses API（服务端 web_search）
                   B) DeepSeek + Anthropic 协议 + 原生联网 → 服务端 web_search 工具（官方文档确认）
@@ -1182,26 +1337,42 @@ export default function AIChatWindow() {
               try { nativeActive = shouldUseResponses(activeConfig) } catch { nativeActive = false }
               const m = (activeConfig?.model || '').toLowerCase()
               const apiUrl = (activeConfig?.apiUrl || '').toLowerCase()
-              const nativeOn = !!activeConfig?.nativeWebSearch
+              const cfgNativeOn = !!activeConfig?.nativeWebSearch
+              // v16.3.0: 会话级覆盖生效判定（nativeOverride!==null 时临时关闭原生通道，配置勾选不动）
+              const nativeOn = nativeOverride === null ? cfgNativeOn : false
               // 路 B：DeepSeek 官方端点 + Anthropic 协议 + 原生联网 → 服务端 web_search 工具
               const deepSeekAnthropicNative = nativeOn && apiUrl.includes('deepseek.com')
                 && /deepseek/i.test(m) && (activeConfig?.protocol === 'anthropic')
               const realNative = nativeActive || deepSeekAnthropicNative
+              const builtinOn = nativeOn ? false : webSearchEnabled
+              const mode: 'native' | 'builtin' | 'off' = nativeOn && realNative ? 'native' : (builtinOn ? 'builtin' : 'off')
               return (
-                <span title={nativeOn
-                  ? (realNative
-                    ? (toolInvokeEnabled ? '原生联网搜索已开启（服务端搜索，Responses API 或 web_search 工具），软件内置联网搜索自动停用。点击可关闭原生联网' : '原生联网搜索依赖「调用工具」开关——请先开启工具')
-                    : '当前配置（协议/模型/地址）不满足原生联网条件，使用软件内置搜索。点击可关闭原生联网')
-                  : '软件内置联网搜索（DuckDuckGo）。点击可开启/关闭'}>
+                <span title={
+                  mode === 'native'
+                    ? (toolInvokeEnabled
+                      ? '原生联网搜索已开启（服务端搜索，Responses API 或 web_search 工具），软件内置联网搜索自动停用。点击切换为内置搜索'
+                      : '原生联网搜索依赖「调用工具」开关——请先开启工具')
+                    : (mode === 'builtin'
+                      ? '软件内置联网搜索（DuckDuckGo）已开启（原生联网临时停用，模型设置勾选未变）。点击关闭联网'
+                      : (cfgNativeOn
+                        ? '联网已关闭（原生临时停用，模型设置勾选未变）。点击恢复原生联网'
+                        : '联网已关闭。点击开启内置搜索（DuckDuckGo）'))}>
                   <ToggleButton icon={<GlobeAltIcon style={{ width: 12, height: 12 }} />}
-                    label={nativeOn && realNative ? '联网搜索(原生)' : '联网搜索'}
-                    active={nativeOn ? (realNative ? toolInvokeEnabled : webSearchEnabled) : webSearchEnabled}
+                    label={mode === 'native' ? '联网搜索(原生)' : '联网搜索'}
+                    active={mode === 'native' ? toolInvokeEnabled : builtinOn}
                     onClick={() => {
-                      if (activeConfig?.nativeWebSearch) {
-                        useSettingsStore.getState().updateConfig(activeConfig.id, { nativeWebSearch: false })
-                        settingsService.saveConfigs(useSettingsStore.getState().configs).catch(e => logError('保存配置失败', e))
+                      // v16.3.0(审查修复): 三态循环——原生→内置→关闭→原生（恢复配置态）。
+                      // 原实现直接写 config.nativeWebSearch=false：模型设置勾选被取消且聊天窗无法再开。
+                      if (mode === 'native') {
+                        setNativeOverride('builtin'); setWebSearchEnabled(true)
+                      } else if (mode === 'builtin') {
+                        setNativeOverride('off'); setWebSearchEnabled(false)
+                      } else if (cfgNativeOn) {
+                        // 关闭 → 恢复配置态（原生重新生效）
+                        setNativeOverride(null); setWebSearchEnabled(aiSettings.webSearchDefault)
                       } else {
-                        setWebSearchEnabled(!webSearchEnabled)
+                        // 配置未勾选原生 → 关闭态点击 = 开内置
+                        setNativeOverride(null); setWebSearchEnabled(true)
                       }
                     }} />
                 </span>
@@ -1261,10 +1432,7 @@ export default function AIChatWindow() {
                 未关联章节 · 点击关联
               </button>
             ) : null}
-            {/* 上传入口②：按钮 → 文本文件。存到 uploads/files/，fileService.write 自动缓存。 */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; try { const b = (useStore.getState().projectsBasePath || '').replace(/[/\\]projects[/\\]?$/, ''); await fileService.ensureDir(`${b}/uploads/files`); await fileService.write(`${b}/uploads/files/${f.name}`, text) } catch (e) { console.error('上传文件失败', e) }; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
-            {/* 上传入口③：按钮 → 图片。v16.2.0: 统一走 handleImageFile（目录 uploads/images/） */}
-            <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; await handleImageFile(f) }; inp.click() }} title="上传图片" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)', color: '#6b5e54', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
+            {/* v16.3.0: 上传入口②③（文件/图片按钮）已移至输入框底部行 #工具 前 */}
             {/* Model switcher */}
             {/* v14.9(设计决策注释): 对话开始后禁止切换模型——设计如此，非缺陷：
                ① bridge 的 configId 在首次 sendMessage 时经 init 锁定（chatBridgeFactory.ts），
@@ -1354,9 +1522,12 @@ export default function AIChatWindow() {
               // prevMsg is passed by VirtualMessageList when virtualized, or null otherwise
               const prev = prevMsg ?? (i > 0 ? messages[i - 1] : null)
               const isFirst = i === 0
+              // v16.3.0(UI 优化 V2): 仅非虚拟化分支（≤20 条）的末条消息入场动画——
+              // 虚拟化分支 contain:'strict' 下动画失效/回放卡顿，跳过
+              const isLastMsg = i === messages.length - 1 && messages.length <= 20
               const hasGap = msg.timestamp && prev?.timestamp && (msg.timestamp - prev.timestamp > 3 * 60 * 1000)
               const showTime = msg.timestamp && (isFirst || hasGap)
-              const timeStr = fmtTime(msg.timestamp!)
+              // v16.3.0(审计 L1 修复): 删死变量 timeStr（计算后未用，时间分隔直接调 fmtTime）
               const timeSep = showTime ? (
                 <div key={`t_${msg.id}`} style={{ textAlign: 'center', padding: '14px 0 10px', fontSize: 12, color: '#b0a89e', letterSpacing: 0.5 }}>
                   {fmtTime(msg.timestamp!)}
@@ -1392,14 +1563,14 @@ export default function AIChatWindow() {
                     <div onContextMenu={e => { e.preventDefault(); handleContextMenu(msg.id, e.clientX, e.clientY) }}
                       style={{ background: selectedMsgIds.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8 }}>
                       <div style={{
-                        margin: '0 18px 10px', padding: '12px 16px', borderRadius: 12,
-                        background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)',
+                        margin: '0 18px 10px', padding: '12px 16px', borderRadius: R.md,
+                        background: CARD.bg, border: CARD.border,
                       }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 6 }}>
+                        <div style={{ fontSize: F.sm, fontWeight: 700, color: C.primary, marginBottom: 6 }}>
                           📦 已压缩 {msg.compressedCount || '?'} 条消息
                           {msg.compressedTokens ? `（节省约 ${(msg.compressedTokens / 1000).toFixed(1)}K tokens）` : ''}
                         </div>
-                        <div style={{ fontSize: 12, color: '#4a3f38', lineHeight: 1.7 }}>{msg.content}</div>
+                        <div style={{ fontSize: F.base, color: C.textSecondary, lineHeight: 1.7 }}>{msg.content}</div>
                       </div>
                     </div>
                   </div>
@@ -1407,11 +1578,32 @@ export default function AIChatWindow() {
               }
 
               return (
-              <div key={`w_${msg.id}`}>
+              <div key={`w_${msg.id}`} style={isLastMsg ? { animation: 'fadeInUp 0.25s ease-out' } : undefined}>
                 {timeSep}
                 {/* Compressed summary card — msg.compressedSummary already handled above, this is for context menu on body */}
               <div onContextMenu={e => { e.preventDefault(); handleContextMenu(msg.id, e.clientX, e.clientY) }}
-                style={{ background: (selectedMsgIds.has(msg.id) || contextMenu?.msgId === msg.id) ? 'rgba(124,58,237,0.04)' : 'transparent', borderRadius: 8, transition: 'background 0.15s' }}>
+                onMouseEnter={() => setHoverMsgId(msg.id)}
+                onMouseLeave={() => setHoverMsgId(prev => prev === msg.id ? null : prev)}
+                style={{ position: 'relative', background: (selectedMsgIds.has(msg.id) || contextMenu?.msgId === msg.id) ? C.primarySoft : 'transparent', borderRadius: R.md, transition: 'background 0.15s' }}>
+                {/* v16.3.0(UI 优化 V2): hover 复制按钮——删除/更多操作保留右键菜单（防误触） */}
+                {hoverMsgId === msg.id && !isToolCallOnly && (
+                  <button
+                    onClick={() => handleCopy(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))}
+                    title="复制消息内容（右键更多操作）"
+                    style={{
+                      position: 'absolute', top: 4, right: 4, zIndex: 5,
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px',
+                      borderRadius: R.pill, border: `1px solid ${C.border}`,
+                      background: '#fff', color: C.textSecondary, fontSize: F.xs, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit', boxShadow: SH.sm,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = C.primary; (e.currentTarget as HTMLElement).style.borderColor = C.primaryBorder }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = C.textSecondary; (e.currentTarget as HTMLElement).style.borderColor = C.border }}
+                  >
+                    <ClipboardIcon style={{ width: 12, height: 12 }} /> 复制
+                  </button>
+                )}
                 {/* Tool call indicator for assistant messages with tool_calls but no text */}
                 {isToolCallOnly && (
                   <div style={{ padding: '4px 0 4px 36px' }}>
@@ -1437,16 +1629,15 @@ export default function AIChatWindow() {
                   </div>
                   <div className="msg-bubble" style={{
                     maxWidth: '82%', padding: '10px 14px', borderRadius: 16,
-                    background: msg.role === 'user' ? 'rgba(124,58,237,0.08)'
-                      : msg.role === 'tool' ? 'rgba(22,163,74,0.04)'
-                      : (msg.toolsUsed && msg.toolsUsed.length > 0) ? 'rgba(22,163,74,0.06)'
-                      : msg.role === 'assistant' ? 'rgba(22,163,74,0.04)'  // API调用，无工具
-                      : '#ffffff',
-                    border: msg.role === 'tool' ? '1px solid rgba(22,163,74,0.1)'
-                      : (msg.toolsUsed && msg.toolsUsed.length > 0) ? '1px solid rgba(22,163,74,0.15)'
-                      : msg.role === 'assistant' ? '1px solid rgba(22,163,74,0.08)'  // API调用标记
-                      : undefined,
-                    fontSize: msg.role === 'tool' ? 11 : 13, lineHeight: 1.6, color: '#2d2520', whiteSpace: 'pre-wrap',
+                    // v16.3.0(UI 优化 V2): AI 消息改中性米白（原绿色系与"成功"语义撞色，
+                    // AI 回复被误读为状态标记）；绿只保留语义=成功/缓存。用户紫、工具中性灰。
+                    background: msg.role === 'user' ? C.primarySoft
+                      : msg.role === 'tool' ? C.bgSoft
+                      : C.aiBubble,
+                    border: msg.role === 'user' ? C.primaryBorder
+                      : msg.role === 'tool' ? C.borderLight
+                      : C.aiBubbleBorder,
+                    fontSize: msg.role === 'tool' ? F.sm : F.md, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap',
                   }}>
                     {/* Hallucination warning banner */}
                     {msg.hallucinationWarning && (
@@ -1506,8 +1697,8 @@ export default function AIChatWindow() {
                     {expandedThinking.has(msg.id) && (
                       <div style={{
                         marginTop: 3, padding: '8px 12px', borderRadius: 8,
-                        background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)',
-                        fontSize: 11, color: '#6b5e54', lineHeight: 1.7,
+                        background: CARD.bg, border: CARD.border,
+                        fontSize: F.sm, color: C.textSecondary, lineHeight: 1.7,
                         maxHeight: 260, overflowY: 'auto', whiteSpace: 'pre-wrap',
                       }} className="custom-scrollbar">
                         {msg.reasoningContent}
@@ -1521,10 +1712,11 @@ export default function AIChatWindow() {
                   <div style={{ marginLeft: 52, marginBottom: 5 }}>
                     <button onClick={() => togglePlan(msg.id)} style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
-                      padding: '5px 10px', borderRadius: 8,
-                      border: '1px solid rgba(22,163,74,0.15)',
-                      background: expandedPlans.has(msg.id) ? 'rgba(22,163,74,0.04)' : 'rgba(0,0,0,0.02)',
-                      color: '#16a34a', fontSize: 10, fontWeight: 600,
+                      padding: '5px 10px', borderRadius: R.sm,
+                      // v16.3.0(UI 优化 V2): 执行计划改紫色（AI 行为语义，原绿色与"成功"撞色）
+                      border: '1px solid rgba(124,58,237,0.15)',
+                      background: expandedPlans.has(msg.id) ? 'rgba(124,58,237,0.04)' : 'rgba(0,0,0,0.02)',
+                      color: C.primary, fontSize: F.xs, fontWeight: 600,
                       cursor: 'pointer', fontFamily: 'inherit',
                     }}>
                       <span style={{ fontSize: 12 }}>📋</span>
@@ -1534,9 +1726,9 @@ export default function AIChatWindow() {
                     </button>
                     {expandedPlans.has(msg.id) && (
                       <div style={{
-                        marginTop: 3, padding: '10px 14px', borderRadius: 8,
-                        background: 'rgba(22,163,74,0.03)', border: '1px solid rgba(22,163,74,0.08)',
-                        fontSize: 12, color: '#2d2520', lineHeight: 1.8,
+                        marginTop: 3, padding: '10px 14px', borderRadius: R.sm,
+                        background: CARD.bg, border: CARD.border,
+                        fontSize: F.base, color: C.text, lineHeight: 1.8,
                       }}>
                         {msg.thinkingPlan.intent && (
                           <div style={{ marginBottom: 8, fontSize: 11, color: '#6b5e54', fontStyle: 'italic' }}>
@@ -1559,7 +1751,8 @@ export default function AIChatWindow() {
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                               width: 18, height: 18, borderRadius: '50%',
-                              background: 'rgba(22,163,74,0.1)', color: '#16a34a',
+                              // v16.3.0(审计 M3 修复): 序号圆点改紫——与执行计划按钮同语义（原残留绿撞色）
+                              background: 'rgba(124,58,237,0.1)', color: C.primary,
                               fontSize: 9, fontWeight: 700, flexShrink: 0, marginTop: 1,
                             }}>{i + 1}</span>
                             <span>
@@ -1579,30 +1772,28 @@ export default function AIChatWindow() {
                   </div>
                 )}
 
-                {/* Usage footer — only on assistant messages */}
-                {msg.role === 'assistant' && msg.usage && (
-                  <div style={{ marginLeft: 36, marginTop: 2, marginBottom: 2, display: 'flex', gap: 10, fontSize: 10, color: '#9b8e84', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span>入 {(msg.usage.prompt_tokens || 0).toLocaleString()} | 出 {(msg.usage.completion_tokens || 0).toLocaleString()} | 合计 {(msg.usage.total_tokens || 0).toLocaleString()}</span>
-                    {(msg.usage as any).cacheCreationTokens > 0 && (
-                      <span style={{ color: '#d97706', fontWeight: 600 }}>📥 已缓存 {((msg.usage as any).cacheCreationTokens || 0).toLocaleString()}</span>
-                    )}
-                    {(msg.usage.cacheHitTokens || 0) > 0 && (
-                      <span style={{ color: '#16a34a', fontWeight: 600 }}>📦 缓存命中 {(msg.usage.cacheHitTokens || 0).toLocaleString()}</span>
-                    )}
-                    {msg.usage.cost > 0 && <span> {activeConfig?.currency === 'CNY' ? '¥' : '$'}{msg.usage.cost.toFixed(4)}</span>}
-                    {/* v15: 子 agent 委托用量（独立上下文窗口，主/子分开显示） */}
-                    {(msg.usage as any).subAgentUsage?.totalTokens > 0 && (
-                      <span style={{ color: '#7c3aed', fontWeight: 600 }}>
-                        子代理 入 {((msg.usage as any).subAgentUsage.promptTokens || 0).toLocaleString()} | 出 {((msg.usage as any).subAgentUsage.completionTokens || 0).toLocaleString()} | 合计 {((msg.usage as any).subAgentUsage.totalTokens || 0).toLocaleString()}
-                      </span>
-                    )}
-                  </div>
+                {/* v16.3.0(UI 优化 V2): 元信息条——usage/工具/文件收纳为一行摘要（原 usage 页脚+工具 chips+文件 refs 三处平铺合并） */}
+                {msg.role === 'assistant' && (
+                  <MetaBar
+                    usage={msg.usage}
+                    tools={msg.toolsUsed || []}
+                    refs={extractFileRefs(msg, activeProjectId, projectsBasePath)}
+                    currency={activeConfig?.currency}
+                    expanded={expandedMeta.has(msg.id)}
+                    onToggle={() => setExpandedMeta(prev => {
+                      const n = new Set(prev)
+                      if (n.has(msg.id)) n.delete(msg.id); else n.add(msg.id)
+                      return n
+                    })}
+                    onOpenFile={(path) => window.electron?.app.openFile(path)}
+                    onOpenFileMenu={(x, y, path) => setFileMenu({ x, y, path })}
+                  />
                 )}
                 {/* v14.3.1: 任务清单进度卡片（taskProgress 此前只用于续跑注入，聊天窗口无可视化） */}
                 {msg.role === 'assistant' && msg.taskProgress && msg.taskProgress.tasks.length > 0 && (
-                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11 }}>
+                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: CARD.radius, background: CARD.bg, border: CARD.border, fontSize: CARD.titleSize }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontWeight: 700, color: '#4a3f38' }}>📋 任务进度</span>
+                      <span style={{ fontWeight: 700, color: CARD.titleColor }}>📋 任务进度</span>
                       <span style={{ color: '#7c3aed', fontWeight: 700 }}>
                         {msg.taskProgress.tasks.filter(t => t.done).length}/{msg.taskProgress.tasks.length}
                       </span>
@@ -1620,8 +1811,8 @@ export default function AIChatWindow() {
                 )}
                 {/* v14.3.1: 子代理简报（快照内容可视化——此前快照只用于跨 run 注入，用户看不到内容） */}
                 {msg.role === 'assistant' && msg.subagentSummaries && msg.subagentSummaries.length > 0 && (
-                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: 10, background: 'rgba(124,58,237,0.03)', border: '1px solid rgba(124,58,237,0.08)', fontSize: 11 }}>
-                    <div style={{ fontWeight: 700, color: '#4a3f38', marginBottom: 4 }}>🤖 子代理简报</div>
+                  <div style={{ marginLeft: 36, marginTop: 6, marginBottom: 2, padding: '8px 12px', borderRadius: CARD.radius, background: CARD.bg, border: CARD.border, fontSize: CARD.titleSize }}>
+                    <div style={{ fontWeight: 700, color: CARD.titleColor, marginBottom: 4 }}>🤖 子代理简报</div>
                     {msg.subagentSummaries.map((s, i) => (
                       <div key={i} style={{ padding: '3px 0', borderTop: i > 0 ? '1px dashed rgba(0,0,0,0.05)' : 'none' }}>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1640,41 +1831,7 @@ export default function AIChatWindow() {
                     ))}
                   </div>
                 )}
-                {/* Tool usage summary — shows which tools were called in this response */}
-                {msg.role === 'assistant' && msg.toolsUsed && msg.toolsUsed.length > 0 && (
-                  <div style={{ marginLeft: 36, marginTop: 4, marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                    <span style={{ fontSize: 9, color: '#9b8e84', marginRight: 2 }}>使用:</span>
-                    {msg.toolsUsed.map((name: string) => (
-                      <span key={name} style={{
-                        padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
-                        background: 'rgba(124,58,237,0.06)', color: '#7c3aed',
-                        border: '1px solid rgba(124,58,237,0.1)',
-                      }}>{name}</span>
-                    ))}
-                  </div>
-                )}
-                {/* File refs — 生成/修改的文件，左键打开，右键打开文件夹 */}
-                {msg.role === 'assistant' && extractFileRefs(msg, activeProjectId, projectsBasePath).length > 0 && (
-                  <div style={{ marginLeft: 36, marginTop: 4, marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                    <span style={{ fontSize: 9, color: '#9b8e84', marginRight: 2 }}>文件:</span>
-                    {extractFileRefs(msg, activeProjectId, projectsBasePath).map(r => (
-                      <span
-                        key={r.path}
-                        onClick={(e) => { e.stopPropagation(); (window as any).electron.app.openFile(r.path) }}
-                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setFileMenu({ x: e.clientX, y: e.clientY, path: r.path }) }}
-                        title={`${r.path}\n左键打开文件 · 右键打开文件夹`}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10,
-                          fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                          background: 'rgba(16,163,74,0.06)', color: '#16a34a',
-                          border: '1px solid rgba(16,163,74,0.15)',
-                        }}
-                      >
-                        📄 {r.path.split('/').pop()}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {/* v16.3.0(UI 优化 V2): 工具使用/文件引用已收纳进 MetaBar 展开区（上方） */}
                 {/* Images */}
                 {msg.images && msg.images.map((img: string, i: number) => (
                   <div key={i} style={{ marginLeft: 36, marginTop: 4, marginBottom: 4 }}>
@@ -1711,7 +1868,7 @@ export default function AIChatWindow() {
 
                 {/* Sources */}
                 {msg.sources && (msg.sources.kb.length > 0 || msg.sources.web.length > 0) && (
-                  <div style={{ marginLeft: 36, marginBottom: 14, padding: '8px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)', fontSize: 10, color: '#9b8e84' }}>
+                  <div style={{ marginLeft: 36, marginBottom: 14, padding: '8px 12px', borderRadius: CARD.radius, background: CARD.bg, fontSize: F.xs, color: C.textMuted }}>
                     {msg.sources.kb.length > 0 && (
                       <div style={{ marginBottom: 4 }}>
                         📚 知识库: {msg.sources.kb.map(s => `${s.fileName} (${Math.round((s as { score: number }).score * 100)}%)`).join(', ')}
@@ -1741,7 +1898,8 @@ export default function AIChatWindow() {
               <span style={{ color: '#6b5e54' }}>{agentHookFeedback.feedback}</span>
             </div>
           )}
-          {agentIsStreaming && <StreamingMessage content={agentStreamingText} />}
+          {/* v16.3.0(审计 M1 修复): 自包含订阅——不再从父组件传 content/状态 */}
+          <StreamingMessage />
           {loading && (
             <div style={{ textAlign: 'center', padding: 6 }}>
               <button onClick={abortToolLoop} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, border: '1px solid rgba(220,38,38,0.25)', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -1751,11 +1909,11 @@ export default function AIChatWindow() {
             </div>
           )}
 
-          <AgentStateBar maxIterations={30} />
+          <AgentStateBar maxIterations={MAX_ITERATIONS} />
 
-          {/* Input — v15.5: 融入对话框（去除卡片底座感——输入卡片与最后一条消息同底色自然衔接，
-              仅保留浅分隔线；卡片自身轻边框聚焦时才加深，视觉上"长在对话框里"如 DeepSeek 网页版） */}
-          <div style={{ padding: '8px 16px 12px', borderTop: '1px solid rgba(0,0,0,0.06)', background: 'transparent', position: 'relative' }}>
+          {/* Input — v16.3.0: 完全融入对话框（去除分割线——输入卡片与消息区同一片白底无缝衔接，
+              以输入卡片自身的阴影轮廓区分"输入区 vs 消息区"：无分割感但边界清晰，如 DeepSeek 网页版） */}
+          <div style={{ padding: '8px 16px 12px', background: 'transparent', position: 'relative' }}>
             {/* v15.3.0: #工具提示 chips（蓝色加粗，与 @引用 区分；仅按钮选择生成，手输 # 不生效） */}
             {selectedToolHints.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -1801,16 +1959,15 @@ export default function AIChatWindow() {
                 <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
             )}
-            {/* ── v15.5: 一体化输入容器 v3（融合对话框——卡片底座并入最后一条消息区，无独立边框/阴影，
-                仅以分隔线 + 背景区分；textarea 无边框，聚焦时容器描边淡紫高亮。
-                底部行：#工具（左）· effort 思考等级（中，仅思考开启）· 发送（右）。
-                拖拽手柄上移置于 textarea 上方（输入区顶缘把手）：向上拖 = 增高，向下拖 = 降低。
-                v15.3.0/15.3.1 历史见 git 注释 ── */}
+            {/* ── v16.3.0: 一体化输入容器 v4（融入对话框——无分割线，常驻阴影轮廓区分输入区：
+                轮廓线加深 + 阴影加强，聚焦时紫高亮；与消息区同白底和谐共存。
+                底部行：文件/图片（左）· #工具（左）· effort 思考等级（中，仅思考开启）· 发送（右）。
+                拖拽手柄置于 textarea 上方（顶缘把手）：向上拖 = 增高，向下拖 = 降低。 ── */}
             <div style={{
-              borderRadius: 18,
-              border: inputFocused ? '1px solid rgba(124,58,237,0.45)' : '1px solid rgba(0,0,0,0.06)',
-              background: 'rgba(255,255,255,0.92)',
-              boxShadow: inputFocused ? '0 4px 20px rgba(124,58,237,0.10)' : '0 2px 10px rgba(0,0,0,0.04)',
+              borderRadius: R.lg,
+              border: inputFocused ? '1px solid rgba(124,58,237,0.45)' : `1px solid ${C.border}`,
+              background: 'rgba(255,255,255,0.98)',
+              boxShadow: inputFocused ? '0 4px 24px rgba(124,58,237,0.14)' : SH.md,
               padding: '6px 12px 4px', position: 'relative', display: 'flex', flexDirection: 'column',
               transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
             }}
@@ -1823,8 +1980,9 @@ export default function AIChatWindow() {
                   松手以上传文件或图片
                 </div>
               )}
-              {/* v15.5: 拖拽手柄上移——置于 textarea 上方，向下拖增高、向上拖降低（直觉方向）。
-                  按下快照起始高度，delta 直接加到高度；上限 220 与自动增高一致，结果存 localStorage。 */}
+              {/* v16.3.0: 输入框高度拖拽——不做可见灰线（输入框本身四条边框线，不再多画一条），
+                  拖拽热区紧贴容器顶缘（上边框位置）：整条透明热区可拖，hover 时淡紫提示。
+                  向上拖增高、向下拖降低；上限 220 与自动增高一致，结果存 localStorage。 */}
               <div
                 onMouseDown={e => {
                   const ta = document.getElementById('ai-chat-input') as HTMLTextAreaElement | null
@@ -1835,8 +1993,6 @@ export default function AIChatWindow() {
                   let raf = 0
                   const hm = (ev: MouseEvent) => {
                     if (!raf) raf = requestAnimationFrame(() => {
-                      // v15.5 修正: 手柄在 textarea 上方——向上拖 = 增高（顶缘上移），向下拖 = 降低。
-                      // 手柄是输入区"顶缘"的把手：向上拉把顶缘往上拽 → 变高；向下压 → 变矮。
                       const h = Math.max(48, Math.min(220, startH - (ev.clientY - startY)))
                       ta.style.height = h + 'px'
                       localStorage.setItem('ai-input-height', ta.style.height)
@@ -1847,41 +2003,38 @@ export default function AIChatWindow() {
                   window.addEventListener('mousemove', hm)
                   window.addEventListener('mouseup', hu)
                 }}
-                title="拖拽调整输入框高度（向上拉增高，向下拉降低；内容超出时会继续自动增高）"
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(124,58,237,0.08)'
-                  for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(124,58,237,0.55)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'transparent'
-                  for (const dot of e.currentTarget.children) (dot as HTMLElement).style.background = 'rgba(0,0,0,0.14)'
-                }}
-                style={{ height: 14, margin: '2px 0 0', borderRadius: 6, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0, transition: 'background 0.15s ease', opacity: 0.7 }}
-              >
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(0,0,0,0.14)', transition: 'background 0.15s ease' }} />
-              </div>
+                title="拖动输入框上边框调整高度（向上拖增高，向下拖降低；内容超出时自动增高）"
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.10)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                style={{ height: 6, margin: '-1px 2px 0', borderRadius: 3, cursor: 'ns-resize', flexShrink: 0, background: 'transparent', transition: 'background 0.15s ease' }}
+              />
+              {/* v16.3.0: textarea 移除 focus-ring——聚焦时 3px 紫光晕在容器内边距处形成"内部小框"（狭小感）；
+                  聚焦高亮由容器 inputFocused 紫色描边承担，文字输入区完全融入输入框 */}
               <textarea id="ai-chat-input" value={input} onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => {
                 // v14.5.0: IME 组合期确认候选的 Enter 不发送（中文输入法误发半截消息）
-                if ((e.nativeEvent as any).isComposing) return
+                if (e.nativeEvent.isComposing) return
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
               }}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               placeholder={activeConfigId ? '输入消息...（Enter 发送，Shift+Enter 换行）' : '请先在设置中配置模型'}
               disabled={!activeConfigId} rows={1}
-              className="focus-ring"
               ref={el => {
                 if (!el) return
+                // v16.3.0(审计 L9 修复): 读回校验——异常值（非数字/越界）忽略，防破坏 textarea 高度
                 const saved = localStorage.getItem('ai-input-height')
-                if (saved) el.style.height = saved
+                const h = saved ? parseInt(saved, 10) : NaN
+                if (!isNaN(h) && h >= 48 && h <= 220) el.style.height = h + 'px'
               }}
               style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', minHeight: 48, padding: '6px 2px 2px', fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', color: '#2d2520', background: 'transparent', display: 'block' }}
             />
             {/* 底部行：#工具按钮（左）+ effort 思考等级（中）+ 发送按钮（右，框内右下角） */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              {/* v16.3.0: 上传入口②③（文件/图片）— 从顶部工具条移至输入框底部行 #工具 前：
+                  文件→uploads/files/（.txt/.md/.text）；图片→uploads/images/（发送时副模型自动分析） */}
+              <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件（.txt/.md/.text）" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.08)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'transparent', color: attachment?.type === 'file' ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
+              <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; await handleImageFile(f) }; inp.click() }} title="上传图片（发送时副模型自动分析）" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.08)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'transparent', color: attachment?.type === 'image' ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
               <button className="input-popover-anchor" onClick={() => { setShowToolPicker(v => !v); setShowEffortPicker(false) }}
                 title="选择工具提示——告诉 AI 你本轮可能使用这些工具（软提示，非强制；可多选，随下一条消息发送）"
                 style={{
@@ -2072,24 +2225,34 @@ export default function AIChatWindow() {
               top: corner.includes('top') ? 0 : undefined,
               bottom: corner.includes('bottom') ? 0 : undefined,
               left: corner.includes('left') ? 0 : undefined,
-              right: corner.includes('right') ? 6 : undefined,
-              // Edge handles don't cover scrollbar area (right side 6px offset for scrollbar)
-              width: isEdge ? (corner === 'top' || corner === 'bottom' ? 'calc(100% - 16px)' : (corner === 'right' ? 4 : 8)) : 16,
+              right: corner.includes('right') ? 0 : undefined,
+              // v16.3.0(修复): 右边手柄贴边加宽（原 right:6 宽 4px 且 z-index 1——被内容层/滚动条
+              // 遮挡导致"只有左边能拖宽"）；现 right 手柄 10px 宽 + z-index 15 恒可命中，
+              // hover 淡紫反馈；滚动条交互让位（滚轮滚动不受影响）
+              width: isEdge ? (corner === 'top' || corner === 'bottom' ? 'calc(100% - 16px)' : (corner === 'right' ? 10 : 8)) : 16,
               height: isEdge ? (corner === 'left' || corner === 'right' ? 'calc(100% - 16px)' : (corner === 'bottom' ? 4 : 8)) : 16,
               marginTop: (corner === 'left' || corner === 'right') ? 8 : 0,
               cursor: corner === 'top' || corner === 'bottom' ? 'ns-resize'
                 : corner === 'left' || corner === 'right' ? 'ew-resize'
                 : corner === 'top-left' || corner === 'bottom-right' ? 'nwse-resize' : 'nesw-resize',
-              // Edge handles low z-index to not block scrollbar; corners high for grip indicator
-              zIndex: isEdge ? 1 : 10,
-            }}>
+              // v16.3.0: 边缘手柄 z-index 提高（原 1 被内容层遮挡）；滚动条拖拽让位给外框缩放
+              zIndex: isEdge ? 15 : 20,
+            }}
+              onMouseEnter={e => {
+                if (corner === 'right' || corner === 'left') e.currentTarget.style.background = 'rgba(124,58,237,0.12)'
+                else if (corner === 'top' || corner === 'bottom') e.currentTarget.style.background = 'rgba(124,58,237,0.06)'
+              }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            >
               {!isEdge && <svg width="12" height="12" viewBox="0 0 14 14"><path d="M0 14L14 0V3L3 14H0Z" fill="#9b8e84" opacity="0.3"/></svg>}
             </div>
           )})}
           {/* v15.1: 浮窗内模态层——外层 transform 建立 containing block，把内层 position:fixed
               的确认/审批弹窗约束在 AI写作助手浮窗内部（原直接渲染时 framer-motion 动画结束
-              transform 移除 → fixed 逃逸到整个主窗口，表现为"软件上又开一个弹窗"） */}
-          {(pendingApproval || convToDelete) && (
+              transform 移除 → fixed 逃逸到整个主窗口，表现为"软件上又开一个弹窗"）
+              v16.3.0(审计 U1 修复): 外层条件补 pctReminder——原仅 (pendingApproval || convToDelete)，
+              而用量提醒在 onComplete（运行结束）触发，此刻无审批/删除 → 弹窗永不渲染（死 UI） */}
+          {(pendingApproval || convToDelete || pctReminder !== null) && (
             <div style={{ position: 'absolute', inset: 0, transform: 'translateZ(0)', zIndex: 1000 }}>
               {pendingApproval && (
                 <DangerousToolModal
@@ -2131,15 +2294,13 @@ export default function AIChatWindow() {
       )}
     </AnimatePresence>
     {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
-    {/* v16: 知识库文件勾选大弹窗（弹窗在浮窗 transform 之外 → 全窗口 fixed 覆盖） */}
+    {/* v16.3.0: 知识库文件勾选大弹窗（纯勾选模式：可拖动/缩放，无三态快捷按钮；空勾选=不使用） */}
     <KbSelectionModal
       isOpen={showKBFilePicker}
       onClose={() => setShowKBFilePicker(false)}
       selectedIds={kbPickerSelected}
       mode={kbPickerMode}
-      onSelectAll={selectAllKBFiles}
-      onSelectNone={() => useSettingsStore.getState().setAISettings({ kbFileSelections: { ...currentSelections, [activePage]: ['__none__'] } })}
-      onToggleFile={toggleKBFile}
+      onSetIds={setKBFileIds}
     />
     {/* Right-click context menu */}
     {breakdownModal && (
@@ -2277,7 +2438,7 @@ export default function AIChatWindow() {
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.breakdown) {
-            return <button onClick={() => { setBreakdownModal({ inputBreakdown: (msg as any).breakdown || [], outputBreakdown: (msg as any).outputBreakdown || [], totalPromptTokens: msg.usage?.prompt_tokens, totalCompletionTokens: msg.usage?.completion_tokens, totalTokens: msg.usage?.total_tokens, cacheHitTokens: msg.usage?.cacheHitTokens, cacheCreationTokens: (msg.usage as any)?.cacheCreationTokens }); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setBreakdownModal({ inputBreakdown: msg.breakdown || [], outputBreakdown: msg.outputBreakdown || [], totalPromptTokens: msg.usage?.prompt_tokens, totalCompletionTokens: msg.usage?.completion_tokens, totalTokens: msg.usage?.total_tokens, cacheHitTokens: msg.usage?.cacheHitTokens, cacheCreationTokens: msg.usage?.cacheCreationTokens }); setContextMenu(null) }} style={ctxMenuBtn}>
               <MagnifyingGlassIcon style={{ width: 13, height: 13 }} /> 查看Token分解
             </button>
           }
@@ -2286,7 +2447,7 @@ export default function AIChatWindow() {
         {(() => {
           const msg = messages.find(m => m.id === contextMenu.msgId)
           if (msg?.toolsUsed && msg.toolsUsed.length > 0) {
-            return <button onClick={() => { setToolDetailPanel({ toolsUsed: msg.toolsUsed!, toolCallSteps: (msg as any).toolCallSteps, breakdown: (msg as any).breakdown, outputBreakdown: (msg as any).outputBreakdown, iterationCount: (msg as any).iterationCount, totalIterations: (msg as any).totalIterations, usage: msg.usage }); setContextMenu(null) }} style={ctxMenuBtn}>
+            return <button onClick={() => { setToolDetailPanel({ toolsUsed: msg.toolsUsed!, toolCallSteps: msg.toolCallSteps, breakdown: msg.breakdown, outputBreakdown: msg.outputBreakdown, iterationCount: msg.iterationCount, usage: msg.usage }); setContextMenu(null) }} style={ctxMenuBtn}>
               <WrenchScrewdriverIcon style={{ width: 13, height: 13 }} /> 查看工具详情
             </button>
           }
@@ -2320,7 +2481,6 @@ export default function AIChatWindow() {
         breakdown={toolDetailPanel.breakdown}
         outputBreakdown={toolDetailPanel.outputBreakdown}
         iterationCount={toolDetailPanel.iterationCount}
-        totalIterations={toolDetailPanel.totalIterations}
         usage={toolDetailPanel.usage}
         onClose={() => setToolDetailPanel(null)}
       />

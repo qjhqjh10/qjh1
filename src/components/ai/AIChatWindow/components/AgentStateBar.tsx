@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAgentStore } from '@/agent/store/AgentStore'
 import type { AgentPhase } from '@/agent/state/types'
+// v16.3.0(UI 优化 V2): 字号对齐设计 Token（颜色语义沿用阶段色——pending 紫/成功绿/失败红已正确）
+import { F } from '../designTokens'
 
 const PHASE_LABELS: Record<AgentPhase, { label: string; color: string; bg: string }> = {
   IDLE:               { label: '就绪',    color: '#9b8e84', bg: 'transparent' },
@@ -66,11 +68,11 @@ export function AgentStateBar({ maxIterations = 30 }: { maxIterations?: number }
             ) : (
               <span style={{ width: 8, height: 8, borderRadius: 4, background: info.color, flexShrink: 0 }} />
             )}
-            <span style={{ color: info.color, fontWeight: 600, fontSize: 11 }}>{info.label}</span>
-            {iteration > 0 && <span style={{ color: '#9b8e84', fontSize: 10 }}>· 第 {iteration}/{maxIterations} 轮</span>}
-            {isRunning && <span style={{ color: info.color, fontSize: 10, fontWeight: 500, marginLeft: 'auto' }}>{Math.round(overallProgress)}%</span>}
-            {thinking && !error && <span style={{ color: '#9b8e84', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>· {thinking.intent.slice(0, 50)}</span>}
-            {error && <span style={{ color: '#dc2626', fontSize: 10, flex: 1 }}>· {error.slice(0, 60)}</span>}
+            <span style={{ color: info.color, fontWeight: 600, fontSize: F.sm }}>{info.label}</span>
+            {iteration > 0 && <span style={{ color: '#9b8e84', fontSize: F.xs }}>· 第 {iteration}/{maxIterations} 轮</span>}
+            {isRunning && <span style={{ color: info.color, fontSize: F.xs, fontWeight: 500, marginLeft: 'auto' }}>{Math.round(overallProgress)}%</span>}
+            {thinking && !error && <span style={{ color: '#9b8e84', fontSize: F.xs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>· {thinking.intent.slice(0, 50)}</span>}
+            {error && <span style={{ color: '#dc2626', fontSize: F.xs, flex: 1 }}>· {error.slice(0, 60)}</span>}
           </div>
 
           {/* Tool usage chips — 每一步使用了什么工具，依次排列 */}
@@ -81,7 +83,7 @@ export function AgentStateBar({ maxIterations = 30 }: { maxIterations?: number }
                 const isPending = t.status === 'pending' || t.status === 'running'
                 return (
                   <span key={t.callId} style={{
-                    padding: '1px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                    padding: '1px 7px', borderRadius: 5, fontSize: F.xs, fontWeight: 600,
                     background: t.status === 'error' ? 'rgba(220,38,38,0.08)' : isDone ? 'rgba(22,163,74,0.08)' : 'rgba(124,58,237,0.06)',
                     color: t.status === 'error' ? '#dc2626' : isDone ? '#16a34a' : '#7c3aed',
                     border: `1px solid ${t.status === 'error' ? 'rgba(220,38,38,0.15)' : isDone ? 'rgba(22,163,74,0.12)' : 'rgba(124,58,237,0.1)'}`,

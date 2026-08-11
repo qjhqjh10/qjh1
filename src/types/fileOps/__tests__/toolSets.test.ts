@@ -24,8 +24,8 @@ describe('DANGEROUS_TOOLS', () => {
 })
 
 describe('READ_ONLY_TOOLS', () => {
-  it('contains 13 tools (list_audit removed in v13.2.0)', () => {
-    expect(READ_ONLY_TOOLS.size).toBe(13)
+  it('contains 12 tools (v16.3.0: -generate_image)', () => {
+    expect(READ_ONLY_TOOLS.size).toBe(12)
   })
 
   it('contains read-only file tools', () => {
@@ -35,9 +35,8 @@ describe('READ_ONLY_TOOLS', () => {
     expect(READ_ONLY_TOOLS.has('find_files')).toBe(true)
   })
 
-  it('contains image tools', () => {
+  it('contains image tools (v16.3.0: generate_image 已移除)', () => {
     expect(READ_ONLY_TOOLS.has('search_images')).toBe(true)
-    expect(READ_ONLY_TOOLS.has('generate_image')).toBe(true)
   })
 
   it('contains prompt tools', () => {
@@ -126,7 +125,7 @@ describe('summarizeFileOp', () => {
       'edit_file', 'create_file', 'delete_file', 'rename_file', 'batch_replace',
       'create_project', 'delete_project',
       'kb_append_file', 'kb_index_file', 'search_notes',
-      'search_images', 'generate_image',
+      'search_images',
       'list_prompts', 'toggle_prompt', 'update_prompt',
       'create_style_template', 'create_scene_template',
       'analyze_text_style', 'tool_search', 'list_rules',

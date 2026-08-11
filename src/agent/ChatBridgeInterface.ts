@@ -20,6 +20,9 @@ export interface BridgeOptions {
 export interface SendOptions {
   kbEnabled?: boolean
   webSearchEnabled?: boolean
+  /** v16.3.0: 联网会话级覆盖（三态循环）— 'builtin'|'off' = 本会话临时不走原生通道
+   * （内置/关闭），null/undefined = 跟随模型配置勾选。**不修改** config.nativeWebSearch。 */
+  nativeOverride?: 'builtin' | 'off' | null
   selectedKbFileIds?: string[]
   /** v14.8: 跨 run KB 去重 — 历史 run 已注入过的知识库文件 id（来自上一条 assistant 消息 kbInjectedFileIds），
    * 传给 BridgeContextBuilder 排除，避免同一文件跨 run 反复注入 */
@@ -34,7 +37,6 @@ export interface SendOptions {
   chapterFullText?: boolean
   onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
   onComplete?: (result: V4AgentRunResult) => void
-  onToolProgress?: (event: { callId: string; toolName: string; phase: string; progress: number; message: string; timestamp: number }) => void
   onApprovalRequired?: (tools: Array<{ name: string; args: Record<string, unknown> }>) => Promise<boolean>
 }
 
@@ -65,41 +67,21 @@ export interface BridgeSendResult {
   kbInjectedFileIds?: string[]
   /** v16.0.1(审计 M11): 本轮工具结果（跨 run 去重重建数据源，UI 持久化到 assistant 消息） */
   toolResults?: V4AgentRunResult['toolResults']
+  /** v16.3.0(审计 H1 修复): 推理链回传（"思考过程"面板数据源——原 bridge 返回值缺失，UI 恒读 undefined） */
+  reasoningContent?: string
+  /** v16.3.0(审计 H1 修复): API 逐轮明细（会话记录 api-calls.jsonl 数据源——原缺失恒空） */
+  apiCallDetails?: V4AgentRunResult['apiCallDetails']
 }
 
 /** 两个 Bridge 实现都满足的接口 */
 export interface IChatBridge {
-  init(options: {
-    configId: string
-    projectId: string | null
-    maxIterations?: number
-    historyMessages?: Message[]
-    contextWindow?: number
-  }): void
+  // v16.3.0(审计 M9 修复): init/sendMessage 参数改为引用 BridgeOptions/SendOptions——
+  // 原内联逐字段重复声明 13+ 字段，两份声明漂移（onToolProgress 曾只在内联版，接口与实现不一致）
+  init(options: BridgeOptions): void
 
   sendMessage(
     userMessage: string,
-    options?: {
-      kbEnabled?: boolean
-      webSearchEnabled?: boolean
-      selectedKbFileIds?: string[]
-      /** v14.8: 跨 run KB 去重 — 历史已注入文件 id（buildContext 排除） */
-      excludeKbFileIds?: string[]
-      resumeTaskProgress?: V4AgentRunResult['taskProgress']
-      /** v14.6.1: 工具开关 — false 时本轮禁用工具调用 */
-      toolsEnabled?: boolean
-      /** v16.1.0(审查修复 B6): 章节全文注入门控（变更才注入+心跳，未变轮省 token） */
-      chapterFullText?: boolean
-      onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
-      onComplete?: (result: V4AgentRunResult) => void
-      onToolProgress?: (event: {
-        callId: string; toolName: string; phase: string
-        progress: number; message: string; timestamp: number
-      }) => void
-      onApprovalRequired?: (
-        tools: Array<{ name: string; args: Record<string, unknown> }>,
-      ) => Promise<boolean>
-    },
+    options?: SendOptions,
   ): Promise<BridgeSendResult>
 
   abort(): void

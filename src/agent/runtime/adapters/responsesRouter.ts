@@ -39,3 +39,17 @@ export function shouldUseResponses(config: ResponsesRouterConfig | undefined | n
 
   return false
 }
+
+/**
+ * v16.3.0: 联网会话级覆盖（三态循环）——聊天窗按钮切换原生/内置/关闭时**不修改**模型配置的
+ * nativeWebSearch 勾选（原实现直接持久化改配置：取消勾选且无法从聊天窗恢复原生）。
+ * override 语义：'builtin'|'off' = 会话内强制不走原生通道（临时用内置/关闭）；
+ * null/undefined = 跟随模型配置（勾选则原生生效）。
+ */
+export function resolveNativeEnabled(
+  config: ResponsesRouterConfig | undefined | null,
+  override?: 'builtin' | 'off' | null,
+): boolean {
+  if (override === 'builtin' || override === 'off') return false
+  return !!config?.nativeWebSearch
+}

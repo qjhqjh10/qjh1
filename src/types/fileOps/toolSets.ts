@@ -1,7 +1,7 @@
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project', 'batch_replace']) as ReadonlySet<string>
 
 // Plan 模式工具集（只读+安全写操作）
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'generate_image', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_index_file', 'list_rules', 'tool_search']) as ReadonlySet<string>
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_index_file', 'list_rules', 'tool_search']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(
@@ -24,7 +24,6 @@ export function summarizeFileOp(
     case 'kb_index_file': return `索引KB: ${args.file_id}`
     case 'search_notes': return `搜索笔记: ${args.query}`
     case 'search_images': return `搜索图片: ${args.query}`
-    case 'generate_image': return `AI生成图片: ${(args.prompt as string || '').slice(0, 40)}`
     case 'list_prompts': return '列出提示词库'
     case 'toggle_prompt': return `${args.enabled ? '启用' : '关闭'}提示词: ${args.prompt_id}`
     case 'update_prompt': return `修改提示词: ${args.prompt_id}`

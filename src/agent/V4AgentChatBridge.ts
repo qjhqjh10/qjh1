@@ -3,7 +3,7 @@
 
 import { OpenAIAdapter } from './runtime/adapters/OpenAIAdapter'
 import { ResponsesAdapter } from './runtime/adapters/ResponsesAdapter'
-import { shouldUseResponses } from './runtime/adapters/responsesRouter'
+import { shouldUseResponses, resolveNativeEnabled } from './runtime/adapters/responsesRouter'
 import { BaseChatBridge } from './chatBridgeFactory'
 import type { ProtocolAdapter } from './runtime/adapters/ProtocolAdapter'
 
@@ -15,9 +15,10 @@ export class V4AgentChatBridge extends BaseChatBridge {
   protected async createAdapter(): Promise<ProtocolAdapter> {
     const { aiService } = await import('@/services/fileService')
     // v14.8: 模型配置勾选「原生联网搜索」+ DeepSeek V4 → Responses API 通道（web_search 原生工具）
+    // v16.3.0: 原生判定套会话级覆盖（三态循环临时切换原生/内置/关闭，不修改模型配置勾选）
     const { useSettingsStore } = await import('@/store')
     const cfg = useSettingsStore.getState().configs.find(c => c.id === this.configId)
-    if (shouldUseResponses(cfg)) {
+    if (shouldUseResponses({ ...cfg, nativeWebSearch: resolveNativeEnabled(cfg, this.nativeOverride) })) {
       return new ResponsesAdapter({
         responsesChat: (msgs, cid, pid, tools, temperature, source, requestId) =>
           aiService.responsesChat(msgs, cid, pid, tools, temperature, source, requestId),

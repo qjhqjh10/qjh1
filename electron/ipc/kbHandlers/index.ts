@@ -347,18 +347,13 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     const meta = await loadMetadata()
     const index = await loadIndex()
 
-    // v14.3: 作用域过滤 — 用户显式勾选（fileIds 非空）优先于项目归属：
-    // 勾选了其他项目的文件也能检索（不再被 projectId 过滤排除）；
-    // 未勾选时保持原语义（projectId 为空 → 检索全部文件）
-    let projectFiles: Array<{ id: string; projects: string[] }>
-    if (fileIds && fileIds.length > 0) {
-      const fileIdSet = new Set(fileIds)
-      projectFiles = meta.files.filter(f => fileIdSet.has(f.id))
-    } else {
-      projectFiles = projectId
-        ? meta.files.filter(f => f.projects.includes(projectId))
-        : meta.files
-    }
+    // v16.3.0: 文件与项目解绑（用户决策）——任意项目可检索/勾选任意知识库文件：
+    // 不再按 projectId 过滤（原 v14.3：未勾选时只检索当前项目文件，跨项目文件即使"全部"也搜不到）；
+    // 用户显式勾选（fileIds 非空）优先于全局——勾选集直接限定检索范围
+    const fileIdSet = new Set(fileIds && fileIds.length > 0 ? fileIds : [])
+    const projectFiles = fileIdSet.size > 0
+      ? meta.files.filter(f => fileIdSet.has(f.id))
+      : meta.files
     const projectFileIds = new Set(projectFiles.map(f => f.id))
 
     // v14.3: 排除已注入上下文的知识库文件（按钮注入 + 工具检索去重，避免同一片段重复进入上下文）

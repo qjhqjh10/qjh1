@@ -34,10 +34,9 @@ describe('buildToolInvokePrompt', () => {
     expect(prompt).toContain('kb_index_file')
   })
 
-  it('includes image tools', () => {
+  it('includes image tools (v16.3.0: generate_image 已移除)', () => {
     const prompt = buildToolInvokePrompt()
     expect(prompt).toContain('search_images')
-    expect(prompt).toContain('generate_image')
   })
 
   it('includes project tools', () => {

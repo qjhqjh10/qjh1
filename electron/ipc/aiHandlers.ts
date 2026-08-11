@@ -51,7 +51,7 @@ function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
   return 'user'
 }
 
-// v16.2.0(审查修复 A2): 副模型 OpenAI 客户端构造共用（generateImage 与 vision-chat 原逐行重复）
+// v16.3.0: 副模型仅用于多模态图片理解（vision-chat / analyze_image 共用）
 // 语义：secondaryApiKey/ApiUrl 字段级回退主配置；未填独立地址时用主地址（OpenAI 兼容端点）
 async function buildSecondaryClient(config: StoredConfig): Promise<import('openai').OpenAI> {
   const OpenAI = await getOpenAI()
@@ -174,8 +174,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
   // Track abort handlers per webContents
   const streamAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
   const toolChatAbortHandlers = new Map<number, (_event: Electron.IpcMainEvent) => void>()
-  const imageAbortControllers = new Map<number, AbortController>()
-  // v16.2.0: 视觉分析 abort（独立于图片生成，对齐 imageAbortControllers 模式）
+  // v16.2.0: 视觉分析 abort（v16.3.0: 文生图移除后仅存此通道）
   const visionAbortControllers = new Map<number, AbortController>()
 
   // Streaming chat: renders chunks via events
@@ -303,7 +302,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     let apiKey: string
     let apiUrl: string
     // v16.2.0: scope='image'/'vision' 读 secondary* 配置。
-    // v16.2.0(审查修复 C4): 字段级 fallback 与运行时一致（vision-chat/generateImage 是
+    // v16.2.0(审查修复 C4): 字段级 fallback 与运行时一致（vision-chat 是
     // secondaryApiKey||apiKey、secondaryApiUrl||apiUrl 独立回退）——原要求地址+密钥同时存在
     // 才走副端点，配置「填了副地址、留空副密钥」时列表打主端点、实际请求打副端点，行为不一致。
     if (scope === 'image' || scope === 'vision') {
@@ -863,126 +862,11 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       }
     })
 
-  // ── AI Image Generation ──
-
-  // Abort in-progress image generation
-  ipcMain.on('ai:abort-image', (event) => {
-    const wcId = event.sender.id
-    const ctrl = imageAbortControllers.get(wcId)
-    if (ctrl) { ctrl.abort(); imageAbortControllers.delete(wcId) }
-  })
-
-  ipcMain.handle('ai:generateImage',
-    async (event, prompt: string, configId: string, projectId?: string, size?: string, style?: string) => {
-      const wcId = event.sender.id
-      // Cancel any previous image generation for this window
-      const prevCtrl = imageAbortControllers.get(wcId)
-      if (prevCtrl) { prevCtrl.abort(); imageAbortControllers.delete(wcId) }
-      const abortCtrl = new AbortController()
-      imageAbortControllers.set(wcId, abortCtrl)
-
-      try {
-      const store = await getConfigStore()
-      const configs = store.get('configs', []) as StoredConfig[]
-      const config = configs.find(c => c.id === configId)
-      if (!config) throw new Error('Model config not found')
-
-      // v16.2.0: 副模型（secondary*）— 图片生成走副模型配置，回退主配置
-      // v16.2.0(审查修复 A2): 复用 buildSecondaryClient（与 vision-chat 共用）
-      const client = await buildSecondaryClient(config)
-
-      const imageSize = size || '1024x1024'
-      const imageStyle = style || 'vivid'
-      // v16.2.0: 副模型名（旧 imageModel 迁移后同值；未配置 → 引导）
-      const imageModel = config.secondaryModel || ''
-      if (!imageModel) {
-        throw new Error('[UNSUPPORTED_OPERATION] 未配置副模型，无法生成图片。请在 设置→模型设置→副模型 填写支持图片生成的模型（如 dall-e-3 / MiniMax-M3）。')
-      }
-
-      // Build generate params — size/style are DALL-E specific, omit for other models
-      const genParams: Record<string, unknown> = {
-        model: imageModel,
-        prompt,
-        n: 1,
-        response_format: 'url',
-      }
-      if (imageSize) genParams.size = imageSize
-      if (imageStyle && imageModel.includes('dall-e')) genParams.style = imageStyle
-
-      let response: { data?: { url?: string; b64_json?: string }[] }
-      try {
-        response = await client.images.generate(genParams as any, { signal: abortCtrl.signal }) as { data?: { url?: string; b64_json?: string }[] }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : ''
-        const status = (err as { status?: number })?.status
-        if (status === 404 || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('unsupported')) {
-          throw new Error(`[UNSUPPORTED_OPERATION] 图片模型 "${imageModel}" 不支持图片生成。请使用 dall-e-3 或在设置中配置支持图片生成的模型。`)
-        }
-        throw new Error(categorizeError(err))
-      }
-
-      // 兼容两类响应：url（OpenAI 原生）和 b64_json（NovelAI 等第三方代理）
-      const imageUrl = response?.data?.[0]?.url
-      const imageB64 = response?.data?.[0]?.b64_json
-      if (!imageUrl && !imageB64) throw new Error('图片生成返回空结果')
-
-      // 图片统一保存到根目录 images/
-      const { join, dirname } = await import('path')
-      const { mkdir, writeFile } = await import('fs/promises')
-      const timestamp = Date.now().toString(36)
-      const fileName = `gen_${timestamp}.png`
-      if (!projectsPath) throw new Error('Projects path not configured')
-      const imagesDir = join(dirname(projectsPath), 'images')
-      await mkdir(imagesDir, { recursive: true })
-      const imagePath = join(imagesDir, fileName)
-      const relativePath = `images/${fileName}`
-
-      let buf: Buffer
-      if (imageUrl) {
-        const imgRes = await netFetch(imageUrl)  // v14.6.1: 系统代理/证书
-        if (!imgRes.ok) throw new Error(`下载图片失败: HTTP ${imgRes.status}`)
-        buf = Buffer.from(await imgRes.arrayBuffer())
-      } else {
-        // b64_json 响应 — 解码后校验非空（v16.2.0 C5: 原无校验，非法 base64 静默写入损坏图片）
-        buf = Buffer.from(imageB64!, 'base64')
-        if (buf.length === 0) throw new Error('图片生成返回空数据（b64_json 解码为空）')
-      }
-      await writeFile(imagePath, buf)
-
-      // 图片定价：优先使用 secondaryInputPricePerM（用户填入的值即为每张图价格，如 DALL-E $0.04/张），
-      // 若未填写则回退到 Main 模型的输入价格估算。字段名含 "PerM" 仅为兼容旧版结构。
-      const pricePerImage = config.secondaryInputPricePerM > 0
-        ? config.secondaryInputPricePerM
-        : config.inputPricePerM > 0 ? config.inputPricePerM / 1000 : 0.04
-      const imageCurrency = config.mainCurrency || config.currency
-      const cost = imageCurrency === 'CNY' ? pricePerImage * 7.2 : pricePerImage
-
-      // Log token usage for stats
-      logTokenUsage({
-        timestamp: localISOString(),
-        projectId: projectId || '__global__',
-        configId: config.id,
-        configName: config.name || '',
-        // v16.2.0(审查修复 C3): 生成实际走副模型——记账模型名应为 secondaryModel（原误记主模型）
-        model: imageModel,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheHitTokens: 0,
-        cost,
-        // v14.3: 标记图片生成来源（此前无 source → 混入 main，UI 的"图片生成"筛选永远为空）
-        source: 'image',
-      })
-
-      return { path: relativePath, url: imageUrl, cost, prompt }
-      } finally {
-        imageAbortControllers.delete(wcId)
-      }
-    })
-
-  // ── v16.2.0: AI Vision Chat（副模型多模态图片理解）──
+  // ── v16.3.0: AI Vision Chat（副模型多模态图片理解）──
   // 上传图片自动分析 / analyze_image 工具共用此通道：主进程读图（path 或 base64）→ nativeImage
   // 缩放（模板上限）→ base64 → OpenAI 兼容 content parts → 副模型 → 回传描述文本 + usage。
   // 设计：不进入主链路 Message 结构（content 恒 string），描述文本由调用方注入主模型上下文。
+  // v16.3.0: 原 generate_image 文生图（OpenAI Images API）已整体移除——副模型定位纯多模态理解。
 
   // 图片处理策略模板（v16.2.0，默认 standard；用户可在设置修改）：
   // standard 1568px = OpenAI tile 基准（约 1-2 万图 token）；detail 精细长描述；eco 经济短描述
@@ -1086,10 +970,15 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         for (const dataUrl of encoded) {
           content.push({ type: 'image_url', image_url: { url: dataUrl } })
         }
+        // v16.3.0: 副模型参数补全（对齐 Main 卡片）——温度/最大输出/缓存命中价接线
+        // 温度：secondaryTemperature ?? 1.0；最大输出：用户设置 >0 覆盖模板上限（0=跟随模板）；
+        // 缓存命中价：secondaryCacheHitPricePerM >0 用之，否则沿用主模型
         const completion = await client.chat.completions.create({
           model: secondaryModel,
           messages: [{ role: 'user' as const, content }],
-          max_tokens: tmpl.maxOutputTokens,
+          temperature: config.secondaryTemperature ?? 1.0,
+          max_tokens: (config.secondaryMaxTokens && config.secondaryMaxTokens > 0)
+            ? config.secondaryMaxTokens : tmpl.maxOutputTokens,
         }, { signal: abortCtrl.signal } as any)
 
         const text = completion.choices?.[0]?.message?.content || ''
@@ -1100,7 +989,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
         const cost = calculateCost(usage?.prompt_tokens || 0, usage?.completion_tokens || 0, cacheHit, {
           inputPricePerM: config.secondaryInputPricePerM > 0 ? config.secondaryInputPricePerM : config.inputPricePerM,
           outputPricePerM: config.secondaryOutputPricePerM > 0 ? config.secondaryOutputPricePerM : config.outputPricePerM,
-          cacheHitPricePerM: config.cacheHitPricePerM,
+          // v16.3.0: 副模型缓存命中价独立可配（0=沿用主模型）
+          cacheHitPricePerM: (config.secondaryCacheHitPricePerM && config.secondaryCacheHitPricePerM > 0)
+            ? config.secondaryCacheHitPricePerM : config.cacheHitPricePerM,
           mainCurrency: config.mainCurrency || config.currency,
           currency: config.currency,
         } as StoredConfig)
@@ -1119,7 +1010,7 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
         return { text, usage: usage || null, cost }
       } catch (err) {
-        // v16.2.0(审查修复 C2): 对齐 generateImage/chat-stream——
+        // v16.2.0(审查修复 C2): 对齐 chat-stream——
         // ① AbortError 身份保留（用户停止时渲染层应显示"已取消"而非"分析失败"）
         // ② categorizeError 中文分类（网络/限流/鉴权错误不泄漏 SDK 英文原文）
         if (err instanceof Error && err.name === 'AbortError') {

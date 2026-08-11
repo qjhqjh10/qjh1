@@ -87,6 +87,9 @@ export const useChapterCollabStore = create<ChapterCollabState>()(
       s.text = fullTextPlain || ''
       s.selectionAnchor = anchorText || null
       s.pendingAction = null
+      // v16.3.0(审计 M2 修复): attach 重置改写结果——原只 detach 重置，
+      // 连续关联场景下上一 run 的 true 残留 → 新 run 锚点校验失败（未应用）仍误报"✅ 已应用"
+      s.lastRewriteApplied = null
     }),
 
     detach: () => set((s) => {

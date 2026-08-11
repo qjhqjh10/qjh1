@@ -65,9 +65,8 @@ describe('tool name categories', () => {
     expect(names).toContain('kb_index_file')
   })
 
-  it('includes image tools', () => {
+  it('includes image tools (v16.3.0: generate_image 已移除)', () => {
     expect(names).toContain('search_images')
-    expect(names).toContain('generate_image')
   })
 
   it('includes prompt tools', () => {
@@ -105,10 +104,6 @@ describe('tool required parameters', () => {
 
   it('kb_append_file requires file_id, content', () => {
     expect(getRequired('kb_append_file')).toEqual(['file_id', 'content'])
-  })
-
-  it('generate_image requires prompt', () => {
-    expect(getRequired('generate_image')).toEqual(['prompt'])
   })
 })
 

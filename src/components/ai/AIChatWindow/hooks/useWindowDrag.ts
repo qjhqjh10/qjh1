@@ -12,8 +12,7 @@ export function useWindowDrag(windowKey: string) {
     dragExclude: 'button, input, textarea, select',
   })
 
-  const winSize = size
-  const winPos = pos
-  const winStyle = { width: winSize.width, height: winSize.height }
-  return { winSize, setWinSize: setSize, winPos, setWinPos: setPos, handleResizeStart, handleDragStart, winStyle }
+  // v16.3.0(审计 M1 修复): 删未使用返回值 winStyle/setWinSize/setWinPos——调用方仅消费
+  // winSize/winPos/handleResizeStart/handleDragStart（JSX 直接读 winPos/winSize）
+  return { winSize: size, winPos: pos, handleResizeStart, handleDragStart }
 }

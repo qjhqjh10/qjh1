@@ -31,7 +31,8 @@ export const WRITE_TOOLS = new Set([
   'create_file','edit_file','batch_replace','delete_file','rename_file','create_project','delete_project',
   'kb_append_file','kb_index_file',  // v14.9(审计): +kb_index_file——同轮 create_file(新建KB文件)+索引 时
   // 索引必须等文件落盘后执行（原归只读段 → 文件尚不存在 → "索引失败: File not found"白费一轮）
-  'generate_image','http_get','http_fetch','browser_open','browser_search',
+  // v16.3.0: generate_image 已移除（原归入此集合）
+  'http_get','http_fetch','browser_open','browser_search',
   // v16.1.0(审查修复): +editor_rewrite——归入串行写工具，防同轮多次调用并行 dispatchRewrite
   // 到单槽 pendingAction 后写覆盖前写（竞态丢失改写）
   'editor_rewrite',

@@ -26,7 +26,7 @@ export interface AICallResult {
   success: boolean
   content: string
   error?: string
-  /** 是否降级处理（如generate_image不支持→search_images） */
+  /** 是否降级处理（如不支持的操作 → 回退路径） */
   degraded?: boolean
   /** 消耗估算 */
   usage?: { promptTokens: number; outputTokens: number }

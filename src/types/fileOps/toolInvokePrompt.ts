@@ -11,7 +11,7 @@ delete_file | rename_file | batch_replace(file_path, replacements[])
 kb_append_file(file_id, content) | kb_index_file(file_id)
 
 【笔记/知识库 — 直接用通用工具】create_file("notes/xxx.md"/"knowledge_base/files/xxx.md") | read_file | edit_file | delete_file | search_notes
-【图片】search_images | generate_image
+【图片】search_images（v16.3.0: generate_image 已移除，无文生图）
 【项目】create_project | delete_project
 【思考】think — 记录思考过程`
 }
