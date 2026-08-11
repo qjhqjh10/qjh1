@@ -332,36 +332,12 @@ export function validateFileContent(filePath: string, content: string): Validati
   return { valid: true, errors: [] }
 }
 
-// ── JSON repair (minimal, mirrors chapterService.repairJson) ───────
+// ── JSON repair ───────────────────────────────────────────────
+// v16.3.1(审计 D9): 原本地 2 策略实现（mirror chapterService.repairJson）已与主实现脱节——
+// 主进程与渲染层对同一 AI 输出容错能力不一致。统一走共享 5 策略实现（src/utils/jsonRepair.ts）。
+
+import { repairJson } from '../../src/utils/jsonRepair'
 
 function tryRepairJson(raw: string): string | null {
-  // Fix unescaped newlines in strings
-  let fixed = ''
-  let inString = false
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i]
-    if (ch === '"' && (i === 0 || raw[i - 1] !== '\\')) {
-      inString = !inString
-      fixed += ch
-    } else if (inString && ch === '\n') {
-      fixed += '\\n'
-    } else {
-      fixed += ch
-    }
-  }
-
-  try { JSON.parse(fixed); return fixed } catch { /* continue */ }
-
-  // Try auto-closing braces (strip trailing comma at end first)
-  const openBraces = (raw.match(/{/g) || []).length
-  const closeBraces = (raw.match(/}/g) || []).length
-  if (openBraces > closeBraces) {
-    let closed = fixed.trimEnd()
-    // Remove trailing comma if present (would cause ,} or ,\n})
-    closed = closed.replace(/,(\s*)$/, '$1')
-    closed += '\n' + '}'.repeat(openBraces - closeBraces)
-    try { JSON.parse(closed); return closed } catch { /* continue */ }
-  }
-
-  return null
+  return repairJson(raw)
 }

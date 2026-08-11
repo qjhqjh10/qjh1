@@ -977,3 +977,94 @@ describe('Task List: 验收失败督促闸门 (v14.3)', () => {
     expect(nudgeInLastCall(calls)).toBe(0)
   })
 })
+
+// ══════════════════════════════════════════════════════════════
+// v16.3.1 审计 E2: 清单完成闸门放宽（分析型清单）— 回归防护
+// 背景: "1.整理伏笔 2.精简大纲"类清单（条目含歧义写向词，无硬写动词）模型只读完成即应收尾；
+// 原逻辑强制要求文件写证据 → 只读完成的清单空转至 maxIterations 烧 token。
+// ══════════════════════════════════════════════════════════════
+
+describe('Task List: 分析型清单完成判定（v16.3.1 E2）', () => {
+  it('E1 分析型清单（整理/精简）只读工具 + "全部完成" → 直接收尾，不 nudge', async () => {
+    const { svc } = makeMockAI([
+      { text: '', toolCalls: [makeToolCall('r1', 'read_file', { file_path: 'test-project/outline/plot.md' })] },
+      { text: '已全部完成，伏笔已整理，大纲已精简。' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1.整理伏笔 2.精简大纲',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.iterationCount).toBe(2)  // 工具轮 + 完成声明轮，无"没写"nudge、无剩余任务 nudge
+    expect(result.taskProgress?.allDone).toBe(true)
+    expect(callCount()).toBe(1)  // 只执行了 1 次只读工具
+  })
+
+  it('E2 分析型清单零工具空口"全部完成" → 不放行（toolsUsed 守卫），继续 nudge', async () => {
+    const { svc, callCount: aiCalls } = makeMockAI([
+      { text: '全部完成' },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1.整理伏笔 2.精简大纲',
+      attachments: [],
+    })
+
+    expect(result.taskProgress?.allDone).toBe(false)
+    expect(aiCalls()).toBeGreaterThanOrEqual(2)  // 空口完成未收尾，继续追问
+  })
+
+  it('E3 写动词清单只读 + "全部完成" → 仍 nudge 不放行（T9 语义对照，防回归）', async () => {
+    const { svc, callCount: aiCalls } = makeMockAI([
+      { text: '', toolCalls: [makeToolCall('r1', 'read_file', { file_path: 'test-project/outline/plot.md' })] },
+      { text: '全部完成' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1.创建角色卡 2.写出完整大纲',  // 每条 ≥4 字才能通过清单门控 2
+      attachments: [],
+    })
+
+    expect(result.taskProgress?.allDone).toBe(false)
+    expect(aiCalls()).toBeGreaterThanOrEqual(2)  // 写动词清单未写文件不放行
+  })
+
+  it('E4 问句"全部完成了吗？" + 有写证据 → 不 markAllDone（问句不污染 taskDone 快照）', async () => {
+    const { svc } = makeMockAI([
+      { text: '', toolCalls: [CREATE('c1')] },
+      { text: '全部完成了吗？' },
+    ])
+    const adapter = new OpenAIAdapter(svc)
+    const runtime = makeRuntime(adapter)
+    const { executor, callCount } = makeTrackedExecutor()
+    runtime.setToolExecutor(executor)
+    runtime.setTools(toolRegistry.getCompactSchemas())
+
+    const result = await runtime.run({
+      userMessage: '1.写完整大纲 2.创建角色卡',
+      attachments: [],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.taskProgress?.allDone).toBe(false)  // 问句分支收尾，但不置位完成
+    expect(callCount()).toBe(1)
+  })
+})

@@ -11,6 +11,7 @@ import { ReadResultTracker } from '../context/ReadResultTracker'
 import { useAgentStore } from '../store/AgentStore'
 import { diagnosticLogger } from '../diagnostics/DiagnosticLogger'
 import { executeSingleTool, classifyToolCalls, WRITE_TOOLS, PARALLEL_READ_TOOLS, SERIAL_WRITE_TOOLS, SUBAGENT_WRITE_TOOLS } from './ToolExecutor'
+import { FILE_WRITE_TOOLS } from '../skills/tools/writeToolSets'
 import { isKnowledgeOnly, hasTaskKeywords } from '../utils/taskDetection'
 import { extractTaskList, type TaskItem } from '../utils/taskExtraction'
 import { SUBSEQUENT_TOOL_NAMES } from '../skills/tools/toolSearchTools'
@@ -71,14 +72,18 @@ const NEG_DONE_RE = /(?:还没|尚未|没|未|差|剩)\s*.{0,4}?都?\s*(?:完成
 const PARTIAL_DONE_RE = /第\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)(?!情况|了[吗么]|没有)|前\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*[^。！\n]{0,12}?(?:完成|搞定|做完|处理好)|(?:这|那|剩(?:下)?)\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|个|步|件事?|章|篇|部分|部)\s*(?:都)?\s*(?:完成|搞定|做完|处理好)|任务\s*\d+\s*[\/／]\s*\d+|已(?:经)?完成\s*(?:\d+|[一二三四五六七八九十百千两]+)\s*(?:项|章|篇|部分)/
 // v14.9(审计): 自愈出口的"合理拒绝"检测——必须带原因（为什么做不到），且仅在尝试 ≥8 轮后生效
 const REFUSAL_RE = /无法(?:完成|继续|进行|做到|实现)|不能完成|做不到|不可完成|因为[^。！\n]{2,40}(?:失败|不存在|缺失|被删除|无权限|不支持)/
+// v16.3.1(审计 E2): 清单条目"硬写动词"判定——条目含此类动词才要求文件写证据（完成闸门）。
+// "整理/精简/润色/扩充/检查"等歧义动词不计（宁按分析型放行）：含歧义词的清单模型可只读分析
+// 完成，原逻辑强制要求写证据 → 只读完成的清单空转至 maxIterations 烧 token。
+// v16.3.1(审查修复 R3): +"改"——比"修改"更常见的用户词（"1.改一下第3章结尾"原被当分析型
+// 放行 → 模型只读分析后声明完成即收尾，用户要的修改没落地）；误伤面（"改变/改善"类条目
+// 需写证据）由清单路径新增的 REFUSAL 有界出口兜底，不会回到无限空转
+const HARD_WRITE_RE = /(?:写|改|创建|生成|修改|编辑|删除|追加|保存|导入|导出|替换|重命名|新建|更新|覆盖|填充|补(?:充|上)?|删(?:除)?|增(?:加)?)/
 // v14.9(C3): 文件写工具子集——完成闸门"说完成但没写"只认文件写证据。
 // 原 _hasWriteCall 含 http/browser（v16.3.0: generate_image 已移除）：模型只抓网页后声明"完成"即可通过
 // 闸门（铁律"口头描述≠操作完成"对文件任务打折）。网络类清单任务不经过该闸门（无文件关键词）。
 // v16.1.0: +editor_rewrite（章节协作改写渲染层驱动——成功应用=改写完成证据）
-const FILE_WRITE_TOOLS = new Set([
-  'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
-  'create_project', 'kb_append_file', 'kb_index_file', 'edit_file_task', 'editor_rewrite',
-])
+// v16.3.1(审计 D8): FILE_WRITE_TOOLS 定义移入 ../skills/tools/writeToolSets（单一真源，此处 import）
 // 继续性文本: 模型还要继续行动的信号（刻意收窄，不含裸"然后"——
 // 避免重演 v12.13.0 移除继续性检测时的"无限绕过 nudge 只读死锁"）
 // v16.0.1(审计 M13): 增补继续性词——"已完成第1部分，接着写第2部分"此前"接着/再做/还要"
@@ -176,6 +181,7 @@ export class V4UnifiedRuntime {
   private _discoveredToolNames = new Set<string>()  // v13.2.0: tool_search 发现的工具名，动态加入后续轮次
   private taskList: TaskItem[] | null = null  // v14.1.0: 本次 run 提取的任务清单（null = 无清单）
   private taskDone: boolean[] = []            // v14.1.0: 与 taskList 等长的完成标记（单调置位）
+  private checklistNeedsWrite = false         // v16.3.1(审计 E2): 清单是否要求文件写证据（run 起始计算）
   private _verifyHintInjected = false         // v14.2.1: 验收提示只注入一次（不强制）
   private subagentSummaries: SubagentSummary[] = []  // v14.3: 子代理执行快照收集（随 run 结果返回）
   private _verifyFailed = false               // v14.3: 最近一次验收判定未通过（完成声明闸门依据）
@@ -209,7 +215,13 @@ export class V4UnifiedRuntime {
   getEmitter(): AgentEventEmitter { return this.emitter }
   getMessagesForApi(): Message[] { return [...this.messagesForApi] }
 
-  abort(): void { this.emitter.abort() }
+  abort(): void {
+    // v16.3.1(审计 E3/E4): 幂等守卫——调用方（chatBridgeFactory 三处）约定先 abort
+    // AbortController 再调 runtime.abort()（config 仅持 signal 不持 controller，主循环
+    // 只检查 config.abortSignal，故单独调用 runtime.abort() 不中止循环属既定契约，文档化于此）
+    if (this.emitter.isAborted) return
+    this.emitter.abort()
+  }
 
   // ── v14.1.0: 任务清单状态辅助 ──
 
@@ -425,10 +437,15 @@ export class V4UnifiedRuntime {
     this.taskDone = restoredFromSnapshot && this.taskList
       ? this.taskList.map((_, i) => !!resumeSnapshot?.tasks[i]?.done)
       : (this.taskList ? this.taskList.map(() => false) : [])
+    // v16.3.1(审计 E2): 清单是否要求文件写证据——快照恢复的清单条目同样过一遍硬写动词判定
+    // （续跑时 _userRequestedFileOp 被强制 true，若无此判定分析型清单续跑仍会命中"没写"闸门空转）
+    this.checklistNeedsWrite = !!this.taskList && this.taskList.some(t => HARD_WRITE_RE.test(t.desc))
     // v14.2.0: 跨 run 续跑 — 记录是否"中断未完成"（abort/超时/API失败/迭代耗尽）
     // v14.3.1: 无任务清单时也会置位（truncated 标记无论有无清单都返回）
     let interrupted = false
-    let _hasWriteCall = false
+    let _hasWriteCall = false  // v16.3.1(F7 注释修正): run 级闩锁（非"本轮"）——文本轮 :811/:820 读取，
+    // 每轮重置会打崩完成流程；v16.3.1 起 markAllDone 证据改用 this._fileWriteDone，本变量保留
+    // 供验收提示/分支1B/重复读提醒消费（写工具实际成功过即不再为 false）
     // v15: 子 agent 委托用量累加器（analyze_file/edit_file_task 上报）
     const subUsageAccum = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheCreationTokens: 0, cost: 0, calls: 0 }
 
@@ -640,6 +657,13 @@ export class V4UnifiedRuntime {
       }
 
       if (!response) {
+        // v16.3.1(审计 E3): 轮间 abort（中止发生在下一轮 API 调用发起前）——用户主动停止
+        // 不能被显示为 API 错误，也不记录 API 失败/触发错误横幅（原固定文案"错误: API 调用失败"误导）
+        if (this.config.abortSignal.aborted) {
+          interrupted = true
+          collectedText = '已停止'
+          break
+        }
         interrupted = true  // v14.2.0: API 失败中断 → 可续跑
         collectedText = `错误: ${lastApiErr?.message || 'API 调用失败'}`
         store?.recordApiFailure()
@@ -746,13 +770,20 @@ export class V4UnifiedRuntime {
           // 严格全局完成声明 + 写过文件 → 信任全局完成（部分声明"已完成N项"不触发）
           // v14.5.0: PARTIAL_DONE_RE 排除"第N项完成/任务X/Y完成"等部分声明形态
           // v16.0.1(审计 S5): NEG_DONE_RE 排除"还没都完成/没全部完成"等否定句式
+          // v16.3.1(审计 E2): 证据条件放宽——硬写动词清单要求文件写证据（_fileWriteDone，
+          // 含 editor_rewrite；替代原 _hasWriteCall——http/browser 网络写非文件证据）；
+          // 分析型清单（无硬写动词）信任"全局完成声明 + 本 run 用过工具"（只读也算）；
+          // 补问句守卫（"全部完成了吗？"不再把 taskDone 全置位污染快照）
           if (GLOBAL_DONE_RE.test(collectedText) && !PARTIAL_DONE_RE.test(collectedText)
-              && !NEG_DONE_RE.test(collectedText) && _hasWriteCall) this.markAllDone()
+              && !NEG_DONE_RE.test(collectedText) && !/[？?]/.test(collectedText)
+              && (this._fileWriteDone || (this.toolsUsed.length > 0 && !this.checklistNeedsWrite))) this.markAllDone()
           if (this.allTasksDone()) {
             // 说了"完成"但没写 → 不通过，进入自愈恢复（v14.9(C3): 证据 = 文件写成功，非"尝试过"）
             // v16.0.1(审计 S6): 补 _nudgeCount++——原分支不计数，REFUSAL 出口永不触发，
             // 模型口头声明完成空转至 maxIterations 烧 token
-            if (this._userRequestedFileOp && !this._fileWriteDone) {
+            // v16.3.1(审计 E2): 追加 checklistNeedsWrite——分析型清单（"1.整理伏笔"类）
+            // 模型只读完成即收尾，不再强制"必须写文件"（原条件恒命中 → 空转至 30 轮）
+            if (this._userRequestedFileOp && !this._fileWriteDone && this.checklistNeedsWrite) {
               // v16.0.1(审计 N3): 清单路径有界出口——S6 只让无清单路径的 REFUSAL 出口可达，
               // 清单路径此循环原持续到 maxIterations（30 轮全量上下文 API 调用）。
               // 与无清单路径 :815-827 同构：尝试 ≥8 轮且模型明确说明"无法完成"（带原因）→ 接受收尾
@@ -814,6 +845,23 @@ export class V4UnifiedRuntime {
             break
           }
           // 未全部完成 → 注入剩余任务 nudge，继续
+          // v16.3.1(审计 E2): 清单路径有界出口——不可完成清单任务（依赖文件被删等）的
+          // 解释性文本原被无限 nudge 至 maxIterations（30 轮全量上下文 API 调用）：
+          // "说完成但没写"分支的 REFUSAL 出口（:761 前）因 allTasksDone 恒 false 不可达。
+          // 对齐无清单路径 :927 形态：≥8 轮 + >50 字 + 非问句 + REFUSAL_RE → 接受收尾
+          if (this._nudgeCount >= 8 && collectedText.length > 50
+              && !/[？?]/.test(collectedText) && REFUSAL_RE.test(collectedText)) {
+            this.emitter.emit('hook:blocked', {
+              hookName: '任务困难',
+              feedback: '清单模式下多轮尝试后模型判定任务无法完成（已向用户说明原因）',
+              timestamp: Date.now(),
+            })
+            this._cleanExit = true  // v14.6.1: 正常收尾（完成/提问/纯聊天），迭代触顶不再误标 interrupted
+            this.emitter.emit('response:streaming', {
+              text: collectedText, accumulated: collectedText, timestamp: Date.now(),
+            })
+            break
+          }
           this.pushRoundText(collectedText)
           this._nudgeCount++
           const remainingItems = this.taskList
@@ -1159,6 +1207,8 @@ export class V4UnifiedRuntime {
       }
       // v14.6.1: _hasWriteCall 按"本轮写工具实际成功"置位——原只看是否发起调用，
       // 写工具全部失败后模型说"完成"仍能过完成闸门（幻觉完成防不住）
+      // v16.3.1(F7 注释修正): 变量为 run 级闩锁（置位后不再重置）；置位点按本轮实际成功判定，
+      // 与"run 级闩锁"不矛盾——本轮成功即代表"本 run 曾真实写过"
       if (writeCalls.length > 0 && writeCalls.some(tc =>
         this.toolCallSteps.some(s => s.tool === tc.name && s.iteration === iteration && s.status === 'success'))) {
         _hasWriteCall = true

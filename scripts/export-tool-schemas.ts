@@ -66,8 +66,9 @@ async function main() {
       const existingNames = new Set(existing.map(t => t.function.name))
       const canonicalNames = new Set(canonical.map(t => t.function.name))
       // 1) 名称集合比对（缺失/多余/顺序都报出来）
-      const missing = canonicalNames.difference(existingNames)
-      const extra = existingNames.difference(canonicalNames)
+      // v16.3.1(审计 S9): Set.difference 需 ES2024 lib——用兼容写法（tsconfig.cli.json lib 保持 ES2022）
+      const missing = new Set([...canonicalNames].filter(n => !existingNames.has(n)))
+      const extra = new Set([...existingNames].filter(n => !canonicalNames.has(n)))
       if (missing.size > 0 || extra.size > 0) {
         console.error(`MISMATCH names: 缺失 ${[...missing].join(',') || '无'} | 多余 ${[...extra].join(',') || '无'}`)
         process.exit(1)

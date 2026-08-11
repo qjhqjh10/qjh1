@@ -8,7 +8,7 @@ import * as yaml from 'js-yaml'
  * 解析 YAML 字符串。
  * 使用安全 schema，不执行任何代码。
  */
-export function yamlParse(text: string): unknown {
+function yamlParse(text: string): unknown {
   try {
     return yaml.load(text, {
       schema: yaml.JSON_SCHEMA,       // 只支持 JSON 兼容的子集，安全
@@ -67,7 +67,7 @@ export function tryParseJsonOrYaml(content: string, preferFormat?: 'json' | 'yam
 /**
  * 根据格式序列化数据。
  */
-export function stringifyData(obj: unknown, format: 'json' | 'yaml'): string {
+function stringifyData(obj: unknown, format: 'json' | 'yaml'): string {
   if (format === 'yaml') {
     return yamlStringify(obj)
   }

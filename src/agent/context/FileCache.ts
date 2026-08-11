@@ -5,6 +5,12 @@
  * and AI reads (read_file tool) share the SAME cache layer.
  *
  * Principle: one cache, one truth — never duplicate data.
+ *
+ * ⚠️ 兼容 shim（2026-08-11 审计结论，保留勿删）：
+ *   - 本文件是历史 API 名到 fileReadCache 的转发层——chatBridgeFactory / CacheInvalidator /
+ *     run-agent 共 3 处动态 import('@/agent/context/FileCache') 依赖此路径；
+ *   - cachedRead 当前无生产调用者（保留供工具/脚本按需使用）；
+ *   - 新代码请直接 import '@/utils/fileReadCache'；移除本文件需同步改上述 3 处动态 import。
  */
 
 import {

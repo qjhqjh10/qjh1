@@ -1,8 +1,10 @@
 // ── Subagent Adapter Factory (v15) ──
 // 按模型配置的 protocol 字段路由构造子 agent 的协议适配器。
-// 与 chatAI.ts 的 isAnthropicProtocol 同一判定逻辑；OpenAI 分支 toolCalls 归一化同 V4AgentChatBridge。
+// 协议判定复用 chatAI.ts 的 isAnthropicProtocol（v16.3.1 审计 D17: 原内联重复实现）；
+// OpenAI 分支 toolCalls 归一化同 V4AgentChatBridge。
 
 import { useSettingsStore } from '@/store'
+import { isAnthropicProtocol } from '@/utils/chatAI'
 import { OpenAIAdapter } from '../runtime/adapters/OpenAIAdapter'
 import { ResponsesAdapter } from '../runtime/adapters/ResponsesAdapter'
 import { shouldUseResponses } from '../runtime/adapters/responsesRouter'
@@ -20,7 +22,7 @@ let aiServicePromise: Promise<typeof import('@/services/fileService')> | null = 
 export async function createSubagentAdapter(configId: string): Promise<ProtocolAdapter> {
   const configs = useSettingsStore.getState().configs
   const config = configs.find(c => c.id === configId)
-  const isAnthropic = (config as any)?.protocol === 'anthropic'
+  const isAnthropic = isAnthropicProtocol(configId)
 
   if (isAnthropic) {
     if (!anthropicServicePromise) anthropicServicePromise = import('@/services/anthropicService')

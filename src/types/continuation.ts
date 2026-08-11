@@ -84,6 +84,11 @@ export interface CharacterArcTracking {
   relationships: string
 }
 
+// ⚠️ ForeshadowItem2 vs story/storyTypes.ts 的 ForeshadowItem（2026-08-11 审计结论）：
+// 两者是【同概念的双形状】——ForeshadowItem2（续写分析用，chapter 数字编号）与
+// ForeshadowItem（大纲/故事线用，chapterId 字符串引用）。字段语义不同（plantedChapter:
+// number vs plantChapterId: string），分属续写与大纲两套数据模型，【刻意分开，不要合并】。
+// 若未来两套模型统一，需同时迁移 continuation 分析管线与大纲结构化数据，勿只改类型。
 export interface ForeshadowItem2 {
   id: string
   description: string

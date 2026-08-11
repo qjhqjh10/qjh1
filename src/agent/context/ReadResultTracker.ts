@@ -275,13 +275,9 @@ export class ReadResultTracker {
   }
 }
 
-/** 写工具集合（与 ToolExecutor.WRITE_TOOLS 同语义，本地镜像避免循环依赖） */
-const WRITE_TOOL_NAMES = new Set([
-  'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
-  'create_project', 'delete_project', 'kb_append_file', 'kb_index_file',
-  'http_get', 'http_fetch', 'browser_open', 'browser_search',
-  'edit_file_task',
-])
+/** 写工具集合（v16.3.1 审计 D8: 定义移入 skills/tools/writeToolSets 单一真源，
+ * 含 editor_rewrite——原本地镜像缺失致协作改写成功后重读不判 changed） */
+import { WRITE_TOOL_NAMES } from '../skills/tools/writeToolSets'
 
 /** 去重提示文案（"已读取过"） */
 export function buildDupDetail(record: ReadRecord, summary: string): string {

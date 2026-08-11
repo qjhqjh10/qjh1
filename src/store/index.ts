@@ -327,7 +327,9 @@ export const useSettingsStore = create<SettingsState>()(
       version: 10,  // v16.2.0: visionTemplate 字段 + image* → secondary* 迁移
       partialize: (state) => ({
         ...state,
-        // 密钥权威源在 electron-store（明文）；imageApiKey 保留为旧磁盘数据兼容（v16.2.0 已迁移到 secondaryApiKey）
+        // 密钥权威源在 electron-store（明文）；镜像层全部置空。
+        // v16.3.1(审计 S6): 原注释"imageApiKey 保留为旧磁盘数据兼容"已过期——
+        // 实现里 imageApiKey 同样被置空（v16.2.0 迁移后旧字段由主进程 mergeConfigKeys 防掩码覆写处理）
         configs: (state as SettingsState).configs.map(c => ({ ...c, apiKey: '', mainApiKey: '', imageApiKey: '', secondaryApiKey: '', embeddingApiKey: '' })),
       }),
       migrate: migrateSettings,
@@ -341,6 +343,12 @@ export const useSettingsStore = create<SettingsState>()(
  * version<5 的持久化命中更早分支直接返回，v5（customRoles→roleTemplates）逻辑上永不可达，
  * version=4 用户升级错过 v5/v7/v8，且 roleTemplates 缺失时 addRoleTemplate 会崩溃。
  * 现改为各分支在累加结果上顺序变换（v1→v2→v3→v4→v6→v7→v8→v5），最后统一返回。
+ *
+ * ⚠️ 双通道迁移（2026-08-11 审计结论，刻意分开，不要合并）：本函数是【渲染层 localStorage
+ * 镜像】的迁移；主进程通道在 src/utils/configMigration.ts（electron-store 权威源，App 启动时
+ * 执行）。两进程各自启动时对各自存储执行，无法共享同一函数实例。字段级迁移逻辑（尤其
+ * v16.2.0 的 image*→secondary* 搬移，见下方 version<10 分支）【必须与 configMigration.ts
+ * 同步修改】，改一处不改另一处 → 迁移行为不一致。新增字段迁移时两处同时实现。
  */
 export function migrateSettings(persisted: unknown, version: number): Record<string, unknown> {
   let p = (persisted && typeof persisted === 'object' ? persisted : {}) as Record<string, unknown>

@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, fileService, styleTemplateService, kbService, settingsService } from '@/services/fileService'
+import { fileService, styleTemplateService, kbService, settingsService } from '@/services/fileService'
 import { buildKBBlock, getSceneKb } from '@/services/knowledgePipeline'
 import type { KBInjectMode } from '@/types/settings'
 import { loadOutlineDimensions } from '@/utils/outlineData'
 import { loadAllSummaries, saveSummary } from '@/services/summaryService'
 import { buildStylePrompt, convertTemplateToProfile } from '@/utils/styleInjector'
-import { chatAI } from '@/utils/chatAI'
+import { chatAI, chatAIStream, chatAIWithUsage } from '@/utils/chatAI'
 import type { OutlineTabToggles, DetailedOutlineToggles } from '@/types/settings'
 import type { DetailedChapter } from '@/types/chapter'
 import type { Character } from '@/types/character'
@@ -147,7 +147,9 @@ export default function BatchGenerationModal({
       const selectedPrompt = selectedSummaryPromptId !== NONE_ID ? summaryPrompts.find(p => p.id === selectedSummaryPromptId) : null
       const template = selectedPrompt?.content || '请用简洁的语言总结以下章节内容的核心情节、人物发展和关键转折点。控制在200字以内。'
       const summaryPrompt = `${template}\n\n章节标题: ${chapterTitle}\n\n章节内容:\n${chapterContent.slice(0, 30000)}`
-      const summary = await chatAI([{ role: 'user' as const, content: summaryPrompt }], genConfigId, activeProjectId)
+      // v16.3.1(审查修复 R5): 原第三参误传 activeProjectId（项目路径字符串）——chatAI 第三参是
+      // system 提示词，anthropic 分支会把项目路径当系统提示词发给模型（污染上下文+缓存前缀）
+      const summary = await chatAI([{ role: 'user' as const, content: summaryPrompt }], genConfigId)
       if (summary) {
         await saveSummary(`${projectsBasePath}/${activeProjectId}`, chapterId, summary)
         useStore.getState().setChapterSummary(chapterId, summary)
@@ -283,7 +285,9 @@ export default function BatchGenerationModal({
         if (streamMode) {
           await new Promise<void>((resolve, reject) => {
             onGenStart()
-            const handle = aiService.chatStream(messages, genConfigId, activeProjectId || undefined,
+            // v16.3.1(审计 D1): aiService.chatStream → chatAIStream（按 config.protocol 路由，
+            // anthropic 协议走 Anthropic 端点——原恒走 OpenAI 兼容通道，/anthropic 后缀地址 404）
+            const handle = chatAIStream(messages, genConfigId, activeProjectId || undefined,
               (data) => {
                 const live = replaceMode ? data.accumulated : (chContent ? chContent + '\n\n' + data.accumulated : data.accumulated)
                 fileService.write(`${pp}/chapters/${items[i].chapterId}.txt`, live).catch(() => {})
@@ -312,7 +316,7 @@ export default function BatchGenerationModal({
                 onGenDone(); resolve()
               },
               (err) => { onGenError(err.message); setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'error', error: err.message } : q)); reject(err) },
-              (data) => { onGenError(data.message); setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'error', error: data.message } : q)); reject(new Error(data.message)) },
+              // 注: chatAIStream 的 error/cancelled 已合并为 onError（chatAI.ts 包装），无需第 7 参
             )
             abortRef.current = handle.abort
             if (externalAbortRef) externalAbortRef.current = handle.abort
@@ -320,10 +324,21 @@ export default function BatchGenerationModal({
         } else {
           await new Promise<void>(async (resolve, reject) => {
             try {
-              const { text } = await aiService.chatWithUsage(messages, genConfigId, activeProjectId || undefined)
+              // v16.3.1(审计 D1): aiService.chatWithUsage → chatAIWithUsage（协议路由统一）
+              const { text, usage } = await chatAIWithUsage(messages, genConfigId, activeProjectId || undefined)
               const nf = normalizeParagraphs(text)
               const fw = replaceMode ? nf : (chContent ? chContent + '\n\n' + nf : nf)
               await fileService.write(`${pp}/chapters/${items[i].chapterId}.txt`, fw).catch(() => {})
+              // v16.3.1(审计 F5): 非流式分支补版本记录（原缺失——流式分支/单章生成都有）
+              const record: VersionRecord = {
+                versionId: '', chapterId: items[i].chapterId, modelConfigId: config.id, modelName: config.model,
+                temperature: config.temperature, promptTitle: chapterPrompt?.title || '批量生成', promptContent: chapterPrompt?.content || '',
+                generatedContent: text, tokens: { input: usage?.prompt_tokens || 0, output: usage?.completion_tokens || 0, total: usage?.total_tokens || 0 },
+                cost: usage?.cost || 0, generatedAt: new Date().toISOString(), contextUsed: [],
+              }
+              if (activeProjectId && projectsBasePath) {
+                saveVersionRecord(pp, items[i].chapterId, record).then(() => onVersionSaved(record))
+              }
               setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'done', wordCount: text.length } : q))
               setTotalWords(prev => prev + text.length)
               if (autoSummary) {

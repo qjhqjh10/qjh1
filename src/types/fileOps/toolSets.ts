@@ -1,7 +1,8 @@
 export const DANGEROUS_TOOLS = new Set(['create_file', 'delete_file', 'rename_file', 'create_project', 'delete_project', 'batch_replace']) as ReadonlySet<string>
 
 // Plan 模式工具集（只读+安全写操作）
-export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'list_prompts', 'toggle_prompt', 'update_prompt', 'kb_index_file', 'list_rules', 'tool_search']) as ReadonlySet<string>
+// 2026-08-11 审计: 移除 toggle_prompt/update_prompt（实为写提示词库，误归类到只读集合）
+export const READ_ONLY_TOOLS = new Set(['list_directory', 'read_file', 'search_content', 'find_files', 'search_notes', 'search_images', 'list_prompts', 'kb_index_file', 'list_rules', 'tool_search']) as ReadonlySet<string>
 
 // Generate one-line Chinese summary for operation logs
 export function summarizeFileOp(

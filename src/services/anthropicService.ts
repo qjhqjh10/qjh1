@@ -132,11 +132,17 @@ export const anthropicService = {
       configId: params.configId,
       source: 'pipeline',  // v14.2.1: 独立流水线
     })
+    // v16.3.1(审查修复 R1): 非流式防御——abort 返回 {text:'',stopReason:'aborted'}（无 error 字段），
+    // 原会静默返回空文本 → 调用方把章节文件覆盖为空串。抛错让调用方走错误路径。
+    if (result.stopReason === 'aborted') throw new Error('已停止')
+    if (result.error || result.stopReason === 'error') throw new Error(result.error || 'Anthropic 请求失败')
     const usage = result.usage
     return {
       text: result.text || '',
       // v16.0.1(审计 M5): 补 cacheHitTokens——Anthropic pipeline 同类缺口（原丢弃缓存命中信息）
-      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0, cacheHitTokens: usage.cache_read_input_tokens || 0 } : undefined,
+      // v16.3.1(审计 F3): total_tokens 补 cache_read+cache_creation——Anthropic 端点 usage 为互斥
+      // 语义（input_tokens 不含缓存部分，实测缓存常占输入 60-90%），原 total=input+output 系统性低估
+      usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0), cost: usage.cost || 0, cacheHitTokens: usage.cache_read_input_tokens || 0 } : undefined,
     }
   },
 
@@ -164,14 +170,18 @@ export const anthropicService = {
       onChunk,
     }).then(result => {
       // H7: 请求失败（主进程 stopReason:'error' 或本地错误）→ 走 onError，不再表现为"成功但空文本"
-      if (result.error || result.stopReason === 'error') {
-        onError(new Error(result.error || 'Anthropic 请求失败'))
+      // v16.3.1(审查修复 R1): +stopReason==='aborted'——用户取消时主进程返回
+      // {text:'', stopReason:'aborted'}（无 error 字段），原走 onDone(空文本) →
+      // 批量生成 onDone 分支会 saveVersionRecord 空记录、replaceMode 下把章节文件覆盖为空串
+      if (result.error || result.stopReason === 'error' || result.stopReason === 'aborted') {
+        onError(new Error(result.stopReason === 'aborted' ? '已停止' : (result.error || 'Anthropic 请求失败')))
         return
       }
       const usage = result.usage
       onDone({
         text: result.text || '',
-        usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0), cost: usage.cost || 0 } : undefined,
+        // v16.3.1(审计 F3): total_tokens 补 cache_read+cache_creation（互斥语义，见 chatWithUsage 注释）
+        usage: usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0), cost: usage.cost || 0 } : undefined,
       })
     }).catch(onError)
     return { abort: () => anthropicService.abortAnthropicStream() }

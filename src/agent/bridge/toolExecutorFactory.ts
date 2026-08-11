@@ -8,16 +8,14 @@ import { AuditTrail } from '../audit/AuditTrail'
 import { toolRegistry } from '../skills/ToolRegistry'
 import { invalidateAfterTool } from '../context/CacheInvalidator'
 import { normalizeReadPath } from '../context/ReadResultTracker'
+import { FENCE_WRITE_TOOLS } from '../skills/tools/writeToolSets'
 import type { ToolExecutorFn } from '../runtime/RuntimeTypes'
 
 /**
  * v16.1.0: 协作只读围栏——关联模式(chapterCollab.active)下禁止写当前章节文件。
  * 主/子代理统一生效(子代理绕过=漏洞,与"允许读本章、禁止写本章文件"决策冲突)。
+ * v16.3.1(审计 D8): FENCE_WRITE_TOOLS 定义移入 ../skills/tools/writeToolSets（单一真源）
  */
-const FENCE_WRITE_TOOLS = new Set([
-  'create_file', 'edit_file', 'batch_replace', 'delete_file', 'rename_file',
-  'edit_file_task', 'kb_append_file', 'kb_index_file',
-])
 
 function chapterLabel(chapterId: string): string {
   const m = String(chapterId || '').match(/(\d+)/)

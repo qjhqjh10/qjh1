@@ -63,9 +63,8 @@ const api = {
     // v16.2.0: 副模型多模态图片理解（上传图片自动分析 / analyze_image 工具共用）
     visionChat: (opts: { configId: string; projectId?: string; prompt: string; images: Array<{ base64?: string; path?: string }>; template?: string }): Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null; cost: number }> =>
       ipcRenderer.invoke('ai:vision-chat', opts),
-    // v16.2.0: 中止在途视觉分析
-    abortVision: (): void => { ipcRenderer.send('ai:abort-vision') },
     // v14.6.1: requestId 可选——带 id 精确中止该请求（并行子代理）；不带 = 中止全部在途请求
+    // 注: ai:abort-vision 通道由本函数附带发送（无独立 abortVision API，2026-08-11 审计清理）
     abortStream: (requestId?: string): void => { ipcRenderer.send('ai:abort-stream'); ipcRenderer.send('ai:abort-tool-chat', requestId); ipcRenderer.send('ai:abort-vision') },
     onChatChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => {
       const handler = (_event: unknown, data: { chunk: string; accumulated: string }) => callback(data)

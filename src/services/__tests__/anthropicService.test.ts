@@ -126,3 +126,77 @@ describe('chatAnthropicStream (H7)', () => {
     expect(result.error).toContain('local error')
   })
 })
+
+// ── v16.3.1 审计 F3: pipeline usage total_tokens 补 cache_read/cache_creation（互斥语义） ──
+
+describe('chatWithUsage usage total_tokens (F3)', () => {
+  beforeEach(() => {
+    delete (window as any).electron
+  })
+
+  it('total_tokens = input + output + cache_read + cache_creation（Anthropic 互斥语义）', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: '生成结果',
+      toolUses: [], stopReason: 'end_turn', error: null,
+      usage: {
+        input_tokens: 1000, output_tokens: 500,
+        cache_creation_input_tokens: 300, cache_read_input_tokens: 7000,
+        cost: 0.012,
+      },
+    })))
+    const result = await anthropicService.chatWithUsage({
+      messages: [{ role: 'user', content: 'hi' }], configId: 'c1',
+    })
+    expect(result.usage).toBeDefined()
+    expect(result.usage?.prompt_tokens).toBe(1000)
+    expect(result.usage?.completion_tokens).toBe(500)
+    // 原实现 total = 1000+500=1500（漏 7300 缓存 token → 系统性低估 60-90%）
+    expect(result.usage?.total_tokens).toBe(1000 + 500 + 300 + 7000)
+    expect(result.usage?.cacheHitTokens).toBe(7000)
+    expect(result.usage?.cost).toBe(0.012)
+  })
+
+  it('无缓存字段时 total_tokens 行为不变（不引入 NaN）', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: 'x', toolUses: [], stopReason: 'end_turn', error: null,
+      usage: { input_tokens: 10, output_tokens: 5, cost: 0.001 },
+    })))
+    const result = await anthropicService.chatWithUsage({
+      messages: [{ role: 'user', content: 'hi' }], configId: 'c1',
+    })
+    expect(result.usage?.total_tokens).toBe(15)
+  })
+})
+
+// ── v16.3.1 审查修复 R1: aborted 走 onError（防取消时清空章节文件） ──
+
+describe('chatStream aborted 语义 (R1)', () => {
+  beforeEach(() => {
+    delete (window as any).electron
+  })
+
+  it('主进程返回 stopReason:"aborted"（无 error 字段）→ onError("已停止")、onDone 不调', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: '', toolUses: [], stopReason: 'aborted',
+    })))
+    const onDone = vi.fn()
+    const onError = vi.fn()
+
+    anthropicService.chatStream({ messages: [{ role: 'user', content: 'hi' }], configId: 'c1' },
+      () => {}, onDone, onError)
+
+    await wait()
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError.mock.calls[0][0].message).toContain('已停止')
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('chatWithUsage 收到 aborted → 抛错（非流式防御，防调用方写空文件）', async () => {
+    const { api } = setupElectronMock(Promise.resolve(JSON.stringify({
+      text: '', toolUses: [], stopReason: 'aborted',
+    })))
+    await expect(anthropicService.chatWithUsage({
+      messages: [{ role: 'user', content: 'hi' }], configId: 'c1',
+    })).rejects.toThrow('已停止')
+  })
+})

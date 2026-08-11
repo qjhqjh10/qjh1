@@ -24,8 +24,8 @@ describe('DANGEROUS_TOOLS', () => {
 })
 
 describe('READ_ONLY_TOOLS', () => {
-  it('contains 12 tools (v16.3.0: -generate_image)', () => {
-    expect(READ_ONLY_TOOLS.size).toBe(12)
+  it('contains 10 tools (v16.3.1: -toggle_prompt/-update_prompt 写操作移出只读集合)', () => {
+    expect(READ_ONLY_TOOLS.size).toBe(10)
   })
 
   it('contains read-only file tools', () => {
@@ -39,10 +39,10 @@ describe('READ_ONLY_TOOLS', () => {
     expect(READ_ONLY_TOOLS.has('search_images')).toBe(true)
   })
 
-  it('contains prompt tools', () => {
+  it('contains prompt tools (v16.3.1 审计 D16: toggle/update 实为写提示词库，不再归入只读)', () => {
     expect(READ_ONLY_TOOLS.has('list_prompts')).toBe(true)
-    expect(READ_ONLY_TOOLS.has('toggle_prompt')).toBe(true)
-    expect(READ_ONLY_TOOLS.has('update_prompt')).toBe(true)
+    expect(READ_ONLY_TOOLS.has('toggle_prompt')).toBe(false)
+    expect(READ_ONLY_TOOLS.has('update_prompt')).toBe(false)
   })
 
   it('contains kb/notes tools', () => {

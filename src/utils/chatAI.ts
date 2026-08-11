@@ -5,7 +5,13 @@
 import { aiService } from '@/services/fileService'
 import { useSettingsStore } from '@/store'
 
-function isAnthropicProtocol(configId: string): boolean {
+/** 协议判定（v16.3.1 审计 D17: 导出共享——createSubagentAdapter 原各自内联一份同判定）。
+ * 消费方：chatAI 路由（渲染层流水线）+ createSubagentAdapter（子代理适配器选择）。
+ * 影响面：修改判定规则（如新增协议值）会同时改变流水线与子代理的路由——两端语义同向
+ * （都按 config.protocol 选 Anthropic 通道），修改对两端是同步修复。
+ * ⚠️ 何时【应该拆开】：仅当某消费方需要不同判定（如只看 protocol 字段 vs 额外看模型名）
+ * 时才拆为各自实现，并注明分歧原因。 */
+export function isAnthropicProtocol(configId: string): boolean {
   const configs = useSettingsStore.getState().configs
   const config = configs.find(c => c.id === configId)
   return (config as any)?.protocol === 'anthropic'

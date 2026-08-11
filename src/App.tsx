@@ -203,7 +203,9 @@ export default function App() {
       // not injected into the global project list or sidebar.
       setProjects(projList)
     } catch (e) { logError('加载项目列表失败', e) }
-  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, rewriteProjectsPath, setProjects])
+    // v16.3.1(审计 S8): 移除未使用的 rewriteProjectsPath 依赖——函数体不读该值
+    // （改写项目由 RewritePage 本地管理，不注入全局项目列表）
+  }, [projectsBasePath, imitationProjectsPath, continuationProjectDirsPath, setProjects])
 
   useEffect(() => {
     if (projectsBasePath && imitationProjectsPath && continuationProjectDirsPath && rewriteProjectsPath) loadProjects()

@@ -1,7 +1,7 @@
 import { IpcMain, SafeStorage, app, nativeImage } from 'electron'
 
 import { logTokenUsage } from './statsHandlers'
-import { getOpenAI, getConfigStore, localISOString, calculateCost, mergeConfigKeys } from './utils'
+import { getOpenAI, getConfigStore, localISOString, calculateCost, mergeConfigKeys, normalizeOpenAIBaseURL } from './utils'
 import { executeFileTool, type ToolCallArgs } from './fileToolHandlers'
 import { netFetch } from './netFetch'
 import { convertMessages, convertTools, type ConverterMessage, type ResponseItem } from './responsesConverter'
@@ -55,9 +55,10 @@ function validateRole(role: string): 'user' | 'assistant' | 'system' | 'tool' {
 // 语义：secondaryApiKey/ApiUrl 字段级回退主配置；未填独立地址时用主地址（OpenAI 兼容端点）
 async function buildSecondaryClient(config: StoredConfig): Promise<import('openai').OpenAI> {
   const OpenAI = await getOpenAI()
+  // v16.3.1(审计 D1): baseURL 归一化——secondaryApiUrl 回退主地址时同受 /anthropic 后缀 404 影响
   return new OpenAI({
     apiKey: config.secondaryApiKey || config.apiKey,
-    baseURL: config.secondaryApiUrl || config.apiUrl || undefined,
+    baseURL: normalizeOpenAIBaseURL(config.secondaryApiUrl || config.apiUrl || '') || undefined,
     timeout: 180_000,
     maxRetries: 2,
     fetch: netFetch,  // v14.6.1: 系统代理/证书
@@ -109,7 +110,9 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     // SDK 掐断并内部静默重试（双计费），再叠加 runtime 瞬态重试最多计费 3 次
     const client = new OpenAI({
       apiKey,
-      baseURL: config.apiUrl || undefined,
+      // v16.3.1(审计 D1): baseURL 归一化——剥 /anthropic、/v1/messages 后缀（DeepSeek 官方
+      // Anthropic 端点形态），OpenAI 兼容端点请求不再 404
+      baseURL: normalizeOpenAIBaseURL(config.apiUrl || '') || undefined,
       timeout: 180_000,
       maxRetries: 2,  // retry up to 2 times on network/5xx errors
       fetch: netFetch,
@@ -190,7 +193,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     const apiKey = config.apiKey
     const OpenAI = await getOpenAI()
     // v14.6.1: netFetch（系统代理/证书）
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
+    // v16.3.1(审计 D1): baseURL 归一化——剥 /anthropic、/v1/messages 后缀
+    const client = new OpenAI({ apiKey, baseURL: normalizeOpenAIBaseURL(config.apiUrl || '') || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
 
     const apiMessages = [
       ...messages.map((m, i) => {
@@ -305,22 +309,17 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
     // v16.2.0(审查修复 C4): 字段级 fallback 与运行时一致（vision-chat 是
     // secondaryApiKey||apiKey、secondaryApiUrl||apiUrl 独立回退）——原要求地址+密钥同时存在
     // 才走副端点，配置「填了副地址、留空副密钥」时列表打主端点、实际请求打副端点，行为不一致。
+    // v16.3.1(审计 D1): 统一走 normalizeOpenAIBaseURL——原内联仅 anthropic 协议分支归一化，
+    // vision 分支漏归（/anthropic 后缀地址下 models.list 同样 404）；现无条件归一化
+    // （regex 只剥 Anthropic 路径段，对合法 OpenAI 兼容 base 无害）
     if (scope === 'image' || scope === 'vision') {
       apiKey = config.secondaryApiKey || config.apiKey
-      apiUrl = config.secondaryApiUrl || config.apiUrl
+      apiUrl = normalizeOpenAIBaseURL(config.secondaryApiUrl || config.apiUrl || '')
     } else {
       apiKey = config.apiKey
       // Anthropic 协议的地址含 /anthropic 或完整 /v1/messages（如 OpenCode zen/go），
       // /models 端点不存在于此路径——回退到供应商的 OpenAI 兼容基础地址
-      const protocol = config.protocol
-      if (protocol === 'anthropic') {
-        apiUrl = (config.apiUrl || '')
-          .replace(/\/anthropic(\/.*)?$/, '')
-          .replace(/\/v1\/messages$/, '')   // v15.5: OpenCode zen/go/v1/messages → zen/go/v1
-          .replace(/\/+$/, '')
-      } else {
-        apiUrl = config.apiUrl
-      }
+      apiUrl = normalizeOpenAIBaseURL(config.apiUrl || '')
     }
 
     if (!apiKey) {
@@ -435,7 +434,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
       const apiKey = config.apiKey
       const OpenAI = await getOpenAI()
       // v14.6.1: netFetch（系统代理/证书）
-    const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
+    // v16.3.1(审计 D1): baseURL 归一化——剥 /anthropic、/v1/messages 后缀
+    const client = new OpenAI({ apiKey, baseURL: normalizeOpenAIBaseURL(config.apiUrl || '') || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })  // v14.9: 120s→180s（对齐 IPC 硬超时，见 ai:chat 注释）
 
       // v14.6.1: per-request abort——每个请求独立注册监听器，按 requestId 匹配精确中止；
       // 不带 requestId 的中止（用户停止）命中该 webContents 全部在途请求
@@ -648,7 +648,8 @@ export function registerAiHandlers(ipcMain: IpcMain, safeStorage: SafeStorage, p
 
       const apiKey = config.apiKey
       const OpenAI = await getOpenAI()
-      const client = new OpenAI({ apiKey, baseURL: config.apiUrl || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })
+      // v16.3.1(审计 D1): baseURL 归一化——剥 /anthropic、/v1/messages 后缀（降级路径复用同一 client）
+      const client = new OpenAI({ apiKey, baseURL: normalizeOpenAIBaseURL(config.apiUrl || '') || undefined, timeout: 180_000, maxRetries: 1, fetch: netFetch })
 
       // per-request abort（同 ai:chat-with-tools — 精确中止并行子代理兄弟请求）
       const abortController = new AbortController()

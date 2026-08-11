@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSafePath, mergeConfigKeys } from '../utils'
+import { isSafePath, mergeConfigKeys, normalizeOpenAIBaseURL } from '../utils'
 
 // ── isSafePath ──
 
@@ -127,5 +127,53 @@ describe('mergeConfigKeys (H5)', () => {
   it('无旧 config（新用户）时 MASKED_KEY 存空串而非字面量', () => {
     const out = mergeConfigKeys(undefined, { apiKey: '••••••••' })
     expect(out.apiKey).toBe('')
+  })
+})
+
+// ── normalizeOpenAIBaseURL（v16.3.1 审计 D1） ──
+
+describe('normalizeOpenAIBaseURL', () => {
+  it('裸域名原样保留', () => {
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com')).toBe('https://api.deepseek.com')
+  })
+
+  it('剥 /anthropic 后缀', () => {
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com/anthropic')).toBe('https://api.deepseek.com')
+  })
+
+  it('剥 /anthropic/v1/messages 完整形态（OpenCode zen/go）', () => {
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com/anthropic/v1/messages')).toBe('https://api.deepseek.com')
+  })
+
+  it('/anthropic/ 尾斜杠形态', () => {
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com/anthropic/')).toBe('https://api.deepseek.com')
+  })
+
+  it('/v1/messages 整体剥离（对齐 v15.5 既有 listModels 行为：OpenCode zen/go 形态）', () => {
+    expect(normalizeOpenAIBaseURL('https://zen.go/v1/messages')).toBe('https://zen.go')
+  })
+
+  it('裸 /v1 保留不动（OpenAI 兼容网关标准形态）', () => {
+    expect(normalizeOpenAIBaseURL('https://openrouter.ai/api/v1')).toBe('https://openrouter.ai/api/v1')
+    expect(normalizeOpenAIBaseURL('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
+  })
+
+  it('不误伤主机名含 anthropic 的域名', () => {
+    expect(normalizeOpenAIBaseURL('https://api.anthropic.com')).toBe('https://api.anthropic.com')
+    expect(normalizeOpenAIBaseURL('https://api.anthropic.com/v1')).toBe('https://api.anthropic.com/v1')
+  })
+
+  it('不误伤 /anthropic2 等相似前缀', () => {
+    expect(normalizeOpenAIBaseURL('https://gateway.local/anthropic2')).toBe('https://gateway.local/anthropic2')
+  })
+
+  it('末尾多余斜杠去除', () => {
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com/')).toBe('https://api.deepseek.com')
+    expect(normalizeOpenAIBaseURL('https://api.deepseek.com/anthropic/')).toBe('https://api.deepseek.com')
+  })
+
+  it('空串/空白安全', () => {
+    expect(normalizeOpenAIBaseURL('')).toBe('')
+    expect(normalizeOpenAIBaseURL('   ')).toBe('')
   })
 })

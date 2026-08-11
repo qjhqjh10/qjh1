@@ -2,74 +2,14 @@ import { fileService } from '@/services/fileService'
 import type { DetailedChapter, ChapterStatus } from '@/types/chapter'
 import { logError } from '@/utils/logger'
 import { loadSummary } from '@/services/summaryService'
-import { safeJsonParse } from '@/utils/safeJsonParse'
 import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
 import { isStructuredDataFile, stripExtension, readAndMigrate, detailedOutlinePath } from '@/utils/filePaths'
 
-/** Fix unescaped newlines inside JSON string values. */
-function fixJsonNewlines(json: string): string {
-  let result = ''
-  let inString = false
-  let i = 0
-  while (i < json.length) {
-    const ch = json[i]
-    if (ch === '"' && (i === 0 || json[i - 1] !== '\\')) {
-      inString = !inString
-      result += ch
-    } else if (inString && ch === '\n') {
-      result += '\\n'
-    } else if (inString && ch === '\r') {
-      result += '\\r'
-    } else if (inString && ch === '\t') {
-      result += '\\t'
-    } else {
-      result += ch
-    }
-    i++
-  }
-  return result
-}
+// v16.3.1(审计 D9): repairJson/fixJsonNewlines 迁至 @/utils/jsonRepair（单一真源，
+// 主进程 schemaValidation 共用 5 策略）。此处 re-export 保持既有消费方导入路径不变。
+export { repairJson } from '@/utils/jsonRepair'
 
-/**
- * Attempt to repair AI-generated JSON that may have common issues:
- * - Unescaped newlines in string values
- * - Missing closing braces (truncation)
- * - Trailing commas before } or ]
- * Returns the repaired JSON string, or null if unrecoverable.
- */
-export function repairJson(raw: string): string | null {
-  // Strategy 1: try raw
-  try { JSON.parse(raw); return raw } catch { /* continue */ }
-
-  // Strategy 2: fix unescaped newlines
-  const fixed = fixJsonNewlines(raw)
-  try { JSON.parse(fixed); return fixed } catch { /* continue */ }
-
-  // Strategy 3: auto-close missing braces (strip trailing comma first)
-  const openBraces = (raw.match(/{/g) || []).length
-  const closeBraces = (raw.match(/}/g) || []).length
-  if (openBraces > closeBraces) {
-    let closed = raw.trimEnd()
-    closed = closed.replace(/,(\s*)$/, '$1')  // remove trailing comma before appending }
-    closed += '\n' + '}'.repeat(openBraces - closeBraces)
-    try { const f = fixJsonNewlines(closed); JSON.parse(f); return f } catch { /* continue */ }
-  }
-
-  // Strategy 4: try safeJsonParse utility (handles trailing commas + single quotes)
-  try {
-    const result = safeJsonParse(raw)
-    if (result) return JSON.stringify(result, null, 2)
-  } catch { /* continue */ }
-
-  // Strategy 5: missing braces + trailing commas combined
-  if (openBraces > closeBraces) {
-    const both = raw.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']').trimEnd() + '\n' + '}'.repeat(openBraces - closeBraces)
-    try { const f = fixJsonNewlines(both); JSON.parse(f); return f } catch { /* continue */ }
-  }
-
-  return null
-}
-
+/** v16.3.1(审计 D9): fixJsonNewlines 随 repairJson 迁至 @/utils/jsonRepair，本文件不再持有实现 */
 export async function saveDetailedChapter(projectPath: string, chapter: DetailedChapter) {
   try {
     await fileService.write(detailedOutlinePath(projectPath, chapter.id), yamlStringify(chapter))

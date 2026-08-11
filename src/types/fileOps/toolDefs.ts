@@ -54,6 +54,10 @@ export interface ResponsesChatResult {
 }
 
 // ── Tool Definitions (OpenAI Function Calling Schema) ──
+// ⚠️ 历史遗留（2026-08-11 审计标注）: 本表仅被 toolDefs.test.ts 引用作 schema 形态校验，
+// 生产环境工具注册表在 src/agent/skills/tools/index.ts（33 工具，单一真源）。
+// 本表的描述文案已与现状脱节（kb_create_file/write_note/webSearch 等已删除），
+// 禁止在生产代码中 import 本表——新功能请注册到 agent 工具注册表。
 
 export const FILE_TOOLS = [
 
@@ -147,9 +151,9 @@ export const FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        '创建新文件并写入内容。需要用户确认。\n' +
+        '创建新文件并写入内容。\n' +
         '【何时用】新建章节文件、新建角色JSON、新建细纲JSON等。\n' +
-        '【何时不用】保存资料到知识库用 kb_create_file。记笔记用 write_note。',
+        '【何时不用】保存资料到知识库用 create_file("knowledge_base/files/xxx.md")。记笔记用 create_file("notes/xxx.md")。',
       parameters: {
         type: 'object',
         properties: {
@@ -239,12 +243,12 @@ export const FILE_TOOLS = [
       description:
         '向知识库已有文件末尾追加内容。保留原有内容，新内容以分隔线隔开。\n' +
         '【何时用】用户已有相关素材文件，需要往里面添加更多信息时。\n' +
-        '【流程】先 list_directory("knowledge_base/files") 查看文件 → 找到目标文件的 id → kb_append_file 追加。\n' +
+        '【流程】先 list_directory("knowledge_base/files") 查看文件 → 找到目标文件 → kb_append_file 追加。\n' +
         '【何时不用】没有相关文件时用 create_file("knowledge_base/files/xxx.md", content) 新建。',
       parameters: {
         type: 'object',
         properties: {
-          file_id: { type: 'string', description: '目标文件的 id（从 kb_list 获取）' },
+          file_id: { type: 'string', description: '目标文件的 id（从 list_directory 知识库目录获取）' },
           content: { type: 'string', description: '要追加的内容（Markdown格式）' },
         },
         required: ['file_id', 'content'],
@@ -255,11 +259,11 @@ export const FILE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'kb_index_file',
-      description: '对知识库文件建立 embedding 语义搜索索引。\n【何时用】创建或修改KB文件后，建立索引以便语义搜索。\n【流程】先 kb_list 获取文件列表 → 找到目标文件的 id → kb_index_file 索引该文件。\n【注意】索引需要调用 Embedding API，会消耗少量 token。',
+      description: '对知识库文件建立 embedding 语义搜索索引。\n【何时用】创建或修改KB文件后，建立索引以便语义搜索。\n【流程】先 list_directory("knowledge_base/files") 查看文件 → 找到目标文件的 id → kb_index_file 索引该文件。\n【注意】索引需要调用 Embedding API，会消耗少量 token。',
       parameters: {
         type: 'object',
         properties: {
-          file_id: { type: 'string', description: '目标文件的 id（从 kb_list 返回的文件列表中获取）' },
+          file_id: { type: 'string', description: '目标文件的 id（从 list_directory 返回的文件列表中获取）' },
         },
         required: ['file_id'],
       },
@@ -279,9 +283,9 @@ export const FILE_TOOLS = [
       description:
         '在 Pexels 图库搜索免费高清图片并保存到 images/ 目录。\n' +
         '【严格限制】仅当用户明确要求图片/照片/插图/形象图/配图时才调用。\n' +
-        '【绝对禁止】在以下场景使用：收集文字素材、记录信息到知识库、搜索写作参考资料、查找描写词汇。这些场景用 webSearch 或模型知识。\n' +
+        '【绝对禁止】在以下场景使用：收集文字素材、记录信息到知识库、搜索写作参考资料、查找描写词汇。这些场景用模型知识或内置联网搜索。\n' +
         '【可用场景】用户说"找张图""有照片吗""搜插图""给角色配图""找图片存草稿"。\n' +
-        '【需 PEXELS_API_KEY 环境变量】免费注册 https://www.pexels.com/api/（200次/时，2万次/月）。',
+        '【密钥】Pexels API key 在软件设置页保存（非环境变量）。',
       parameters: {
         type: 'object',
         properties: {

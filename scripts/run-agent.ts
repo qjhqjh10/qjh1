@@ -434,11 +434,11 @@ async function main() {
   const { AnthropicAdapter } = await import('@/agent/runtime/adapters/AnthropicAdapter')
   const { V4SecurityFence } = await import('@/agent/V4SecurityFence')
   const { toolRegistry } = await import('@/agent/skills/ToolRegistry')
-  const { contextAssembler } = await import('@/agent/context/ContextAssembler')
+  // v16.3.1(审计 F14): 原 import 已删除的 contextAssembler 单例/isComplexTask——改用现行架构
+  const { BridgeContextBuilder } = await import('@/agent/context/BridgeContextBuilder')
   const { ALL_TOOLS } = await import('@/agent/skills/tools')
   const { buildSystemPrompt } = await import('@/agent/V4SystemPrompt')
-  const { estimateTokens } = await import('@/agent/utils/tokenEstimation')
-  const { isComplexTask } = await import('@/agent/utils/taskDetection')
+  const { hasTaskKeywords } = await import('@/agent/utils/taskDetection')
   const { diagnosticLogger } = await import('@/agent/diagnostics/DiagnosticLogger')
 
   // 初始化工具注册
@@ -503,7 +503,8 @@ async function main() {
     // ① 工具裁剪（对齐 GUI ChatBridge v10.1.1）
     // ════════════════════════════════════════════════════════════
     const allTools = toolRegistry.getAllSchemas()
-    const isMultiFile = isComplexTask(userMessage)
+    // v16.3.1(审计 F14): isComplexTask 已删除（v13.x）——任务意图判定改用 hasTaskKeywords
+    const isMultiFile = hasTaskKeywords(userMessage)
     const READ   = new Set(['read_file','list_directory','search_content','find_files'])
     const ALWAYS = new Set(['think'])
     const WRITE  = new Set(['create_file','edit_file','batch_replace'])
@@ -752,57 +753,35 @@ async function main() {
     }
 
     // ════════════════════════════════════════════════════════════
-    // ④ ContextAssembler（对齐 GUI: [0]core [1]index [2]provider [3]dynamic）
+    // ④ ContextAssembler（对齐 GUI: BridgeContextBuilder.buildContext）
+    // v16.3.1(审计 F14): 原实现引用已删除模块（MemoryIndex/contextAssembler.assemble/
+    // buildToolInvokePrompt——旧架构遗留，动态 import 失败被 catch 吞掉 → 上下文组装实际空转，
+    // 系统消息只剩核心提示词）。现与 GUI 同构：BridgeContextBuilder 组装（KB 注入/角色模板/
+    // 章节协作/联网判定等全部现行逻辑）。
     // ════════════════════════════════════════════════════════════
-    const CORE_PROMPT = buildSystemPrompt('', '')
-    const coreSystemMsg = { role: 'system' as const, content: CORE_PROMPT }
-    const coreTokens = estimateTokens(CORE_PROMPT)
+    const CORE_PROMPT = buildSystemPrompt()
+    const contextBuilder = new BridgeContextBuilder({
+      projectId: args.project || null,
+      configId: args.configId || '',
+      kbEnabled: false,
+      webSearchEnabled: false,
+      nativeOverride: null,
+    })
 
     runtime.setContextAssembler(async (msg, hist, pid) => {
-      // 全局索引（MemoryIndex — 对齐 GUI）
-      let globalIndex = ''
-      try {
-        const { buildGlobalIndex } = await import('@/agent/context/MemoryIndex')
-        globalIndex = await buildGlobalIndex(pid)
-      } catch {}
-
-      // Provider 内容（对齐 GUI: contextAssembler.assemble）
-      const base = await contextAssembler.assemble(msg, hist, pid)
-
-      // 工具调用提示词（对齐 GUI: buildToolInvokePrompt）
-      const { buildToolInvokePrompt } = await import('@/types/fileOps')
-      const toolInvokePrompt = buildToolInvokePrompt()
-
-      // 动态内容: toolInvokePrompt + planInstruction
-      const dynamicContent = [toolInvokePrompt, planInstruction].filter(Boolean).join('\n\n')
-      const providerContent = base.systemMessages.map(m => m.content).filter(Boolean).join('\n\n')
-
-      const indexDirective = globalIndex
-        ? `⬇️ 以下是软件完整文件索引。已知路径的文件直接用 read_file 读取，无需 list_directory。\n\n${globalIndex}`
-        : ''
-
+      const base = await contextBuilder.buildContext(msg, hist, pid, CORE_PROMPT)
+      // v16.3.1(审查修复 R2): buildContext 的 systemMessages 首条即含 CORE_PROMPT 的 effectivePrompt、
+      // totalTokens 已含核心提示词+历史+当前消息——原实现再包 coreSystemMsg/重算 totalTokens 造成
+      // 双份核心提示词（每轮 ~3.6k token 冗余）+ token 双算。对齐 GUI（chatBridgeFactory 直返 result）。
+      const dynamicContent = [planInstruction].filter(Boolean).join('\n\n')
       const systemMessages = [
-        coreSystemMsg,                                          // [0] 核心提示词 — 不变 (含 Skill Catalog)
-        ...(indexDirective ? [{ role: 'system' as const, content: indexDirective }] : []), // [1] 索引
-        ...(providerContent ? [{ role: 'system' as const, content: providerContent }] : []), // [2] Provider
-        ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),   // [3] 动态
+        ...base.systemMessages,
+        ...(dynamicContent ? [{ role: 'system' as const, content: dynamicContent }] : []),
       ]
-
-      const globalIndexTokens = estimateTokens(globalIndex || '')
-      const providerTokens = base.totalTokens || 0
-      const historyTokens = hist.reduce((s, m) => s + estimateTokens(m.content || '') + 4, 0)
-      const fullTotal = coreTokens + globalIndexTokens + providerTokens + historyTokens + estimateTokens(msg)
-
       return {
-        systemMessages, totalTokens: fullTotal,
-        domains: ['core-prompt', ...base.domains],
-        breakdown: [
-          { domain: '核心法则(缓存)', tokens: coreTokens },
-          { domain: '全局索引', tokens: globalIndexTokens },
-          { domain: 'Provider', tokens: providerTokens },
-          { domain: '对话历史', tokens: historyTokens },
-          { domain: '当前消息', tokens: estimateTokens(msg) },
-        ].filter(b => b.tokens > 0),
+        systemMessages, totalTokens: base.totalTokens || 0,
+        domains: base.domains || [],
+        breakdown: base.breakdown || [],
       }
     })
 
@@ -816,39 +795,13 @@ async function main() {
 
       const result = await executor.execute(ctx.toolName, toolArgs, pp)
 
-      // 缓存失效（对齐 GUI: per-file precision invalidation）
+      // 缓存失效（v16.3.1 审计 F14: 原手动实现引用已删除模块（MemoryIndex/contextAssembler
+      // 实例方法）→ try 整体静默失效；现复用 GUI 同一真源 CacheInvalidator.invalidateAfterTool）
       if (result.status === 'success') {
-        const fp = String(toolArgs.file_path || toolArgs.path || '')
         try {
-          const [mi, fc] = await Promise.all([
-            import('@/agent/context/MemoryIndex'),
-            import('@/agent/context/FileCache'),
-          ])
-          const { ContextAssembler } = await import('@/agent/context/ContextAssembler')
-
-          if (/^(create_style_template|create_scene_template)$/.test(ctx.toolName)) {
-            mi.invalidateMemoryIndexCache()
-            const domain = ctx.toolName === 'create_style_template' ? 'style' : 'scene'
-            contextAssembler.invalidateProvider(args.project, domain)
-          } else if (ctx.toolName === 'edit_file') {
-            fc.invalidateFile(fp)
-            for (const d of ContextAssembler.domainsForPath(fp))
-              contextAssembler.invalidateProvider(args.project, d)
-          } else if (ctx.toolName === 'create_file' || ctx.toolName === 'delete_file') {
-            mi.invalidateMemoryIndexCache(); fc.invalidateFile(fp)
-            const dir = fp.replace(/\/[^/]+$/, '')
-            fc.invalidateDir(dir)
-            for (const d of ContextAssembler.domainsForPath(fp))
-              contextAssembler.invalidateProvider(args.project, d)
-          } else if (ctx.toolName === 'rename_file') {
-            mi.invalidateMemoryIndexCache()
-            const np = String(toolArgs.new_path || '')
-            fc.invalidateFile(fp); if (np) fc.invalidateFile(np)
-            const domains = new Set([...ContextAssembler.domainsForPath(fp), ...ContextAssembler.domainsForPath(np)])
-            for (const d of domains) contextAssembler.invalidateProvider(args.project, d)
-          } else if (/^(kb_append_file|create_project|delete_project|batch_replace)$/.test(ctx.toolName)) {
-            mi.invalidateMemoryIndexCache()
-          }
+          const { invalidateAfterTool } = await import('@/agent/context/CacheInvalidator')
+          // CLI 无 GUI 文件变更通知需求——onFileChanged 空实现
+          await invalidateAfterTool(ctx.toolName, toolArgs, { onFileChanged: () => {} }, args.project || undefined)
         } catch { /* cache invalidation best-effort */ }
       }
 

@@ -27,7 +27,7 @@ export default defineConfig({
         'src/test-setup.ts',
         'src/agent/store/**',
         'src/agent/diagnostics/**',
-        'tests/integration/**',     // Node.js E2E scripts, not vitest tests
+        // v16.3.1(审计 S4): 原引用不存在的 tests/integration/**（无此目录）——移除
       ],
       thresholds: {
         statements: 10,

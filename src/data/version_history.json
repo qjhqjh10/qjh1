@@ -1,7 +1,25 @@
 {
-  "currentVersion": "16.3.0",
+  "currentVersion": "16.3.1",
   "currentDate": "2026-08-11",
   "history": [
+    {
+      "version": "16.3.1",
+      "date": "2026-08-11",
+      "features": [
+        "全面审计修复批次（3 路探索代理 + 逐项代码级复核 47 项问题，v1 方案→自审→对抗性审查修正为 v2 方案）：",
+        "协议路由统一（F1）：normalizeOpenAIBaseURL 纯函数应用于主进程全部 7 个 OpenAI 构造点（ai:chat/ai:chat-stream/ai:chat-with-tools/ai:responses-chat/buildSecondaryClient/ai:listModels/kbHandlers embedding）——/anthropic 后缀配置下 404 全部修复；批量生成/场景生成/上下文压缩改走 chatAI 协议路由（原恒走 OpenAI 兼容通道，丢失 Anthropic 缓存收益）",
+        "清单完成判定修复（F2）：checklistNeedsWrite 硬写动词判定——'整理/精简'类清单模型只读完成即收尾（原空转至 30 轮烧 token）；清单 nudge 补 REFUSAL 有界出口；markAllDone 补问句守卫；轮间 abort 文案修正（不再误报 API 失败）",
+        "pipeline usage 记账修正（F3）：anthropicService total_tokens 补 cache_read+cache_creation（原低估 60-90%）；批量生成非流式补版本记录（F5）；imitationService 写锁 + 空态初始化（F6）",
+        "写工具集合单一真源（D8）：writeToolSets.ts 自动过滤派生 4 个集合（WRITE_TOOLS/FILE_WRITE_TOOLS/FENCE_WRITE_TOOLS/WRITE_TOOL_NAMES），补齐 editor_rewrite 漂移；JSON 修复器统一（D9）：jsonRepair.ts 5 策略共享渲染层与主进程",
+        "死代码清理（D1-D7/D11）：删除 7 个零引用文件 + 移除未用依赖 jest-dom + generate_image 死分支 + abortVision 冗余 API + toolDefs 过期描述修正；软件自述文本单一真源（D10）；协议判定共享（D17）；adapter 兜底（F10/F11）",
+        "打包与脚本加固（H）：zip 防泄漏复检改 node 实现（消除系统 unzip 依赖）；minimatch 声明依赖；check-consistency 修复 6 处失效项（C2 版本读取/C4 架构检查/C6 统计/C8 pipefail/C2 路径）；run-agent CLI 重写（删除 MemoryIndex 等 5 处旧引用，对齐 GUI BridgeContextBuilder + CacheInvalidator）"
+      ],
+      "fixes": [
+        "审查修复 R1（中高）：anthropic 协议流式批量生成取消时 onDone 空文本 → replaceMode 清空章节文件 + 空版本记录——aborted 改走 onError，流式/非流式双路径 + 2 单测",
+        "审查修复 R2-R5：run-agent 双份核心提示词（对齐 GUI 直返 buildContext）；HARD_WRITE_RE 补'改'（最常见的修改意图词）；kbHandlers embedding 归一化；批量生成误把项目路径当 system 提示词",
+        "共享强化：writeToolSets 派生改自动过滤（新增工具放对基集全集合自动跟随，杜绝漏改）；8 处注释固化'为何共享/为何分开/何时应拆'（双 logger/双 Message/双通道迁移/ForeshadowItem2/FileCache shim 等）"
+      ]
+    },
     {
       "version": "16.3.0",
       "date": "2026-08-11",

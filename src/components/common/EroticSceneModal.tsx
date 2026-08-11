@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useStore, useSettingsStore } from '@/store'
-import { aiService, templateService } from '@/services/fileService'
+import { templateService } from '@/services/fileService'
+import { chatAIStream, chatAIWithUsage } from '@/utils/chatAI'
 import { nanoid } from 'nanoid'
 import Modal from './Modal'
 import Button from './Button'
@@ -161,15 +162,17 @@ export default function EroticSceneModal({ isOpen, onClose, chapterId, currentCo
       const prompt = await buildPrompt()
       if (config.streamMode) {
         onGenStart?.(); onClose()
-        aiService.chatStream(
+        // v16.3.1(审计 D1): aiService.chatStream → chatAIStream（协议路由统一；cancelled 事件
+        // 由 chatAIStream 并入 onError，与下方原 onCancelled 处理同构）
+        chatAIStream(
           [{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined,
           (data) => { const c = config.replaceMode ? data.accumulated : (currentContent ? currentContent + '\n\n' + data.accumulated : data.accumulated); onApply(c); onGenChunk?.({ charCount: data.accumulated.length }) },
           () => { onGenDone?.(); setLoading(false) },
           (err) => { onGenError?.(err.message); setLoading(false) },
-          (data) => { onGenError?.(data.message); setLoading(false) },
         )
       } else {
-        const { text } = await aiService.chatWithUsage([{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined)
+        // v16.3.1(审计 D1): aiService.chatWithUsage → chatAIWithUsage（协议路由统一）
+        const { text } = await chatAIWithUsage([{ role: 'user' as const, content: prompt }], activeConfigId, activeProjectId || undefined)
         const c = config.replaceMode ? text : (currentContent ? currentContent + '\n\n' + text : text)
         onApply(c); setLoading(false); onClose()
       }

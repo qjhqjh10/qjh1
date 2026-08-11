@@ -10,6 +10,17 @@ export type AgentPhase = 'IDLE' | 'ANALYZE' | 'EXECUTE' | 'VERIFY' | 'WAITING_AP
 
 // ── Messages ──
 
+// ⚠️ agent 层 Message——与 src/components/ai/chat/types.ts 的 UI 层 Message 是【刻意分开】
+// 的两个接口，不要合并！分开原因（2026-08-11 审计结论）：
+//   1. 职责不同：本接口是【runtime/适配器协议消息】（tool_calls/tool_call_id/thinkingBlocks/
+//      serverToolBlocks/_toolResults 等协议字段，供 Anthropic/OpenAI/Responses 转换与历史重建）；
+//      UI 层接口是【聊天窗口展示消息】（id/timestamp/usage/insertion/sources/thinkingPlan 等
+//      展示与交互字段）。
+//   2. 演变方向不同：协议层随供应商 API 变化（如 serverToolBlocks），UI 层随界面交互变化——
+//      合并后任一侧加字段都会污染另一侧。
+// 同步约定：跨层消息构造点 buildHistoryMessages（AIChatWindow/utils.ts）负责双向字段映射，
+// 协议相关字段变更时同步检查该函数；不要在本接口补 UI 展示字段，反之亦然。
+
 export interface Message {
   role: string
   content: string

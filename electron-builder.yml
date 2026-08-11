@@ -13,12 +13,7 @@ win:
   # （历史事故），导致构建中断、产物缺文件；个人项目无签名证书，exe 用默认图标/无版本信息
   # （memory 记录"属性里不显示版本号，功能完全不受影响"即此状态）
   signAndEditExecutable: false
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-  shortcutName: AI写作软件—青剑
+  # v16.3.1(审计 S7): nsis 段已删除——win.target 仅 portable，从不走 nsis 安装流程（死配置）
 # v15.0.0: scripts 空目录已移除（无运行时依赖，git 零追踪）
 extraResources:
   - from: .aiharness/templates

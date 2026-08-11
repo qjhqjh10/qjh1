@@ -1,6 +1,12 @@
 // ── Cache Invalidator (v11.7.2) ──
 // Shared cache invalidation logic. Covers FileCache + UI notification.
 // (MemoryIndex removed in v11.7.2 — index no longer injected)
+//
+// 消费方（2026-08-11 审查结论）：GUI 工具执行链（toolExecutorFactory.createToolExecutor）
+// 与 run-agent CLI（scripts/run-agent.ts）共用 invalidateAfterTool——两端语义同向（写工具
+// 成功后失效缓存），CLI 的 onFileChanged 传空实现即可（无 GUI 通知需求），修改本文件
+// 对两端是同步修复。⚠️ 何时【应该拆开】：仅当 CLI 与 GUI 的失效策略真正分歧（如 CLI
+// 需要绕过某些失效）时再拆。
 
 import { ContextAssembler } from './ContextAssembler'
 // v14.9: 全局资源目录顶层段（与主进程 pathResolution.resolveArg 的基座选择共用单一来源）

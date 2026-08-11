@@ -186,6 +186,9 @@ function messagesToAnthropic(msgs: Message[]): Array<{ role: string; content: An
           input,
         })
       }
+      // v16.3.1(审计 F10): 空内容兜底——tool_calls 为 []（旧持久化数据可能产生）时
+      // content 可能为空数组 → 严格 Anthropic 端点 400。对齐下方纯文本分支的兜底。
+      if (content.length === 0) content.push({ type: 'text', text: '' })
       result.push({ role: 'assistant', content })
     } else {
       // Plain user/assistant message
@@ -361,12 +364,16 @@ export class AnthropicAdapter implements ProtocolAdapter {
     // 保留在 toolCalls 让 runtime 正确识别为工具轮；本地 ToolExecutor 对 web_search
     // 跳过执行（见 ToolExecutor），不会误报"未知工具"
     const serverToolCalls = (streamResult.toolUses || []).filter(tu => tu.name === 'web_search')
-    const serverToolBlocks = streamResult.serverToolBlocks || (serverToolCalls.length > 0 ? [{
-      type: 'server_tool_use',
-      id: serverToolCalls[0].id,
-      name: 'web_search',
-      input: serverToolCalls[0].input,
-    }] : undefined)
+    // v16.3.1(审计 F11): 兜底遍历全部 web_search 调用（原只取第一个——同轮多次搜索时
+    // 后续调用的服务端块丢失，多轮回传不完整）
+    const serverToolBlocks = streamResult.serverToolBlocks || (serverToolCalls.length > 0
+      ? serverToolCalls.map(tu => ({
+        type: 'server_tool_use',
+        id: tu.id,
+        name: 'web_search',
+        input: tu.input,
+      }))
+      : undefined)
     return {
       text: streamResult.text || '',
       toolCalls: (streamResult.toolUses || []).map(tu => ({

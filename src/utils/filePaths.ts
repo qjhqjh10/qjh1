@@ -10,20 +10,20 @@
 // ═══════════════════════════════════════════════════
 
 /** AI 生成的结构化数据文件扩展名（当前使用 YAML） */
-export const STRUCTURED_DATA_EXT = '.yaml' as const
+const STRUCTURED_DATA_EXT = '.yaml' as const
 
 /** 旧版 JSON 扩展名（向后兼容读取） */
-export const LEGACY_JSON_EXT = '.json' as const
+const LEGACY_JSON_EXT = '.json' as const
 
 // ═══════════════════════════════════════════════════
 //  扩展名判断
 // ═══════════════════════════════════════════════════
 
-export function isYamlFile(fp: string): boolean {
+function isYamlFile(fp: string): boolean {
   return fp.endsWith('.yaml') || fp.endsWith('.yml')
 }
 
-export function isJsonFile(fp: string): boolean {
+function isJsonFile(fp: string): boolean {
   return fp.endsWith('.json')
 }
 
@@ -85,12 +85,12 @@ export function stripExtension(fp: string): string {
 // ═══════════════════════════════════════════════════
 
 /** 从文件列表中筛选所有结构化数据文件（.yaml + .json） */
-export function filterStructuredDataFiles(files: string[]): string[] {
+function filterStructuredDataFiles(files: string[]): string[] {
   return files.filter(f => isJsonFile(f) || isYamlFile(f))
 }
 
 /** 获取目录中所有结构化数据文件的基础名（去扩展名） */
-export function getStructuredFileNames(files: string[]): string[] {
+function getStructuredFileNames(files: string[]): string[] {
   return filterStructuredDataFiles(files).map(stripExtension)
 }
 

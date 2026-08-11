@@ -1,7 +1,7 @@
 import { IpcMain, BrowserWindow, SafeStorage } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { decryptKey, getOpenAI, getConfigStore, isSafePath } from '../utils'
+import { decryptKey, getOpenAI, getConfigStore, isSafePath, normalizeOpenAIBaseURL } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logError } from '../logger'
 import { netFetch } from '../netFetch'
@@ -197,7 +197,9 @@ export interface EmbeddingResult {
 export async function getEmbedding(text: string, apiUrl: string, apiKey: string, model: string): Promise<EmbeddingResult> {
   const OpenAI = await getOpenAI()
   // v14.6.1: netFetch（系统代理/证书——别人电脑在代理网络下可连通）
-  const client = new OpenAI({ apiKey, baseURL: apiUrl || undefined, fetch: netFetch })
+  // v16.3.1(审查修复 R4): baseURL 归一化——embedding 端点与 chat 同受 /anthropic 后缀 404 影响
+  // （原未归一化：/anthropic 配置下 KB/笔记语义搜索静默失败 catch{return []}）
+  const client = new OpenAI({ apiKey, baseURL: normalizeOpenAIBaseURL(apiUrl || '') || undefined, fetch: netFetch })
   const response = await client.embeddings.create({
     model,
     input: text,

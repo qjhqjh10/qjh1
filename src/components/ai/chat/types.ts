@@ -1,3 +1,9 @@
+// ⚠️ UI 层 Message——与 src/agent/state/types.ts 的 agent 层 Message 是【刻意分开】的两个接口，
+// 不要合并！分开原因（2026-08-11 审计结论）：本接口是【聊天窗口展示/交互消息】（id/timestamp/
+// usage/insertion/sources/thinkingPlan 等展示字段）；agent 层接口是【runtime 协议消息】
+// （tool_calls/thinkingBlocks/serverToolBlocks/_toolResults）。演变方向不同（UI 随交互、
+// 协议层随供应商 API），合并会互相污染。跨层字段映射在 AIChatWindow/utils.ts 的
+// buildHistoryMessages 完成——协议字段变更时同步检查该函数。
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'

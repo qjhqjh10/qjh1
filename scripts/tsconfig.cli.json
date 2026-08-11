@@ -13,5 +13,5 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["run-agent.ts"]
+  "include": ["*.ts"]
 }

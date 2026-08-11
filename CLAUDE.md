@@ -1,4 +1,4 @@
-# AI写作软件—青剑 v16.3.0
+# AI写作软件—青剑 v16.3.1
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
@@ -6,7 +6,19 @@ Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→�
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
 
-## 当前架构 (v16.3.0)
+## 当前架构 (v16.3.1)
+
+### v16.3.1 全面审计修复批次（2026-08-11）
+- **审计方法**: 3 路探索代理（运行链路/IPC 一致性、死代码冗余、核心逻辑）+ 逐项代码级复核 47 项问题（38 确认/6 降级/3 设计取舍不修）→ v1 方案 → 自审 8 不足 → 对抗性审查修正 → v2 方案 8 组实施
+- **协议路由统一（F1）**: 新增 `normalizeOpenAIBaseURL`（electron/ipc/utils.ts）应用于主进程全部 7 个 OpenAI 构造点（ai:chat / ai:chat-stream / ai:chat-with-tools / ai:responses-chat / buildSecondaryClient / ai:listModels / kbHandlers getEmbedding）——`/anthropic` 后缀配置下 OpenAI 兼容请求 404 全部修复；批量生成/情色场景/上下文压缩改走 chatAI 协议路由（原恒走 OpenAI 通道，anthropic 协议下无缓存收益）
+- **清单完成判定修复（F2）**: `checklistNeedsWrite` 硬写动词判定（HARD_WRITE_RE）——"1.整理伏笔 2.精简大纲"类清单模型只读完成即收尾（原空转至 30 轮烧 token）；清单 nudge 补 REFUSAL 有界出口（对齐无清单路径）；markAllDone 补问句守卫；轮间 abort 文案修正（不再误报"API 调用失败"）；关键不变量（taskList ⟹ fileOp）经对抗性审查确认
+- **记账/版本记录（F3/F5/F6）**: anthropicService total_tokens 补 cache_read+cache_creation（互斥语义，原低估 60-90%）；批量生成非流式分支补 saveVersionRecord；imitationService saveExtraction 纳入写锁 + saveDimResult/saveDetailResults 空态初始化
+- **共享重构（D8/D9/D10/D17）**: writeToolSets.ts 单一真源（4 集合自动过滤派生 + editor_rewrite 漂移补齐 + WriteToolSets.test.ts 5 断言）；jsonRepair.ts 5 策略共享渲染层与主进程（schemaValidation 原仅 2 策略）；软件自述文本单一真源（softwareGuide.ts 被 AIChatWindow displayOnly 消费）；isAnthropicProtocol 导出共享（createSubagentAdapter）
+- **死代码清理（D1-D7/D11/D14-D16）**: 删除 7 个零引用文件（TemplateLibraryPage/NovelSceneModal/PolishPreview/CharacterImage/useFileSync/tests mocks）+ jest-dom 依赖 + generate_image 死分支 + abortVision 冗余 API + toolDefs 过期描述修正 + READ_ONLY_TOOLS 移除写操作
+- **打包与脚本加固（F13/F14/H 组）**: zip 防泄漏复检改 node + unzipper 实现（消除系统 unzip 依赖）；minimatch 声明依赖（原幽灵依赖）；check-consistency 修复 6 处失效项（C2 版本读取 argv 传参+history 字段、C4 架构检查、C6 统计路径、C8 pipefail+SIGPIPE）；run-agent CLI 重写（删除 MemoryIndex/contextAssembler/isComplexTask 等 5 处旧引用，对齐 GUI BridgeContextBuilder + hasTaskKeywords + CacheInvalidator.invalidateAfterTool）；tsconfig.cli.json 覆盖全部 scripts/*.ts（原仅 run-agent.ts 无类型检查）
+- **审查修复 R1-R5**: ① anthropic 协议流式批量生成取消 → onDone 空文本 → replaceMode 清空章节文件（中高，aborted 改走 onError 流式/非流式双路径 + 2 单测）② run-agent 双份核心提示词 ③ HARD_WRITE_RE 补"改" ④ embedding 归一化 ⑤ 批量生成误把项目路径当 system 提示词
+- **注释固化**: 8 处"为何共享/为何分开/何时应拆"注释（双 logger/双 Message/双通道迁移/ForeshadowItem2/FileCache shim/共享点影响面）
+- **测试**: 852 passed + 15 skipped；tsc 0；check-consistency 34/34；tool-schemas.json 33 工具
 
 ### v16.3.0 副模型纯多模态（2026-08-11）
 - **定位修正**: 副模型只负责**图片理解**（补充主模型无多模态的劣势），**文生图功能整体移除**——多模态模型（MiniMax-M3/qwen-vl-plus 等）只支持看图、不支持 OpenAI Images 端点，原设计把两类互斥模型塞进同一槽位（同一 secondaryModel 名同时喂 chat vision 与 images/generations 端点）导致配置任意一方另一方必失败
@@ -272,8 +284,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (829 passed + 15 skipped，共 840) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (303 passed + 14 skipped，共 317) |
+| `npx vitest run` | 全量单元测试 (852 passed + 15 skipped，共 867) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (331 passed + 14 skipped，共 345) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
 

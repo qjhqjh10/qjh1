@@ -50,11 +50,9 @@ echo "══ 6/6 打包 zip + 防泄漏复检 ══"
 cd release
 rm -f "$ZIP_NAME"
 node ../scripts/zip-dist.mjs "$VERSION"
-if unzip -l "$ZIP_NAME" >/dev/null 2>&1 && unzip -l "$ZIP_NAME" | grep -q "win-unpacked/userdata"; then
-  echo "  🔴 zip 仍包含 userdata——终止（需人工介入）"
-  rm -f "$ZIP_NAME"
-  exit 1
-fi
+# v16.3.1(审计 F13): 复检改用 node + unzipper 读 zip 目录（原依赖系统 unzip——
+# 缺失时 `unzip -l` 失败被重定向吞掉、复检静默跳过且脚本继续成功退出）
+node ../scripts/zip-dist.mjs --check "$VERSION"
 echo ""
 echo "✅ 完成: release/$ZIP_NAME"
 echo "   （zip 内已确认无 userdata：对方机器将以全新配置启动，不再出现僵尸配置/刷新报错）"

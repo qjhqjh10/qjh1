@@ -36,14 +36,18 @@ echo ""
 
 # ═══ C2: Version consistency ═══
 echo "── C2: Version ──"
-PKG_VER=$(node -e "console.log(require('$ROOT/package.json').version)" 2>/dev/null || echo "unknown")
+# v16.3.1(审计 S10): 路径经 process.argv 传入——内联 require('/d/3/...') 在 node 下不可解析
+# （git-bash 的 /d/ 路径形态），argv 传参由 node 归一化，与下方 HIST_VER 同法
+PKG_VER=$(node -e "console.log(require(process.argv[1]).version)" "$ROOT/package.json" 2>/dev/null || echo "unknown")
 
 # Extract latest version from version_history.json
 if [ -f "$ROOT/src/data/version_history.json" ]; then
   HIST_FILE="$ROOT/src/data/version_history.json"
   HIST_VER=$(node -e "
     const h = require(process.argv[1]);
-    const entries = Array.isArray(h) ? h : h.versions || [];
+    // v16.3.1(审计 S10): 实际结构为 { currentVersion, currentDate, history }——
+    // 原读 h.versions 恒空 → 永远 unknown（检查空转）
+    const entries = Array.isArray(h) ? h : h.versions || h.history || [];
     console.log(entries[0]?.version || 'unknown');
   " "$HIST_FILE" 2>/dev/null || echo "unknown")
 else
@@ -96,14 +100,19 @@ else
 fi
 echo ""
 
-# ═══ C4: Context Provider count ═══
-echo "── C4: Context Providers ──"
-# Count providers listed in ALL_PROVIDERS array in index.ts
-PROVIDERS=$(grep -c "Provider," "$ROOT/src/agent/context/providers/index.ts" 2>/dev/null || echo 0)
-if [ "$PROVIDERS" -ge 5 ] 2>/dev/null; then
-  pass "Context providers: $PROVIDERS registered (≥ 5 minimum)"
+# ═══ C4: Context pipeline integrity ═══
+echo "── C4: Context Pipeline ──"
+# v16.3.1(审计 S1): 原检查 grep src/agent/context/providers/index.ts（v11 架构已删除该目录，
+# 恒 0 恒 WARN 空转）。改为检查真实架构真源文件齐全（ContextAssembler 组装链路）。
+CONTEXT_FILES="src/agent/context/ContextAssembler.ts src/agent/context/BridgeContextBuilder.ts src/agent/context/ContextCompressor.ts src/agent/context/ReadResultTracker.ts src/agent/context/ContractExecutor.ts"
+CONTEXT_MISSING=0
+for f in $CONTEXT_FILES; do
+  [ -f "$ROOT/$f" ] || { warn "  $f — NOT FOUND"; CONTEXT_MISSING=$((CONTEXT_MISSING+1)); }
+done
+if [ "$CONTEXT_MISSING" -eq 0 ]; then
+  pass "Context pipeline: 5 core files present"
 else
-  warn "Context providers: only $PROVIDERS found"
+  fail "Context pipeline: $CONTEXT_MISSING core files missing"
 fi
 echo ""
 
@@ -128,11 +137,13 @@ echo ""
 # ═══ C6: Test file coverage ═══
 echo "── C6: Test Coverage ──"
 # Count test files
+# v16.3.1(审计 S2): 原统计 src/types/__tests__/*.test.ts（目录不存在，恒计 0）——补 services/utils/store 与 tests/ 根
 AGENT_TESTS=$(find "$ROOT/src/agent/__tests__" -name '*.test.ts' 2>/dev/null | wc -l || echo 0)
 ELECTRON_TESTS=$(find "$ROOT/electron/ipc/__tests__" -name '*.test.ts' 2>/dev/null | wc -l || echo 0)
-TYPES_TESTS=$(find "$ROOT/src/types" -path '*/__tests__/*.test.ts' 2>/dev/null | wc -l || echo 0)
-TOTAL_TESTS=$((AGENT_TESTS + ELECTRON_TESTS + TYPES_TESTS))
-pass "Test files: $TOTAL_TESTS (agent:$AGENT_TESTS electron:$ELECTRON_TESTS types:$TYPES_TESTS)"
+SRC_OTHER_TESTS=$(find "$ROOT/src/services/__tests__" "$ROOT/src/utils/__tests__" "$ROOT/src/store/__tests__" "$ROOT/src/types" -name '*.test.ts' 2>/dev/null | wc -l || echo 0)
+ROOT_TESTS=$(find "$ROOT/tests" -name '*.test.ts' 2>/dev/null | wc -l || echo 0)
+TOTAL_TESTS=$((AGENT_TESTS + ELECTRON_TESTS + SRC_OTHER_TESTS + ROOT_TESTS))
+pass "Test files: $TOTAL_TESTS (agent:$AGENT_TESTS electron:$ELECTRON_TESTS src-other:$SRC_OTHER_TESTS root:$ROOT_TESTS)"
 echo ""
 
 # ═══ C7: TypeScript compilation ═══
@@ -146,10 +157,13 @@ echo ""
 
 # ═══ C8: Test coverage threshold ═══
 echo "── C8: Test Coverage ──"
-if npx vitest run --coverage --reporter=verbose 2>/dev/null | grep -q "Coverage"; then
+# v16.3.1(审计 S3/S11): ① 提示语修正（原指向不存在的 npm run test:coverage）；
+# ② grep 去掉 -q——set -o pipefail 下 grep -q 首匹配即退出 → SIGPIPE 杀 vitest →
+# 管道恒失败（原检查永远 WARN）
+if npx vitest run --coverage 2>/dev/null | grep "Coverage" >/dev/null; then
   pass "Coverage: thresholds met"
 else
-  warn "Coverage: unable to verify (run: npm run test:coverage)"
+  warn "Coverage: unable to verify (run: npx vitest run --coverage)"
 fi
 echo ""
 

@@ -10,6 +10,31 @@ import { logError } from './logger'
 
 export const MASKED_KEY = '••••••••'
 
+/**
+ * v16.3.1(审计 D1): OpenAI 兼容 baseURL 归一化——剥离 Anthropic 协议地址形态。
+ * 用户配置 apiUrl 为 DeepSeek 官方 Anthropic 端点（https://api.deepseek.com/anthropic 或
+ * 完整 /anthropic/v1/messages，如 OpenCode zen/go）时，OpenAI SDK 会拼接成
+ * /anthropic/chat/completions → 404。此函数把 Anthropic 路径段剥掉，得到 OpenAI 兼容 base。
+ *
+ * 规则（路径锚定，只剥 Anthropic 形态，绝不补 /v1）：
+ *   trim → 去尾斜杠 → 去 /anthropic 或 /anthropic/xxx 后缀 → 去 /v1/messages 后缀（整体剥离，
+ *   与 v15.5 既有 listModels 行为一致）→ 再去尾斜杠
+ * 不误伤: api.anthropic.com（主机名非路径段）、/anthropic2、OpenRouter /api/v1、裸 /v1。
+ *
+ * ⚠️ 消费约定：主进程【所有】OpenAI client 构造点（new OpenAI({baseURL: ...})）必须经本函数
+ * 归一化，否则 /anthropic 配置下该通道 404。现有 7 个消费点：ai:chat / ai:chat-stream /
+ * ai:chat-with-tools / ai:responses-chat / buildSecondaryClient / ai:listModels /
+ * kbHandlers getEmbedding。新增构造点时请沿用（可 grep "new OpenAI(" 核对全量）。
+ */
+export function normalizeOpenAIBaseURL(apiUrl: string): string {
+  return (apiUrl || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/anthropic(\/.*)?$/, '')
+    .replace(/\/v1\/messages$/, '')
+    .replace(/\/+$/, '')
+}
+
 /** 密钥字段清单（与 ModelConfig 的 apiKey/mainApiKey/imageApiKey/secondaryApiKey/embeddingApiKey 一致）。
  * imageApiKey 刻意保留：兼容旧磁盘数据（v16.2.0 迁移后仍可能有旧字段，mergeConfigKeys 需防掩码覆写）。 */
 export const KEY_FIELDS = ['apiKey', 'mainApiKey', 'imageApiKey', 'secondaryApiKey', 'embeddingApiKey'] as const

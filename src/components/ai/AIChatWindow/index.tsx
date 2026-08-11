@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useSettingsStore } from '@/store'
 import { useChapterCollabStore } from '@/store/chapterCollabStore'
 import { aiService, kbService, fileService, settingsService } from '@/services/fileService'
+import { chatAIWithUsage } from '@/utils/chatAI'
+import { AI_CAPABILITIES_SUMMARY, SOFTWARE_FEATURES_SUMMARY } from '@/data/softwareGuide'
 import {
   XMarkIcon, PaperAirplaneIcon, SparklesIcon,
   BookOpenIcon, GlobeAltIcon, BoltIcon,
@@ -552,12 +554,14 @@ export default function AIChatWindow() {
 
     setCompressing(true)
     try {
-      // v4: Unified compression — ContextCompressor.buildCompressPrompt + aiService
+      // v4: Unified compression — ContextCompressor.buildCompressPrompt + chatAI 路由
+      // v16.3.1(审计 D1): aiService.chatWithUsage → chatAIWithUsage（压缩调用协议路由统一，
+      // anthropic 协议下压缩不再恒走 OpenAI 兼容通道）
       const compressor = new ContextCompressor()
       const { summaryContent, compressedCount, estimatedInputTokens } =
         await compressor.compressWithLLM(
           toCompress,
-          (msgs, cid) => aiService.chatWithUsage(msgs, cid),
+          (msgs, cid) => chatAIWithUsage(msgs, cid),
           activeConfigId!,
         )
 
@@ -858,10 +862,12 @@ export default function AIChatWindow() {
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
 
     // V9.5.2 P0-5: displayOnly queries served locally, zero API cost
+    // v16.3.1(审计 D10): 内联硬编码 → import softwareGuide.ts 单一真源（原内联版已过期：
+    // "双协议/21+维度"——现为三协议/27 维度/协作改写等）
     if (isDisplayOnly) {
       const localText = input.trim().includes('软件')
-        ? '青剑是 AI 辅助小说创作桌面软件。主要功能模块：\n\n📁 项目管理 — 支持普通写作/仿写/续写三种项目类型\n💬 AI 写作助手 — 多工具（核心+扩展，tool_search按需发现），悬浮聊天窗\n📋 大纲 — 10 个 Tab（剧情/世界观/角色/道具/地点/势力/等级/伏笔/情绪/故事线）\n👤 角色 — 12 字段卡片 + 自定义条块 + AI 一键生成\n✍️ 章节写作 — TipTap 富文本编辑器 + AI 生成/改写/审稿 + 版本管理 + 风格/场景模板注入\n📖 仿写 — 13 种类型 → 维度风格分析 → 大纲/细纲模仿\n⏩ 续写 — 7 步向导 → 13 维度逐章分析\n🎨 风格/场景工坊 — 风格模板(21+维度) + 场景模板\n📚 知识库 — PDF/DOCX/TXT 上传 → 语义搜索\n🔄 改写 — 选中文字 → 改写/续写（右键菜单，可插入本章原文参考）\n📕 导出 — EPUB 3.0 + 自动目录\n⚙️ 设置 — 多模型管理 + Token 统计 + 温度调节 + 双协议切换\n\n需要了解哪个功能的详细信息？'
-        : '我是青剑内置的 AI 写作助手。我能直接操作项目文件完成：\n\n📝 文件操作 — 读取/创建/编辑/删除项目文件\n👤 角色管理 — 创建 12 字段完整角色卡片（可自定义条块）\n📋 大纲创作 — 编写故事剧情和世界观\n📑 细纲创作 — 生成详细细纲 JSON\n✍️ 章节生成 — 根据大纲+细纲+角色+模板生成章节正文\n📖 小说仿写 — 导入 TXT → 风格分析 → 模仿创作\n⏩ 小说续写 — 7 步向导：分析原作 → 续写新章\n🔄 小说改写 — 选中段落 → 改写/续写（可插入本章原文参考）\n🎨 风格模板 — 注入风格约束到章节生成\n🎬 场景模板 — 注入场景描写指导\n📚 知识库 — 管理参考文档，语义搜索\n\n需要我帮你做什么？'
+        ? SOFTWARE_FEATURES_SUMMARY + '\n\n需要了解哪个功能的详细信息？'
+        : AI_CAPABILITIES_SUMMARY + '\n\n需要我帮你做什么？'
       const msgId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
       setMessages(prev => [...prev,
         { id: msgId, role: 'user', content: fullContent, timestamp: Date.now(), displayOnly: true },

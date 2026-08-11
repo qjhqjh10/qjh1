@@ -250,6 +250,8 @@ app.whenReady().then(async () => {
   // Sync .aiharness/ templates & rules from app package → runtime location
   await syncAiharnessResources(parentDir, projectsPath)
 
+  // v16.3.1(审计 F12): onWrite 钩子为预留扩展点（fileHandlers:177 写后回调，当前无订阅方——
+  // 渲染层文件变更通知走 files:external-change 事件）；参数已可选，显式传 undefined 保持签名自明
   registerFileHandlers(ipcMain, undefined, projectsPath)
   registerProjectHandlers(ipcMain, projectsPath, imitationProjectsPath, continuationProjectDirsPath)
   registerExportHandlers(ipcMain, () => mainWindow, projectsPath)
