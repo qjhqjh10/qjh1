@@ -163,6 +163,7 @@ export const CHARACTER_FIELDS: { key: keyof Character; label: string; isNumber?:
 
 import { yamlStringify, tryParseJsonOrYaml } from '@/utils/yamlUtils'
 import { stripExtension, isStructuredDataFile, readAndMigrate, characterPath } from '@/utils/filePaths'
+import { migrateCharactersDir } from '@/services/outlineMigration'
 
 export async function saveCharacter(projectPath: string, character: Character) {
   try {
@@ -176,7 +177,9 @@ export async function saveCharacter(projectPath: string, character: Character) {
 
 export async function loadCharacters(projectPath: string): Promise<Character[]> {
   try {
-    const files = await fileService.listDir(`${projectPath}/characters`)
+    // v16.4.1: 角色目录统一迁移至 outline/characters/；旧顶层 characters/ 兜底迁移（幂等）
+    await migrateCharactersDir(projectPath)
+    const files = await fileService.listDir(`${projectPath}/outline/characters`)
     const chars: Character[] = []
 
     // Read .yaml files; auto-migrate old .json files
@@ -191,7 +194,7 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
         const migrated = await readAndMigrate(
           p => fileService.read(p).catch(() => null),
           (p, c) => fileService.write(p, c),
-          `${projectPath}/characters`,
+          `${projectPath}/outline/characters`,
           baseName,
         )
         if (!migrated) continue
@@ -218,7 +221,7 @@ export async function loadCharacters(projectPath: string): Promise<Character[]> 
 
     for (const file of txtFiles) {
       try {
-        const content = await fileService.read(`${projectPath}/characters/${file}`)
+        const content = await fileService.read(`${projectPath}/outline/characters/${file}`)
         const char: Character = { ...EMPTY_CHARACTER, id: file.replace('.txt', '') }
         const lines = content.split('\n')
         for (const line of lines) {

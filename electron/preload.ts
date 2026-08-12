@@ -174,7 +174,7 @@ const api = {
       ipcRenderer.invoke('kb:uploadFiles', filePaths, activeProjectId, folder),
     delete: (fileId: string): Promise<void> => ipcRenderer.invoke('kb:delete', fileId),
     write: (fileId: string, content: string, configId?: string): Promise<void> => ipcRenderer.invoke('kb:write', fileId, content, configId),
-    index: (fileId: string, configId: string): Promise<{ chunkCount: number }> =>
+    index: (fileId: string, configId: string): Promise<{ chunkCount: number; failedCount: number }> =>
       ipcRenderer.invoke('kb:index', fileId, configId),
     search: (query: string, projectId: string, configId: string, topK?: number, fileIds?: string[], excludeFileIds?: string[]): Promise<KBSearchResult[]> =>
       // v14.4.0 修复: 第 6 参 excludeFileIds 透传（此前丢弃 → v14.3 注入去重特性静默失效）
@@ -199,10 +199,13 @@ const api = {
       ipcRenderer.invoke('kb:createFolder', name, parent),
     renameFolder: (folder: string, newName: string): Promise<boolean> =>
       ipcRenderer.invoke('kb:renameFolder', folder, newName),
-    deleteFolder: (folder: string): Promise<boolean> =>
+    deleteFolder: (folder: string): Promise<{ deleted: number }> =>
       ipcRenderer.invoke('kb:deleteFolder', folder),
     moveFile: (fileId: string, folder: string): Promise<boolean> =>
       ipcRenderer.invoke('kb:moveFile', fileId, folder),
+    // v16.4.1: 复制文件到指定目录
+    copyFile: (fileId: string, folder: string): Promise<boolean> =>
+      ipcRenderer.invoke('kb:copyFile', fileId, folder),
     webSearch: (query: string, maxResults?: number, safeSearch?: string, prioritySites?: { url: string }[]): Promise<KBWebSearchResult[]> =>
       ipcRenderer.invoke('kb:webSearch', query, maxResults ?? 5, safeSearch ?? 'moderate', prioritySites ?? []),
   },

@@ -252,7 +252,8 @@ export class BridgeContextBuilder {
         // v16.4.0: 发言格式约束（修复多角色混音）——AI 角色>1 时必须按"角色名：台词"分行标注；
         // 关键语义（用户澄清）：不是"轮流/全员发言"——谁参与当前场景、谁该说话才由谁发言，
         // 未出场的角色保持沉默；用户点名/要求某角色时优先由该角色回应。
-        // 用户消息 [扮演: X] 前缀 = 用户以该角色身份说话（聊天窗「🎭 扮演」选择器注入）
+        // 用户消息 [扮演: X] 前缀 = 用户以该角色身份说话（v16.4.1: 扮演选择器已移除——
+        // 无 UI 注入，但用户可手动写前缀声明以角色身份发言；AI 按用户要求+角色信息直接扮演）
         // v16.4.0(举一反三·无例外强制修复): 「不要自造角色名」限指模板内角色不能叫错名，
         // 剧情需要的临时新角色（客栈小二/路人/神秘客）必须可以即兴创造
         charLines.push('【发言格式】')
@@ -344,8 +345,8 @@ export class BridgeContextBuilder {
     const breakdown: Array<{ domain: string; tokens: number }> = [
       { domain: '核心规则(全量)', tokens: coreTokens - projectTokens },
       ...(projectTokens > 0 ? [{ domain: '项目信息', tokens: projectTokens }] : []),
+      // v16.4.1(审查修复): 章节协作块走 searchContext 管道（searchTokens 已含）——不重复单列
       ...(searchContext ? [{ domain: '知识库/网络搜索/章节协作', tokens: searchTokens }] : []),
-      ...(chapterTokens > 0 ? [{ domain: '章节协作', tokens: chapterTokens }] : []),
       { domain: '对话历史', tokens: historyTokens },
       { domain: '当前消息', tokens: estimateTokens(msg) },
     ].filter(b => b.tokens > 0)

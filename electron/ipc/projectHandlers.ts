@@ -5,9 +5,10 @@ import * as os from 'os'
 import * as path from 'path'
 import { isSafePath } from './utils'
 import { logError } from './logger'
+import { initProjectSkeleton } from './projectInit'
 
-const PROJECT_DIRS = ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']
-
+// v16.4.1: 大纲部分化布局——doc 进子文件夹（story/worldbuilding）；角色目录迁移至 outline/characters/；
+// 实体目录按需创建（UI/AI 工具 ensureDir）
 let writingProjectsPath = ''
 let imitationProjectsPath = ''
 let continuationProjectDirsPath = ''
@@ -55,18 +56,8 @@ export function registerProjectHandlers(
     } catch (err: unknown) {
       if (err instanceof Error && err.message === `项目 "${name}" 已存在`) throw err
     }
-    for (const dir of PROJECT_DIRS) {
-      await fs.mkdir(path.join(projectPath, dir), { recursive: true })
-    }
-    // Create outline tab files
-    await fs.writeFile(path.join(projectPath, 'outline', 'plot.md'), '', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'worldbuilding.md'), '', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'items.yaml'), 'items:\n  # - id: example\n  #   name: 示例道具\n  #   type: 武器\n  #   grade: 凡品\n  #   owner: 角色名\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'locations.yaml'), 'locations:\n  # - id: example\n  #   name: 示例地点\n  #   description: 描述\n  #   type: 宗门\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'factions.yaml'), 'factions:\n  # - id: example\n  #   name: 示例势力\n  #   description: 描述\n  #   type: 宗门内斗势力\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'power_system.yaml'), 'name: 修炼体系\nlevels:\n  # - name: 示例境界\n  #   description: 描述\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'outline_meta.yaml'), 'foreshadowing:\n  # - id: f1\n  #   description: 伏笔描述\n  #   chapterIntroduced: 1\n  #   chapterResolved: \'\'\nplotThreads:\n  # - id: t1\n  #   name: 主线\n  #   description: 描述\n', 'utf-8')
-    await fs.writeFile(path.join(projectPath, 'outline', 'emotion.yaml'), 'segments:\n  # - chapterStart: 1\n  #   chapterEnd: 3\n  #   dominantEmotion: 情绪\n', 'utf-8')
+    // v16.4.1(审查修复): 骨架初始化双通道统一（与 AI create_project 工具共享 projectInit）
+    await initProjectSkeleton(projectPath)
     const projectType = type === 'imitation' ? 'imitation' : type === 'continuation' ? 'continuation' : 'writing'
     await fs.writeFile(path.join(projectPath, 'project.json'), JSON.stringify({ type: projectType, novelCategory: 'general' }), 'utf-8')
   })
@@ -196,8 +187,10 @@ export function registerProjectHandlers(
       }
 
       let projType = targetType || 'writing'
+      let importedMeta: Record<string, unknown> = {}
       try {
         const meta = JSON.parse(await fs.readFile(path.join(projDir, 'project.json'), 'utf-8'))
+        importedMeta = meta || {}
         projType = meta.type || targetType || 'writing'
       } catch { /* legacy */ }
 
@@ -212,7 +205,8 @@ export function registerProjectHandlers(
       const finalPath = path.join(targetBasePath, finalName)
 
       await copyDir(projDir, finalPath)
-      await fs.writeFile(path.join(finalPath, 'project.json'), JSON.stringify({ type: projType }), 'utf-8')
+      // v16.4.1(审查修复): 合并写入保留元数据（原覆盖丢失 name/novelCategory/coverImage 等）
+      await fs.writeFile(path.join(finalPath, 'project.json'), JSON.stringify({ ...importedMeta, type: projType }), 'utf-8')
 
       // Handle continuation data
       const contSrcDir = path.join(tmpDir, '_continuation')
@@ -220,11 +214,10 @@ export function registerProjectHandlers(
         const contFiles = await fs.readdir(contSrcDir)
         const contDir = path.join(path.dirname(writingProjectsPath), 'continuation_projects')
         await fs.mkdir(contDir, { recursive: true })
+        // v16.4.1(审查修复): readdir 只返回文件名，cf === basename 恒成立——原重命名分支死代码
         for (const cf of contFiles) {
           const src = path.join(contSrcDir, cf)
-          const basename = path.basename(cf)
-          const newName = cf !== basename ? cf.replace(path.basename(cf, '.json'), finalName) + '.json' : cf
-          await fs.copyFile(src, path.join(contDir, newName))
+          await fs.copyFile(src, path.join(contDir, cf))
         }
       } catch { /* no continuation data */ }
 

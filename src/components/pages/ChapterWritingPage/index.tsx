@@ -279,7 +279,9 @@ export default function ChapterWritingPage() {
     // 建立关联的即时反馈（v16.1.0 审查修复 A1-2: 原无任何确认）
     const num = String(chapterId).match(/(\d+)/)?.[1] || chapterId
     toast(`🔗 已关联第${num}章，AI 已加载本章全文`)
-    useStore.getState().setPendingMessage(`【章节协作改写】以下是我选中的段落（已加载本章全文，请基于本章内容处理）：\n\n${text}`)
+    // v16.4.1(用户需求): 选中段落不放进输入框——显示为聊天窗输入框上方的绿色选段块，
+    // 随下一条消息发送（用户可自行输入要求）
+    useStore.getState().setCollabSelection(text)
     useStore.getState().setAIChatOpen(true)
   }, [chapterId])
 
@@ -300,7 +302,8 @@ export default function ChapterWritingPage() {
     useChapterCollabStore.getState().attach(chapterId, plain.slice(0, 40), plain)
     const num = String(chapterId).match(/(\d+)/)?.[1] || chapterId
     toast(`🔗 已加载第${num}章，AI 写作助手已了解本章`)
-    useStore.getState().setPendingMessage(`【章节协作改写】我已将本章全文加载给你（共 ${plain.length} 字）。请基于本章内容，我可以帮你改写段落、润色文字或讨论剧情。`)
+    // v16.4.1(用户需求): 不再向输入框预填提示词——用户可能有自己的要求，
+    // 章节全文会在下一条消息发送时自动注入（chip「AI 已加载本章全文」即关联状态）。
     useStore.getState().setAIChatOpen(true)
   }, [chapterId])
 

@@ -94,7 +94,7 @@ export const FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          file_path: { type: 'string', description: '相对于项目根目录的文件路径，如 "outline/items.yaml"、"chapters/chapter1.txt"、"summaries/chapter1.md"' },
+          file_path: { type: 'string', description: '相对于项目根目录的文件路径，如 "outline/items/龙泉剑.yaml"、"outline/story/plot.md"、"chapters/chapter1.txt"' },
         },
         required: ['file_path'],
       },

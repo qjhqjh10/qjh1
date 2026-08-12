@@ -570,7 +570,7 @@ export class V4UnifiedRuntime {
       }
       // v14.3.1: 阈值放宽（3→5 / 5→8）——写作任务合法需要读多个文件（大纲/细纲/角色/前章）才动笔，
       // 原 3 次即催写会在多文件探索中途打断；仍保留兜底防"只读不写"死循环
-      const readNudge8 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/有8个tab, characters/存角色YAML, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
+      const readNudge8 = `[系统提醒] 已连续读取 ${consecutiveReads} 次。项目结构是标准模板——outline/按部分分文件夹（story/worldbuilding/characters/items/locations/factions/power_systems/foreshadows/emotions/threads + sections.json 注册表）, summaries/存摘要, chapters/存正文。不要再探索，直接基于你的知识写入内容。先有再改。`
       const readNudge5 = `[系统提醒] 已读取 ${consecutiveReads} 次。信息应该足够了——项目结构是标准模板。现在开始写入，不要再读了。`
       // v13.x: 按 content 去重——压缩可能移动 system 消息位置，不能按位置判断
       // v14.5.0: 文案内嵌 consecutiveReads 数字导致精确匹配恒失败 → 改为前缀匹配
@@ -1301,7 +1301,7 @@ export class V4UnifiedRuntime {
         if (pathErrorsThisIteration === 1 && lastFailedPath) {
           const hasProjectPrefix = lastFailedPath.includes('projects/')
           const hint = hasProjectPrefix
-            ? `路径错误：不要用 "projects/" 前缀。直接用项目名开头，如 "${this.config.projectId || '项目名'}/outline/plot.md"。修正后继续。`
+            ? `路径错误：不要用 "projects/" 前缀。直接用项目名开头，如 "${this.config.projectId || '项目名'}/outline/story/plot.md"。修正后继续。`
             : `路径 "${lastFailedPath}" 未找到。list_directory() 看目录结构，修正后继续。不要停下来向我汇报。`
           this.messagesForApi.push({ role: 'user', content: `⚠️ ${hint}` })
         }

@@ -10,8 +10,9 @@ export class ContextAssembler {
   static domainsForPath(filePath: string): string[] {
     const fp = filePath.replace(/\\/g, '/').replace(/^(\.\.\/)+/, '')  // strip ../../ prefix
     const domains: string[] = []
-    if (fp.startsWith('characters/'))    domains.push('characters')
-    else if (fp.startsWith('outline/'))  domains.push('outline')
+    // v16.4.1: 角色目录已迁移至 outline/characters/（旧顶层 characters/ 仍兼容判定）
+    if (fp.startsWith('outline/characters/') || fp.startsWith('characters/')) domains.push('characters')
+    if (fp.startsWith('outline/'))  domains.push('outline')
     else if (fp.startsWith('detailed_outline/')) domains.push('detailed-outline')
     else if (fp.startsWith('chapters/')) domains.push('chapter-writing')
     else if (fp.startsWith('summaries/')) domains.push('chapter-writing')

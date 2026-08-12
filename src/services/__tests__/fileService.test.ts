@@ -94,9 +94,10 @@ describe('kbService', () => {
     expect(typeof kbService.moveFile).toBe('function')
   })
 
-  it('has 21 methods', () => {
+  it('has 22 methods (v16.4.1: +copyFile)', () => {
     const methods = Object.keys(kbService)
-    expect(methods).toHaveLength(21)
+    expect(methods).toHaveLength(22)
+    expect(typeof kbService.copyFile).toBe('function')
   })
 })
 

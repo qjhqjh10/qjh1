@@ -37,9 +37,9 @@ export function isStructuredDataFile(fp: string): boolean {
 // ═══════════════════════════════════════════════════
 // M1: projectId 实为路径前缀（projectPath），命名对齐；路径构造函数统一由此产出。
 
-/** 角色文件路径 */
+/** 角色文件路径（v16.4.1: 统一迁移至 outline/characters/，与大纲其他部分同布局） */
 export function characterPath(projectPath: string, name: string): string {
-  return `${projectPath}/characters/${name}${STRUCTURED_DATA_EXT}`
+  return `${projectPath}/outline/characters/${name}${STRUCTURED_DATA_EXT}`
 }
 
 /** 细纲文件路径 */
@@ -47,17 +47,36 @@ export function detailedOutlinePath(projectPath: string, chapterId: string): str
   return `${projectPath}/detailed_outline/${chapterId}${STRUCTURED_DATA_EXT}`
 }
 
+// ═══════════════════════════════════════════════════
+//  v16.4.1: 大纲部分化布局（outline/<sectionKey>/<实体>.yaml）
+//  每部分一个文件夹；doc 部分文件夹内一个文件，entities 部分每实体一个文件。
+// ═══════════════════════════════════════════════════
+
+/** 大纲部分目录路径 */
+export function outlineSectionDir(projectPath: string, sectionKey: string): string {
+  return `${projectPath}/outline/${sectionKey}`
+}
+
+/** 大纲实体文件路径（文件名 = 实体 id，与角色约定一致） */
+export function outlineEntityPath(projectPath: string, sectionKey: string, entityId: string): string {
+  return `${projectPath}/outline/${sectionKey}/${entityId}${STRUCTURED_DATA_EXT}`
+}
+
+/** 大纲部分注册表文件（sections.json） */
+export function sectionsConfigPath(projectPath: string): string {
+  return `${projectPath}/outline/sections.json`
+}
+
 // M1: 大纲 Tab → 实际文件名映射（与 OutlinePage/create_project 初始文件对齐）。
-// basic/worldbuilding 是 .md；其余 snake_case .yaml；powerSystem camelCase → power_system。
-// foreshadow/threads 无独立文件（存于 outline_meta.yaml），characters 读 characters/ 目录，均不在此表。
+// v16.4.1: doc 部分文件夹化（story/worldbuilding → outline/<key>/<file>）；
+// *Legacy = 旧平铺路径（迁移兼容，fileEditNotify 双向命中）。
+// 实体部分（items/foreshadows/threads 等）已改为 outline/<sectionKey>/<实体>.yaml 目录，
+// 不再经本表（fileEditNotify 直接按目录前缀命中）。
 const TAB_FILE_MAP: Record<string, string> = {
-  basic: 'plot.md',
-  worldbuilding: 'worldbuilding.md',
-  items: 'items.yaml',
-  locations: 'locations.yaml',
-  factions: 'factions.yaml',
-  powerSystem: 'power_system.yaml',
-  emotion: 'emotion.yaml',
+  story: 'story/plot.md',
+  storyLegacy: 'plot.md',
+  worldbuilding: 'worldbuilding/worldbuilding.md',
+  worldbuildingLegacy: 'worldbuilding.md',
 }
 
 /** 大纲 Tab 文件路径（按 TAB_FILE_MAP 解析真实文件名） */
@@ -78,20 +97,6 @@ export function sceneConfigPath(projectPath: string, chapterId: string): string 
 /** 去除扩展名 */
 export function stripExtension(fp: string): string {
   return fp.replace(/\.(json|ya?ml)$/, '')
-}
-
-// ═══════════════════════════════════════════════════
-//  文件过滤（目录列表中筛选结构化数据文件）
-// ═══════════════════════════════════════════════════
-
-/** 从文件列表中筛选所有结构化数据文件（.yaml + .json） */
-function filterStructuredDataFiles(files: string[]): string[] {
-  return files.filter(f => isJsonFile(f) || isYamlFile(f))
-}
-
-/** 获取目录中所有结构化数据文件的基础名（去扩展名） */
-function getStructuredFileNames(files: string[]): string[] {
-  return filterStructuredDataFiles(files).map(stripExtension)
 }
 
 // ═══════════════════════════════════════════════════

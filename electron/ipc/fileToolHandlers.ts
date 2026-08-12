@@ -10,6 +10,7 @@ import { loadMetadata, saveMetadata, getKBPath } from './kbHandlers/helpers'
 // v14.9(C1): find_files walk 逐目录黑名单（pathResolution 已 re-export 共享模块判定）
 import { GLOBAL_DIR_NAMES, isBlockedSystemPath, resolveArg as resolveArgCore, safeResolveArg, containsBackupSegment } from './pathResolution'
 import { netFetch } from './netFetch'  // v14.6.1: 系统代理/证书
+import { initProjectSkeleton } from './projectInit'
 
 export interface ToolCallArgs {
   callId: string
@@ -885,7 +886,7 @@ export async function executeFileTool(
       case 'delete_file': {
         const fp = await safeResolve('file_path', args, projectPath)
         if (!fp) return deny(callId, toolName, '路径解析失败或指向系统目录')
-        // Issue #16: Final backup (disabled)
+        // Issue #16: Final backup
         try { await backupFile(fp, projectPath) } catch { /* ignore */ }
         try { await fsp.unlink(fp) } catch {
           return { callId, toolName, status: 'error', summary: `文件不存在: ${args.file_path}` }
@@ -958,18 +959,11 @@ export async function executeFileTool(
         if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return deny(callId, toolName, '无效的项目名称')
         const pp = path.join(projectPath, name)
         try { await fsp.access(pp); return { callId, toolName, status: 'error', summary: `项目已存在: ${name}` } } catch { /* ok */ }
-        for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
-          await fsp.mkdir(path.join(pp, dir), { recursive: true })
-        }
-        // 初始模板文件（YAML，匹配当前系统提示词）
-        await fsp.writeFile(path.join(pp, 'outline', 'plot.md'), '# 故事剧情\n\n> 一句话梗概\n\n## 第1章\n\n（待填写）', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'worldbuilding.md'), '# 世界观设定\n\n> 类型·基调\n\n## 一、核心规则\n\n（待填写）', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'items.yaml'), 'items: []', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'locations.yaml'), 'locations: []', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'factions.yaml'), 'factions: []', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'power_system.yaml'), "name: ''\nlevels: []\ndescription: ''", 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'outline_meta.yaml'), 'foreshadowing: []\nplotThreads: []\nupdatedAt: ""', 'utf-8')
-        await fsp.writeFile(path.join(pp, 'outline', 'emotion.yaml'), 'segments: []', 'utf-8')
+        // v16.4.1(审查修复): 骨架初始化双通道统一（与首页 project:create 共享 projectInit）
+        await initProjectSkeleton(pp, {
+          plotMd: '# 故事剧情\n\n> 一句话梗概\n\n## 第1章\n\n（待填写）',
+          wbMd: '# 世界观设定\n\n> 类型·基调\n\n## 一、核心规则\n\n（待填写）',
+        })
         const novelCat = (args.novelCategory as string) || 'general'
         const projType = (args.type as string) === 'imitation' ? 'imitation' : (args.type as string) === 'continuation' ? 'continuation' : 'writing'
         await fsp.writeFile(path.join(pp, 'project.json'), JSON.stringify({ type: projType, novelCategory: novelCat }), 'utf-8')
@@ -1194,13 +1188,15 @@ function deny(callId: string, toolName: string, reason: string): ToolCallResult 
 
 /** Generate a helpful path hint showing the project's expected directory structure */
 function pathHint(requestedPath: string): string {
+  // v16.4.1: 部分化布局——doc 进子文件夹（story/worldbuilding），角色迁入 outline/characters/
   const dirs = [
-    'outline/         — plot.md, worldbuilding.md（大纲和世界观为 .md 格式）',
-    'characters/      — {中文名}.yaml (每个角色一个文件，如 林语晴.yaml)',
+    'outline/         — 大纲（部分化：story/plot.md、worldbuilding/worldbuilding.md、characters/、items/、locations/ 等每部分一个文件夹，注册表 sections.json）',
+    'outline/story/   — 故事剧情 plot.md（Markdown 自由格式）',
+    'outline/characters/ — {中文名}.yaml (每个角色一个文件，如 林语晴.yaml)',
     'detailed_outline/— {章节id}.yaml (每章一个细纲)',
     'chapters/        — {章节id}.txt (章节正文)',
     'summaries/       — {章节id}.md (每章摘要，Markdown 格式)',
     'notes/           — 草稿笔记 (.md)',
   ]
-  return `请求路径: ${requestedPath}\n\n项目标准目录结构:\n${dirs.map(d => '  ' + d).join('\n')}\n\n提示: 世界观文件是 outline/worldbuilding.md，不是 worldview/。故事剧情是 outline/plot.md。`
+  return `请求路径: ${requestedPath}\n\n项目标准目录结构:\n${dirs.map(d => '  ' + d).join('\n')}\n\n提示: 世界观文件是 outline/worldbuilding/worldbuilding.md，故事剧情是 outline/story/plot.md。`
 }

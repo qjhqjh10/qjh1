@@ -6,16 +6,15 @@ import Button from '@/components/common/Button'
 import Modal from '@/components/common/Modal'
 import ConfirmModal from '@/components/common/ConfirmModal'
 import ScrollArea from '@/components/common/ScrollArea'
-import { KbFolderTree, formatKbSize, type KbTreeData } from '@/components/knowledge/KbFolderTree'
+import { KbFolderTree, formatKbSize as formatSize, type KbTreeData } from '@/components/knowledge/KbFolderTree'
 import {
   DocumentTextIcon,
   DocumentArrowUpIcon,
   DocumentArrowDownIcon,
+  DocumentDuplicateIcon,
   TrashIcon,
   MagnifyingGlassIcon,
   ArrowPathIcon,
-  TagIcon,
-  XMarkIcon,
   FolderPlusIcon,
   FolderIcon,
   PencilIcon,
@@ -53,7 +52,7 @@ export default function KnowledgeBasePage() {
   // 三级目录选中态
   const [activeType, setActiveType] = useState<'root' | 'dir' | 'file'>('root')  // 当前激活节点类型
   const [activeDir, setActiveDir] = useState('')  // '' = 根目录；'一级' / '一级/二级'
-  const [filterFolder, setFilterFolder] = useState<string | null>(null)  // 文件列表过滤（null = 全部）
+  // v16.4.1(用户需求): 左侧只留目录树（树内即文件，大小对齐原「文件」列表）——filterFolder 死逻辑移除
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ '': true })
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'single'; file: KnowledgeFile } | null>(null)
@@ -65,8 +64,12 @@ export default function KnowledgeBasePage() {
   const [newFolderName, setNewFolderName] = useState('')
   const [folderRename, setFolderRename] = useState<{ folder: string; name: string } | null>(null)
   const [folderRenameValue, setFolderRenameValue] = useState('')
-  const [movingFile, setMovingFile] = useState<KnowledgeFile | null>(null)
+  // v16.4.1(任务2): 多选/批量操作——支持批量移动/删除/复制
+  const [multiSelectMode, setMultiSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [movingFiles, setMovingFiles] = useState<KnowledgeFile[] | null>(null)
   const [moveTarget, setMoveTarget] = useState('')
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   // Estimate dialog
@@ -106,14 +109,13 @@ export default function KnowledgeBasePage() {
 
   // ── 目录/文件选择 ──
   const handleSelect = useCallback(async (type: 'root' | 'dir' | 'file', key: string) => {
-    if (type === 'root') { setActiveType('root'); setActiveDir(''); setFilterFolder(null); return }
-    if (type === 'dir') { setActiveType('dir'); setActiveDir(key); setFilterFolder(key); return }
+    if (type === 'root') { setActiveType('root'); setActiveDir(''); return }
+    if (type === 'dir') { setActiveType('dir'); setActiveDir(key); return }
     // 文件选中 → 读取内容
     setActiveType('file')
     const f = files.find(x => x.id === key)
     if (!f) return
     setSelectedFile(f)
-    setFilterFolder(f.folder ?? null)
     try {
       const result = await kbService.read(f.id)
       setFileContent(result.content)
@@ -192,16 +194,7 @@ export default function KnowledgeBasePage() {
     setIndexing(null)
   }
 
-  const toggleProject = async (file: KnowledgeFile, projectId: string) => {
-    const assigned = !file.projects.includes(projectId)
-    await kbService.assignProject(file.id, projectId, assigned)
-    // Update selectedFile immediately without waiting for re-render
-    const updatedProjects = assigned
-      ? [...file.projects, projectId]
-      : file.projects.filter(p => p !== projectId)
-    setSelectedFile(prev => prev?.id === file.id ? { ...prev, projects: updatedProjects } : prev)
-    await loadFiles()
-  }
+  // v16.4.1(用户决策): 文件与项目已解绑（v16.3.0）——toggleProject/所属项目 UI 整体移除
 
   // ── 目录操作 ──
   const handleCreateFolder = async () => {
@@ -232,11 +225,9 @@ export default function KnowledgeBasePage() {
       // 当前选中目录若被重命名 → 跟随
       if (activeDir === folderRename.folder) {
         setActiveDir(folderRenameValue.trim())
-        setFilterFolder(folderRenameValue.trim())
       } else if (activeDir.startsWith(folderRename.folder + '/')) {
         const newPath = folderRenameValue.trim() + activeDir.slice(folderRename.folder.length)
         setActiveDir(newPath)
-        setFilterFolder(newPath)
       }
       setFolderRename(null)
       await loadFiles()
@@ -246,37 +237,88 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  // v16.4.1(任务4 修复): 支持非空目录递归删除（主进程返回删除文件数）
   const handleDeleteFolder = async () => {
     if (!folderToDelete) return
     try {
-      await kbService.deleteFolder(folderToDelete.folder)
+      const result = await kbService.deleteFolder(folderToDelete.folder) as { deleted: number }
       setFolderToDelete(null)
-      if (activeDir === folderToDelete.folder) { setActiveDir(''); setFilterFolder(null) }
+      if (activeDir === folderToDelete.folder) { setActiveDir('') }
+      // 若当前打开的文件在删除目录内 → 清空详情
+      if (selectedFile && (selectedFile.folder === folderToDelete.folder || selectedFile.folder?.startsWith(folderToDelete.folder + '/'))) {
+        setSelectedFile(null)
+        setFileContent('')
+      }
       await loadFiles()
-      notify('文件夹已删除')
+      notify(`文件夹已删除${result?.deleted ? `（含 ${result.deleted} 个文件）` : ''}`)
     } catch (err) {
-      alert(err instanceof Error ? err.message : '删除失败（目录可能非空）')
+      alert(err instanceof Error ? err.message : '删除失败')
     }
   }
 
-  const handleMoveFile = async () => {
-    if (!movingFile) return
+  // v16.4.1(任务2): 批量移动（循环 moveFile）
+  const handleMoveFiles = async () => {
+    if (!movingFiles || movingFiles.length === 0) return
     try {
-      await kbService.moveFile(movingFile.id, moveTarget)
-      setMovingFile(null)
+      for (const f of movingFiles) {
+        await kbService.moveFile(f.id, moveTarget)
+      }
+      setMovingFiles(null)
+      setMoveTarget('')
       await loadFiles()
-      notify(`已移动到${moveTarget ? `「${moveTarget}」` : '根目录'}`)
+      setSelectedIds(new Set())
+      notify(`已移动 ${movingFiles.length} 个文件到${moveTarget ? `「${moveTarget}」` : '根目录'}`)
     } catch (err) {
       alert(err instanceof Error ? err.message : '移动失败')
     }
   }
 
-  // 文件过滤（搜索 + 目录）
-  const filteredFiles = files.filter(f => {
-    if (searchQuery && !f.originalName.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    if (filterFolder !== null && f.folder !== (filterFolder || undefined)) return false
-    return true
-  })
+  // v16.4.1(任务2): 批量复制（复制到各自当前目录）
+  const handleBatchCopy = async () => {
+    if (selectedIds.size === 0) return
+    try {
+      const targets = files.filter(f => selectedIds.has(f.id))
+      for (const f of targets) {
+        await kbService.copyFile(f.id, f.folder || '')
+      }
+      await loadFiles()
+      notify(`已复制 ${targets.length} 个文件（副本）`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '复制失败')
+    }
+  }
+
+  // v16.4.1(任务2): 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return
+    try {
+      for (const id of selectedIds) {
+        await kbService.delete(id)
+      }
+      setBatchDeleteConfirm(false)
+      setSelectedIds(new Set())
+      setMultiSelectMode(false)
+      if (selectedFile && selectedIds.has(selectedFile.id)) {
+        setSelectedFile(null)
+        setFileContent('')
+      }
+      await loadFiles()
+      notify('已删除所选文件')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  // 多选切换
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  // v16.4.1: 搜索过滤移入 KbFolderTree（树内文件按名称匹配）——原「文件」列表及其过滤逻辑删除
 
   const isEditable = selectedFile && (selectedFile.type === 'txt' || selectedFile.type === 'md')
   const isIndexable = selectedFile && selectedFile.type !== 'pdf' && selectedFile.type !== 'docx'
@@ -334,11 +376,24 @@ export default function KnowledgeBasePage() {
               padding: '0 4px 6px', fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: '0.5px',
             }}>
               <span>📂 目录</span>
-              <button onClick={() => setShowNewFolder(true)} title="新建文件夹"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, padding: 2, display: 'flex' }}>
-                <FolderPlusIcon style={{ width: 15, height: 15 }} />
-              </button>
+              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                {/* v16.4.1(任务2): 多选模式开关 */}
+                <button onClick={() => { setMultiSelectMode(v => !v); setSelectedIds(new Set()) }} title={multiSelectMode ? '退出多选模式' : '多选模式（批量移动/复制/删除）'}
+                  style={{
+                    background: multiSelectMode ? 'rgba(124,58,237,0.1)' : 'none',
+                    border: multiSelectMode ? '1px solid rgba(124,58,237,0.3)' : '1px solid rgba(0,0,0,0.08)',
+                    cursor: 'pointer', color: multiSelectMode ? '#7c3aed' : '#6b5e54', padding: '2px 8px',
+                    borderRadius: 6, fontSize: 11, fontWeight: multiSelectMode ? 700 : 500, fontFamily: 'inherit',
+                  }}>
+                  {multiSelectMode ? '退出多选' : '多选'}
+                </button>
+                <button onClick={() => setShowNewFolder(true)} title="新建文件夹"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, padding: 2, display: 'flex' }}>
+                  <FolderPlusIcon style={{ width: 15, height: 15 }} />
+                </button>
+              </div>
             </div>
+            {/* v16.4.1(用户需求): 目录行尾部操作（重命名/删除）——替代原"目录操作条"（重复显示） */}
             <KbFolderTree
               data={dirTree}
               activeKey={activeType === 'file' ? (selectedFile?.id || '') : activeDir}
@@ -346,105 +401,112 @@ export default function KnowledgeBasePage() {
               onSelect={handleSelect}
               expanded={expanded}
               onToggleExpand={(p) => setExpanded(prev => ({ ...prev, [p]: !prev[p] }))}
-              renderFileActions={(f) => (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const file = files.find(x => x.id === f.id)
-                    if (file) setDeleteConfirm({ type: 'single', file })
-                  }}
-                  title="删除"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px', color: '#d4ccc4', borderRadius: 6, display: 'flex', flexShrink: 0 }}
-                  onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.06)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
-                >
-                  <TrashIcon style={{ width: 13, height: 13 }} />
-                </button>
-              )}
-            />
-          </div>
-
-          {/* 目录操作条（选中目录时显示） */}
-          {activeDir && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', margin: '2px 0 8px',
-              borderRadius: 10, background: C.primarySoft, flexWrap: 'wrap',
-            }}>
-              <FolderIcon style={{ width: 13, height: 13, color: C.primary, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, color: C.primary, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeDir}</span>
-              <button onClick={() => setFolderRename({ folder: activeDir, name: activeDir.split('/').pop() || '' })}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, padding: 2, display: 'flex' }} title="重命名文件夹">
-                <PencilIcon style={{ width: 13, height: 13 }} />
-              </button>
-              <button onClick={() => setFolderToDelete({ folder: activeDir, name: activeDir.split('/').pop() || '' })}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2, display: 'flex' }} title="删除文件夹">
-                <TrashIcon style={{ width: 13, height: 13 }} />
-              </button>
-            </div>
-          )}
-
-          {/* 文件列表（当前目录过滤） */}
-          <div>
-            <div style={{ padding: '0 4px 6px', fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>📄 文件 {searchQuery || filterFolder ? `(${filteredFiles.length})` : ''}</span>
-              {filterFolder !== null && (
-                <button onClick={() => { setFilterFolder(null); setActiveDir('') }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.primary, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <XMarkIcon style={{ width: 11, height: 11 }} /> 清除过滤
-                </button>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {filteredFiles.map(file => (
-                <div key={file.id} style={{
-                  display: 'flex', alignItems: 'center', borderRadius: 12,
-                  background: selectedFile?.id === file.id ? C.primarySoft : 'transparent',
-                  transition: 'background 0.1s ease',
-                }}>
-                  <button onClick={() => handleSelect('file', file.id)} style={{
-                    flex: 1, textAlign: 'left', padding: '11px 12px', borderRadius: 12,
-                    border: 'none', cursor: 'pointer', background: 'transparent', minWidth: 0, fontFamily: 'inherit',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                      <div style={{
-                        width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                        background: selectedFile?.id === file.id ? 'rgba(124,58,237,0.12)' : 'rgba(0,0,0,0.04)',
-                      }}>
-                        <DocumentTextIcon style={{ width: 15, height: 15, color: selectedFile?.id === file.id ? C.primary : '#8b7f73' }} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {file.originalName}
-                        </div>
-                        <div style={{ display: 'flex', gap: 10, marginTop: 3, fontSize: 11, color: C.muted }}>
-                          <span style={{ background: 'rgba(0,0,0,0.04)', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>{file.type.toUpperCase()}</span>
-                          <span>{formatSize(file.size)}</span>
-                          {file.chunkCount > 0 && <span>{file.chunkCount}块</span>}
-                          {file.folder && <span style={{ color: C.primary, opacity: 0.7 }}>{file.folder}</span>}
-                        </div>
-                      </div>
-                    </div>
+              dense={false}
+              searchQuery={searchQuery}
+              renderDirActions={(node) => node.path ? (
+                <div style={{ display: 'flex', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => setFolderRename({ folder: node.path, name: node.name })}
+                    title={`重命名文件夹「${node.name}」`}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 4px', color: '#d4ccc4', borderRadius: 6, display: 'flex' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = '#7c3aed'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <PencilIcon style={{ width: 13, height: 13 }} />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: 'single', file }) }}
-                    title="删除此文件"
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px',
-                      color: '#d4ccc4', flexShrink: 0, borderRadius: 8,
-                    }}
+                  <button
+                    onClick={() => setFolderToDelete({ folder: node.path, name: node.name })}
+                    title={`删除文件夹「${node.name}」`}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 4px', color: '#d4ccc4', borderRadius: 6, display: 'flex' }}
                     onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.06)' }}
                     onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
                   >
-                    <TrashIcon style={{ width: 15, height: 15 }} />
+                    <TrashIcon style={{ width: 13, height: 13 }} />
                   </button>
                 </div>
-              ))}
-              {filteredFiles.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 36, color: C.muted, fontSize: 13 }}>
-                  {searchQuery ? '未找到匹配文件' : filterFolder !== null ? '此目录暂无文件' : '暂无文件，点击"上传文件"添加'}
-                </div>
-              )}
-            </div>
+              ) : null}
+              renderFileActions={(f) => {
+                const file = files.find(x => x.id === f.id)
+                const isSelected = selectedIds.has(f.id)
+                return (
+                  <div style={{ display: 'flex', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    {/* v16.4.1(任务2): 多选模式 → checkbox；普通模式 hover → 操作按钮 */}
+                    {multiSelectMode ? (
+                      <label style={{ display: 'flex', alignItems: 'center', padding: '8px 10px', cursor: 'pointer' }} title="勾选（批量操作）">
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(f.id)}
+                          style={{ width: 14, height: 14, accentColor: '#7c3aed', cursor: 'pointer' }} />
+                      </label>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => { if (file) { setFolderRename(null); setFolderRenameValue(''); const newName = prompt('重命名文件:', file.originalName); if (newName && newName.trim() && newName !== file.originalName) { kbService.rename(file.id, newName.trim()).then(loadFiles) } } }}
+                          title="重命名"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 7px', color: '#d4ccc4', borderRadius: 8, display: 'flex' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#7c3aed'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <PencilIcon style={{ width: 14, height: 14 }} />
+                        </button>
+                        <button
+                          onClick={() => { if (file) setMovingFiles([file]) }}
+                          title="移动到其他目录"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 7px', color: '#d4ccc4', borderRadius: 8, display: 'flex' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#7c3aed'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <ArrowRightIcon style={{ width: 14, height: 14 }} />
+                        </button>
+                        <button
+                          onClick={async () => { if (file) { try { await kbService.copyFile(file.id, file.folder || ''); await loadFiles(); notify('已复制副本') } catch (err) { alert(err instanceof Error ? err.message : '复制失败') } } }}
+                          title="复制副本"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 7px', color: '#d4ccc4', borderRadius: 8, display: 'flex' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#7c3aed'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <DocumentDuplicateIcon style={{ width: 14, height: 14 }} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (file) setDeleteConfirm({ type: 'single', file })
+                          }}
+                          title="删除"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 7px', color: '#d4ccc4', borderRadius: 8, display: 'flex' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.06)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = '#d4ccc4'; e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <TrashIcon style={{ width: 14, height: 14 }} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              }}
+            />
+            {/* 搜索无匹配提示 */}
+            {searchQuery.trim() && dirTree.files.filter(f => f.originalName.toLowerCase().includes(searchQuery.trim().toLowerCase())).length === 0 && (
+              <div style={{ textAlign: 'center', padding: 24, color: C.muted, fontSize: 13 }}>未找到匹配文件</div>
+            )}
           </div>
+
+            {/* v16.4.1(任务2): 批量操作条——多选模式下选中文件时显示 */}
+            {multiSelectMode && selectedIds.size > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', margin: '2px 0 8px',
+                borderRadius: 10, background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: 11.5, color: '#7c3aed', fontWeight: 700, flexShrink: 0 }}>已选 {selectedIds.size} 个</span>
+                <button onClick={() => setMovingFiles(files.filter(f => selectedIds.has(f.id)))}
+                  style={{ background: 'none', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 6, padding: '2px 9px', fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit', color: '#7c3aed', fontWeight: 600 }}>移动</button>
+                <button onClick={handleBatchCopy}
+                  style={{ background: 'none', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 6, padding: '2px 9px', fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit', color: '#7c3aed', fontWeight: 600 }}>复制</button>
+                <button onClick={() => setBatchDeleteConfirm(true)}
+                  style={{ background: 'none', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '2px 9px', fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit', color: '#ef4444', fontWeight: 600 }}>删除</button>
+                <button onClick={() => setSelectedIds(new Set())} title="取消选择"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: '#9b8e84', fontFamily: 'inherit', marginLeft: 'auto' }}>取消选择</button>
+              </div>
+            )}
+
         </ScrollArea>
 
         {/* 底部操作区 */}
@@ -467,14 +529,14 @@ export default function KnowledgeBasePage() {
           <>
             {/* 面包屑导航 */}
             <div style={{ padding: '14px 24px 0', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.muted }}>
-              <button onClick={() => { setActiveDir(''); setFilterFolder(null) }}
+              <button onClick={() => { setActiveDir('') }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }}>知识库</button>
               {crumbs.length > 0 && crumbs.map((c, i) => {
                 const path = crumbs.slice(0, i + 1).join('/')
                 return (
                   <span key={path} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ArrowRightIcon style={{ width: 10, height: 10, color: '#d0c8be' }} />
-                    <button onClick={() => { setActiveDir(path); setFilterFolder(path) }}
+                    <button onClick={() => { setActiveDir(path) }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: i === crumbs.length - 1 ? C.text : C.primary, fontSize: 12, fontFamily: 'inherit', fontWeight: i === crumbs.length - 1 ? 600 : 400 }}>
                       {c}
                     </button>
@@ -523,7 +585,7 @@ export default function KnowledgeBasePage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Button size="sm" variant="secondary" onClick={() => setMovingFile(selectedFile)} icon={<ArrowRightIcon style={{ width: 14, height: 14 }} />}>
+                <Button size="sm" variant="secondary" onClick={() => setMovingFiles([selectedFile])} icon={<ArrowRightIcon style={{ width: 14, height: 14 }} />}>
                   移动
                 </Button>
                 {isIndexable && (
@@ -538,35 +600,6 @@ export default function KnowledgeBasePage() {
                   下载
                 </Button>
               </div>
-            </div>
-
-            {/* Project assignment */}
-            <div style={{
-              padding: '10px 24px', borderBottom: '1px solid rgba(0,0,0,0.05)',
-              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#fff',
-            }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>
-                <TagIcon style={{ width: 13, height: 13, display: 'inline', marginRight: 3 }} />
-                所属项目:
-              </span>
-              {projects.map(proj => {
-                const assigned = selectedFile.projects.includes(proj.id)
-                return (
-                  <button
-                    key={proj.id}
-                    onClick={() => toggleProject(selectedFile, proj.id)}
-                    title={assigned ? '点击取消关联' : '点击关联'}
-                    style={{
-                      padding: '4px 11px', borderRadius: 8, border: assigned ? '1px solid rgba(124,58,237,0.3)' : '1px solid rgba(0,0,0,0.08)',
-                      background: assigned ? C.primarySoft : '#fff',
-                      color: assigned ? C.primary : '#9b8e84', fontSize: 12, cursor: 'pointer',
-                      fontWeight: assigned ? 600 : 400, transition: 'all 0.1s ease', fontFamily: 'inherit',
-                    }}
-                  >
-                    {proj.name} {assigned ? '✓' : '+'}
-                  </button>
-                )
-              })}
             </div>
 
             {/* File content */}
@@ -739,11 +772,13 @@ export default function KnowledgeBasePage() {
         </div>
       </Modal>
 
-      {/* Move file modal */}
-      <Modal isOpen={movingFile !== null} onClose={() => setMovingFile(null)} title={`移动文件到目录`} width={480}>
+      {/* Move file modal（v16.4.1: 支持批量移动） */}
+      <Modal isOpen={movingFiles !== null} onClose={() => { setMovingFiles(null); setMoveTarget('') }} title={`移动${(movingFiles?.length || 1) > 1 ? `${movingFiles?.length} 个文件` : '文件'}到目录`} width={480}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ fontSize: 13.5, color: '#6b5e54' }}>
-            将「{movingFile?.originalName}」移动到：
+            {(movingFiles?.length || 1) > 1
+              ? `将 ${movingFiles?.length} 个文件移动到：`
+              : `将「${movingFiles?.[0]?.originalName || ''}」移动到：`}
           </p>
           <div className="custom-scrollbar" style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
             <button
@@ -792,11 +827,22 @@ export default function KnowledgeBasePage() {
             ))}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTop: '1px solid #f0ece8' }}>
-            <Button variant="secondary" onClick={() => setMovingFile(null)}>取消</Button>
-            <Button onClick={handleMoveFile}>移动</Button>
+            <Button variant="secondary" onClick={() => setMovingFiles(null)}>取消</Button>
+            <Button onClick={handleMoveFiles}>移动</Button>
           </div>
         </div>
       </Modal>
+
+      {/* 批量删除确认（v16.4.1） */}
+      <ConfirmModal
+        isOpen={batchDeleteConfirm}
+        title="批量删除文件"
+        message={`确定删除选中的 ${selectedIds.size} 个文件？此操作不可恢复。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={handleBatchDelete}
+        onCancel={() => setBatchDeleteConfirm(false)}
+      />
 
       <ConfirmModal
         isOpen={deleteConfirm !== null}
@@ -816,7 +862,7 @@ export default function KnowledgeBasePage() {
       <ConfirmModal
         isOpen={folderToDelete !== null}
         title="删除文件夹"
-        message={`确定删除文件夹「${folderToDelete?.name || ''}」？仅可删除空文件夹（含文件需先移出）。`}
+        message={`确定删除文件夹「${folderToDelete?.name || ''}」？${folderToDelete?.folder ? `（将删除该文件夹内的全部文件，不可恢复）` : ''}`}
         confirmLabel="删除"
         danger
         onConfirm={handleDeleteFolder}
@@ -827,15 +873,8 @@ export default function KnowledgeBasePage() {
   )
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-}
-
 function indexStateLabel(file: { chunkCount: number }): string {
-  if (file.chunkCount === 0) return '未索引'
-  // chunkCount > 0 but we can't check embedding presence from metadata alone
+  // 调用点仅在 chunkCount > 0 时渲染（未索引不显示标签）
   return '已索引'
 }
 

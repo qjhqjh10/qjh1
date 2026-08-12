@@ -5,7 +5,7 @@ import * as path from 'path';
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logTokenUsage } from '../statsHandlers'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir, embedChunks, applySceneKeywordActivation } from './helpers';
+import { setProjectsBasePath, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileNameInDir, embedChunks, applySceneKeywordActivation } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -92,13 +92,34 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     return true
   })
 
-  // 删除空子目录（非空返回错误提示）
+  // 删除目录（v16.4.1 修复: 支持非空目录递归删除——原仅空目录，用户无法删除含文件的文件夹）
   ipcMain.handle('kb:deleteFolder', async (_event, folder: string) => {
     const dirPath = safeKBFolderPath(folder)
     if (dirPath === path.join(getKBPath(), 'files')) throw new Error('不能删除根目录')
     const entries = await fs.readdir(dirPath).catch(() => [] as string[])
     if (entries.length > 0) {
-      throw new Error('目录非空，请先移出或删除其中的文件')
+      // 非空：递归删除全部内容（文件 + 子目录），metadata/index 一并清理
+      await fs.rm(dirPath, { recursive: true, force: true })
+      const meta = await loadMetadata()
+      const folderKey = (folder || '').split(/[\\/]+/).map(p => p.trim()).filter(Boolean).join('/')
+      // 删除该目录及其子目录下所有文件的 metadata 条目
+      const affectedIds = new Set<string>()
+      meta.files = meta.files.filter(f => {
+        const fk = (f.folder || '').replace(/\\/g, '/')
+        if (fk === folderKey || fk.startsWith(folderKey + '/')) {
+          affectedIds.add(f.id)
+          return false
+        }
+        return true
+      })
+      await saveMetadata(meta)
+      // 清理索引 chunks
+      if (affectedIds.size > 0) {
+        const index = await loadIndex()
+        index.chunks = index.chunks.filter(c => !affectedIds.has(c.fileId))
+        await saveIndex(index)
+      }
+      return { deleted: affectedIds.size }
     }
     await fs.rmdir(dirPath)
     const meta = await loadMetadata()
@@ -108,6 +129,39 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
       for (const f of orphan) delete f.folder
       await saveMetadata(meta)
     }
+    return { deleted: 0 }
+  })
+
+  // 复制文件到指定目录（v16.4.1 新增：文件名自动加「副本」防重名；不复制索引）
+  ipcMain.handle('kb:copyFile', async (_event, fileId: string, folder: string) => {
+    const meta = await loadMetadata()
+    const file = meta.files.find(f => f.id === fileId)
+    if (!file) throw new Error('File not found')
+    const srcPath = safeKBFilePath(file)
+    const folderParts = String(folder || '')
+      .split(/[\\/]+/).map(p => p.trim()).filter(Boolean).filter(p => p !== '.' && p !== '..').slice(0, 2)
+    const newFolder = folderParts.join('/')
+    const targetDir = path.join(getKBPath(), 'files', ...folderParts)
+    await fs.mkdir(targetDir, { recursive: true })
+    // 副本名：原名 + 副本（保持扩展名）
+    const ext = path.extname(file.name)
+    const base = path.basename(file.name, ext)
+    const uniqueName = await getUniqueFileNameInDir(targetDir, `${base}副本${ext}`)
+    const newPath = path.join(targetDir, uniqueName)
+    const { nanoid } = await import('nanoid')
+    const newId = nanoid(12)
+    await fs.copyFile(srcPath, newPath)
+    const newFile: KnowledgeFile = {
+      id: newId, name: uniqueName, originalName: uniqueName,
+      type: file.type, size: (await fs.stat(newPath)).size,
+      folder: newFolder || undefined,
+      chunkCount: 0,
+      projects: file.projects || [],
+      source: 'ai',
+      uploadedAt: new Date().toISOString(),
+    }
+    meta.files.push(newFile)
+    await saveMetadata(meta)
     return true
   })
 
@@ -156,6 +210,21 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     await saveMetadata(meta)
   })
 
+  // v16.4.1(审查修复): 重分块共享——kb:write/kb:append 原整段重复；chunkCount 写入 file 对象，metadata 由调用方保存
+  async function rechunkFile(file: KnowledgeFile, content: string): Promise<void> {
+    const index = await loadIndex()
+    index.chunks = index.chunks.filter(c => c.fileId !== file.id)
+    const chunks = chunkText(content)
+    for (const c of chunks) {
+      index.chunks.push({
+        id: `${file.id}_chunk_${c.charStart}`, fileId: file.id, fileName: file.originalName,
+        content: c.content, embedding: [], charStart: c.charStart, charEnd: c.charEnd,
+      })
+    }
+    file.chunkCount = chunks.length
+    await saveIndex(index)
+  }
+
   // Update file content
   ipcMain.handle('kb:write', async (_event, fileId: string, content: string, configId?: string) => {
     const meta = await loadMetadata()
@@ -166,17 +235,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     await fs.writeFile(filePath, content, 'utf-8')
 
     // Remove old chunks + re-chunk
-    const index = await loadIndex()
-    index.chunks = index.chunks.filter(c => c.fileId !== fileId)
-    const chunks = chunkText(content)
-    for (const c of chunks) {
-      index.chunks.push({
-        id: `${fileId}_chunk_${c.charStart}`, fileId, fileName: file.originalName,
-        content: c.content, embedding: [], charStart: c.charStart, charEnd: c.charEnd,
-      })
-    }
-    await saveIndex(index)
-    file.chunkCount = chunks.length
+    await rechunkFile(file, content)
     await saveMetadata(meta)
 
     // Auto-reindex if configId provided
@@ -187,10 +246,12 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
   // Create a new KB file
   // v16: 第 4 参 folder——三级目录（"一级/二级"，空 = 根目录）
+  // v16.4.1(审查修复): 已含任意扩展名（.txt/.md 等）则不再追加 .md
   ipcMain.handle('kb:create', async (_event, name: string, content: string, projectId?: string, folder?: string) => {
     const meta = await loadMetadata()
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-    const userFileName = name.endsWith('.md') ? name : `${name}.md`
+    const hasExt = /\.[a-z0-9]{1,5}$/i.test(name)
+    const userFileName = hasExt ? name : `${name}.md`
     const folderParts = String(folder || '')
       .split(/[\\/]+/).map(p => p.trim()).filter(Boolean).filter(p => p !== '.' && p !== '..').slice(0, 2)
     const safeFolder = folderParts.join('/')
@@ -201,7 +262,7 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     await fs.writeFile(filePath, content, 'utf-8')
 
     const newFile: KnowledgeFile = {
-      id, name: safeName, originalName: name.endsWith('.md') ? name : `${name}.md`,
+      id, name: safeName, originalName: userFileName,
       type: 'md', size: Buffer.byteLength(content, 'utf-8'), chunkCount: 0,
       projects: projectId ? [projectId] : [],
       source: 'ai',
@@ -226,20 +287,9 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
 
     file.size = Buffer.byteLength(newContent, 'utf-8')
     file.uploadedAt = new Date().toISOString()
-    await saveMetadata(meta)
 
     // Remove old chunks + re-chunk
-    const index = await loadIndex()
-    index.chunks = index.chunks.filter(c => c.fileId !== fileId)
-    const chunks = chunkText(newContent)
-    for (const c of chunks) {
-      index.chunks.push({
-        id: `${fileId}_chunk_${c.charStart}`, fileId, fileName: file.originalName,
-        content: c.content, embedding: [], charStart: c.charStart, charEnd: c.charEnd,
-      })
-    }
-    file.chunkCount = chunks.length
-    await saveIndex(index)
+    await rechunkFile(file, newContent)
     await saveMetadata(meta)
 
     // Auto-reindex if configId provided

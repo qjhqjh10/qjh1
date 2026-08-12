@@ -4,7 +4,7 @@
 // 设计:
 //   - 仅「已关联:第N章」激活时可用（chapterCollabStore.active）
 //   - executor 校验参数 → dispatchRewrite 写入一次性通道 → ChapterWritingPage effect 消费
-//   - 不等待特效完成（特效 ~1-2s，等待会让 agent 轮空转）——结果确认走 pendingMessage 回链
+//   - 不等待特效完成（特效 ~1-2s，等待会让 agent 轮空转）——结果确认走 lastRewriteApplied 回链
 //   - 锚点失效时 executor 用 collab.text（权威源）定位，失败返回错误引导 AI search_content 重试
 //   - 不落盘、不写文件 → 与只读围栏互补（围栏拦写工具，此工具是唯一改写通道）
 

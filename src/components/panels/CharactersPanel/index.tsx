@@ -67,7 +67,8 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
 
   useEffect(() => {
     const p = (fileEditNotify?.filePath || '').replace(/\\/g, '/').toLowerCase()
-    if (p.includes('/characters/') && activeProjectId) {
+    // v16.4.1: 角色目录已迁移至 outline/characters/（旧顶层 characters/ 仍兼容监听）
+    if ((p.includes('/outline/characters/') || p.includes('/characters/')) && activeProjectId) {
       const pp = `${projectsBasePath}/${activeProjectId}`
       loadCharacters(pp).then(setCharacters)
       setFileEditNotify(null)
@@ -91,9 +92,10 @@ export default function CharactersPanel({ showWorldbuildingPanel = true, standal
   const confirmDelete = async () => {
     if (!charToDelete) return
     // 依次尝试 .yaml/.json/.txt（AI 助手生成的旧文件可能是 .json/.txt）
+    // v16.4.1: 路径迁移至 outline/characters/
     for (const ext of ['.yaml', '.json', '.txt']) {
       try {
-        await fileService.deleteFile(`${projectPath}/characters/${charToDelete.id}${ext}`)
+        await fileService.deleteFile(`${projectPath}/outline/characters/${charToDelete.id}${ext}`)
         break
       } catch { /* 该扩展名不存在，继续尝试下一个 */ }
     }

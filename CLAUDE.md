@@ -1,10 +1,22 @@
-# AI写作软件—青剑 v16.4.0
+# AI写作软件—青剑 v16.4.1
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
 ## 技术栈
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
+
+## 当前架构 (v16.4.1)
+
+### v16.4.1 体验优化 + 大纲部分化 + 知识库增强（2026-08-13）
+- **章节协作体验**（用户需求）: 「加载本章」不再预填输入框（用户可有自己的要求）；右键选段 → 绿色选段块（输入框上方，头15字……尾15字，点击弹可拖动弹窗看全文；发送带【章节协作改写】标记，发送后清除）——store pendingMessage 整体替换为 collabSelection；「关联本章」简化为开关（紫开/灰关，点击切换）；改写特效遮罩 → 可拖动浮动小弹窗（不遮挡编辑器）
+- **扮演选择器移除**（用户决策）: speakAsCharId/🎭下拉/[扮演: X] 自动前缀全删——AI 根据用户要求+角色模板信息直接扮演（手动写前缀仍有效）
+- **大纲部分化体系**（用户需求）: sections.json 注册表（builtinSections.ts 纯数据共享主/渲染进程）→ 侧边栏动态渲染（故事剧情/世界观/角色 fixed，其余可新增/屏蔽划线）；实体卡片视图方案 A（主题色渐变/竖条/水印/标签行/hover 上浮）；固定专属词条（7 部分各定制 core 结构化+固定多行+底部自由条块，EntityEditModal）；新建部分向导（SectionWizardModal 字段模板）；屏蔽=不注入（hiddenOutlineDims → loadOutlineDimensions 维度排除 +3 测试）
+- **每实体一文件布局**: outline/<部分>/<实体>.yaml（outlineEntityService CRUD + filePaths 路径工具）；迁移 outlineMigration（移动语义+空目录修复+残留清理，+5 测试）；新建项目预建全部实体目录（projectHandlers/fileToolHandlers 遍历 BUILTIN_SECTIONS）
+- **实体级勾选注入**（用户决策）: loadOutlineDimensions entityFilter 参数（7 个 prompt 函数 filter 过滤，勾空=不注入）；AI 生成弹窗参考背景四卡片式（ChapterRefModal 章节级选择/角色多选弹窗/OutlineRefModal 层级+EntityPickerModal/KbSelectionModal 复用）+ 弹窗 76vw；大纲实体 AI 生成弹窗升级（模型下拉+世界观/故事剧情参考背景）
+- **知识库增强**（用户需求）: 目录操作移入树节点（KbFolderTree renderDirActions，删重复操作条）；多选模式+批量移动/复制/删除；kb:copyFile 全链路（副本防重名）；deleteFolder 递归删除（原仅空目录）；「所属项目」UI 移除（文件已与项目解绑）
+- **审查修复批**（双 agent 审查 38 项全部落地）: AI 路径指引对齐新布局（V4SystemPrompt 示例/字段列表、V4UnifiedRuntime、pathHint、toolDefs）；levels 数据模型三方统一（模板字符串 + 注入兼容数组 + 编辑弹窗转文本）；部分映射收敛单一真源（SECTION_EMOJI/SECTION_NAMES/DIM_SECTION_MAP）；OutlineRefModal 动态部分+屏蔽态；project:import 元数据合并；项目骨架初始化双通道统一（projectInit.ts）；kb:create 扩展名识别；自定义部分 key 净化；rechunkFile 提取；RichTextEditor 图片逻辑统一；死代码/死导入/注释残留清理
+- **测试**: 874 passed + 15 skipped；tsc 0（双配置）；check-consistency 34/34
 
 ## 当前架构 (v16.4.0)
 
@@ -295,7 +307,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (866 passed + 15 skipped，共 881) |
+| `npx vitest run` | 全量单元测试 (874 passed + 15 skipped，共 889) |
 | `npx vitest run src/agent/__tests__/` | Agent 专项测试 (336 passed + 14 skipped，共 350) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）

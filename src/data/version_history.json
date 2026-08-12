@@ -1,7 +1,28 @@
 {
-  "currentVersion": "16.4.0",
-  "currentDate": "2026-08-12",
+  "currentVersion": "16.4.1",
+  "currentDate": "2026-08-13",
   "history": [
+    {
+      "version": "16.4.1",
+      "date": "2026-08-13",
+      "features": [
+        "章节创作 × AI 写作助手体验优化（用户需求）：「加载本章」不再向输入框预填提示词（用户可有自己的要求）；右键选段改为输入框上方的绿色选段块（开头15字……结尾15字，点击弹可拖动弹窗看全文），发送时带【章节协作改写】标记注入完整选段，发送后清除",
+        "「关联本章」按钮简化为开关（开启紫色/关闭灰色，点击切换关联/取消）；改写特效遮罩改为可拖动浮动小弹窗（不遮挡编辑器，可正常查看内容、看文字逐个显现）",
+        "扮演选择器整体移除（输入区 🎭 下拉/[扮演: X] 自动前缀）——AI 根据用户要求+角色模板信息直接角色扮演",
+        "大纲部分化体系（用户需求）：sections.json 部分注册表 + 侧边栏动态渲染（故事剧情/世界观/角色固定，其余可新增/屏蔽划线）+ 实体卡片视图重设计（主题色浅渐变/左侧竖条/水印/两行摘要/核心字段标签行/hover 上浮）+ 固定专属词条编辑（道具/地点/势力/等级/伏笔/情绪/故事线各定制词条，底部可新增自由条块）+ 新建部分向导（字段模板）+ 屏蔽=不注入（AI 维度注入自动排除 hidden 部分）",
+        "每实体一文件布局：outline/<部分>/<实体>.yaml（角色迁移至 outline/characters/，伏笔/故事线拆出 outline_meta.yaml），旧布局自动迁移（移动语义+清理旧文件）；新建项目预建全部实体目录",
+        "AI 生成参考背景四卡片式（细纲卡片→章节级选择弹窗 ChapterRefModal/角色卡片→多选弹窗/大纲卡片→层级导航 OutlineRefModal+实体勾选 EntityPickerModal/知识库卡片→复用书签式 KbSelectionModal）+ 弹窗改小 76vw；大纲实体部分 AI 生成弹窗升级（模型选择+世界观/故事剧情参考背景勾选）",
+        "知识库：目录操作移入树节点（替代重复的目录操作条）、多选模式+批量移动/复制/删除、文件行 hover 操作（重命名/移动/复制/删除）、kb:copyFile 全链路（副本防重名）、「所属项目」UI 移除（文件与项目已解绑）"
+      ],
+      "fixes": [
+        "文件夹无法删除修复：kb:deleteFolder 原仅允许空目录 → 支持非空递归删除（文件+子目录+metadata/index 清理，返回删除数）",
+        "大纲迁移修复：空模板旧 yaml 不建实体目录 → 空也建目录（幂等）；迁移语义复制→移动（成功后删旧文件，目录在用则清理残留备份）",
+        "outlineData 维度注入支持实体级过滤（勾空=不注入；loadItemsPrompt 等 7 函数加 filter 参数）；hiddenOutlineDims 屏蔽排除（sections.json hidden → 维度键映射）",
+        "扮演选择器移除后的残留清理（4 处会话切换 setSpeakAsCharId、rolePlayPrefix 注入、软件自述文案）；情色剧情链路从角色 AI 生成移除",
+        "测试更新：filePaths 路径断言（新布局）、create_project 骨架断言（实体目录+sections.json）、kbService 22 方法、迁移测试 5 个 + 屏蔽注入测试 3 个",
+        "全面审查修复（双 agent 审查：功能完成度 12 点 + 代码质量 26 项，全部落地）：AI 路径指引对齐新布局（V4SystemPrompt 示例/字段列表/V4UnifiedRuntime 纠错提示/fileToolHandlers pathHint/toolDefs file_path）；等级 levels 数据模型三方统一（模板 textarea 字符串 + 注入兼容数组旧数据 + 编辑弹窗数组转文本）；部分映射收敛单一真源（SECTION_EMOJI/SECTION_NAMES/DIM_SECTION_MAP → builtinSections）；OutlineRefModal 动态部分（自定义部分可参考注入 + hidden 屏蔽态显示）；project:import 元数据合并写入（原覆盖丢失 name/novelCategory）；项目骨架初始化双通道统一（projectInit.ts，首页与 AI create_project 共享）；kb:create 扩展名识别（foo.txt 不再变 foo.txt.md）；自定义部分 key 路径字符净化；kb:write/append 重分块提取 rechunkFile；RichTextEditor 图片保存逻辑三处统一；formatSize 共享；breakdown 章节协作双计修复；AIChatWindow 死 store 读取/kbFiles 死状态清理；大量死导入/注释残留清理；package.json 版本同步 16.4.1"
+      ]
+    },
     {
       "version": "16.4.0",
       "date": "2026-08-12",

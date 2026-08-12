@@ -231,8 +231,9 @@ export interface KBAPI {
   listFolders: () => Promise<Array<{ dir: string; subdirs: string[]; files: Array<{ id: string; name: string }> }>>
   createFolder: (name: string, parent?: string) => Promise<{ name: string }>
   renameFolder: (folder: string, newName: string) => Promise<boolean>
-  deleteFolder: (folder: string) => Promise<boolean>
+  deleteFolder: (folder: string) => Promise<{ deleted: number }>
   moveFile: (fileId: string, folder: string) => Promise<boolean>
+  copyFile: (fileId: string, folder: string) => Promise<boolean>
 }
 
 export interface ExtractionAPI {

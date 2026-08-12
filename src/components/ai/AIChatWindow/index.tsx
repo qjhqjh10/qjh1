@@ -20,6 +20,8 @@ import { logError } from '@/utils/logger'
 import { debugApiError } from '@/services/debugLogService'
 import { ContextUsageBar } from '@/components/ai/ContextUsageBar'
 import ConfirmModal from '@/components/common/ConfirmModal'
+import Modal from '@/components/common/Modal'
+import Button from '@/components/common/Button'
 import { useToast } from '@/components/common/Toast'
 import { WELCOME_MSG, STORAGE_KEY, WINDOW_KEY } from '@/components/ai/chatConstants'
 import type { Message, Conversation } from '@/components/ai/chatConstants'
@@ -56,6 +58,12 @@ function fmtTime(ts: number): string {
   const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
   if (d.toDateString() === yesterday.toDateString()) return `昨天 ${timeStr}`
   return `${d.getMonth() + 1}月${d.getDate()}日 ${timeStr}`
+}
+
+// v16.4.1: 选段 chip 展示——开头 15 字 + 结尾 15 字，中间省略（完整文本随消息发送，点击弹窗看全文）
+function truncateSelection(text: string): string {
+  const HEAD = 15, TAIL = 15
+  return text.length > HEAD + TAIL + 1 ? `${text.slice(0, HEAD)}……${text.slice(-TAIL)}` : text
 }
 
 // v16.4.0: 对话文本渲染（多角色对话修复）——仅展示层处理，消息原文不变：
@@ -271,19 +279,14 @@ export default function AIChatWindow() {
   const isOpen = useStore(s => s.isAIChatOpen)
   const { toast } = useToast()
 
-  const pendingMessage = useStore(s => s.pendingMessage)
-  const setPendingMessage = useStore(s => s.setPendingMessage)
+  // v16.4.1(用户需求): 右键「发送到 AI」的选中段落——不放进输入框，显示为绿色选段块（输入框上方），
+  // 完整文本随下一条消息发送（chip 只做头尾省略展示）；发送后或点 ✕ 清除；点击 chip 弹窗看全文
+  const collabSelection = useStore(s => s.collabSelection)
+  const setCollabSelection = useStore(s => s.setCollabSelection)
+  const [showSelectionModal, setShowSelectionModal] = useState(false)
 
   // Check API connection when chat window opens
   useEffect(() => { if (isOpen) checkApiConnection() }, [isOpen])
-
-  // 消费来自编辑器右键的 pendingMessage（发送到 AI 写作助手）
-  useEffect(() => {
-    if (isOpen && pendingMessage) {
-      setInput(pendingMessage)
-      setPendingMessage(null)
-    }
-  }, [isOpen, pendingMessage, setPendingMessage])
   const setAIChatOpen = useStore(s => s.setAIChatOpen)
   const activeConfigId = useSettingsStore(s => s.activeConfigId)
   const configs = useSettingsStore(s => s.configs)
@@ -291,7 +294,6 @@ export default function AIChatWindow() {
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const activePage = useStore(s => s.activePage)
   const setInsertionAction = useStore(s => s.setInsertionAction)
-  const setReplaceAction = useStore(s => s.setReplaceAction)
   const setFileEditNotify = useStore(s => s.setFileEditNotify)
   const openPopup = useStore(s => s.openPopup)
 
@@ -302,11 +304,7 @@ export default function AIChatWindow() {
   // v16.1.0: 章节协作关联状态（chip「已关联:第N章」）
   const chapterCollabActive = useChapterCollabStore(s => s.active)
   const chapterCollabId = useChapterCollabStore(s => s.chapterId)
-  const chapterCollabVersion = useChapterCollabStore(s => s.chapterVersion)
 
-  const setWorldbuildingContent = useStore(s => s.setWorldbuildingContent)
-  const setOutlineContent = useStore(s => s.setOutlineContent)
-  const updateDetailedChapter = useStore(s => s.updateDetailedChapter)
 
   const activeConfig = configs.find(c => c.id === activeConfigId)
 
@@ -365,15 +363,11 @@ export default function AIChatWindow() {
   const [showEffortPicker, setShowEffortPicker] = useState(false)  // v15.5: 思考等级选择 popover
   const [inputFocused, setInputFocused] = useState(false)  // v15.5: 输入卡片 focus 高亮
   const [toolFilter, setToolFilter] = useState('')
-  // v16.4.0: 扮演选择——用户以会话绑定模板中哪个角色身份发言（'' = 旁白/作者视角）。
-  // 随会话切换/新建/清空重置（多角色对话修复：此前无任何"以谁发言"机制）
-  const [speakAsCharId, setSpeakAsCharId] = useState('')
 
   // KB file selector
   // v16: 知识库文件勾选大弹窗（替代原 dropdown）——showKBFilePicker 控制弹窗显隐
   const [showKBFilePicker, setShowKBFilePicker] = useState(false)
   // v16.3.0(审计 M9 修复): kbLoadError 死状态已删（零渲染）
-  const [kbFiles, setKbFiles] = useState<{ id: string; originalName: string }[]>([])
   const currentSelections = aiSettings.kbFileSelections || {}
   const selectedFileIds: string[] = currentSelections[activePage] || []
   // v14.8: 选中态三态语义 — [] = 全部；['__none__'] = 不使用；其余 = 勾选的具体文件。
@@ -385,17 +379,6 @@ export default function AIChatWindow() {
   // 或 'custom'（勾选文件；一个不勾 = 不使用知识库 ['__none__']）
   const kbPickerMode: 'all' | 'custom' = isKbAll ? 'all' : 'custom'
   const kbPickerSelected = isKbNone ? [] : selectedFileIds.filter(id => id !== '__none__')
-
-  const loadKBFileList = async () => {
-    // v16.3.0(审计 M9 修复): 删 kbLoadError 死状态（三处写入零渲染——弹窗内自带 loading/空态）
-    try {
-      const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
-      // v13.x: 显示全部知识库文件，无需在项目内
-      if (Array.isArray(meta?.files)) {
-        setKbFiles(meta.files.map(f => ({ id: f.id, originalName: f.originalName })))
-      } else { setKbFiles([]) }
-    } catch (e) { logError('加载知识库文件列表失败', e); setKbFiles([]) }
-  }
 
   // Action mode now works without a project (global notes, templates, KB)
 
@@ -656,10 +639,10 @@ export default function AIChatWindow() {
     approvalResolveRef.current = null
     setPendingApproval(null)
   }
-  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null); setSpeakAsCharId(''); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
-  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null); setSpeakAsCharId('') }
-  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedMsgIds(new Set()); setContextMenu(null); setSpeakAsCharId(''); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
-  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; useChapterCollabStore.getState().detach(); if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); setSpeakAsCharId(''); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); setSpeakAsCharId(''); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
+  const switchConversation = (convId: string) => { if (convId !== activeConversationId) { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); setActiveConversationId(convId); activeConvIdRef.current = convId; const conv = conversations.find(c => c.id === convId); const savedTokens = conv?.totalTokens || 0; setCumulativeTokens(savedTokens); const msgEstimate = conv ? estimateMessages(conv.messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : savedTokens || 0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null); if (conv?.roleTemplateId) { useSettingsStore.getState().setActiveRoleTemplate(conv.roleTemplateId) } } }
+  const handleNewConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); useChapterCollabStore.getState().detach(); const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; setConversations(prev => [...prev, makeConversation(id, '新对话')]); setActiveConversationId(id); activeConvIdRef.current = id; setShowConvList(false); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedToolHints([]); setShowToolPicker(false); setShowEffortPicker(false); setSelectedMsgIds(new Set()); setContextMenu(null) }
+  const handleClearConversation = () => { abortToolLoop(); bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const showWelcome = useSettingsStore.getState().aiSettings.showWelcome !== false; setMessages(showWelcome ? [{ ...WELCOME_MSG, id: `welcome_${activeConversationId}` }] : []); useAgentStore.getState().addTokens(-useAgentStore.getState().totalTokensUsed); setCumulativeTokens(0); setCurrentContextTokens(0); conversationToolNames.current = new Set(); pendingCorrection.current = null; lastSnapshotInjectedIdRef.current = null; setSelectedMsgIds(new Set()); setContextMenu(null); setConversations(prev => prev.map(c => c.id === activeConversationId ? { ...c, totalTokens: 0, lastPromptTokens: 0, peakPromptTokens: 0 } : c)) }
+  const handleDeleteConversation = (convId: string) => { abortToolLoop(); sendLockRef.current = false; conversationToolNames.current = new Set(); pendingCorrection.current = null; autoRetryRef.current = false; lastSnapshotInjectedIdRef.current = null; useChapterCollabStore.getState().detach(); if (convId === activeConversationId) { bridgeRef.current?.destroy(); bridgeRef.current = null; useAgentStore.getState().endRun(); const remaining = conversations.filter(c => c.id !== convId); if (remaining.length === 0) { const newConv = makeConversation('default', '新对话'); setConversations([newConv]); setActiveConversationId('default'); activeConvIdRef.current = 'default'; setCumulativeTokens(0); setCurrentContextTokens(0); return }; setActiveConversationId(remaining[0].id); activeConvIdRef.current = remaining[0].id; setConversations(remaining); // v14.5.0: 删除活动会话后重置 token 条（原实现残留被删会话的累计值）
       setCumulativeTokens(remaining[0]?.totalTokens || 0); const msgEstimate = remaining[0] ? estimateMessages(remaining[0].messages.filter(m => m.role !== 'tool')) : 0; setCurrentContextTokens(msgEstimate > 0 ? msgEstimate + 3500 : (remaining[0]?.totalTokens || 0)) } else { setConversations(prev => prev.filter(c => c.id !== convId)) } }
 
   // v16.3.0(审计 F1): 会话重命名——内联输入保存（Enter 提交 / Esc 或失焦取消；空名不保存）
@@ -774,7 +757,8 @@ export default function AIChatWindow() {
     // H10: prevent cascading auto-retry loops
     if (isRetry && autoRetryRef.current) return
     autoRetryRef.current = isRetry
-    if (!isRetry && (!input.trim() || !activeConfigId || loading)) return
+    // v16.4.1: 仅有选段（无输入文字）也允许发送——选段块自带处理说明，AI 会处理该段落
+    if (!isRetry && ((!input.trim() && !collabSelection) || !activeConfigId || loading)) return
     if (sendLockRef.current || loading) return  // H8: prevent double-send during async gap
 
     // v16.1.0(审查修复 B6): 章节全文「变更才注入+心跳」——5 轮未注入强制重注入一次
@@ -869,7 +853,7 @@ export default function AIChatWindow() {
       }
     }
 
-    // Auto-save pasted text (>200 chars with no attachment) to disk
+    // Auto-save pasted text (>3000 chars with no attachment) to disk
     // fileService.write auto-caches via shared fileReadCache
     // This ensures AI can reference it later even if conversation context is compressed
     let pasteClipPath = ''
@@ -895,20 +879,13 @@ export default function AIChatWindow() {
       : ''
     // v15.3.0: #工具提示（软提示：建议模型可能使用这些工具，非强制）——随用户消息一起发送
     const toolHintText = buildToolHintText(selectedToolHints)
-    // v16.4.0: 扮演标记——用户以会话绑定模板中的角色身份发言（输入区「🎭 扮演」选择器设置；
-    // 模板中 isUser 角色可选，未选 = 旁白/作者视角）。前缀随消息进入上下文，
-    // 角色外壳提示词声明其语义（见 BridgeContextBuilder 发言格式段）
-    const rolePlayPrefix = (() => {
-      if (!speakAsCharId) return ''
-      const tpl = (useSettingsStore.getState().aiSettings.roleTemplates || []).find(t => t.id === activeConversation?.roleTemplateId)
-      const char = tpl?.characters.find(c => c.id === speakAsCharId && c.isUser)
-      return char ? `[扮演: ${char.name}]\n` : ''
-    })()
     // v16.4.0(用户决策): 场景由用户在对话中自然描述（"我们在酒吧里"），AI 自行完善——
     // 无需额外按钮/状态；场景对话设定的触发条件由 AI 语义理解并应用（见角色外壳提示词）
+    // v16.4.1(用户决策): 扮演选择器已移除——AI 直接根据用户要求和角色模板信息进行角色扮演
+    // （角色外壳提示词含「以角色身份说话」规则；用户自然描述即可，无需手动选身份）。
     const fullContent = isRetry
-      ? `${rolePlayPrefix}${attachText || ''}${pasteRef}${refsText}${toolHintText}${pendingCorrection.current!}`
-      : `${rolePlayPrefix}${attachText || ''}${pasteRef}${refsText}${toolHintText}${input.trim()}`
+      ? `${attachText || ''}${pasteRef}${refsText}${toolHintText}${pendingCorrection.current!}`
+      : `${collabSelection ? `【章节协作改写】以下是我选中的段落（已加载本章全文，请基于本章内容处理）：\n\n${collabSelection}\n\n` : ''}${attachText || ''}${pasteRef}${refsText}${toolHintText}${input.trim()}`
 
     // V9.5.2: 软件功能/能力自述 → 仅显示，不入上下文
     const isDisplayOnly = !isRetry && !attachment && isDisplayOnlyQuery(input.trim())
@@ -936,6 +913,7 @@ export default function AIChatWindow() {
     const userMsg: Message = { id: msgId, role: 'user', content: fullContent, timestamp: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
+    setCollabSelection(null)  // v16.4.1: 选段已随本条消息发送，清除 chip
     setAttachment(null)
     setSelectedRefs([])  // v14.9(接线): 引用已随消息发送，清空 chips
     setSelectedToolHints([])  // v15.3.0: 工具提示已随消息发送，清空
@@ -1340,7 +1318,7 @@ export default function AIChatWindow() {
             {kbEnabled && (
               <div style={{ position: 'relative' }}>
                 {/* v16: 知识库「文件」按钮 → 打开大勾选弹窗（替代原 dropdown 简陋勾选） */}
-                <button onClick={() => { loadKBFileList(); setShowKBFilePicker(true) }} title="选择知识库文件" style={{
+                <button onClick={() => setShowKBFilePicker(true)} title="选择知识库文件" style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 999,
                   border: hasKbFileSelection ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.07)',
                   background: hasKbFileSelection ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.7)',
@@ -1467,30 +1445,45 @@ export default function AIChatWindow() {
               active={toolInvokeEnabled}
               onClick={() => setToolInvokeEnabled(!toolInvokeEnabled)}
             />
-            {/* v16.1.0: 章节协作关联 chip——右键「发送到 AI」建立；✕ 取消（不再注入本章内容，不背 tokens）
-                审查修复: 文案更直白(D2) + 取消后可一键重新关联(A4) */}
-            {chapterCollabActive && chapterCollabId ? (
-              <span title="AI 已加载本章全文（编辑器内存态），可要求其直接改写/润色段落。点击 ✕ 取消关联。"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            {/* v16.4.1(用户需求): 「关联本章」开关——开启紫色/关闭灰色，点击切换关联。
+                关联 = AI 已加载本章全文（编辑器内存态），可要求其直接改写/润色段落。
+                切换本身不读文件不耗 token：全文在下次发送消息时按「变更才注入+心跳」注入。
+                注意: 关联仅当 collab.chapterId 与编辑器当前章一致才算开启（切章后页面会自动解除）。 */}
+            {currentChapterId ? (
+              <button
+                onClick={() => {
+                  const cc = useChapterCollabStore.getState()
+                  if (chapterCollabActive && cc.chapterId === currentChapterId) {
+                    cc.detach()
+                    toast('已取消章节关联，AI 不再读取本章内容')
+                  } else {
+                    // 关联当前章节（无需选中文字——锚用当前编辑器全文首句兜底）
+                    const dc = detailedChapters.find(d => d.id === currentChapterId)
+                    const plain = cc.text || (dc?.description || '')
+                    cc.attach(currentChapterId, plain.slice(0, 40), plain)
+                    toast('已关联本章，AI 已加载本章全文')
+                  }
+                }}
+                title={chapterCollabActive && chapterCollabId === currentChapterId
+                  ? '已关联本章（AI 已加载本章全文），点击取消关联'
+                  : '点击关联当前章节（AI 加载本章全文，可直接要求改写/润色）'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 999,
+                  fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                  border: chapterCollabActive && chapterCollabId === currentChapterId
+                    ? '1px solid rgba(124,58,237,0.35)'
+                    : '1px solid rgba(0,0,0,0.12)',
+                  background: chapterCollabActive && chapterCollabId === currentChapterId
+                    ? 'rgba(124,58,237,0.1)'
+                    : 'transparent',
+                  color: chapterCollabActive && chapterCollabId === currentChapterId
+                    ? '#7c3aed'
+                    : '#9b8e84',
+                }}
+              >
                 <LinkIcon style={{ width: 11, height: 11 }} />
-                AI 已加载本章全文 · {chapterCollabId.replace(/^chapter/i, '第').replace(/(\d+)$/, '$1章')}
-                {chapterCollabVersion > 0 && <span style={{ fontSize: 9, opacity: 0.7 }}>·{chapterCollabVersion}次改写</span>}
-                <button onClick={() => { useChapterCollabStore.getState().detach(); toast('已取消章节关联，AI 不再读取本章内容') }}
-                  title="取消关联（AI 不再读取本章内容）"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '0 2px', display: 'inline-flex', fontFamily: 'inherit', opacity: 0.8, fontSize: 14, lineHeight: 1 }}>✕</button>
-              </span>
-            ) : currentChapterId ? (
-              <button onClick={() => {
-                // 重新关联当前章节（无需重新选中文字——锚用当前编辑器全文首句兜底）
-                const cc = useChapterCollabStore.getState()
-                const dc = detailedChapters.find(d => d.id === currentChapterId)
-                const plain = cc.text || (dc?.description || '')
-                useChapterCollabStore.getState().attach(currentChapterId, plain.slice(0, 40), plain)
-                toast('已重新关联当前章节')
-              }} title="点击重新关联当前章节（AI 加载本章内容）"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, border: '1px dashed rgba(0,0,0,0.15)', background: 'rgba(255,255,255,0.7)', color: '#9b8e84', fontSize: 11, fontWeight: 500, fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer' }}>
-                <LinkIcon style={{ width: 11, height: 11 }} />
-                未关联章节 · 点击关联
+                关联本章
               </button>
             ) : null}
             {/* v16.3.0: 上传入口②③（文件/图片按钮）已移至输入框底部行 #工具 前 */}
@@ -1873,7 +1866,7 @@ export default function AIChatWindow() {
                     {msg.taskProgress.tasks.map((t, i) => (
                       <div key={i} style={{ display: 'flex', gap: 6, color: t.done ? '#16a34a' : '#9b8e84', padding: '1px 0' }}>
                         <span>{t.done ? '✅' : '○'}</span>
-                        <span style={{ textDecoration: t.done ? 'none' : 'none' }}>{t.desc.length > 44 ? t.desc.slice(0, 44) + '…' : t.desc}</span>
+                        <span style={{}}>{t.desc.length > 44 ? t.desc.slice(0, 44) + '…' : t.desc}</span>
                       </div>
                     ))}
                   </div>
@@ -2028,6 +2021,25 @@ export default function AIChatWindow() {
                 <button onClick={() => setAttachment(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
             )}
+            {/* v16.4.1(用户需求): 右键「发送到 AI」的选中段落——不放进输入框，显示为绿色选段块
+                （输入框上方）：开头+结尾省略展示，点击弹窗看全文；完整文本随下一条消息发送给 AI */}
+            {collabSelection && (
+              <div onClick={() => setShowSelectionModal(true)}
+                title="点击查看完整选段；完整文本将随下一条消息发送"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12,
+                  background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.25)',
+                  fontSize: 11.5, marginBottom: 8, fontFamily: 'inherit', cursor: 'pointer',
+                  transition: 'background 0.15s ease' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(34,197,94,0.16)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(34,197,94,0.10)' }}>
+                <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#15803d',
+                  background: 'rgba(34,197,94,0.16)', padding: '2px 7px', borderRadius: 999 }}>选中段落</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: '#111827', fontWeight: 500 }}>{truncateSelection(collabSelection)}</span>
+                <button onClick={(e) => { e.stopPropagation(); setCollabSelection(null) }} title="移除选段（不随消息发送）"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: 0, fontSize: 15, lineHeight: 1, flexShrink: 0 }}>×</button>
+              </div>
+            )}
             {/* ── v16.3.0: 一体化输入容器 v4（融入对话框——无分割线，常驻阴影轮廓区分输入区：
                 轮廓线加深 + 阴影加强，聚焦时紫高亮；与消息区同白底和谐共存。
                 底部行：文件/图片（左）· #工具（左）· effort 思考等级（中，仅思考开启）· 发送（右）。
@@ -2104,27 +2116,8 @@ export default function AIChatWindow() {
                   文件→uploads/files/（.txt/.md/.text）；图片→uploads/images/（发送时副模型自动分析） */}
               <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.md,.text'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = async () => { const text = r.result as string; if (!text.trim()) return; setAttachment({ type: 'file', name: f.name, content: text }) }; r.readAsText(f, 'UTF-8') }; inp.click() }} title="上传文本文件（.txt/.md/.text）" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: attachment?.type === 'file' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.08)', background: attachment?.type === 'file' ? 'rgba(124,58,237,0.08)' : 'transparent', color: attachment?.type === 'file' ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><DocumentTextIcon style={{ width: 12, height: 12 }} /> 文件</button>
               <button onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = async () => { const f = inp.files?.[0]; if (!f) return; await handleImageFile(f) }; inp.click() }} title="上传图片（发送时副模型自动分析）" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: attachment?.type === 'image' ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.08)', background: attachment?.type === 'image' ? 'rgba(124,58,237,0.08)' : 'transparent', color: attachment?.type === 'image' ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}><PhotoIcon style={{ width: 12, height: 12 }} /> 图片</button>
-              {/* v16.4.0: 扮演选择器——会话绑定模板的用户角色列表；选中后消息带 [扮演: X] 前缀，
-                   AI 以该角色视角理解并回应。'' = 旁白/作者视角（不带前缀）。随会话切换重置。 */}
-              {(() => {
-                const tpl = (useSettingsStore.getState().aiSettings.roleTemplates || []).find(t => t.id === activeConversation?.roleTemplateId)
-                const userChars = tpl?.characters.filter(c => c.isUser) || []
-                if (userChars.length === 0) return null
-                return (
-                  <select value={speakAsCharId} onChange={e => setSpeakAsCharId(e.target.value)}
-                    title="以哪个角色身份发言（旁白 = 作者视角，不带扮演标记）"
-                    style={{
-                      padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
-                      border: speakAsCharId ? '1px solid rgba(124,58,237,0.28)' : '1px solid rgba(0,0,0,0.08)',
-                      background: speakAsCharId ? 'rgba(124,58,237,0.08)' : 'transparent',
-                      color: speakAsCharId ? '#7c3aed' : '#6b5e54', fontSize: 11, fontWeight: 600,
-                      whiteSpace: 'nowrap', maxWidth: 120, transition: 'all 0.15s ease',
-                    }}>
-                    <option value="">🎭 旁白</option>
-                    {userChars.map(c => <option key={c.id} value={c.id}>🎭 {c.name}</option>)}
-                  </select>
-                )
-              })()}
+              {/* v16.4.1(用户决策): 扮演选择器已移除——AI 直接根据用户要求和角色模板信息角色扮演，
+                  无需手动选身份（用户自然描述即可，如"我以林小满的口吻说：..."） */}
               <button className="input-popover-anchor" onClick={() => { setShowToolPicker(v => !v); setShowEffortPicker(false) }}
                 title="选择工具提示——告诉 AI 你本轮可能使用这些工具（软提示，非强制；可多选，随下一条消息发送）"
                 style={{
@@ -2198,14 +2191,14 @@ export default function AIChatWindow() {
               {visionAnalyzing && (
                 <span style={{ fontSize: 10, color: '#7c3aed', marginRight: 8 }}>🔍 分析图片中…</span>
               )}
-              <button onClick={handleSend} disabled={!input.trim() || !activeConfigId || loading || visionAnalyzing}
+              <button onClick={handleSend} disabled={(!input.trim() && !collabSelection) || !activeConfigId || loading || visionAnalyzing}
                 title="发送 (Enter)"
                 style={{
                   width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
-                  background: input.trim() && activeConfigId ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e9e4df',
-                  color: '#fff', cursor: input.trim() && activeConfigId ? 'pointer' : 'not-allowed',
+                  background: (input.trim() || collabSelection) && activeConfigId ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e9e4df',
+                  color: '#fff', cursor: (input.trim() || collabSelection) && activeConfigId ? 'pointer' : 'not-allowed',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: input.trim() && activeConfigId ? '0 3px 10px rgba(124,58,237,0.32)' : 'none',
+                  boxShadow: (input.trim() || collabSelection) && activeConfigId ? '0 3px 10px rgba(124,58,237,0.32)' : 'none',
                   transition: 'all 0.15s ease', transform: 'scale(1)',
                 }}
                 onMouseEnter={e => { if (!e.currentTarget.disabled) (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)' }}
@@ -2384,6 +2377,16 @@ export default function AIChatWindow() {
       )}
     </AnimatePresence>
     {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
+    {/* v16.4.1(用户需求): 选段全文预览弹窗——点击绿色选段块打开；可拖动/缩放，滚动查看全文 */}
+    <Modal isOpen={showSelectionModal} onClose={() => setShowSelectionModal(false)} title="选中的段落" draggable resizable width={560}>
+      <div className="custom-scrollbar" style={{ maxHeight: '58vh', overflowY: 'auto', fontSize: 13.5, lineHeight: 1.8, color: '#2d2520', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>
+        {collabSelection || '(空)'}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 14, marginTop: 14, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+        <Button variant="secondary" size="sm" onClick={() => setCollabSelection(null)}>移除选段</Button>
+        <Button size="sm" onClick={() => setShowSelectionModal(false)}>关闭</Button>
+      </div>
+    </Modal>
     {/* v16.3.0: 知识库文件勾选大弹窗（纯勾选模式：可拖动/缩放，无三态快捷按钮；空勾选=不使用） */}
     <KbSelectionModal
       isOpen={showKBFilePicker}

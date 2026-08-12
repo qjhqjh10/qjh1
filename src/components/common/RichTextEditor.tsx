@@ -50,6 +50,17 @@ export interface RichTextEditorHandle {
   cancelRewrite: () => void
 }
 
+// v16.4.1(审查修复): 图片保存逻辑单一实现（粘贴/拖拽/工具栏三处共用）
+async function saveImageFile(projectPath: string | null | undefined, dataUrl: string): Promise<string> {
+  if (projectPath) {
+    try {
+      const fn = await fileService.saveImageUrl(dataUrl, projectPath)
+      if (fn) return `images/${fn}`
+    } catch (err) { logError('保存图片到项目失败，降级为base64', err) }
+  }
+  return dataUrl // fallback to base64
+}
+
 export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({ content, onContentChange, onBlur, placeholder = '开始写作...', showFind: externalShowFind, onToggleFind: externalToggleFind, projectPath, chapterId, onPolishApplied, onSendToAI }: Props, ref) {
   const [showSymbols, setShowSymbols] = useState(false)
   const [showFind, setShowFind] = useState(false)
@@ -71,6 +82,9 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
   // v16.1.0(审查修复 A5/C4): 订阅协作状态——badge + 特效遮罩/取消按钮实时渲染
   const collabActive = useChapterCollabStore(s => s.active)
   const collabStreaming = useChapterCollabStore(s => s.streaming)
+  // v16.4.1(用户决策): 特效期间不再遮挡编辑器（用户要正常看内容、看文字逐个显现）——
+  // 取消入口改为可拖动浮动弹窗，拖动后记录位置（null = 默认右下角）
+  const [rewriteCancelPos, setRewriteCancelPos] = useState<{ x: number; y: number } | null>(null)
 
   // Refs to avoid stale closure in TipTap callbacks
   const onContentChangeRef = useRef(onContentChange)
@@ -106,13 +120,7 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
             const reader = new FileReader()
             reader.onload = async () => {
               const dataUrl = reader.result as string
-              let src = dataUrl
-              if (projectPath) {
-                try {
-                  const fn = await fileService.saveImageUrl(dataUrl, projectPath)
-                  if (fn) src = `images/${fn}`
-                } catch { /* fallback to base64 */ }
-              }
+              const src = await saveImageFile(projectPath, dataUrl)
               const node = view.state.schema.nodes.image.create({ src })
               view.dispatch(view.state.tr.replaceSelectionWith(node))
             }
@@ -133,13 +141,7 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
         const reader = new FileReader()
         reader.onload = async () => {
           const dataUrl = reader.result as string
-          let src = dataUrl
-          if (projectPath) {
-            try {
-              const fn = await fileService.saveImageUrl(dataUrl, projectPath)
-              if (fn) src = `images/${fn}`
-            } catch { /* fallback to base64 */ }
-          }
+          const src = await saveImageFile(projectPath, dataUrl)
           const node = view.state.schema.nodes.image.create({ src })
           view.dispatch(view.state.tr.replaceSelectionWith(node))
         }
@@ -228,16 +230,6 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
   const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
 
   // Shared helper: save image file to project images/ dir, return src path
-  const saveImageFile = useCallback(async (dataUrl: string): Promise<string> => {
-    if (projectPath) {
-      try {
-        const fn = await fileService.saveImageUrl(dataUrl, projectPath)
-        if (fn) return `images/${fn}`
-      } catch (err) { logError('保存图片到项目失败，降级为base64', err) }
-    }
-    return dataUrl // fallback to base64
-  }, [projectPath])
-
   // Image insertion via toolbar button
   const handleInsertImage = useCallback(async () => {
     const input = document.createElement('input')
@@ -248,7 +240,7 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
       if (!file || !editor) return
       const reader = new FileReader()
       reader.onload = async () => {
-        const src = await saveImageFile(reader.result as string)
+        const src = await saveImageFile(projectPath, reader.result as string)
         editor.chain().focus().setImage({ src }).run()
       }
       reader.readAsDataURL(file)
@@ -318,8 +310,9 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
       onSendToAI(selectedText)
     } else {
       // 无回调（非章节页挂载点）→ 回落旧行为：仅发文字 + 打开聊天窗
+      // v16.4.1: 改为绿色选段块（输入框上方），不再预填输入框
       const store = useStore.getState()
-      store.setPendingMessage(selectedText)
+      store.setCollabSelection(selectedText)
       store.setAIChatOpen(true)
     }
   }, [selectedText, onSendToAI])
@@ -421,23 +414,51 @@ export default forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
         <div onContextMenu={handleContextMenu} style={{ flex: 1 }}>
           <EditorContent editor={editor} style={{ height: '100%' }} />
         </div>
-        {/* v16.1.0(审查修复 C4): 特效进行中——编辑器角落浮动「取消本次改写」按钮
-            + 半透明遮罩提示（等待感缓解 + 放弃入口，不再只能等特效播完） */}
+        {/* v16.4.1(用户决策): 特效进行中——不再用半透明遮罩遮挡编辑器（用户要看着内容、看着文字逐个显现），
+            改为可拖动浮动小弹窗（默认右下角）：状态提示 + 「取消本次改写」入口，拖动可移到任意位置 */}
         {collabStreaming && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', background: 'rgba(255,255,255,0.35)', pointerEvents: 'none' }}>
-            <div style={{ marginTop: 40, pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, background: 'rgba(255,255,255,0.9)', padding: '4px 12px', borderRadius: 999, border: '1px solid rgba(124,58,237,0.2)', fontFamily: 'inherit' }}>
-                ✨ AI 正在改写这段文字…
-              </span>
-              <button onClick={() => {
-                cancelRewrite()
-                useChapterCollabStore.getState().setStreaming(false)
-                toast('已取消本次改写')
-              }} title="取消本次改写（保留原文）"
-                style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 999, padding: '5px 16px', fontSize: 12, color: '#6b5e54', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                ✕ 取消本次改写
-              </button>
-            </div>
+          <div
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return
+              e.preventDefault()
+              const startX = e.clientX
+              const startY = e.clientY
+              const base = rewriteCancelPos ?? { x: window.innerWidth - 320, y: window.innerHeight - 150 }
+              const onMove = (ev: MouseEvent) => {
+                setRewriteCancelPos({
+                  x: Math.max(0, Math.min(window.innerWidth - 280, base.x + (ev.clientX - startX))),
+                  y: Math.max(0, Math.min(window.innerHeight - 70, base.y + (ev.clientY - startY))),
+                })
+              }
+              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+              window.addEventListener('mousemove', onMove)
+              window.addEventListener('mouseup', onUp)
+            }}
+            title="拖动可移动；特效期间可随时取消"
+            style={{
+              position: 'fixed', zIndex: 50, userSelect: 'none', cursor: 'grab',
+              right: rewriteCancelPos ? undefined : 24,
+              bottom: rewriteCancelPos ? undefined : 24,
+              left: rewriteCancelPos?.x,
+              top: rewriteCancelPos?.y,
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: 'rgba(255,255,255,0.96)', border: '1px solid rgba(124,58,237,0.3)',
+              borderRadius: 12, padding: '8px 12px', boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <span style={{ fontSize: 11.5, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'cursorBlink 0.8s ease-in-out infinite', display: 'inline-block' }} />
+              ✨ AI 正在改写这段文字…
+            </span>
+            <button onClick={() => {
+              cancelRewrite()
+              useChapterCollabStore.getState().setStreaming(false)
+              toast('已取消本次改写')
+            }} title="取消本次改写（保留原文）"
+              style={{ background: '#faf7f4', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 999, padding: '4px 14px', fontSize: 11.5, color: '#6b5e54', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              ✕ 取消本次改写
+            </button>
           </div>
         )}
       </div>

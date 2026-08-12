@@ -247,6 +247,8 @@ export const kbService = {
   renameFolder: (folder: string, newName: string) => e().kb.renameFolder(folder, newName),
   deleteFolder: (folder: string) => e().kb.deleteFolder(folder),
   moveFile: (fileId: string, folder: string) => e().kb.moveFile(fileId, folder),
+  // v16.4.1: 复制文件到指定目录（新文件自动加「副本」，不复制索引）
+  copyFile: (fileId: string, folder: string) => e().kb.copyFile(fileId, folder),
 }
 
 export const dialogService = {

@@ -388,9 +388,19 @@ describe('create_project', () => {
     const result = await executeFileTool(makeCall('create_project', { name: '新项目' }), projectPath)
     expect(result.status).toBe('success')
     const projPath = path.join(projectPath, '新项目')
-    for (const dir of ['characters', 'outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
+    // v16.4.1: 部分化布局——顶层 characters 移除；doc 进子文件夹；sections.json 注册部分
+    for (const dir of ['outline', 'detailed_outline', 'chapters', 'covers', 'images', 'summaries']) {
       await expect(fsp.access(path.join(projPath, dir))).resolves.not.toThrow()
     }
+    await expect(fsp.access(path.join(projPath, 'outline', 'story', 'plot.md'))).resolves.not.toThrow()
+    await expect(fsp.access(path.join(projPath, 'outline', 'worldbuilding', 'worldbuilding.md'))).resolves.not.toThrow()
+    // v16.4.1: 实体部分目录预建
+    for (const dir of ['characters', 'items', 'locations', 'factions', 'power_systems', 'foreshadows', 'emotions', 'threads']) {
+      await expect(fsp.access(path.join(projPath, 'outline', dir))).resolves.not.toThrow()
+    }
+    const sections = JSON.parse(await fsp.readFile(path.join(projPath, 'outline', 'sections.json'), 'utf-8'))
+    expect(sections.sections.length).toBeGreaterThanOrEqual(9)
+    expect(sections.sections.some((s: { key: string }) => s.key === 'characters')).toBe(true)
     // Verify project.json was created
     const meta = JSON.parse(await fsp.readFile(path.join(projPath, 'project.json'), 'utf-8'))
     expect(meta.type).toBe('writing')

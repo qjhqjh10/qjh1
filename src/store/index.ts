@@ -48,7 +48,9 @@ export interface AppState {
   // UI
   activePage: string
   isAIChatOpen: boolean
-  pendingMessage: string | null       // 待发送的消息（设置页"应用学习"等触发）
+  // v16.4.1(用户决策): 待随下一条消息发送的选中段落（右键「发送到 AI」设置，完整文本；
+  // 聊天窗显示绿色选段块（头尾省略），发送后清除）——替代原输入框预填机制
+  collabSelection: string | null
   sidebarCollapsed: boolean
   connectionStatus: 'connected' | 'disconnected' | 'checking'
   connectedModel: string
@@ -108,7 +110,7 @@ export interface AppState {
   setActivePage: (page: string) => void
   toggleAIChat: () => void
   setAIChatOpen: (open: boolean) => void
-  setPendingMessage: (msg: string | null) => void
+  setCollabSelection: (text: string | null) => void
   toggleSidebar: () => void
   setConnectionStatus: (status: 'connected' | 'disconnected' | 'checking', model?: string) => void
   setInsertionAction: (action: { keyword: string; content: string; position: 'before' | 'after'; mode?: 'insert' | 'rewrite' } | null) => void
@@ -150,7 +152,7 @@ export const useStore = create<AppState>()(
     activePage: 'home',
     chapterGenTrigger: null as string | null,
     isAIChatOpen: false,
-    pendingMessage: null,
+    collabSelection: null,
     sidebarCollapsed: false,
     connectionStatus: 'checking',
     connectedModel: '',
@@ -231,7 +233,7 @@ export const useStore = create<AppState>()(
     setActivePage: (page) => set({ activePage: page }),
     toggleAIChat: () => set(s => { s.isAIChatOpen = !s.isAIChatOpen }),
     setAIChatOpen: (open) => set({ isAIChatOpen: open }),
-    setPendingMessage: (msg) => set({ pendingMessage: msg }),
+    setCollabSelection: (text) => set({ collabSelection: text }),
     toggleSidebar: () => set(s => { s.sidebarCollapsed = !s.sidebarCollapsed }),
     setConnectionStatus: (status, model) => set({ connectionStatus: status, connectedModel: model ?? get().connectedModel }),
     setInsertionAction: (action) => set({ insertionAction: action }),
