@@ -342,6 +342,48 @@ export async function getUniqueFileNameInDir(dir: string, baseName: string): Pro
 
 // ====================== Upload Helper ======================
 
+// ── v16.4.0: 场景标记触发（酒馆世界书式，用户决策）──
+// 设定文件内以「## 场景：关键词1、关键词2」开头的条目是"场景触发规则"：
+// query 命中任意关键词（子串匹配，至少 2 字）→ 强制激活该场景块（score=1 置顶注入），
+// 不依赖语义相似度——短角色扮演台词（"小二，来壶酒"）与对话规则文本的语义匹配
+// 不稳定，关键词触发更可靠。激活范围 = 场景标题 chunk + 其后连续 chunk
+// （至下一个场景标题或最多 3 个 ≈ 1500 字）。纯函数便于单测。
+// scored 为余弦排序结果（chunk 对象引用与上游数组一致，去重按引用比对）。
+export function applySceneKeywordActivation<T extends { content: string }>(
+  scored: Array<{ chunk: T; score: number }>,
+  query: string,
+): Array<{ chunk: T; score: number }> {
+  const SCENE_HEADER_RE = /^#{1,6}\s*场景\s*[：:]\s*(.+)$/m
+  const sceneHeaders: Array<{ idx: number; keywords: string[] }> = []
+  scored.forEach((s, i) => {
+    const m = SCENE_HEADER_RE.exec(s.chunk.content)
+    if (m) {
+      const keywords = String(m[1])
+        .split(/[、,，\s]+/).map(k => k.trim())
+        // 单字关键词（"市""酒"）误触发面太大，至少 2 字
+        .filter(k => k.length >= 2)
+      if (keywords.length > 0) sceneHeaders.push({ idx: i, keywords })
+    }
+  })
+  if (sceneHeaders.length === 0) return scored
+  const q = String(query)
+  const activatedIdx = new Set<number>()
+  for (const h of sceneHeaders) {
+    if (!h.keywords.some(k => q.includes(k))) continue
+    // 标题块 + 其后连续块（下一个场景标题处截断；最多 3 个 chunk ≈ 1500 字）
+    for (let j = h.idx; j < Math.min(scored.length, h.idx + 3); j++) {
+      if (j > h.idx && sceneHeaders.some(h2 => h2.idx === j)) break
+      activatedIdx.add(j)
+    }
+  }
+  if (activatedIdx.size === 0) return scored
+  const activatedChunks = new Set(scored.filter((_, i) => activatedIdx.has(i)).map(s => s.chunk))
+  return [
+    ...scored.filter((_, i) => activatedIdx.has(i)).map(s => ({ chunk: s.chunk, score: 1 })),
+    ...scored.filter(s => !activatedChunks.has(s.chunk)),
+  ]
+}
+
 export async function saveKBFile(filePath: string, activeProjectId: string, folder?: string): Promise<KnowledgeFile> {
   const stat = await fs.stat(filePath)
   if (stat.size > 50 * 1024 * 1024) {

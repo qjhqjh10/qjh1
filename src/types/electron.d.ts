@@ -267,6 +267,13 @@ export interface ElectronAPI {
   notes: { search: (query: string, configId: string, topK?: number) => Promise<{ content: string; fileName: string; score: number }[]> }
   stats: StatsAPI
   styleProjects: StyleProjectsAPI
+  // v16.4.0: 角色模板文件夹——「一个模板=一个文件夹」（role_templates/<id>/：template.json + characters/*.yaml + 世界观.md + 场景对话设定.md）
+  roleTemplates: {
+    exportFolder: (template: unknown) => Promise<{ ok: boolean; folder: string }>
+    readFolder: (id: string) => Promise<any | null>
+    listFolders: () => Promise<Array<{ id: string; name: string }>>
+    deleteFolder: (id: string) => Promise<boolean>
+  }
   styleTemplates: { list: () => Promise<StyleTemplate[]>; listProject: (projectPath: string) => Promise<StyleTemplate[]>; read: (id: string) => Promise<StyleTemplate | null>; save: (template: StyleTemplate) => Promise<StyleTemplate>; delete: (id: string) => Promise<void>; readPrompt: (id: string) => Promise<string | null>; savePrompt: (id: string, content: string) => Promise<void>; deletePrompt: (id: string) => Promise<void>; listRuleTemplates: () => Promise<RuleTemplate[]>; readRuleTemplate: (id: string) => Promise<RuleTemplate | null>; saveRuleTemplate: (template: RuleTemplate) => Promise<RuleTemplate>; deleteRuleTemplate: (id: string) => Promise<void> }
   templates: { list: () => Promise<SceneTemplate[]>; listProject: (projectPath: string) => Promise<SceneTemplate[]>; save: (t: SceneTemplate) => Promise<SceneTemplate>; delete: (id: string) => Promise<void> }
   continuation: { list: () => Promise<ContinuationProject[]>; read: (id: string) => Promise<ContinuationProject | null>; save: (p: ContinuationProject) => Promise<ContinuationProject>; delete: (id: string) => Promise<void> }

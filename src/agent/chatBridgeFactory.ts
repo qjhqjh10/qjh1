@@ -156,6 +156,9 @@ export abstract class BaseChatBridge {
         excludeKbFileIds: options.excludeKbFileIds,
         // v16.1.0(审查修复 B6): 章节全文注入门控——未变化轮不注入全文(成本优化)
         chapterFullText: options.chapterFullText,
+        // v16.4.0: 会话绑定模板（修复绑定错位）——BridgeContextBuilder 优先用会话绑定值，
+        // 而非全局 activeRoleTemplateId（全局切换/删模板不再静默改变已锁定会话的人设）
+        roleTemplateId: options.roleTemplateId,
       })
 
       this.runtime.setContextAssembler(async (msg, hist, pid) => {

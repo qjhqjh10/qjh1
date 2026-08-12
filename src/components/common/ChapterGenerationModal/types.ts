@@ -27,4 +27,6 @@ export interface ChapterGenProps {
   onGenDone?: () => void
   onGenError?: (msg: string) => void
   externalAbortRef?: React.MutableRefObject<(() => void) | null>
+  /** v16.4.0: 项目小说类型——仅 erotic（涩涩小说）时显示「涩涩剧情」细纲勾选 */
+  novelCategory?: string
 }

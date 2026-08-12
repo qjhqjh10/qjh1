@@ -25,6 +25,9 @@ export interface ContextBuilderOptions {
   excludeKbFileIds?: string[]
   /** v16.1.0(审查修复 B6): 章节协作——本轮是否注入全文。false 只注入锚点+版本（成本优化） */
   chapterFullText?: boolean
+  /** v16.4.0: 会话绑定的角色模板 id（聊天窗传会话锁定值；未传回退全局 activeRoleTemplateId——
+   * 非聊天窗调用方（生成/子代理等）保持原语义） */
+  roleTemplateId?: string
 }
 
 export interface ContextBuilderResult {
@@ -61,9 +64,11 @@ export class BridgeContextBuilder {
 
     // 读取 settings store（角色模板 + 旧 customRoles 共用）——提前到 KB 检索前，
     // v15.3.1: 角色模板勾选的设定文件（kbFileIds）独立于渲染层「知识库」开关，勾选即检索
+    // v16.4.0: 模板解析优先会话绑定值（opts.roleTemplateId，聊天窗传会话锁定值）——
+    // 修复绑定错位：原恒读全局 activeRoleTemplateId，设置页改全局/删模板会静默改变已锁定会话的人设。
     const { useSettingsStore, useStore } = await import('@/store')
     const aiSettings = useSettingsStore.getState().aiSettings
-    const activeTplId = aiSettings.activeRoleTemplateId
+    const activeTplId = this.opts.roleTemplateId || aiSettings.activeRoleTemplateId
     const activeTpl = activeTplId ? aiSettings.roleTemplates?.find(t => t.id === activeTplId) : undefined
     // v15.3.1: 设定文件分两组——世界观设定文件 / 场景对话设定文件（互斥，AI 按需求定位到正确文件组）
     const tplWorldFileIds = activeTpl?.worldKbFileIds || []
@@ -190,43 +195,102 @@ export class BridgeContextBuilder {
     // v13.0: 注入角色模板 — "语气外壳"，不替换写作助手内核
     // v15.3.1: 模板勾选的设定文件（kbFileIds）→ 提示词告知模型深度设定存于文件，
     // 需要时自主 kb_search / kb_analyze 精确查阅（检索结果已随本轮注入，但片段未必覆盖全部设定）
+    // v16.4.0(长文本边界): 文件夹化后 worldSetting/personality 可写得很长——注入有界，
+    // 超出部分提示 read_file 模板文件夹文件查阅（完整注入每轮占上下文，缓存也贵）
     if (activeTpl && activeTpl.characters.length > 0) {
       const userChars = activeTpl.characters.filter(c => c.isUser)
       const aiChars = activeTpl.characters.filter(c => !c.isUser)
 
+      // v16.4.0: 有界注入助手——长设定截断到提示上限，并附"完整内容在文件里"的指引
+      const boundText = (label: string, text: string, max: number, fileRef: string): string | null => {
+        if (!text) return null
+        if (text.length <= max) return text
+        return `${text.slice(0, max)}\n（以上为节选，完整${label}在 ${fileRef}，需要时 read_file 查阅全文）`
+      }
+
       if (aiChars.length > 0) {
         const charLines: string[] = []
-        if (activeTpl.worldSetting) {
-          charLines.push(`世界背景：${activeTpl.worldSetting}`)
+        // v16.4.0: 文件夹化——worldSetting/scenarioSetting 与模板文件夹文件互为镜像：
+        // 对话框写入后自动导出到 role_templates/<id>/，AI 可按路径 read_file 读全文。
+        // 路径净化与主进程 roleTemplateHandlers.safeTplId/safeFileName 对齐（提示路径与磁盘一致）
+        const tplFolder = activeTpl.id.replace(/[\\/:*?"<>|]/g, '_').slice(0, 64)
+        const charFileOf = (name: string) =>
+          `../role_templates/${tplFolder}/characters/${(name || '角色').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 60)}.yaml`
+        const worldSetting = boundText('世界观背景', activeTpl.worldSetting, 2500, `../role_templates/${tplFolder}/世界观.md`)
+        if (worldSetting) {
+          charLines.push(`世界背景：${worldSetting}`)
+        } else if (tplWorldFileIds.length > 0) {
+          // v16.4.0(角色扮演实测 S10 发现): 文本框留空但勾选了世界观文件时——AI 信息薄弱
+          // 会退化为"小说创作模式"（替用户角色行动/写叙事，不回应）。注入占位声明，
+          // 明确"设定在文件里、对话中需要时查阅"，防止回归写作模式
+          charLines.push(`世界背景：未在模板填写——完整世界观在下方[世界观设定文件]，对话中遇到不了解的设定时先查阅文件再回答，不要凭空编造。`)
         }
-        if (activeTpl.scenarioSetting) {
-          charLines.push(`场景设定：${activeTpl.scenarioSetting}`)
+        const scenarioSetting = boundText('场景对话设定', activeTpl.scenarioSetting, 2500, `../role_templates/${tplFolder}/场景对话设定.md`)
+        if (scenarioSetting) {
+          // v16.4.0(用户决策): 文本框内容 = 用户写的「触发情况 +（可选）具体细节」——
+          // 何时触发由你按对话情境自行判断（如"在酒馆/喝酒时"），不必等系统关键词
+          charLines.push(`场景设定（用户写的触发情况与规则——对话进行到符合触发情况的情境时应用对应规则，由你自行判断触发；未写细节的触发情况可自由完善细节）：${scenarioSetting}`)
         }
         userChars.forEach(c => {
           const parts = [`"${c.name}"（${c.identity}，${c.gender}，由用户扮演）`]
-          if (c.personality) parts.push(`- 设定：${c.personality}`)
-          if (c.relationship) parts.push(`- 关系：${c.relationship}`)
+          const personality = boundText('角色设定', c.personality, 900, charFileOf(c.name))
+          if (personality) parts.push(`- 设定：${personality}`)
+          const relationship = boundText('关系设定', c.relationship, 500, charFileOf(c.name))
+          if (relationship) parts.push(`- 关系：${relationship}`)
           charLines.push(parts.join('\n'))
         })
         aiChars.forEach(c => {
           const parts = [`"${c.name}"（${c.identity}，${c.gender}，由你扮演）`]
-          if (c.personality) parts.push(`- 设定：${c.personality}`)
-          if (c.relationship) parts.push(`- 关系：${c.relationship}`)
+          const personality = boundText('角色设定', c.personality, 900, charFileOf(c.name))
+          if (personality) parts.push(`- 设定：${personality}`)
+          const relationship = boundText('关系设定', c.relationship, 500, charFileOf(c.name))
+          if (relationship) parts.push(`- 关系：${relationship}`)
           if (c.firstMessage) parts.push(`- 首次发言风格参考："${c.firstMessage}"`)
           charLines.push(parts.join('\n'))
         })
 
+        // v16.4.0: 发言格式约束（修复多角色混音）——AI 角色>1 时必须按"角色名：台词"分行标注；
+        // 关键语义（用户澄清）：不是"轮流/全员发言"——谁参与当前场景、谁该说话才由谁发言，
+        // 未出场的角色保持沉默；用户点名/要求某角色时优先由该角色回应。
+        // 用户消息 [扮演: X] 前缀 = 用户以该角色身份说话（聊天窗「🎭 扮演」选择器注入）
+        // v16.4.0(举一反三·无例外强制修复): 「不要自造角色名」限指模板内角色不能叫错名，
+        // 剧情需要的临时新角色（客栈小二/路人/神秘客）必须可以即兴创造
+        charLines.push('【发言格式】')
+        if (aiChars.length > 1) {
+          charLines.push(
+            `- 你同时扮演 ${aiChars.map(c => `"${c.name}"`).join('、')} 等多个角色。谁参与当前场景、谁该说话，就由谁发言——未出场的角色保持沉默，不要强行安排所有角色轮流发言或全员开口；用户要求/点名某个角色时（如"让${aiChars[0].name}说说看法"），优先由该角色回应。每当有 AI 角色发言（无论一人还是多人），每句发言都以「角色名：内容」分行开头（如"${aiChars[0].name}：……"），一行一名角色，角色名必须使用上面列出的姓名，不要把所有角色混成一个声音；「不要自造角色名」指上面列出的角色不能叫错名字——剧情需要的临时新角色（客栈小二、路人、神秘客等）可以即兴创造并正常标注，不要拒绝创造新角色。`
+          )
+        } else {
+          charLines.push(`- 你以"${aiChars[0].name}"的身份直接回答（无需带角色名前缀）。`)
+        }
+        charLines.push(
+          `- 用户消息以「[扮演: 角色名]」开头时，表示用户正以该角色身份说话——你以对方的视角理解并回应，与该角色正常互动；未标注时用户是旁白/作者视角。`
+        )
+        // v16.4.0(角色扮演实测发现): 用户扮演的角色（isUser）由用户自己说话——AI 不得替
+        // 他们发言、做决定或推进他们的行动（如"李青：（……）"），除非用户明确要求代写。
+        if (userChars.length > 0) {
+          charLines.push(
+            `- 用户扮演的角色${userChars.map(c => `"${c.name}"`).join('、')}由用户自己发言——不要替他们开口说话、替他们做决定或代推进他们的行动（例如不要写"${userChars[0].name}：（……）"），他们的言行由用户自己给出；你只需扮演自己的角色并与其互动。`
+          )
+        }
+        // v16.4.0(角色扮演实测 S10 发现): 设定信息薄弱时 AI 会退化为"小说创作模式"——
+        // 把用户消息当创作素材续写叙事而非回应。明确"这是对话不是创作"，防回归写作模式
+        charLines.push(
+          `- 当前是角色扮演对话而非小说创作：以你自己的角色身份**直接回应**对方的话，不要替用户角色写动作/内心独白/推进剧情，不要输出大段旁白叙事；只有在用户明确要求"写一段/续写/创作"时才切换到创作模式。`
+        )
+
         // v15.3.1: 设定文件提示分两段——世界观文件 / 场景对话文件各归各（AI 按需求定位对应文件组）。
-        // v15.3.1(优化): 使用原则对齐「酒馆世界书」理念——已有信息不重复查、信息不足才查阅：
-        // ① 系统已按话题注入相关片段（低相关片段已被 score 阈值过滤），优先基于已有信息作答
-        // ② 仅当信息不足/不确定时才查阅：kb_search 定位 → 小文件 read_file 全文 / 大文件 kb_analyze
-        //   （kb_analyze 委托子代理，回传精简总结不撑爆主上下文；read_file 全文仅当轮可见且占 token）
+        // v16.4.0(用户决策·模型能力为主): 使用原则修正——设定是"约束补充"不是"创作枷锁"：
+        // ① 文件未覆盖的细节（场景氛围/临时元素/即兴情节）AI 自由发挥完善（模型能力为主）
+        // ② 文件明确写了的设定（人物背景/势力关系/规则）不确定时查阅，不凭空编造
+        // ③ 冲突时以文件设定为准；用户明确要求查阅/重查/即兴创作时听用户的
         const SETTING_FILE_USE_RULE =
-          `对话时系统已注入相关片段，请优先基于已有信息（含此前 read_file/kb_analyze 的结果）作答——已了解的信息不要重复查阅；`
-          + `仅当当前上下文无法确定设定细节或与已知信息矛盾时，才查阅对应文件：先用 kb_search 定位相关段落，`
+          `使用原则（模型能力为主，设定为约束补充）：设定文件约束核心设定——与文件设定冲突时以文件为准；`
+          + `文件未覆盖的细节（场景氛围、临时元素、即兴情节）由你自由发挥完善，不必生硬照搬或处处查阅；`
+          + `文件里明确写了的细节（人物背景、势力关系、规则禁忌）不确定时才查阅：先用 kb_search 定位相关段落，`
           + `小文件用 read_file 读取全文（文件在 ../knowledge_base/files/ 目录），大文件优先 kb_analyze 深度分析（回传精简总结，避免全文占用大量上下文）；`
           + `委托 kb_analyze 分析设定文件时，请在 query/focus 中说明分析角度——按角色扮演设定要点提炼：角色性格/关系/说话风格/世界观约束/行为准则与禁忌，而非泛泛的资料摘要（子代理看不到本角色的扮演设定，角度需由你传入）；`
-          + `不要凭空猜测设定。`
+          + `不要凭空编造文件里明确写了的设定细节。用户的明确指令优先于以上所有规则：要求查阅/重查时直接照做，要求即兴创作/自由发挥时不受设定约束。`
         if (tplWorldFileIds.length > 0) {
           const names = tplWorldFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
           charLines.push(
@@ -235,8 +299,9 @@ export class BridgeContextBuilder {
         }
         if (tplScenarioFileIds.length > 0) {
           const names = tplScenarioFileIds.map(id => kbIdNameMap.get(id)).filter(Boolean) as string[]
+          // v16.4.0: 场景标记语义——设定文件内「## 场景：X」条目在对话提到 X 时会被系统自动激活注入
           charLines.push(
-            `[场景对话设定文件] 本角色勾选 ${tplScenarioFileIds.length} 个场景与对话设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，完整场景/对话设定存于其中。${SETTING_FILE_USE_RULE}`
+            `[场景对话设定文件] 本角色勾选 ${tplScenarioFileIds.length} 个场景与对话设定文件${names.length > 0 ? `（${names.join('、')}）` : ''}，完整场景/对话设定存于其中。文件中以「## 场景：地点或关键词」开头的条目是场景触发规则——对话进行到对应场景时系统会自动注入该条目，你无需主动翻找；未注入且确需时才自行查阅。${SETTING_FILE_USE_RULE}`
           )
         }
 

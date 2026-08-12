@@ -357,6 +357,16 @@ export const extractionService = {
   importFromPath: (filePath: string) => e().extractions.importFromPath(filePath),
 }
 
+// v16.4.0: 角色模板文件夹 service——「一个模板=一个文件夹」
+// （role_templates/<id>/：template.json + characters/*.yaml + 世界观.md + 场景对话设定.md）
+export const roleTemplateService = {
+  exportFolder: (template: unknown): Promise<{ ok: boolean; folder: string }> =>
+    e().roleTemplates.exportFolder(template),
+  readFolder: (id: string): Promise<any | null> => e().roleTemplates.readFolder(id),
+  listFolders: (): Promise<Array<{ id: string; name: string }>> => e().roleTemplates.listFolders(),
+  deleteFolder: (id: string): Promise<boolean> => e().roleTemplates.deleteFolder(id),
+}
+
 export const storyService = {
   list: () => e().story.list(),
   create: (name: string) => e().story.create(name),

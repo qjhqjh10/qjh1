@@ -159,6 +159,34 @@ export default function App() {
     }
   }, [])
 
+  // v16.4.0: 角色模板文件夹启动导入——localStorage 无模板而磁盘 role_templates/ 有文件夹时
+  // 自动导入（换电脑/拷贝文件夹场景；文件夹是持久化真源，本地是运行时缓存）。
+  // 本地已有模板时不覆盖（编辑态优先，防磁盘旧版本覆盖正在编辑的内容）
+  useEffect(() => {
+    let cancelled = false
+    const doImport = async () => {
+      try {
+        const { roleTemplateService } = await import('@/services/fileService')
+        const dirs = await roleTemplateService.listFolders()
+        if (cancelled || dirs.length === 0) return
+        const { useSettingsStore } = await import('@/store')
+        const existing = useSettingsStore.getState().aiSettings.roleTemplates || []
+        if (existing.length > 0) return
+        const imported: any[] = []
+        for (const d of dirs) {
+          const tpl = await roleTemplateService.readFolder(d.id)
+          if (tpl && Array.isArray(tpl.characters) && tpl.characters.length > 0) imported.push(tpl)
+        }
+        if (imported.length > 0) {
+          useSettingsStore.getState().setAISettings({ roleTemplates: imported })
+          console.log(`已从文件夹导入 ${imported.length} 个角色模板`)
+        }
+      } catch { /* 非 Electron 环境或 IPC 不可用跳过 */ }
+    }
+    doImport()
+    return () => { cancelled = true }
+  }, [])
+
   // Load projects on startup so sidebar is never empty
   // v13.2.0: projects split across writing/imitation/continuation/rewrite dirs
   const imitationProjectsPath = useStore(s => s.imitationProjectsPath)

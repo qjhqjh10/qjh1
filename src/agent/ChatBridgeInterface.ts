@@ -35,6 +35,10 @@ export interface SendOptions {
    * 成本优化「变更才注入+心跳」由 UI 层判定（chapterVersion/text 变化或 ≥5 轮），
    * 未变化轮只注入锚点+版本（全文已在历史 user 消息中，模型可参考） */
   chapterFullText?: boolean
+  /** v16.4.0: 会话绑定的角色模板 id——BridgeContextBuilder 按此注入角色外壳，
+   * 不再读取全局 activeRoleTemplateId（修复绑定错位：已锁定会话的人设不再被全局切换/删模板静默改变）。
+   * 未传（非聊天窗调用方）时回退全局值。 */
+  roleTemplateId?: string
   onResponse?: (chunk: { text: string; accumulated: string; timestamp: number }) => void
   onComplete?: (result: V4AgentRunResult) => void
   onApprovalRequired?: (tools: Array<{ name: string; args: Record<string, unknown> }>) => Promise<boolean>

@@ -7,7 +7,9 @@ import { loadAllSummaries, saveSummary } from "@/services/summaryService";
 import type { OutlineTabToggles, DetailedOutlineToggles, KBInjectMode } from "@/types/settings";
 import Modal from "../Modal";
 import ConfirmModal from "../ConfirmModal";
-import { SparklesIcon, BookOpenIcon } from "@heroicons/react/24/outline";
+// v16.4.0: 知识库子弹窗复用聊天窗的书签式文件选择弹窗（目录树+搜索+全选目录）
+import { KbSelectionModal } from "@/components/ai/AIChatWindow/components/KbSelectionModal";
+import { SparklesIcon } from "@heroicons/react/24/outline";
 import type { DetailedChapter } from "@/types/chapter";
 import type { SceneTemplate } from "@/types/story";
 import { logError } from "@/utils/logger";
@@ -17,7 +19,7 @@ import type { VersionRecord, ChapterGenProps } from "./types";
 import { saveVersionRecord } from "./versionManager";
 import { buildScenePrompt, buildPrompt, normalizeParagraphs, injectKBContents } from "./promptBuilder";
 
-export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError, externalAbortRef }: ChapterGenProps) {
+export default function ChapterGenerationModal({ isOpen, onClose, chapterId, currentContent, onApply, onVersionSaved, onGenStart, onGenChunk, onGenDone, onGenError, externalAbortRef, novelCategory }: ChapterGenProps) {
   const activeProjectId = useStore(s => s.activeProjectId)
   const projectsBasePath = useStore(s => s.projectsBasePath)
   const worldbuildingContent = useStore(s => s.worldbuildingContent)
@@ -81,7 +83,6 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [replaceMode, setReplaceMode] = useState(cg.replaceMode)
   const [autoSummary, setAutoSummary] = useState(false)
   const [selectedSummaryPromptId, setSelectedSummaryPromptId] = useState('__none__')
-  const [kbDeleteConfirm, setKbDeleteConfirm] = useState<{ type: 'batch'; ids: string[]; count: number } | { type: 'single'; id: string; name: string } | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -100,6 +101,12 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
   const [prevTextSourceChapterId, setPrevTextSourceChapterId] = useState(cg.prevTextSourceChapterId ?? '')
   const [prevTextSelectedContent, setPrevTextSelectedContent] = useState(cg.prevTextSelectedContent ?? '')
   const [prevTextModalOpen, setPrevTextModalOpen] = useState(false)
+  // v16.4.0: 区域子弹窗（卡片化改造——主弹窗只显示概要，点击卡片弹该区域弹窗）
+  const [sectionModal, setSectionModal] = useState<'outline' | 'prevtext' | 'characters' | 'summaries' | 'kb' | 'template' | 'scene' | 'style' | null>(null)
+  // v16.4.0: 知识库书签式文件选择弹窗（复用 KbSelectionModal）
+  const [kbPickerOpen, setKbPickerOpen] = useState(false)
+  // v16.4.0(任务3): 仅涩涩小说类型显示「涩涩剧情」勾选
+  const isErotic = novelCategory === 'erotic'
   // 弹窗内：章节全文（异步加载）
   const [prevTextFullContent, setPrevTextFullContent] = useState('')
   const [prevTextFullLoading, setPrevTextFullLoading] = useState(false)
@@ -212,12 +219,20 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     if (kbLoaded) return kbFiles
     try {
       const meta = await kbService.list() as { files: { id: string; originalName: string; projects: string[] }[] }
-      const files = meta.files.filter(f => f.projects.includes(activeProjectId || ''))
+      // v16.4.0: 对齐 v16.3.0 文件项目解绑语义——不再按项目过滤（与 KbSelectionModal/聊天窗一致，
+      // 任意项目可选任意知识库文件；原过滤导致跨项目文件在章节生成里看不到）
+      const files = meta.files || []
       setKbFiles(files)
       setKbLoaded(true)
       return files
     } catch (e) { logError('加载知识库文件列表失败 (章节生成)', e); return [] }
   }
+
+  // v16.4.0: 打开知识库子弹窗时自动加载文件列表（已选 chips 显示文件名；书签式选择器自带加载）
+  useEffect(() => {
+    if (sectionModal === 'kb') loadKBFiles()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionModal])
 
 
   const generateSummaryForChapter = async (chapterId: string, chapterContent: string, chapterTitle: string) => {
@@ -429,203 +444,166 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
     }
   }
 
-  return (
-    <>
-    <Modal isOpen={isOpen} onClose={onClose} title="" width="86vw" maxHeight="100vh" closeOnBackdropClick={false} draggable resizable>
-      <style>{`
-        @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
-        .gen-btn { transition: all 0.25s ease; }
-        .gen-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,58,237,0.3); }
-        .gen-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
-        .chip-check { transition: all 0.2s ease; }
-        .chip-check:hover { transform: translateY(-1px); }
-        .section-card { transition: box-shadow 0.2s ease; }
-        .section-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
-      `}</style>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '82vh', minHeight: 600 }}>
-        {/* Header — clean title */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 12,
-              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
-            }}>
-              <SparklesIcon style={{ width: 18, height: 18, color: '#fff' }} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e1b2e', margin: 0, lineHeight: 1.2 }}>AI 生成章节</h2>
-              <p style={{ fontSize: 11, color: '#9b8e84', margin: 0 }}>{currentChapter?.title || '未命名章节'}</p>
-            </div>
-          </div>
-          <button onClick={onClose} style={{
-            width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)',
-            background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#9b8e84', fontSize: 16,
-          }}>×</button>
-        </div>
-
-        {/* === SECTION 1: 关联大纲和细纲 (左) + 前文注入 (右) === */}
-        <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
-          {/* 左 50%：关联大纲和细纲 */}
-          <div className="section-card" style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(124,58,237,0.015), rgba(168,85,247,0.02))', border: '1px solid rgba(124,58,237,0.08)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
-              关联大纲和细纲
-            </div>
-            {/* Outline tabs — all on one line */}
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54' }}>大纲</span>
-                <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
-                <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {([
-                  ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
-                  ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
-                  ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
-                  ['plotThreads', '故事线'],
-                ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
-                  <label key={key} className="chip-check" style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
-                    fontSize: 12, cursor: 'pointer',
-                    background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
-                    border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
-                    color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
-                    fontWeight: outlineTabs[key] ? 600 : 400,
-                  }}>
-                    <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={checkInput} />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            {/* Detailed outline fields */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#4a3f38' }}>细纲</span>
-                <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
-                <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {([
-                  ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
-                  ['location', '场景地点'], ['keyEvents', '关键事件'],
-                  ['eroticContent', '涩涩剧情'],
-                ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
-                  <label key={key} className="chip-check" style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 7,
-                    fontSize: 12, cursor: 'pointer',
-                    background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
-                    border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
-                    color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
-                    fontWeight: detailedOutlineFields[key] ? 600 : 400,
-                  }}>
-                    <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={checkInput} />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* 右 50%：前文注入 */}
-          <div className="section-card" style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(59,130,246,0.015), rgba(96,165,250,0.02))', border: '1px solid rgba(59,130,246,0.08)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 4, height: 16, borderRadius: 2, background: '#7c3aed' }} />
-              前文注入
-            </div>
-            {/* 启用开关 */}
-            <label style={{ ...checkLabel, fontSize: 12, gap: 4, marginBottom: 10, display: 'inline-flex' }}>
-              <input type="checkbox" checked={prevTextEnabled} onChange={() => setPrevTextEnabled(!prevTextEnabled)} style={checkInput} />
-              启用前文衔接
-            </label>
-            {prevTextEnabled && prevChapters.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#f59e0b', padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', lineHeight: 1.4 }}>
-                ⚠️ 这是第一章，无前文章节可注入
-              </div>
-            ) : prevTextEnabled ? (
-              <>
-                {/* 来源章节下拉 */}
+  // ═══ v16.4.0: 区域子弹窗（卡片化改造——主弹窗只显示概要，点击卡片弹该区域弹窗）═══
+  const renderSectionModal = () => {
+    if (!sectionModal) return null
+    const titles: Record<NonNullable<typeof sectionModal>, string> = {
+      outline: '📋 关联大纲和细纲', prevtext: '📝 前文注入', characters: '👥 角色库',
+      summaries: '📖 前文摘要', kb: '📚 知识库注入', template: '🎨 生成模板',
+      scene: '🎬 场景注入', style: '✨ 风格模板',
+    }
+    const W = sectionModal === 'outline' || sectionModal === 'prevtext' ? 800 : 660
+    return (
+      <Modal isOpen={!!sectionModal} onClose={() => setSectionModal(null)} title={titles[sectionModal]}
+        width={W} maxHeight="80vh" closeOnBackdropClick draggable resizable>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* ── 大纲 + 细纲 ── */}
+          {sectionModal === 'outline' && (
+            <>
+              <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>来源章节:</span>
-                  <select
-                    value={effectiveSourceChapterId}
-                    onChange={e => {
-                      setPrevTextSourceChapterId(e.target.value)
-                      setPrevTextSelectedContent('')
-                    }}
-                    style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 12, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', minWidth: 0 }}
-                  >
-                    {prevChapters.map(c => (
-                      <option key={c.id} value={c.id}>第{c.order + 1}章: {c.title || '未命名'}</option>
-                    ))}
-                  </select>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54' }}>大纲</span>
+                  <button onClick={() => setAllOutlineTabs(true)} style={miniActionLink}>全选</button>
+                  <button onClick={() => setAllOutlineTabs(false)} style={miniActionLink}>清空</button>
+                  <span style={{ fontSize: 11, color: '#9b8e84' }}>勾选要注入的大纲分区</span>
                 </div>
-                {/* 已选内容预览 */}
-                {prevTextSelectedContent ? (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 3 }}>已选内容:</div>
-                    <div style={{
-                      padding: '8px 10px', borderRadius: 8, background: '#fff',
-                      border: '1px solid rgba(59,130,246,0.12)', fontSize: 11, lineHeight: 1.5,
-                      color: '#4a3f38', maxHeight: 60, overflow: 'hidden', position: 'relative',
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {([
+                    ['plot', '故事剧情'], ['worldbuilding', '世界观'], ['characters', '角色'],
+                    ['items', '道具'], ['locations', '地点'], ['factions', '势力'],
+                    ['powerSystem', '等级'], ['foreshadowing', '伏笔'], ['emotion', '情绪'],
+                    ['plotThreads', '故事线'],
+                  ] as [keyof OutlineTabToggles, string][]).map(([key, label]) => (
+                    <label key={key} className="chip-check" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 14px', borderRadius: 8,
+                      fontSize: 12.5, cursor: 'pointer',
+                      background: outlineTabs[key] ? 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(168,85,247,0.06))' : '#f8f7f5',
+                      border: outlineTabs[key] ? '1px solid rgba(124,58,237,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                      color: outlineTabs[key] ? '#7c3aed' : '#6b5e54',
+                      fontWeight: outlineTabs[key] ? 600 : 400,
                     }}>
-                      {prevTextSelectedContent.slice(0, 80)}{prevTextSelectedContent.length > 80 ? '…' : ''}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                        <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 600 }}>共 {prevTextSelectedContent.length} 字</span>
-                        <button onClick={() => setPrevTextSelectedContent('')} style={{ ...miniActionLink, fontSize: 10, color: '#9b8e84' }}>清除选择</button>
+                      <input type="checkbox" checked={outlineTabs[key]} onChange={() => toggleOutlineTab(key)} style={checkInput} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#4a3f38' }}>细纲</span>
+                  <button onClick={() => setAllDetailedFields(true)} style={miniActionLink}>全选</button>
+                  <button onClick={() => setAllDetailedFields(false)} style={miniActionLink}>清空</button>
+                  <span style={{ fontSize: 11, color: '#9b8e84' }}>勾选要注入的细纲字段</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {([
+                    ['plotOverview', '剧情概述'], ['chapterCharacters', '出场角色'],
+                    ['location', '场景地点'], ['keyEvents', '关键事件'],
+                    // v16.4.0(任务3): 「涩涩剧情」勾选仅涩涩小说类型显示
+                    ...(isErotic ? [['eroticContent', '涩涩剧情'] as [keyof DetailedOutlineToggles, string]] : []),
+                  ] as [keyof DetailedOutlineToggles, string][]).map(([key, label]) => (
+                    <label key={key} className="chip-check" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 14px', borderRadius: 8,
+                      fontSize: 12.5, cursor: 'pointer',
+                      background: detailedOutlineFields[key] ? 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.06))' : '#f8f7f5',
+                      border: detailedOutlineFields[key] ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(0,0,0,0.05)',
+                      color: detailedOutlineFields[key] ? '#3b82f6' : '#6b5e54',
+                      fontWeight: detailedOutlineFields[key] ? 600 : 400,
+                    }}>
+                      <input type="checkbox" checked={detailedOutlineFields[key]} onChange={() => toggleDetailedField(key)} style={checkInput} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── 前文注入 ── */}
+          {sectionModal === 'prevtext' && (
+            <>
+              <label style={{ ...checkLabel, fontSize: 13, gap: 5, display: 'inline-flex', alignItems: 'center' }}>
+                <input type="checkbox" checked={prevTextEnabled} onChange={() => setPrevTextEnabled(!prevTextEnabled)} style={checkInput} />
+                启用前文衔接
+              </label>
+              {prevTextEnabled && prevChapters.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#f59e0b', padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', lineHeight: 1.4 }}>
+                  ⚠️ 这是第一章，无前文章节可注入
+                </div>
+              ) : prevTextEnabled ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6b5e54', whiteSpace: 'nowrap' }}>来源章节:</span>
+                    <select
+                      value={effectiveSourceChapterId}
+                      onChange={e => {
+                        setPrevTextSourceChapterId(e.target.value)
+                        setPrevTextSelectedContent('')
+                      }}
+                      style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', fontSize: 12, fontFamily: 'inherit', background: '#faf9f8', cursor: 'pointer', minWidth: 0 }}
+                    >
+                      {prevChapters.map(c => (
+                        <option key={c.id} value={c.id}>第{c.order + 1}章: {c.title || '未命名'}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {prevTextSelectedContent ? (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54', marginBottom: 3 }}>已选内容:</div>
+                      <div style={{
+                        padding: '8px 10px', borderRadius: 8, background: '#fff',
+                        border: '1px solid rgba(59,130,246,0.12)', fontSize: 11, lineHeight: 1.5,
+                        color: '#4a3f38', maxHeight: 80, overflow: 'hidden', position: 'relative',
+                      }}>
+                        {prevTextSelectedContent.slice(0, 120)}{prevTextSelectedContent.length > 120 ? '…' : ''}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                          <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 600 }}>共 {prevTextSelectedContent.length} 字</span>
+                          <button onClick={() => setPrevTextSelectedContent('')} style={{ ...miniActionLink, fontSize: 10, color: '#9b8e84' }}>清除选择</button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 11, color: '#9b8e84', marginBottom: 8 }}>尚未选择内容 — 点击下方按钮用鼠标选中文字</div>
-                )}
-                {/* 选择内容按钮 */}
-                <button
-                  onClick={() => {
-                    setPrevTextFullContent('')
-                    setPrevTextFullLoading(false)
-                    setPrevTextFullError('')
-                    setPrevTextSelectionCount(0)
-                    setPrevTextInjectionMode('manual')
-                    setPrevTextAutoEndingCount(1000)
-                    setPrevTextModalOpen(true)
-                  }}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 14px',
-                    borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)',
-                    background: 'rgba(59,130,246,0.04)', cursor: 'pointer',
-                    fontSize: 12, fontWeight: 600, color: '#3b82f6', fontFamily: 'inherit',
-                  }}
-                >
-                  <span style={{ fontSize: 13 }}>📝</span>
-                  {prevTextSelectedContent ? '重新选择前文内容...' : '选择前文内容...（鼠标选中文字）'}
-                </button>
-              </>
-            ) : null}
-          </div>
-        </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#9b8e84' }}>尚未选择内容 — 点击下方按钮用鼠标选中文字</div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setPrevTextFullContent('')
+                      setPrevTextFullLoading(false)
+                      setPrevTextFullError('')
+                      setPrevTextSelectionCount(0)
+                      setPrevTextInjectionMode('manual')
+                      setPrevTextAutoEndingCount(1000)
+                      setPrevTextModalOpen(true)
+                    }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 14px',
+                      borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)',
+                      background: 'rgba(59,130,246,0.04)', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 600, color: '#3b82f6', fontFamily: 'inherit',
+                    }}
+                  >
+                    <span style={{ fontSize: 13 }}>📝</span>
+                    {prevTextSelectedContent ? '重新选择前文内容...' : '选择前文内容...（鼠标选中文字）'}
+                  </button>
+                </>
+              ) : null}
+            </>
+          )}
 
-        {/* === SECTION 2: Two-column layout (characters+summary+kb | template+scene+style) === */}
-        <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {/* Left column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-            {/* Characters */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>角色库 · {selectedCharacterIds.size} 个</div>
-              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 6 }}>
-                <button onClick={() => selectIds(setSelectedCharacterIds, characters.map(c => c.id))} style={{...miniActionLink, fontSize: 12}}>全选</button>
-                <button onClick={autoDetectCharacters} style={{...miniActionLink, fontSize: 12}}>自动检测</button>
-                <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={{...miniActionLink, fontSize: 12}}>清空</button>
+          {/* ── 角色库 ── */}
+          {sectionModal === 'characters' && (
+            <>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={() => selectIds(setSelectedCharacterIds, characters.map(c => c.id))} style={miniActionLink}>全选</button>
+                <button onClick={autoDetectCharacters} style={miniActionLink}>自动检测</button>
+                <button onClick={() => selectIds(setSelectedCharacterIds, [])} style={miniActionLink}>清空</button>
+                <span style={{ fontSize: 11, color: '#9b8e84' }}>已选 {selectedCharacterIds.size}/{characters.length} 个角色</span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 320, overflowY: 'auto' }} className="custom-scrollbar">
                 {characters.map(c => (
                   <label key={c.id} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 7, fontSize: 12, cursor: 'pointer',
-                    background: selectedCharacterIds.has(c.id) ? 'rgba(124,58,237,0.06)' : 'transparent',
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 8, fontSize: 12.5, cursor: 'pointer',
+                    background: selectedCharacterIds.has(c.id) ? 'rgba(124,58,237,0.06)' : '#f8f7f5',
                     border: selectedCharacterIds.has(c.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
                   }}>
                     <input type="checkbox" checked={selectedCharacterIds.has(c.id)} onChange={() => toggleId(setSelectedCharacterIds, c.id)} style={checkInput} />
@@ -634,14 +612,15 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 ))}
                 {characters.length === 0 && <span style={{ fontSize: 12, color: '#9b8e84' }}>暂无角色</span>}
               </div>
-            </div>
+            </>
+          )}
 
-            {/* Chapter summaries */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>前文摘要 · {selectedSummaryIds.size}/5（有摘要 {prevChaptersWithSummary.length}/{prevChapters.length} 章）</div>
-              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={smartSelectSummaries} style={{...miniActionLink, fontSize: 12}}>最近五章（有摘要的）</button>
-                <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={{...miniActionLink, fontSize: 12}}>清空</button>
+          {/* ── 前文摘要 ── */}
+          {sectionModal === 'summaries' && (
+            <>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={smartSelectSummaries} style={miniActionLink}>最近五章（有摘要的）</button>
+                <button onClick={() => selectIds(setSelectedSummaryIds, [])} style={miniActionLink}>清空</button>
                 <div style={{ width: 1, height: 14, background: 'rgba(0,0,0,0.1)' }} />
                 <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: autoSummary ? '#16a34a' : '#6b5e54', fontWeight: autoSummary ? 600 : 400 }}>
                   <input type="checkbox" checked={autoSummary} onChange={() => setAutoSummary(!autoSummary)} style={checkInput} />自动生成摘要
@@ -655,11 +634,11 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                   </select>
                 )}
               </div>
-              <div className="custom-scrollbar" style={{ overflowY: 'auto', flex: 1 }}>
+              <div style={{ maxHeight: 340, overflowY: 'auto' }} className="custom-scrollbar">
                 {prevChapters.map(c => {
                   const hasSummary = !!chapterSummaryMap[c.id]?.trim()
                   return (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', cursor: hasSummary ? 'pointer' : 'default', borderRadius: 6, fontSize: 13, color: hasSummary ? '#2d2520' : '#b0a89e' }}>
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: hasSummary ? 'pointer' : 'default', borderRadius: 6, fontSize: 13, color: hasSummary ? '#2d2520' : '#b0a89e' }}>
                     <input type="checkbox" checked={selectedSummaryIds.has(c.id)} onChange={() => toggleId(setSelectedSummaryIds, c.id)} disabled={!hasSummary || (!selectedSummaryIds.has(c.id) && selectedSummaryIds.size >= 5)} style={checkInput} />
                     <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>第{c.order + 1}章</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
@@ -670,110 +649,111 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 {prevChapters.length === 0 && <span style={{ fontSize: 13, color: '#9b8e84' }}>无前序章节</span>}
               </div>
               {prevChapters.length > 0 && prevChaptersWithSummary.length === 0 && (
-                <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', color: '#b45309', lineHeight: 1.4, flexShrink: 0 }}>
+                <div style={{ padding: '6px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.06)', color: '#b45309', lineHeight: 1.4 }}>
                   💡 前序章节尚未创建摘要。可在章节创作页左侧面板的"章节正文摘要"中点击"AI提取"为每章自动生成摘要。
                 </div>
               )}
-            </div>
+            </>
+          )}
 
-            {/* Knowledge base */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>知识库注入 · {selectedKbFileIds.size} 个</div>
-              {/* v15.4.0: 注入方式（全量/片段）+ 片段关键词 */}
-              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: '#6b5e54', fontWeight: 600 }}>注入方式:</span>
+          {/* ── 知识库注入 ── */}
+          {sectionModal === 'kb' && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#6b5e54' }}>注入方式:</span>
                 <button onClick={() => setKbInjectMode('full')} title="勾选文件全文截断注入（上限取知识库设置）"
-                  style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                  style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
                     border: kbInjectMode === 'full' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
                     background: kbInjectMode === 'full' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'full' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'full' ? 600 : 400 }}>全量注入</button>
                 <button onClick={() => setKbInjectMode('chunk')} title="按关键词向量化检索相关片段注入（topK 取知识库设置）"
-                  style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', cursor: 'pointer',
+                  style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
                     border: kbInjectMode === 'chunk' ? '1px solid rgba(124,58,237,0.35)' : '1px solid rgba(0,0,0,0.1)',
                     background: kbInjectMode === 'chunk' ? 'rgba(124,58,237,0.08)' : '#fff', color: kbInjectMode === 'chunk' ? '#7c3aed' : '#6b5e54', fontWeight: kbInjectMode === 'chunk' ? 600 : 400 }}>片段注入</button>
               </div>
-              {/* v15.4.0: 模式对比提示——帮助选择注入方式 */}
-              <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 4, lineHeight: 1.5 }}>
-                全量：适合整体参考（世界观全貌、人物卡）——文件大时按上限截断，末尾可能丢失；
+              <div style={{ fontSize: 11, color: '#9b8e84', lineHeight: 1.6 }}>
+                全量：适合整体参考（世界观全貌、人物卡）——文件大时按上限截断，末尾可能丢失；<br/>
                 片段：适合按主题精准参考（如本章要写战斗、衣服、某角色）——关键词向量化定位，省 token 且不丢关键段落
               </div>
               {kbInjectMode === 'chunk' && (
-                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input value={kbKeywords} onChange={e => setKbKeywords(e.target.value)}
                     placeholder="片段关键词：如 剑术, 宗门, 炼丹（逗号/顿号分隔）"
-                    style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }} />
                 </div>
               )}
-              <div style={{ flexShrink: 0, display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button onClick={async () => { const files = await loadKBFiles(); if (files.length > 0) selectIds(setSelectedKbFileIds, files.map(f => f.id)) }} style={miniActionLink}>全选</button>
-                <button onClick={() => selectIds(setSelectedKbFileIds, [])} style={miniActionLink}>清空</button>
-                <button onClick={loadKBFiles} style={{ ...miniActionLink, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <BookOpenIcon style={{ width: 10, height: 10 }} />
-                  {kbLoaded ? `已加载 ${kbFiles.length}` : '加载'}
-                </button>
-                {selectedKbFileIds.size > 0 && (
-                  <button onClick={() => setKbDeleteConfirm({ type: 'batch', ids: [...selectedKbFileIds], count: selectedKbFileIds.size })} style={{ ...miniActionLink, color: '#dc2626' }}>🗑 删除选中</button>
-                )}
-              </div>
               {kbInjectMode === 'chunk' && (
-                <div style={{ flexShrink: 0, fontSize: 10, color: '#9b8e84', marginBottom: 4, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 11, color: '#9b8e84' }}>
                   💡 片段模式未填关键词时自动退回全量注入；检索不到相关片段时不注入任何内容。
                 </div>
               )}
-              {kbLoaded && kbFiles.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, overflowY: 'auto', flex: 1, alignContent: 'flex-start' }} className="custom-scrollbar">
-                  {kbFiles.map(f => (
-                    <div key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                      <label style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px 3px 10px', borderRadius: '6px 0 0 6px', fontSize: 12, cursor: 'pointer',
-                        background: selectedKbFileIds.has(f.id) ? 'rgba(124,58,237,0.06)' : '#fff',
-                        border: selectedKbFileIds.has(f.id) ? '1px solid rgba(124,58,237,0.18)' : '1px solid rgba(0,0,0,0.05)',
-                        borderRight: 'none',
-                      }}>
-                        <input type="checkbox" checked={selectedKbFileIds.has(f.id)} onChange={() => toggleId(setSelectedKbFileIds, f.id)} style={checkInput} />
-                        {f.originalName.slice(0, 20)}
-                      </label>
-                      <button onClick={e => {
-                        e.stopPropagation()
-                        setKbDeleteConfirm({ type: 'single', id: f.id, name: f.originalName })
-                      }} title="删除此文件" style={{
-                        padding: '3px 8px', borderRadius: '0 6px 6px 0', border: '1px solid rgba(0,0,0,0.05)', borderLeft: 'none',
-                        background: '#fff', cursor: 'pointer', fontSize: 11, color: '#9b8e84', display: 'flex', alignItems: 'center',
-                      }}>×</button>
-                    </div>
+              {/* v16.4.0: 书签式文件选择（复用聊天窗 KbSelectionModal——目录树+搜索+全选目录） */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => setKbPickerOpen(true)} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 8,
+                  border: '1px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)',
+                  cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: '#7c3aed', fontFamily: 'inherit',
+                }}>
+                  📚 选择知识库文件{selectedKbFileIds.size > 0 ? `（已选 ${selectedKbFileIds.size} 个）` : ''}
+                </button>
+                {selectedKbFileIds.size > 0 && (
+                  <button onClick={() => setSelectedKbFileIds(new Set())} style={{ ...miniActionLink, fontSize: 12 }}>清空</button>
+                )}
+              </div>
+              {selectedKbFileIds.size > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {kbFiles.filter(f => selectedKbFileIds.has(f.id)).map(f => (
+                    <span key={f.id} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px 3px 10px', borderRadius: 999,
+                      background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)', fontSize: 12, color: '#6b5e54',
+                    }}>
+                      {f.originalName}
+                      <button onClick={() => setSelectedKbFileIds(prev => { const n = new Set(prev); n.delete(f.id); return n })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9b8e84', fontSize: 12, padding: 0, lineHeight: 1, fontFamily: 'inherit' }}>×</button>
+                    </span>
                   ))}
                 </div>
               )}
-            </div>
-          </div>
+            </>
+          )}
 
-          {/* Right column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-            {/* Template */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>生成模板</div>
+          {/* v16.4.0: 书签式文件选择弹窗（目录树+搜索+全选目录，复用聊天窗组件） */}
+          {sectionModal === 'kb' && kbPickerOpen && (
+            <KbSelectionModal
+              isOpen={kbPickerOpen}
+              onClose={() => setKbPickerOpen(false)}
+              selectedIds={[...selectedKbFileIds]}
+              mode="custom"
+              onSetIds={(ids) => setSelectedKbFileIds(new Set(ids))}
+            />
+          )}
+
+          {/* ── 生成模板 ── */}
+          {sectionModal === 'template' && (
+            <>
               <select value={selectedChapterPromptId} onChange={e => handleSwitchChapterPrompt(e.target.value)}
-                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', marginBottom: 6, fontFamily: 'inherit', background: '#faf9f8' }}>
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', background: '#faf9f8' }}>
                 <option value={NONE_ID}>不使用模板（根据四层配置生成）</option>
                 {chapterPrompts.map(p => (
                   <option key={p.id} value={p.id}>{p.enabled ? '✓ ' : ''}{p.title}</option>
                 ))}
               </select>
               {chapterPrompt ? (
-                <div style={{ fontSize: 11, color: '#7c3aed', padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', lineHeight: 1.5 }}>
-                  <span style={{ fontWeight: 600 }}>{chapterPrompt.title}</span> — {chapterPrompt.content.slice(0, 70)}...
+                <div style={{ fontSize: 11, color: '#7c3aed', padding: '8px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.04)', lineHeight: 1.5 }}>
+                  <span style={{ fontWeight: 600 }}>{chapterPrompt.title}</span> — {chapterPrompt.content.slice(0, 100)}...
                 </div>
               ) : (
                 <div style={{ fontSize: 11, color: '#9b8e84' }}>不使用模板 — AI 根据四层配置自行组织创作要求</div>
               )}
-            </div>
+            </>
+          )}
 
-            {/* Scene injection */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>场景注入</div>
+          {/* ── 场景注入 ── */}
+          {sectionModal === 'scene' && (
+            <>
               <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
                 {(['all', '情色小说', '普通小说'] as const).map(t => (
                   <button key={t} onClick={() => { setSceneFilterType(t); setSelectedSceneId('') }} style={{
-                    padding: '3px 10px', borderRadius: 5, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.05)',
+                    padding: '4px 12px', borderRadius: 6, border: sceneFilterType === t ? '1px solid #7c3aed' : '1px solid rgba(0,0,0,0.05)',
                     background: sceneFilterType === t ? 'rgba(124,58,237,0.06)' : '#f8f7f5', cursor: 'pointer', fontSize: 12,
                     color: sceneFilterType === t ? '#7c3aed' : '#6b5e54', fontFamily: 'inherit',
                   }}>{t === 'all' ? '全部' : t === '情色小说' ? '涩涩' : '普通'}</button>
@@ -786,22 +766,23 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 ))}
               </select>
               {selectedScene && (
-                <div style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.02)', border: '1px solid rgba(124,58,237,0.06)', fontSize: 10, overflow: 'auto', flex: 1, color: '#4a3f38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(124,58,237,0.02)', border: '1px solid rgba(124,58,237,0.06)', fontSize: 10, overflow: 'auto', maxHeight: 240, color: '#4a3f38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
                   {buildScenePrompt(selectedScene)}
                 </div>
               )}
-            </div>
+            </>
+          )}
 
-            {/* Style template */}
-            <div className="section-card" style={{ ...cardStyle, padding: '14px 16px', flex: 3, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ ...cardHeaderStyle, fontSize: 13, flexShrink: 0 }}>风格模板</div>
+          {/* ── 风格模板 ── */}
+          {sectionModal === 'style' && (
+            <>
               <select value={selectedStyleTemplateId} onChange={e => setSelectedStyleTemplateId(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', background: '#faf9f8' }}>
                 <option value="">— 不注入 —</option>
                 {styleTemplates.map((t: any) => (
                   <option key={t.id} value={t.id}>{t.name || '未命名'}</option>
                 ))}
               </select>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: '#9b8e84' }}>强度:</span>
                 {(['light','normal','strong'] as const).map(s => (
                   <button key={s} onClick={() => updateCg({ styleStrength: s })}
@@ -816,7 +797,7 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                 ))}
               </div>
               {selectedStyleTemplate && (
-                <div style={{ padding: '6px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, overflow: 'auto', flex: 1, color: '#4a3f38', lineHeight: 1.5 }}>
+                <div style={{ padding: '8px 10px', marginTop: 6, borderRadius: 8, background: 'rgba(236,72,153,0.03)', border: '1px solid rgba(236,72,153,0.06)', fontSize: 10, overflow: 'auto', maxHeight: 220, color: '#4a3f38', lineHeight: 1.5 }}>
                   {(() => {
                     const t = selectedStyleTemplate
                     const parts: string[] = []
@@ -832,7 +813,143 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
                   })()}
                 </div>
               )}
+            </>
+          )}
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <>
+    {/* v16.4.0(任务5): 弹窗变小（86vw→760px），标准标题栏可拖动（修复 title="" 时仅 8px 隐形手柄难拖） */}
+    <Modal isOpen={isOpen} onClose={onClose} title="✨ AI 生成章节" width={760} maxHeight="80vh" closeOnBackdropClick={false} draggable resizable>
+      <style>{`
+        @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 20px rgba(124,58,237,0.15), 0 0 40px rgba(124,58,237,0.05); } 50% { box-shadow: 0 0 28px rgba(124,58,237,0.25), 0 0 56px rgba(124,58,237,0.1); } }
+        .gen-btn { transition: all 0.25s ease; }
+        .gen-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,58,237,0.3); }
+        .gen-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+        .chip-check { transition: all 0.2s ease; }
+        .chip-check:hover { transform: translateY(-1px); }
+        .section-card { transition: box-shadow 0.2s ease; }
+        .section-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+      `}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '78vh', minHeight: 420 }}>
+        {/* v16.4.0: 章节名小字（标题栏由 Modal 承担，可拖动） */}
+        {currentChapter?.title && (
+          <div style={{ fontSize: 11, color: '#9b8e84', flexShrink: 0, paddingLeft: 2 }}>
+            当前章节：{currentChapter.title}
+          </div>
+        )}
+
+        {/* ===== v16.4.0: 区域卡片网格（点击卡片弹该区域弹窗——主弹窗只显示概要）===== */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }} className="custom-scrollbar">
+          {/* 关联大纲和细纲 */}
+          <div className="section-card" onClick={() => setSectionModal('outline')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: 'linear-gradient(135deg, rgba(124,58,237,0.02), rgba(168,85,247,0.03))', border: '1px solid rgba(124,58,237,0.1)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.1)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>📋 关联大纲和细纲</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
             </div>
+            <div style={{ fontSize: 12, color: '#6b5e54', lineHeight: 1.6 }}>
+              大纲 {Object.values(outlineTabs).filter(Boolean).length}/10 · 细纲 {Object.entries(detailedOutlineFields).filter(([k, v]) => v && (isErotic || k !== 'eroticContent')).length}/{isErotic ? 5 : 4}
+            </div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>注入大纲分区与细纲字段</div>
+          </div>
+
+          {/* 前文注入 */}
+          <div className="section-card" onClick={() => setSectionModal('prevtext')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: 'linear-gradient(135deg, rgba(59,130,246,0.02), rgba(96,165,250,0.03))', border: '1px solid rgba(59,130,246,0.1)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(59,130,246,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.1)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#3b82f6' }}>📝 前文注入</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b5e54', lineHeight: 1.6 }}>
+              {prevTextEnabled
+                ? `启用 · ${effectiveSourceChapter ? `第${effectiveSourceChapter.order + 1}章` : '自动选上章'}${prevTextSelectedContent ? ` · ${prevTextSelectedContent.length}字` : ' · 未选内容'}`
+                : '未启用'}
+            </div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>衔接前文结尾，避免重复/断层</div>
+          </div>
+
+          {/* 角色库 */}
+          <div className="section-card" onClick={() => setSectionModal('characters')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>👥 角色库</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b5e54' }}>已选 {selectedCharacterIds.size}/{characters.length} 个角色</div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>角色卡注入，保障人设一致</div>
+          </div>
+
+          {/* 前文摘要 */}
+          <div className="section-card" onClick={() => setSectionModal('summaries')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>📖 前文摘要</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b5e54' }}>已选 {selectedSummaryIds.size}/5 章{autoSummary ? ' · 自动摘要' : ''}</div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>剧情脉络上下文（最多 5 章）</div>
+          </div>
+
+          {/* 知识库注入 */}
+          <div className="section-card" onClick={() => setSectionModal('kb')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>📚 知识库注入</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b5e54' }}>已选 {selectedKbFileIds.size} 个文件 · {kbInjectMode === 'full' ? '全量注入' : '片段注入'}</div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>世界观/设定/参考文档</div>
+          </div>
+
+          {/* 生成模板 */}
+          <div className="section-card" onClick={() => setSectionModal('template')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>🎨 生成模板</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: chapterPrompt ? '#7c3aed' : '#b0a89e', fontWeight: chapterPrompt ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {chapterPrompt ? `✓ ${chapterPrompt.title}` : '不使用模板'}
+            </div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>章节提示词模板</div>
+          </div>
+
+          {/* 场景注入 */}
+          <div className="section-card" onClick={() => setSectionModal('scene')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,58,237,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>🎬 场景注入</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: selectedScene ? '#7c3aed' : '#b0a89e', fontWeight: selectedScene ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedScene ? selectedScene.name : '不注入'}
+            </div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>场景氛围模板（情色/普通）</div>
+          </div>
+
+          {/* 风格模板 */}
+          <div className="section-card" onClick={() => setSectionModal('style')} style={{ padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: '#fff', border: '1px solid rgba(0,0,0,0.06)', transition: 'all 0.2s ease' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(236,72,153,0.3)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(236,72,153,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)'; e.currentTarget.style.boxShadow = 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#4a3f38' }}>✨ 风格模板</span>
+              <span style={{ fontSize: 10, color: '#9b8e84' }}>点击编辑 ✎</span>
+            </div>
+            <div style={{ fontSize: 12, color: selectedStyleTemplate ? '#ec4899' : '#b0a89e', fontWeight: selectedStyleTemplate ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedStyleTemplate ? `${selectedStyleTemplate.name || '未命名'} · ${(cg.styleStrength || 'normal') === 'light' ? '轻' : (cg.styleStrength || 'normal') === 'strong' ? '强' : '中'}` : '不注入'}
+            </div>
+            <div style={{ fontSize: 10, color: '#b0a89e', marginTop: 2 }}>27 维文风（基调/节奏/修辞）</div>
           </div>
         </div>
 
@@ -931,32 +1048,8 @@ export default function ChapterGenerationModal({ isOpen, onClose, chapterId, cur
         </div>
       </div>
     </Modal>
-    {/* KB Delete Confirm */}
-    <ConfirmModal
-      isOpen={kbDeleteConfirm !== null}
-      title="删除知识库文件"
-      message={kbDeleteConfirm?.type === 'batch'
-        ? `确定从知识库删除选中的 ${(kbDeleteConfirm as any).count} 个文件？此操作不可撤销。`
-        : `确定从知识库删除「${(kbDeleteConfirm as any)?.name || ''}」？`}
-      confirmLabel="删除"
-      danger
-      onConfirm={() => {
-        if (!kbDeleteConfirm) return
-        if (kbDeleteConfirm.type === 'batch') {
-          Promise.all(kbDeleteConfirm.ids.map(id => kbService.delete(id).catch(() => {}))).then(() => {
-            setSelectedKbFileIds(new Set())
-            setKbLoaded(false)
-          })
-        } else {
-          kbService.delete(kbDeleteConfirm.id).then(() => {
-            setSelectedKbFileIds(prev => { const n = new Set(prev); n.delete(kbDeleteConfirm.id); return n })
-            setKbLoaded(false)
-          }).catch(() => {})
-        }
-        setKbDeleteConfirm(null)
-      }}
-      onCancel={() => setKbDeleteConfirm(null)}
-    />
+    {/* v16.4.0(任务4): 区域子弹窗——点击主弹窗卡片打开（可拖动/缩放） */}
+    {renderSectionModal()}
     {/* 前文注入 — 文字选择弹窗 */}
     <Modal
       isOpen={prevTextModalOpen}

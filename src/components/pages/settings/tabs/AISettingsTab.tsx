@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/store'
-import { settingsService, kbService } from '@/services/fileService'
+import { settingsService, kbService, roleTemplateService } from '@/services/fileService'
+import { logError } from '@/utils/logger'
 import { nanoid } from 'nanoid'
 import Button from '@/components/common/Button'
 import ScrollArea from '@/components/common/ScrollArea'
@@ -31,6 +32,13 @@ const cardStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.06)',
   background: 'rgba(255,255,255,0.7)',
   transition: 'all 0.2s ease',
+}
+
+// v16.4.0: 模板文件夹操作小按钮
+const folderActionBtnStyle: React.CSSProperties = {
+  padding: '3px 10px', borderRadius: 6, fontSize: 10.5, fontWeight: 600,
+  border: '1px solid rgba(16,185,129,0.25)', background: 'rgba(255,255,255,0.8)',
+  color: '#047857', cursor: 'pointer', fontFamily: 'inherit',
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -709,18 +717,33 @@ function TextSettingModal({
 }
 
 // ── v15.3.1: 设定文件勾选区——挂载在世界观/场景卡片正下方作为补充（非独立区域），
-//    与另一组互斥（同一文件不可两边勾选，防止 AI 读取时归属冲突） ──
+//    与另一组互斥（同一文件不可两边勾选，防止 AI 读取时归属冲突）
+// v16.4.0: +索引状态显示（未索引 ⚠️ + 一键索引）——上传知识库文件不自动索引，
+//    未索引文件语义检索恒空，必须在此处可见可修
 function SettingFilePicker({
-  label, desc, fileIds, onChange, files, otherIds, otherLabel,
+  label, desc, fileIds, onChange, files, otherIds, otherLabel, onIndexed,
 }: {
   label: string
   desc?: string
   fileIds: string[]
   onChange: (ids: string[]) => void
-  files: { id: string; name: string }[]
+  files: { id: string; name: string; chunkCount?: number }[]
   otherIds: string[]
   otherLabel: string
+  onIndexed?: (fileId: string, chunkCount: number) => void
 }) {
+  const [indexingId, setIndexingId] = useState<string | null>(null)
+  const indexFile = async (fileId: string) => {
+    const configId = useSettingsStore.getState().activeConfigId
+    if (!configId) { alert('请先在模型设置中配置模型（索引需要 Embedding 模型）'); return }
+    setIndexingId(fileId)
+    try {
+      const r = await kbService.index(fileId, configId) as { chunkCount: number }
+      onIndexed?.(fileId, r.chunkCount)
+    } catch { alert('索引失败，请检查 Embedding 模型配置') }
+    setIndexingId(null)
+  }
+  const unindexedCount = files.filter(f => (f.chunkCount ?? 1) === 0 && !otherIds.includes(f.id)).length
   return (
     <div style={{
       padding: '10px 12px', borderRadius: 10, flexShrink: 0,
@@ -730,6 +753,7 @@ function SettingFilePicker({
         <label style={{ fontSize: 11, fontWeight: 600, color: '#6b5e54' }}>{label}</label>
         <span style={{ fontSize: 10, color: fileIds.length ? '#7c3aed' : '#9b8e84', fontWeight: 600 }}>
           已选 {fileIds.length} 个
+          {unindexedCount > 0 && <span style={{ color: '#d97706', marginLeft: 6 }}>⚠️ {unindexedCount} 个未索引</span>}
         </span>
       </div>
       {desc && <div style={{ fontSize: 10, color: '#9b8e84', marginBottom: 6, lineHeight: 1.5 }}>{desc}</div>}
@@ -742,9 +766,10 @@ function SettingFilePicker({
           {files.map(f => {
             const checked = fileIds.includes(f.id)
             const inOther = otherIds.includes(f.id)
+            const unindexed = (f.chunkCount ?? 1) === 0
             return (
               <label key={f.id} style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', borderRadius: 6,
+                display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 6,
                 cursor: inOther ? 'not-allowed' : 'pointer', fontSize: 11,
                 color: inOther ? '#c5bfb8' : '#4a3f38',
                 background: checked ? 'rgba(124,58,237,0.05)' : 'transparent', fontFamily: 'inherit',
@@ -757,6 +782,25 @@ function SettingFilePicker({
                   }}
                   style={{ accentColor: '#7c3aed', width: 12, height: 12, cursor: inOther ? 'not-allowed' : 'pointer', flexShrink: 0 }} />
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                {unindexed && !inOther ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 9, color: '#d97706', fontWeight: 600 }}>未索引</span>
+                    <button
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); indexFile(f.id) }}
+                      disabled={indexingId === f.id}
+                      style={{
+                        padding: '1px 7px', borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                        border: '1px solid rgba(217,119,6,0.3)', background: 'rgba(217,119,6,0.06)', color: '#d97706', fontFamily: 'inherit',
+                      }}
+                      title="索引后语义检索才能命中此文件（消耗少量 Embedding tokens）">
+                      {indexingId === f.id ? '索引中…' : '一键索引'}
+                    </button>
+                  </span>
+                ) : (
+                  !inOther && f.chunkCount !== undefined && f.chunkCount > 0 && (
+                    <span style={{ fontSize: 9, color: '#16a34a', fontWeight: 600, flexShrink: 0 }}>✓ 已索引</span>
+                  )
+                )}
                 {inOther && <span style={{ fontSize: 9, color: '#d97706', flexShrink: 0 }}>已选入{otherLabel}</span>}
               </label>
             )
@@ -791,8 +835,8 @@ function RoleTemplateDetailModal({
   const [editingCharId, setEditingCharId] = useState<string | null>(null)
   const [worldModalOpen, setWorldModalOpen] = useState(false)
   const [scenarioModalOpen, setScenarioModalOpen] = useState(false)
-  // v15.3.1: 角色设定文件（知识库）勾选——文件列表加载一次，随弹窗打开刷新
-  const [kbFileList, setKbFileList] = useState<{ id: string; name: string }[]>([])
+  // v16.4.0: 设定文件勾选——文件列表带 chunkCount（索引状态显示 + 未索引一键索引）
+  const [kbFileList, setKbFileList] = useState<{ id: string; name: string; chunkCount: number }[]>([])
 
   // 加载知识库文件列表（角色设定文件勾选用）
   useEffect(() => {
@@ -800,11 +844,73 @@ function RoleTemplateDetailModal({
     let cancelled = false
     kbService.list().then(meta => {
       if (cancelled) return
-      const files = (meta as { files?: { id: string; originalName: string }[] })?.files || []
-      setKbFileList(files.map(f => ({ id: f.id, name: f.originalName })))
+      const files = (meta as { files?: { id: string; originalName: string; chunkCount: number }[] })?.files || []
+      setKbFileList(files.map(f => ({ id: f.id, name: f.originalName, chunkCount: f.chunkCount || 0 })))
     }).catch(() => { if (!cancelled) setKbFileList([]) })
     return () => { cancelled = true }
   }, [open])
+
+  // ── v16.4.0: 模板文件夹自动导出（「一个模板=一个文件夹」）──
+  // 弹窗打开后模板数据任何变化（含首次打开 = 旧 JSON 模板自动迁移）→ 防抖 1s 写文件夹。
+  // 快照比对：仅导出发生过编辑的模板，不覆盖用户手工编辑过的其他模板文件夹。
+  const exportedSnapshotRef = useRef<string>('')
+  useEffect(() => {
+    if (!open) return
+    const snapshot = JSON.stringify(roleTemplates.map(t => ({
+      id: t.id, name: t.name, characters: t.characters, worldSetting: t.worldSetting,
+      scenarioSetting: t.scenarioSetting, worldKbFileIds: t.worldKbFileIds || [],
+      scenarioKbFileIds: t.scenarioKbFileIds || [],
+    })))
+    if (snapshot === exportedSnapshotRef.current) return
+    exportedSnapshotRef.current = snapshot
+    const timer = setTimeout(async () => {
+      try {
+        for (const t of roleTemplates) {
+          await roleTemplateService.exportFolder(t)
+        }
+        setFolderStatus('已导出到文件夹')
+      } catch (err) {
+        logError('角色模板导出失败', err)
+        setFolderStatus('导出失败（见日志）')
+      }
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [roleTemplates, open])
+
+  // ── v16.4.0: 文件夹状态（已导出/未导出 + 从文件夹重新加载/删除文件夹）──
+  const [folderStatus, setFolderStatus] = useState('')
+  const [folderDirs, setFolderDirs] = useState<Set<string>>(new Set())
+  const refreshFolderDirs = () => {
+    roleTemplateService.listFolders().then(list => {
+      setFolderDirs(new Set(list.map(f => f.id)))
+    }).catch(() => {})
+  }
+  useEffect(() => {
+    if (!open) return
+    refreshFolderDirs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const handleReloadFromFolder = async (tpl: RoleTemplate) => {
+    const fromFolder = await roleTemplateService.readFolder(tpl.id).catch(() => null)
+    if (!fromFolder) { alert('文件夹不存在或未导出'); return }
+    updateRoleTemplate(tpl.id, fromFolder)
+    setFolderStatus('已从文件夹重新加载')
+  }
+
+  const handleDeleteFolder = async (tpl: RoleTemplate) => {
+    await roleTemplateService.deleteFolder(tpl.id).catch(() => {})
+    refreshFolderDirs()
+    setFolderStatus('已删除文件夹（模板数据仍在本地）')
+  }
+
+  // v16.4.0: 一键索引后刷新文件列表（chunkCount 更新 → 未索引标记消失）
+  const refreshKbList = () => {
+    kbService.list().then(meta => {
+      const files = (meta as { files?: { id: string; originalName: string; chunkCount: number }[] })?.files || []
+      setKbFileList(files.map(f => ({ id: f.id, name: f.originalName, chunkCount: f.chunkCount || 0 })))
+    }).catch(() => {})
+  }
 
   // ── 拖动 + 缩放状态（v13.x: 统一共享拖拽 hook）──
   const initialW = Math.round(window.innerWidth * 9 / 10)
@@ -841,6 +947,8 @@ function RoleTemplateDetailModal({
 
   const handleDeleteTemplate = (id: string) => {
     removeRoleTemplate(id)
+    // v16.4.0: 模板文件夹联动清理（文件是持久化真源的镜像，删除模板应一并删除）
+    roleTemplateService.deleteFolder(id).catch(() => {}).finally(() => refreshFolderDirs())
   }
 
   const update = (patch: Partial<RoleTemplate>) => {
@@ -958,6 +1066,8 @@ function RoleTemplateDetailModal({
                     <div style={{ fontSize: 11, color: '#9b8e84', marginTop: 3 }}>
                       {tpl.characters.length} 个角色
                       {tpl.worldSetting ? ' · 有世界观' : ''}
+                      {/* v16.4.0: 已导出文件夹标记 */}
+                      {folderDirs.has(tpl.id) ? ' · 📁 文件夹' : ''}
                     </div>
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl.id) }}
@@ -1004,6 +1114,36 @@ function RoleTemplateDetailModal({
                       fontSize: 16, fontWeight: 700, color: '#2d2520', border: 'none',
                       background: 'transparent', outline: 'none', width: '100%', fontFamily: 'inherit',
                     }} placeholder="输入模板名称" />
+                </div>
+
+                {/* v16.4.0: 模板文件夹卡片——「一个模板=一个文件夹」（角色文件/世界观.md/场景对话设定.md）。
+                    编辑自动同步到文件夹；AI 对话时可 read_file 查看完整文件（见 BridgeContextBuilder 注入路径提示） */}
+                <div style={{
+                  padding: '10px 14px', borderRadius: 12,
+                  background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.16)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#047857' }}>📁 模板文件夹（一个模板 = 一个文件夹）</label>
+                    <span style={{ fontSize: 10, color: folderDirs.has(activeTemplate.id) ? '#047857' : '#9b8e84', fontWeight: 600 }}>
+                      {folderDirs.has(activeTemplate.id) ? '✓ 已导出' : '未导出（编辑时自动导出）'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#9b8e84', lineHeight: 1.5, marginBottom: 6 }}>
+                    位置：role_templates/{activeTemplate.id}/ —— 角色文件 characters/*.yaml、世界观.md、场景对话设定.md。
+                    这里可以写很长的设定（不再受文本框限制）；AI 对话中设定超长时按提示 read_file 查阅完整文件。
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => { setFolderStatus(''); roleTemplateService.exportFolder(activeTemplate).then(() => { setFolderStatus('✓ 已导出到文件夹'); refreshFolderDirs() }).catch(() => setFolderStatus('✗ 导出失败')) }}
+                      style={folderActionBtnStyle}>导出到文件夹</button>
+                    <button onClick={() => handleReloadFromFolder(activeTemplate)} style={folderActionBtnStyle}
+                      title="用磁盘文件夹内容覆盖当前编辑内容（手动改过文件后使用）">从文件夹重新加载</button>
+                    {folderDirs.has(activeTemplate.id) && (
+                      <button onClick={() => handleDeleteFolder(activeTemplate)}
+                        style={{ ...folderActionBtnStyle, color: '#dc2626', borderColor: 'rgba(220,38,38,0.22)' }}
+                        title="删除磁盘文件夹（模板数据仍在本地，可再次导出）">删除文件夹</button>
+                    )}
+                  </div>
+                  {folderStatus && <div style={{ fontSize: 10, color: '#7c3aed', marginTop: 4, fontWeight: 600 }}>{folderStatus}</div>}
                 </div>
 
                 {/* ── 角色卡片区域 ── */}
@@ -1082,7 +1222,11 @@ function RoleTemplateDetailModal({
                       <div style={{ flex: 1, fontSize: 13, color: activeTemplate.worldSetting ? '#4a3f38' : '#c5bfb8', lineHeight: 1.6, overflow: 'hidden', minHeight: 0 }}>
                         {activeTemplate.worldSetting
                           ? (activeTemplate.worldSetting.length > 200 ? activeTemplate.worldSetting.slice(0, 200) + '...' : activeTemplate.worldSetting)
-                          : '点击此处填写世界观背景设定...'}
+                          // v16.4.0(用户决策): 文本框可留空/只写概要——完整设定放知识库文件，
+                          // AI 对话中遇到不了解的设定会主动查阅，未覆盖的细节自由发挥（模型能力为主）
+                          : (activeTemplate.worldKbFileIds?.length
+                            ? '（未填写——完整世界观在下方勾选的知识库文件里：AI 对话中遇到不了解的设定会主动查阅文件，未写明的细节由 AI 自由完善）'
+                            : '点击此处填写世界观背景设定...')}
                       </div>
                     </div>
                     {/* 世界观设定文件（补充）——AI 想了解世界观时只读这组文件，不会翻找场景文件；与场景组互斥 */}
@@ -1100,6 +1244,7 @@ function RoleTemplateDetailModal({
                       files={kbFileList}
                       otherIds={activeTemplate.scenarioKbFileIds || []}
                       otherLabel="场景设定"
+                      onIndexed={refreshKbList}
                     />
                     </div>
 
@@ -1130,7 +1275,11 @@ function RoleTemplateDetailModal({
                       <div style={{ flex: 1, fontSize: 13, color: activeTemplate.scenarioSetting ? '#4a3f38' : '#c5bfb8', lineHeight: 1.6, overflow: 'hidden', minHeight: 0 }}>
                         {activeTemplate.scenarioSetting
                           ? (activeTemplate.scenarioSetting.length > 200 ? activeTemplate.scenarioSetting.slice(0, 200) + '...' : activeTemplate.scenarioSetting)
-                          : '点击此处填写场景与对话设定...'}
+                          // v16.4.0(用户决策): 文本框写「触发情况」——两种写法：
+                          // 情况1：触发情况+具体细节都写这里；情况2：只写触发情况，细节放知识库场景文件
+                          : (activeTemplate.scenarioKbFileIds?.length
+                            ? '（未填写——写法参考：① 触发+细节都写这里：「在酒馆/喝酒时：小二聒噪，酒钱先付，苏晚皱眉嫌吵」；② 只写触发：「在酒馆/喝酒时触发——细节见下方场景文件」）'
+                            : '点击此处填写场景与对话设定（触发情况+细节，如"在酒馆/喝酒时：小二聒噪，酒钱先付"）...')}
                       </div>
                     </div>
                     {/* 场景设定文件（补充）——AI 想了解场景/对话时只读这组文件；与世界观组互斥 */}
@@ -1148,6 +1297,7 @@ function RoleTemplateDetailModal({
                       files={kbFileList}
                       otherIds={activeTemplate.worldKbFileIds || []}
                       otherLabel="世界观"
+                      onIndexed={refreshKbList}
                     />
                     </div>
                   </div>

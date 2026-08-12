@@ -44,6 +44,7 @@ backups/
 
 # Style/scene/rewrite templates (user-generated)
 style_templates/
+role_templates/
 scene_templates/
 rewrite_templates/
 

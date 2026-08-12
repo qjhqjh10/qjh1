@@ -1,10 +1,21 @@
-# AI写作软件—青剑 v16.3.1
+# AI写作软件—青剑 v16.4.0
 
 Electron + React + TypeScript 桌面应用。AI 辅助小说创作：大纲→细纲→章节→仿写→续写→改写→风格→场景→知识库。
 
 ## 技术栈
 
 Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSeek API (OpenAI+Anthropic+Responses 三协议, thinking mode) / Framer Motion / Vitest / electron-builder
+
+## 当前架构 (v16.4.0)
+
+### v16.4.0 角色系统全面升级 + AI 生成弹窗卡片化（2026-08-12）
+- **角色扮演**（用户需求·三次迭代定稿）: 会话绑定模板修复（BridgeContextBuilder 优先 opts.roleTemplateId——全局切换/删模板不再静默改变已锁定会话人设）+ 发言格式指令（「角色名：内容」分行、谁参与场景谁发言、未出场角色沉默、用户点名优先、临时新角色可即兴创造、不替用户扮演角色发言）+ 扮演选择器（输入区 🎭 旁白/角色，消息带 [扮演: X] 前缀）+ 气泡角色标签（renderChatText）+ 用户扮演角色由用户自己发言（不代写行动/独白）+ 设定信息薄弱时防退化创作模式（空世界观占位声明 + 「当前是角色扮演对话而非小说创作」）
+- **模型能力为主原则**: 设定是约束补充不是创作枷锁——文件未覆盖的细节（场景氛围/临时元素/即兴情节）AI 自由发挥；触发条件由用户在模板文本框写（情况1 触发+细节 / 情况2 只触发+细节在知识库文件），AI 语义理解触发情境自行判断；知识库「## 场景：关键词」标记为系统级自动注入辅助；用户指令优先于一切规则；🎬 按钮机制已整体回退（用户决策：场景是对话的一部分，模型自己完善，不需要按钮）
+- **角色模板文件夹化**: role_templates/<id>/（template.json + characters/<角色名>.yaml + 世界观.md + 场景对话设定.md）持久化真源；electron/ipc/roleTemplateHandlers.ts（export/readFolder/listFolders/deleteFolder）；编辑自动导出（防抖快照比对）、启动自动导入、手工文件可重新加载；长文本有界注入（worldSetting>2500/personality>900/relationship>500 截断+文件路径提示，路径净化与主进程对齐）
+- **知识库增强**: 场景标记触发（applySceneKeywordActivation 纯函数——「## 场景：关键词」命中 score=1 置顶，不依赖语义相似度）+ 设定文件索引状态/一键索引（上传不自动索引的静默失效修复）
+- **AI 生成章节弹窗改造**: 8 区域卡片化（点击卡片弹子弹窗 renderSectionModal，主弹窗只显示概要）+ 弹窗变小（86vw→760px）可拖动（标准标题栏）+ 非 erotic 类型不显示「涩涩剧情」勾选（ChapterGenProps.novelCategory）+ 知识库子弹窗复用书签式 KbSelectionModal + loadKBFiles 去 projects 过滤（跨项目文件可见）
+- **角色扮演实测**: scripts/test-roleplay.mjs 12 场景真实 API 全过（含扮演→剧情转 TXT create_file 链路）
+- 测试: 866 passed + 15 skipped；tsc 0；check-consistency 34/34
 
 ## 当前架构 (v16.3.1)
 
@@ -274,7 +285,7 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | Agent Runtime | `src/agent/runtime/V4UnifiedRuntime.ts` |
 | 协议适配器 | `src/agent/runtime/adapters/` |
 | 格式模板 | `.aiharness/templates/` (15 格式 + 7 写作手册) |
-| 版本历史 | `src/data/version_history.json` (当前 v16.3.0) |
+| 版本历史 | `src/data/version_history.json` (当前 v16.4.0) |
 | 跨会话记忆 | `~/.claude/projects/d--3/memory/MEMORY.md` |
 | 验证脚本 | `scripts/check-consistency.sh` + `scripts/measure-token-density.mjs` + `scripts/test-ai-agent.mjs`（7 复杂场景） |
 | 遗留工作 | `.aiharness/design/pending-fixes-v14.3.md` (9 项全部完成；④ 校准数据在 token-estimation-data-2026-08-01.md) |
@@ -284,8 +295,8 @@ Electron 29 / React 18 / TypeScript 5 / Zustand + TipTap / Tailwind CSS / DeepSe
 | 命令 | 用途 |
 |------|------|
 | `npx tsc --noEmit` | TypeScript 类型检查 |
-| `npx vitest run` | 全量单元测试 (852 passed + 15 skipped，共 867) |
-| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (331 passed + 14 skipped，共 345) |
+| `npx vitest run` | 全量单元测试 (866 passed + 15 skipped，共 881) |
+| `npx vitest run src/agent/__tests__/` | Agent 专项测试 (336 passed + 14 skipped，共 350) |
 
 ## Agent 复杂任务测试（v14.9.x 新脚本，替代旧 32 场景脚本）
 

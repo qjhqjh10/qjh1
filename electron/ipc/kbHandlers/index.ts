@@ -5,7 +5,7 @@ import * as path from 'path';
 import { decryptKey, getOpenAI, getConfigStore, showOpenDialog, showSaveDialog } from '../utils'
 import type { StoredConfig } from '../utils'
 import { logTokenUsage } from '../statsHandlers'
-import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir, embedChunks } from './helpers';
+import { setProjectsBasePath, CHUNK_SIZE, CHUNK_OVERLAP, chunkText, parseFile, getKBPath, safeKBFilePath, safeKBFolderPath, sanitizeFolderName, listKBFolderTree, loadIndex, saveIndex, loadMetadata, saveMetadata, getEmbedding, getEmbeddingVector, buildEmbeddingUsageEntry, cosineSimilarity, saveKBFile, sanitizeFileName, getUniqueFileName, getUniqueFileNameInDir, embedChunks, applySceneKeywordActivation } from './helpers';
 import type { KnowledgeFile, KnowledgeIndex, KnowledgeMetadata } from '../../../src/types/knowledge';
 
 
@@ -366,10 +366,15 @@ export function registerKbHandlers(ipcMain: IpcMain, pBasePath: string, getWindo
     )
 
     // Cosine similarity scoring
-    const scored = relevantChunks.map(c => ({
+    let scored = relevantChunks.map(c => ({
       chunk: c,
       score: cosineSimilarity(queryEmbedding, c.embedding),
     }))
+
+    // v16.4.0: 场景标记触发（酒馆世界书式）——设定文件内「## 场景：关键词」条目命中
+    // 用户消息关键词即 score=1 置顶（纯函数实现见 helpers.applySceneKeywordActivation）。
+    // 被排除文件已在上游过滤（projectFileIds 已删 exclude 集合），无需再查。
+    scored = applySceneKeywordActivation(scored, query)
 
     scored.sort((a, b) => b.score - a.score)
     return scored.slice(0, topK).map(s => ({

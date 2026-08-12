@@ -10,6 +10,7 @@ import { registerKbHandlers } from './ipc/kbHandlers'
 import { registerStatsHandlers } from './ipc/statsHandlers'
 import { registerStyleHandlers } from './ipc/styleHandlers'
 import { registerStyleTemplateHandlers } from './ipc/styleTemplateHandlers'
+import { registerRoleTemplateHandlers } from './ipc/roleTemplateHandlers'
 import { registerTemplateHandlers } from './ipc/templateHandlers'
 import { registerExtractionHandlers } from './ipc/extractionHandlers'
 import { registerContinuationHandlers } from './ipc/continuationHandlers'
@@ -264,6 +265,7 @@ app.whenReady().then(async () => {
   registerStyleHandlers(ipcMain, styleProjectsPath)
 
   registerStyleTemplateHandlers(ipcMain, parentDir)
+  registerRoleTemplateHandlers(ipcMain, parentDir)  // v16.4.0: 角色模板文件夹（一个模板=一个文件夹）
 
   const templatesPath = join(parentDir, 'scene_templates')
   registerTemplateHandlers(ipcMain, templatesPath)

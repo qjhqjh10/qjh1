@@ -823,6 +823,8 @@ export default function ChapterWritingPage() {
         onGenDone={() => { setGenOverlay(false); genAbortRef.current = null }}
         onGenError={() => { setGenOverlay(false); genAbortRef.current = null }}
         externalAbortRef={genAbortRef}
+        // v16.4.0(任务3): 项目类型——仅涩涩小说显示「涩涩剧情」勾选
+        novelCategory={useStore(s => s.projects.find(p => p.id === s.activeProjectId)?.novelCategory)}
       />
 
       <ReviewModal

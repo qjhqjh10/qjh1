@@ -241,6 +241,17 @@ const api = {
     saveRuleTemplate: (template: any): Promise<any> => ipcRenderer.invoke('styleTemplate:saveRuleTemplate', template),
     deleteRuleTemplate: (id: string): Promise<void> => ipcRenderer.invoke('styleTemplate:deleteRuleTemplate', id),
   },
+  // v16.4.0: 角色模板文件夹——「一个模板=一个文件夹」（role_templates/<id>/：template.json + characters/*.yaml + 世界观.md + 场景对话设定.md）
+  roleTemplates: {
+    exportFolder: (template: unknown): Promise<{ ok: boolean; folder: string }> =>
+      ipcRenderer.invoke('roleTemplate:export', template),
+    readFolder: (id: string): Promise<any | null> =>
+      ipcRenderer.invoke('roleTemplate:readFolder', id),
+    listFolders: (): Promise<Array<{ id: string; name: string }>> =>
+      ipcRenderer.invoke('roleTemplate:listFolders'),
+    deleteFolder: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke('roleTemplate:deleteFolder', id),
+  },
   templates: {
     list: (): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:list'),
     listProject: (projectPath: string): Promise<SceneTemplate[]> => ipcRenderer.invoke('template:listProject', projectPath),

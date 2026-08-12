@@ -156,15 +156,23 @@ export default function Modal({ isOpen, onClose, title, children, width: initial
                 </button>
               </div>
             )}
-            {/* Drag handle bar when draggable but no title */}
+            {/* Drag handle bar when draggable but no title
+                v16.4.0: 8px 隐形手柄难发现（主弹窗变小后拖动问题根因）——加高到 16px + 居中拖拽指示线 */}
             {!title && draggable && (
               <div
                 onMouseDown={handleDragStart}
                 style={{
-                  height: 8, cursor: 'grab',
-                  background: 'linear-gradient(90deg, transparent 40%, rgba(0,0,0,0.05) 50%, transparent 60%)',
+                  height: 16, cursor: 'grab', flexShrink: 0, userSelect: 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'linear-gradient(180deg, rgba(0,0,0,0.02), transparent)',
                 }}
-              />
+                title="拖动此处移动弹窗"
+              >
+                <div style={{
+                  width: 36, height: 4, borderRadius: 2,
+                  background: 'rgba(0,0,0,0.08)',
+                }} />
+              </div>
             )}
             <div style={{ flex: 1, overflow: 'auto', padding: title || !draggable ? 24 : '8px 24px 24px' }} className="custom-scrollbar">
               {children}

@@ -221,11 +221,13 @@ describe('角色模板设定文件（worldKbFileIds + scenarioKbFileIds）', () 
     expect(roleMsg!.content).toContain('read_file')
     expect(roleMsg!.content).toContain('../knowledge_base/files/')
     expect(roleMsg!.content).toContain('kb_analyze')
-    // v15.3.1(优化): 酒馆世界书理念——已有信息不重复查、信息不足才查阅、大文件优先 kb_analyze
-    expect(roleMsg!.content).toContain('已了解的信息不要重复查阅')
-    expect(roleMsg!.content).toContain('仅当当前上下文无法确定设定细节')
-    expect(roleMsg!.content).toContain('大文件优先 kb_analyze 深度分析')
-    expect(roleMsg!.content).toContain('不要凭空猜测')
+    // v16.4.0(用户决策·模型能力为主): 设定是约束补充——未覆盖细节自由发挥、冲突以文件为准、
+    // 明确写了的细节不确定才查阅、用户指令优先
+    expect(roleMsg!.content).toContain('模型能力为主，设定为约束补充')
+    expect(roleMsg!.content).toContain('文件未覆盖的细节（场景氛围、临时元素、即兴情节）由你自由发挥完善')
+    expect(roleMsg!.content).toContain('与文件设定冲突时以文件为准')
+    expect(roleMsg!.content).toContain('不要凭空编造文件里明确写了的设定细节')
+    expect(roleMsg!.content).toContain('用户的明确指令优先')
     // v15.3.1(优化): 角色扮演角度传递——子代理看不到角色设定，主 agent 委托时须传分析角度
     expect(roleMsg!.content).toContain('角色扮演设定要点')
     expect(roleMsg!.content).toContain('子代理看不到本角色的扮演设定')
@@ -275,5 +277,91 @@ describe('v16.0.1(M4) — @引用不受 KB 开关门控', () => {
     })
     await builder.buildContext('你好', [], null, CORE)
     expect(searchMock).not.toHaveBeenCalled()
+  })
+})
+
+// ── v16.4.0: 角色模板会话绑定 + 发言格式 + 长文本有界注入 ──
+
+describe('v16.4.0 — 角色模板绑定与发言格式', () => {
+  const tplA = {
+    id: 'tpl_a', name: '模板A', worldSetting: '修仙世界', scenarioSetting: '',
+    characters: [
+      { id: 'c1', name: '男主', identity: '男主', gender: '男', isUser: true, personality: '沉默寡言', relationship: '', avatar: '' },
+      { id: 'c2', name: '女主', identity: '女主', gender: '女', isUser: false, personality: '活泼', relationship: '', avatar: '', firstMessage: '你好呀' },
+      { id: 'c3', name: '男配', identity: '男配', gender: '男', isUser: false, personality: '毒舌', relationship: '', avatar: '' },
+    ],
+  }
+  const tplB = {
+    id: 'tpl_b', name: '模板B', worldSetting: '聊斋世界', scenarioSetting: '',
+    characters: [
+      { id: 'c9', name: '道士', identity: '男主', gender: '男', isUser: true, personality: '道心稳固', relationship: '', avatar: '' },
+      { id: 'c10', name: '狐狸精', identity: '女主', gender: '女', isUser: false, personality: '狡黠', relationship: '', avatar: '' },
+    ],
+  }
+
+  function mockStore(activeTplId: string, templates: unknown[]) {
+    getStateMock.mockImplementation(() => ({
+      aiSettings: {
+        kbSettings: { agent: { searchTopK: 5 } },
+        searchResultCount: 5,
+        safeSearch: 'moderate',
+        activeRoleTemplateId: activeTplId,
+        roleTemplates: templates,
+      },
+      configs: [],
+    }))
+  }
+
+  function shellOf(r: { systemMessages: Array<{ role: string; content: string }> }) {
+    return r.systemMessages.find(s => s.content.includes('[角色扮演设定'))!
+  }
+
+  it('opts.roleTemplateId 优先于全局（绑定错位修复：全局切换/删模板不再影响已锁定会话）', async () => {
+    mockStore('tpl_a', [tplA, tplB])
+    const builder = new BridgeContextBuilder({ ...NO_KB, roleTemplateId: 'tpl_b' })
+    const shell = shellOf(await builder.buildContext('你好', [], null, CORE))
+    expect(shell.content).toContain('狐狸精')    // 会话绑定模板 B 的角色
+    expect(shell.content).not.toContain('男配')   // 全局模板 A 的角色不注入
+  })
+
+  it('多 AI 角色 → 发言格式指令（角色名：台词 + 不混音 + [扮演: X] 语义）', async () => {
+    mockStore('tpl_a', [tplA, tplB])
+    const builder = new BridgeContextBuilder(NO_KB)
+    const shell = shellOf(await builder.buildContext('你好', [], null, CORE))
+    expect(shell.content).toContain('角色名：内容')
+    expect(shell.content).toContain('不要把所有角色混成一个声音')
+    expect(shell.content).toContain('[扮演: 角色名]')
+    // v16.4.0(用户澄清): 不是"轮流/全员发言"——谁参与场景谁说话，未出场角色沉默
+    expect(shell.content).toContain('谁参与当前场景')
+    expect(shell.content).toContain('不要强行安排所有角色轮流发言')
+    expect(shell.content).toContain('未出场的角色保持沉默')
+  })
+
+  it('单 AI 角色 → 直接以该角色身份回答（无前缀要求）', async () => {
+    mockStore('tpl_b', [tplA, tplB])
+    const builder = new BridgeContextBuilder(NO_KB)
+    const shell = shellOf(await builder.buildContext('你好', [], null, CORE))
+    expect(shell.content).toContain('你以"狐狸精"的身份直接回答')
+  })
+
+  it('超长世界观有界注入（>2500 截断 + 提示完整内容在文件夹文件）', async () => {
+    mockStore('tpl_a', [{ ...tplA, worldSetting: '世'.repeat(3000) }])
+    const builder = new BridgeContextBuilder(NO_KB)
+    const shell = shellOf(await builder.buildContext('你好', [], null, CORE))
+    expect(shell.content).toContain('（以上为节选')
+    expect(shell.content).toContain('世界观.md')
+    // 精确断言：注入的"世"字符数 = 截断上限 2500（而非全文 3000）；
+    // 多余 3 个来自"世界背景："前缀 + 注记中"世界观"×2，区间断言防误判
+    const worldChars = (shell.content.match(/世/g) || []).length
+    expect(worldChars).toBeGreaterThanOrEqual(2500)
+    expect(worldChars).toBeLessThan(3000)
+  })
+
+  it('短世界观（≤2500）全量注入不截断（现状行为保持）', async () => {
+    mockStore('tpl_a', [{ ...tplA, worldSetting: '灵山脚下的小镇，人人习武。' }])
+    const builder = new BridgeContextBuilder(NO_KB)
+    const shell = shellOf(await builder.buildContext('你好', [], null, CORE))
+    expect(shell.content).toContain('灵山脚下的小镇，人人习武。')
+    expect(shell.content).not.toContain('（以上为节选')
   })
 })
